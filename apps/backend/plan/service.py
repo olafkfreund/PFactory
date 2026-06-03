@@ -128,55 +128,79 @@ class PlanService:
         read-only and never raises, so a failed/absent environment just yields
         an ``available: false`` finding.
         """
-        names = [
+        text = " ".join(
+            [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
+        )
+        low = text.lower()
+        enrichment = plan.enrichment.model_copy(deep=True)
+
+        # ── infra adapters (probe AWS / k8s / …) ───────────────────────
+        adapters = [
             n.strip()
             for n in os.environ.get("PFACTORY_ENRICH_ADAPTERS", "").split(",")
             if n.strip()
         ]
-        if not names:
-            return plan
+        if adapters:
+            # Only probe cloud/cluster infra when the plan actually targets it.
+            cloud_adapters = {"aws", "azure", "gcp", "kubernetes", "openshift"}
+            cloud_keywords = (
+                "aws", "eks", "ecs", "lambda", "s3", "rds", "kubernetes", "k8s",
+                "openshift", "azure", "aks", "gcp", "gke", "cloud", "helm",
+                "terraform", "redis", "deploy", "ingress", "microservice",
+            )
+            cloud_relevant = any(k in low for k in cloud_keywords) or (
+                plan.plan_type in ("infra-change", "data-pipeline")
+            )
+            adapters = [n for n in adapters if n not in cloud_adapters or cloud_relevant]
+        if adapters:
+            from plan.enrich.base import get_adapter
 
-        # Only enrich with cloud/cluster adapters when the plan actually targets
-        # that infrastructure — otherwise a no-cloud plan would inherit the live
-        # account's posture (e.g. public security groups) as a false signal.
-        cloud_adapters = {"aws", "azure", "gcp", "kubernetes", "openshift"}
-        text = " ".join(
-            [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
-        ).lower()
-        cloud_keywords = (
-            "aws", "eks", "ecs", "lambda", "s3", "rds", "kubernetes", "k8s",
-            "openshift", "azure", "aks", "gcp", "gke", "cloud", "helm",
-            "terraform", "redis", "deploy", "ingress", "microservice",
-        )
-        cloud_relevant = any(k in text for k in cloud_keywords) or (
-            plan.plan_type in ("infra-change", "data-pipeline")
-        )
-        names = [n for n in names if n not in cloud_adapters or cloud_relevant]
-        if not names:
-            return plan
+            for mod in ("kubernetes", "openshift", "azure", "aws", "gcp"):
+                try:
+                    __import__(f"plan.enrich.adapters.{mod}")
+                except Exception:
+                    pass
+            # Replace prior snapshots so a re-process doesn't multiply findings.
+            infra = [
+                e for e in enrichment.infra
+                if not (isinstance(e, dict) and e.get("adapter") in adapters)
+            ]
+            for name in adapters:
+                try:
+                    infra.append(get_adapter(name).to_enrichment())
+                except Exception as exc:
+                    infra.append({"adapter": name, "available": False, "error": str(exc)})
+            enrichment = enrichment.model_copy(update={"infra": infra})
 
-        from plan.enrich.base import get_adapter
-
-        for mod in ("kubernetes", "openshift", "azure", "aws", "gcp"):
-            try:
-                __import__(f"plan.enrich.adapters.{mod}")
-            except Exception:
-                pass
-
-        # Replace any prior snapshot from the adapters we're (re)running so a
-        # re-process doesn't accumulate duplicate findings.
-        infra = [
-            e for e in plan.enrichment.infra
-            if not (isinstance(e, dict) and e.get("adapter") in names)
+        # ── knowledge connectors (review wiki / search best practices) ──
+        connectors = [
+            n.strip()
+            for n in os.environ.get("PFACTORY_ENRICH_CONNECTORS", "").split(",")
+            if n.strip()
         ]
-        for name in names:
-            try:
-                infra.append(get_adapter(name).to_enrichment())
-            except Exception as exc:
-                infra.append({"adapter": name, "available": False, "error": str(exc)})
-        return plan.model_copy(
-            update={"enrichment": plan.enrichment.model_copy(update={"infra": infra})}
-        )
+        if connectors:
+            from plan.enrich.knowledge.base import get_connector
+
+            for mod in ("git_markdown", "backstage", "confluence", "gitbook",
+                        "notion", "best_practices"):
+                try:
+                    __import__(f"plan.enrich.knowledge.{mod}")
+                except Exception:
+                    pass
+            wiki_root = os.environ.get("PFACTORY_WIKI_ROOT")
+            knowledge = [
+                k for k in enrichment.knowledge
+                if not (isinstance(k, dict) and k.get("connector") in connectors)
+            ]
+            for name in connectors:
+                try:
+                    kw = {"root": wiki_root} if (name == "git-markdown" and wiki_root) else {}
+                    knowledge.extend(get_connector(name, **kw).to_enrichment(text, limit=8))
+                except Exception:
+                    continue
+            enrichment = enrichment.model_copy(update={"knowledge": knowledge})
+
+        return plan.model_copy(update={"enrichment": enrichment})
 
     # ── approval ───────────────────────────────────────────────────────
 

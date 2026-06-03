@@ -14,9 +14,49 @@ export interface PlanCriterion {
 
 // ── Enrichment ──────────────────────────────────────────────────────────
 
+/** A public security-group exposure surfaced by an infra probe. */
+export interface InfraPolicy {
+  kind: string;
+  group_id: string;
+  group_name: string;
+  public: boolean;
+  open_cidrs: string[];
+  open_ports: string[];
+}
+
+/**
+ * Live infrastructure snapshot captured by a probe adapter
+ * (e.g. "aws", "gcp", "azure").
+ */
+export interface InfraSnapshot {
+  adapter: string;
+  target: string;
+  available: boolean;
+  workloads: unknown[];
+  resources: Record<string, unknown>;
+  policies: InfraPolicy[];
+  load: Record<string, unknown>;
+  findings: string[];
+  error: string | null;
+}
+
+/**
+ * A knowledge reference pulled from a connector
+ * (e.g. "best-practices", "git-markdown", "backstage").
+ */
+export interface KnowledgeRef {
+  connector: string;
+  kind: 'policy' | 'doc' | 'adr' | 'template' | 'catalog' | 'best-practice';
+  title: string;
+  uri: string;
+  snippet: string;
+  score: number;
+  metadata: Record<string, unknown>;
+}
+
 export interface PlanEnrichment {
-  infra: unknown[];
-  knowledge: unknown[];
+  infra: InfraSnapshot[];
+  knowledge: KnowledgeRef[];
 }
 
 // ── NormalizedPlan ──────────────────────────────────────────────────────

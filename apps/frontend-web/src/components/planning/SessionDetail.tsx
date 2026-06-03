@@ -16,6 +16,7 @@ import { ReviewPanel } from './ReviewPanel';
 import { ApprovalPanel } from './ApprovalPanel';
 import { EmitPanel } from './EmitPanel';
 import { PlanEditor } from './PlanEditor';
+import { EnrichmentPanel } from './EnrichmentPanel';
 import type { PlanSessionStatus } from '../../shared/types/plan';
 
 const STATUS_BADGE: Record<PlanSessionStatus, { variant: 'success' | 'info' | 'warning' | 'destructive' | 'muted'; label: string }> = {
@@ -68,6 +69,14 @@ export function SessionDetail({ sessionId, onBack }: Props) {
   const hasReview = session.review !== null;
   const hasEpic = session.epic !== null;
   const isApprovedOrEmitted = session.status === 'approved' || session.status === 'emitted';
+
+  const enrichment = session.plan?.enrichment;
+  const hasEnrichment =
+    enrichment != null &&
+    (
+      (Array.isArray(enrichment.infra) && enrichment.infra.length > 0) ||
+      (Array.isArray(enrichment.knowledge) && enrichment.knowledge.length > 0)
+    );
 
   // Default to 'pipeline' if processed; 'editor' if only ingested
   const defaultTab = hasEpic ? 'pipeline' : 'editor';
@@ -137,6 +146,7 @@ export function SessionDetail({ sessionId, onBack }: Props) {
           <TabsList>
             <TabsTrigger value="editor">Edit</TabsTrigger>
             {hasEpic && <TabsTrigger value="pipeline">Pipeline</TabsTrigger>}
+            {hasEnrichment && <TabsTrigger value="context">AI Context</TabsTrigger>}
             {hasReview && <TabsTrigger value="review">Review</TabsTrigger>}
             {hasReview && <TabsTrigger value="approval">Approval</TabsTrigger>}
             {isApprovedOrEmitted && <TabsTrigger value="emit">Emit</TabsTrigger>}
@@ -152,6 +162,12 @@ export function SessionDetail({ sessionId, onBack }: Props) {
           {hasEpic && (
             <TabsContent value="pipeline" className="mt-4">
               <PipelinePanel session={session} />
+            </TabsContent>
+          )}
+
+          {hasEnrichment && (
+            <TabsContent value="context" className="mt-4">
+              <EnrichmentPanel session={session} />
             </TabsContent>
           )}
 
