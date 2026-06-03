@@ -135,8 +135,16 @@ def _build_reader(region: str | None) -> AwsReader:  # pragma: no cover
                     "group_name": sg.get("GroupName"),
                     "ip_permissions": [
                         {
-                            "ip_ranges": p.get("IpRanges", []),
-                            "ipv6_ranges": p.get("Ipv6Ranges", []),
+                            # normalise boto3 PascalCase -> snake_case so the
+                            # public-exposure detectors work on live data
+                            "ip_ranges": [
+                                {"cidr_ip": r.get("CidrIp")}
+                                for r in p.get("IpRanges", [])
+                            ],
+                            "ipv6_ranges": [
+                                {"cidr_ipv6": r.get("CidrIpv6")}
+                                for r in p.get("Ipv6Ranges", [])
+                            ],
                             "from_port": p.get("FromPort"),
                             "to_port": p.get("ToPort"),
                             "protocol": p.get("IpProtocol"),
