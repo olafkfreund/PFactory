@@ -99,7 +99,7 @@ function AuthenticatedApp() {
     },
     [selectedTaskId, tasks]
   );
-  const [activeView, setActiveView] = useState<SidebarView>('pfactory');
+  const [activeView, setActiveView] = useState<SidebarView>('planning');
   const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
   const [isCloudCheckOpen, setIsCloudCheckOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);

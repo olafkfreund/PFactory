@@ -71,10 +71,10 @@ interface NavItem {
 }
 
 // Base nav items always shown.
-// PFactory's own job (tests / review queue) leads; the inherited
+// PFactory's own job (the planning pipeline) leads; the inherited
 // general-agent IDE surfaces (editor/terminals/worktrees) follow.
 const baseNavItems: NavItem[] = [
-  { id: 'pfactory', labelKey: 'navigation:items.tests', icon: FlaskConical },
+  { id: 'planning', labelKey: 'navigation:items.planning', icon: Map },
   { id: 'kanban', labelKey: 'navigation:items.kanban', icon: Columns3 },
   { id: 'editor', labelKey: 'navigation:items.editor', icon: FolderOpen },
   { id: 'insights', labelKey: 'navigation:items.chat', icon: Sparkles },
@@ -83,10 +83,7 @@ const baseNavItems: NavItem[] = [
   { id: 'skills', labelKey: 'navigation:items.skills', icon: Lightbulb },
   { id: 'changelog', labelKey: 'navigation:items.changelog', icon: FileText },
   { id: 'worktrees', labelKey: 'navigation:items.worktrees', icon: GitBranch },
-  { id: 'context', labelKey: 'navigation:items.context', icon: BookOpen },
-  { id: 'cloud', labelKey: 'navigation:items.cloud', icon: Cloud },
-  { id: 'visual-reports', labelKey: 'navigation:items.visualReports', icon: Camera },
-  { id: 'planning', labelKey: 'navigation:items.planning', icon: Map }
+  { id: 'context', labelKey: 'navigation:items.context', icon: BookOpen }
 ];
 
 // GitHub nav items shown when GitHub is enabled
@@ -339,7 +336,7 @@ export function Sidebar({
         <div className="electron-drag flex h-14 items-center gap-2.5 px-4 pt-6">
           <img src="/logo.svg" alt="PFactory" className="electron-no-drag h-7 w-7 rounded" />
           <span className="electron-no-drag text-lg font-bold tracking-tight text-foreground">
-            <span className="text-primary">T</span>Factory
+            <span className="text-primary">P</span>Factory
           </span>
         </div>
 
