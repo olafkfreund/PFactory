@@ -56,8 +56,18 @@ app.include_router(plan_meta.router)
 
 
 @app.get("/health")
+@app.get("/api/health")
 def health() -> dict:
+    # The portal's login validates a token against /api/health; this server
+    # has no auth, so any (or no) token is accepted — fine for local inspect.
     return {"status": "ok", "service": "pfactory-plan-factory"}
+
+
+@app.get("/api/settings")
+def settings() -> dict:
+    # The portal's checkAuth() validates the stored token against /api/settings
+    # on every load. Returning 200 keeps the dev session "authenticated".
+    return {"theme": "system", "auth": "disabled (inspection server)"}
 
 
 @app.get("/")
