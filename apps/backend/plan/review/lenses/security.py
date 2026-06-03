@@ -29,6 +29,15 @@ _AUTH_RE = re.compile(
     r"(?i)\b(auth|authn|authz|authentication|authorization|login|oauth|rbac|"
     r"permission|access control|token)\b"
 )
+# Auth only matters when there's a network surface to protect. A purely local /
+# client-side plan (e.g. a single-screen browser game) needs no auth, so we only
+# require it when these specific signals are present (deliberately NOT generic
+# words like "network"/"account" that a plan's out-of-scope list might mention).
+_NETWORKED_RE = re.compile(
+    r"(?i)\b(api|endpoint|https?|rest|graphql|websocket|server|request|login|"
+    r"oauth|session|database|postgres|mysql|redis|microservice|deploy|ingress|"
+    r"socket)\b"
+)
 
 
 class SecurityLens:
@@ -78,8 +87,13 @@ class SecurityLens:
                     )
                 )
 
-        # Software plans should explicitly call out auth somewhere.
-        if not blocking and plan.target_kind == "software" and not _AUTH_RE.search(text):
+        # Networked software plans should explicitly call out auth somewhere.
+        if (
+            not blocking
+            and plan.target_kind == "software"
+            and _NETWORKED_RE.search(text)
+            and not _AUTH_RE.search(text)
+        ):
             score = min(score, 0.7)
             findings.append(
                 Finding(
