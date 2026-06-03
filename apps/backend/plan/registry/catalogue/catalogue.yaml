@@ -1,0 +1,28 @@
+# Seed registry catalogue — provider MCP servers, templates, and skills.
+# Built-in infra adapters / knowledge connectors are auto-discovered (not listed).
+entries:
+  - id: provider:aws
+    kind: provider
+    title: AWS best-practice MCP
+    capabilities: [best-practice, well-architected, read-only]
+    enabled: true
+  - id: provider:azure
+    kind: provider
+    title: Azure best-practice MCP
+    capabilities: [best-practice, azure-policy, read-only]
+    enabled: true
+  - id: provider:gcp
+    kind: provider
+    title: GCP best-practice MCP
+    capabilities: [best-practice, org-policy, read-only]
+    enabled: true
+  - id: provider:terraform
+    kind: provider
+    title: HashiCorp Terraform MCP (Checkov/tfsec)
+    capabilities: [iac, checkov, tfsec, read-only]
+    enabled: true
+  - id: template:gcp-project
+    kind: template
+    title: GCP project (scaffold + policy)
+    capabilities: [scaffold, policy, gcp]
+    enabled: true
