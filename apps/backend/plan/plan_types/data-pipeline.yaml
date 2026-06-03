@@ -1,0 +1,10 @@
+name: data-pipeline
+title: Data pipeline
+applies_to: [software]
+match_keywords: [pipeline, etl, airflow, spark, kafka, ingestion, warehouse, dataset, streaming, batch]
+stages:
+  decompose: true
+  synthesize_testing: true
+  synthesize_cicd: true
+  code_gates: true
+  review: true

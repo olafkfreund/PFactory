@@ -1,0 +1,10 @@
+name: software-service
+title: Software service / feature
+applies_to: [software]
+match_keywords: [api, endpoint, service, microservice, backend, frontend, webhook, feature, ui]
+stages:
+  decompose: true
+  synthesize_testing: true
+  synthesize_cicd: true
+  code_gates: true
+  review: true
