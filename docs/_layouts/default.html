@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#282828">
+  <meta name="color-scheme" content="dark">
+  <title>{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}</title>
+  <meta name="description" content="{{ site.description }}">
+  <link rel="canonical" href="{{ page.url | absolute_url }}">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}">
+  <meta property="og:description" content="{{ site.description }}">
+  <meta property="og:url" content="{{ page.url | absolute_url }}">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    rel="stylesheet">
+
+  <link rel="stylesheet" href="{{ '/assets/css/pfactory.css' | relative_url }}">
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true">
+    <div class="bg-mesh__glow bg-mesh__glow--violet"></div>
+    <div class="bg-mesh__glow bg-mesh__glow--cyan"></div>
+    <div class="bg-mesh__grid"></div>
+  </div>
+
+  <nav class="topnav" role="banner" aria-label="Primary">
+    <div class="container topnav-inner">
+      <a class="brand" href="{{ '/' | relative_url }}"><img class="brand-logo" src="{{ '/assets/logo.svg' | relative_url }}" alt="" width="26" height="26" aria-hidden="true">PFactory</a>
+      <ul class="nav-links">
+        <li><a href="{{ '/' | relative_url }}"{% if page.url == '/' %} class="active"{% endif %}>Home</a></li>
+        <li><a href="{{ '/architecture/' | relative_url }}"{% if page.url contains '/architecture/' %} class="active"{% endif %}>Architecture</a></li>
+        <li><a href="{{ '/showcase/' | relative_url }}"{% if page.url contains '/showcase/' %} class="active"{% endif %}>Showcase</a></li>
+        <li><a href="{{ '/demos/' | relative_url }}"{% if page.url contains '/demos/' %} class="active"{% endif %}>Demos</a></li>
+        <li><a href="{{ '/design-plan/' | relative_url }}"{% if page.url contains '/design-plan/' %} class="active"{% endif %}>Design</a></li>
+        <li><a href="{{ '/tasks/' | relative_url }}"{% if page.url contains '/tasks/' %} class="active"{% endif %}>Tasks</a></li>
+        <li><a href="{{ '/progress/' | relative_url }}"{% if page.url contains '/progress/' %} class="active"{% endif %}>Progress</a></li>
+        <li><a href="{{ '/blog/' | relative_url }}"{% if page.url contains '/blog' %} class="active"{% endif %}>Blog</a></li>
+        <li><a href="{{ site.repo_url }}" rel="noopener">GitHub</a></li>
+      </ul>
+      <button class="search-btn" aria-label="Search" onclick="window.open('{{ site.repo_url }}/search', '_blank')">
+        <span>search</span><kbd>⌘K</kbd>
+      </button>
+    </div>
+  </nav>
+
+  <main class="site-main" role="main">
+    <article class="prose container">
+      {{ content }}
+    </article>
+  </main>
+
+  <script src="{{ '/assets/js/pfactory.js' | relative_url }}" defer></script>
+
+  <footer class="site-footer" role="contentinfo">
+    <div class="container site-footer__inner">
+      <div>
+        <strong>PFactory</strong> ·
+        <a href="{{ site.repo_url }}" rel="noopener">GitHub</a> ·
+        <a href="{{ site.repo_url }}/blob/main/LICENSE" rel="noopener">MIT OR GPL-3.0</a>
+      </div>
+      <div class="site-footer__meta">
+        Built with Jekyll · Hosted on GitHub Pages
+        {%- if site.release_tag -%} · <a href="{{ site.release_url }}" rel="noopener">{{ site.release_tag }}</a>{%- endif -%}
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

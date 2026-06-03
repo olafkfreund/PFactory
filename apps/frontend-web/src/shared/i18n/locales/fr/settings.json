@@ -1,0 +1,693 @@
+{
+  "title": "Paramètres",
+  "tabs": {
+    "app": "Paramètres de l'app",
+    "project": "Paramètres du projet"
+  },
+  "sections": {
+    "appearance": {
+      "title": "Apparence",
+      "description": "Personnalisez l'apparence de PFactory"
+    },
+    "display": {
+      "title": "Affichage",
+      "description": "Ajustez la taille des éléments de l'interface"
+    },
+    "language": {
+      "title": "Langue",
+      "description": "Choisissez votre langue préférée"
+    },
+    "devtools": {
+      "title": "Outils de développement",
+      "description": "Préférences IDE et terminal"
+    },
+    "agent": {
+      "title": "Paramètres de l'agent",
+      "description": "Modèle par défaut et framework"
+    },
+    "llmProvider": {
+      "title": "Fournisseurs LLM",
+      "description": "Agents cloud et endpoints compatibles OpenAI",
+      "cloudAgents": {
+        "title": "Agents Cloud",
+        "description": "Connexions CLI Claude / Codex / Antigravity"
+      },
+      "openaiCompatible": {
+        "title": "Endpoints compatibles OpenAI",
+        "description": "LM Studio, vLLM, Together, Groq, Ollama sur :11434/v1, etc."
+      },
+      "apiKeys": {
+        "title": "Clés API",
+        "description": "Clés API des fournisseurs utilisées par défaut dans tous les projets",
+        "info": "Les clés définies ici sont utilisées par défaut. Les projets individuels peuvent les remplacer dans leurs paramètres.",
+        "anthropic": {
+          "label": "Clé API Anthropic",
+          "description": "Utilisée pour l'accès à l'API Claude d'Anthropic"
+        },
+        "openai": {
+          "label": "Clé API OpenAI",
+          "description": "Utilisée pour les modèles OpenAI (ChatGPT)"
+        },
+        "google": {
+          "label": "Clé API Google AI",
+          "description": "Utilisée pour les modèles Google AI (Gemini)"
+        },
+        "groq": {
+          "label": "Clé API Groq",
+          "description": "Utilisée pour l'accélération d'inférence Groq"
+        },
+        "openrouter": {
+          "label": "Clé API OpenRouter",
+          "description": "Utilisée pour la passerelle multi-modèle OpenRouter"
+        }
+      }
+    },
+    "integrations": {
+      "title": "Intégrations",
+      "description": "Connexions aux services tiers et identifiants OAuth"
+    },
+    "gitCredentials": {
+      "title": "Identifiants Git",
+      "description": "PATs stockés pour cloner des dépôts privés",
+      "info": "Quand vous enregistrez un projet via une URL Git (Ajouter un projet → Cloner depuis une URL Git), sélectionnez un identifiant ici pour cloner des dépôts privés. Les jetons sont chiffrés au repos et jamais journalisés.",
+      "noOrg": "Aucune organisation configurée — enregistrez d'abord un projet.",
+      "orgIdLabel": "ID d'organisation",
+      "orgIdHelp": "L'UUID de votre organisation. Trouvez-le dans n'importe quelle URL d'org ou via l'API orgs. Le sélecteur multi-org arrivera avec Epic #35.",
+      "existing": "Identifiants existants",
+      "add": "Ajouter un identifiant",
+      "loading": "Chargement des identifiants…",
+      "empty": "Aucun identifiant enregistré.",
+      "anyHost": "tout hôte",
+      "created": "créé",
+      "copyId": "Copier l'ID de l'identifiant",
+      "newCredential": "Nouvel identifiant",
+      "name": "Nom",
+      "host": "Hôte (facultatif)",
+      "username": "Nom d'utilisateur (facultatif)",
+      "token": "Personal Access Token",
+      "tokenHelp": "Le jeton est chiffré au repos. Une fois enregistré, il ne peut plus être récupéré — copiez-le ailleurs si vous voulez une sauvegarde.",
+      "fieldsRequired": "Le nom et le jeton sont requis.",
+      "confirmDelete": "Supprimer cet identifiant ? Cette action est irréversible.",
+      "cancel": "Annuler",
+      "save": "Enregistrer l'identifiant",
+      "saving": "Enregistrement…"
+    },
+    "testCredentials": {
+      "title": "Identifiants de test",
+      "description": "Identifiants utilisés par vos tests générés pour s'authentifier",
+      "info": "Référencez un identifiant stocké depuis .pfactory.yml (test_credentials + auth : { type: ref }). Il n'est injecté que sur les lignes avec accès réseau lorsqu'une sous-tâche définit requires_auth, et expurgé de chaque journal et artefact. Les secrets sont chiffrés au repos et jamais renvoyés après la création.",
+      "noOrg": "Aucune organisation configurée — saisissez votre ID d'organisation ci-dessus.",
+      "orgIdLabel": "ID d'organisation",
+      "orgIdHelp": "L'UUID de votre organisation. Trouvez-le dans n'importe quelle URL d'organisation ou via l'API orgs. Le sélecteur multi-organisations arrive avec l'Epic #35.",
+      "existing": "Identifiants stockés",
+      "add": "Ajouter un identifiant",
+      "loading": "Chargement des identifiants…",
+      "empty": "Aucun identifiant stocké pour l'instant.",
+      "noUser": "aucun nom d'utilisateur",
+      "created": "créé le",
+      "copyName": "Copier le nom (à référencer dans .pfactory.yml)",
+      "newCredential": "Nouvel identifiant",
+      "name": "Nom",
+      "kind": "Type",
+      "username": "Nom d'utilisateur (facultatif)",
+      "secret": "Secret (mot de passe / jeton API / graine TOTP)",
+      "secretHelp": "Chiffré au repos. Une fois enregistré, il ne peut plus être récupéré — conservez une sauvegarde ailleurs si nécessaire.",
+      "fieldsRequired": "Le nom et le secret sont requis.",
+      "confirmDelete": "Supprimer cet identifiant ? Cette action est irréversible.",
+      "cancel": "Annuler",
+      "save": "Enregistrer l'identifiant",
+      "saving": "Enregistrement…"
+    },
+    "cloudAssessment": {
+      "title": "Évaluation du cloud",
+      "description": "Anomalies de configuration cloud + topologie"
+    },
+    "apiKeys": {
+      "title": "Clés API",
+      "description": "Clés acw_ à portée pour le plan de contrôle MCP stdio. Remplace le jeton admin global pour les déploiements en entreprise.",
+      "info": "Créez une clé à portée, puis définissez $PFACTORY_MCP_KEY (ou écrivez la valeur dans ~/.pfactory/.mcp-key) sur le poste exécutant le MCP stdio. La clé n'est affichée qu'une seule fois à la création — copiez-la avant de fermer le panneau.",
+      "noOrg": "Saisissez d'abord un ID d'organisation.",
+      "orgIdLabel": "ID d'organisation",
+      "orgIdHelp": "L'UUID de votre organisation. Le sélecteur multi-org arrive avec l'Epic #35.",
+      "existing": "Clés actives",
+      "mint": "Créer une clé",
+      "mintConfirm": "Créer la clé",
+      "minting": "Création…",
+      "loading": "Chargement des clés…",
+      "empty": "Aucune clé créée pour le moment.",
+      "noScopes": "aucune portée",
+      "created": "créée le",
+      "expires": "expire le",
+      "newKey": "Créer une nouvelle clé",
+      "name": "Nom",
+      "nameRequired": "Le nom est requis.",
+      "scopes": "Portées",
+      "scopeRequired": "Choisissez au moins une portée.",
+      "expiresLabel": "Expire dans (jours, facultatif)",
+      "expiresPlaceholder": "laisser vide pour aucune expiration",
+      "confirmRevoke": "Révoquer cette clé ? Tout poste ou shell qui l'utilise perd immédiatement l'accès.",
+      "copyOnce": "Copiez cette clé maintenant — elle ne sera plus affichée.",
+      "copyOnceHelp": "Le backend ne stocke qu'un hash. Si vous perdez la clé, il faudra la révoquer et en créer une nouvelle.",
+      "copyKey": "Copier la clé",
+      "acknowledge": "Copiée",
+      "cancel": "Annuler"
+    },
+    "api-profiles": {
+      "title": "Profils API",
+      "description": "Profils d'endpoint API personnalisés"
+    },
+    "updates": {
+      "title": "Mises à jour",
+      "description": "Mises à jour PFactory"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Préférences d'alertes"
+    },
+    "debug": {
+      "title": "Debug & Logs",
+      "description": "Outils de dépannage"
+    }
+  },
+  "language": {
+    "label": "Langue de l'interface",
+    "description": "Sélectionnez la langue de l'interface de l'application"
+  },
+  "scale": {
+    "presets": "Préréglages d'échelle",
+    "presetsDescription": "Options d'échelle rapides pour les préférences courantes",
+    "fineTune": "Ajustement fin",
+    "fineTuneDescription": "Ajustez de 75% à 200% par incréments de 5%",
+    "default": "Par défaut",
+    "comfortable": "Confortable",
+    "large": "Grand"
+  },
+  "general": {
+    "otherAgentSettings": "Autres paramètres de l'agent",
+    "otherAgentSettingsDescription": "Options de configuration supplémentaires de l'agent",
+    "agentFramework": "Framework de l'agent",
+    "agentFrameworkDescription": "Le framework de codage utilisé pour les tâches autonomes",
+    "agentFrameworkAutoClaude": "PFactory",
+    "aiTerminalNaming": "Nommage IA des terminaux",
+    "aiTerminalNamingDescription": "Nommer automatiquement les terminaux en fonction des commandes (utilise Haiku)",
+    "featureModelSettings": "Paramètres du modèle de fonctionnalité",
+    "featureModelSettingsDescription": "Modèle et niveau de réflexion pour Chat et fonctionnalités GitHub",
+    "model": "Modèle",
+    "thinkingLevel": "Niveau de réflexion",
+    "autoNameTerminals": "Nommer automatiquement les terminaux",
+    "autoNameTerminalsDescription": "Utiliser l'IA pour générer des noms descriptifs pour les onglets de terminal en fonction de leur activité",
+    "bmadSessionSegmentation": "Segmentation de session BMad",
+    "bmadSessionSegmentationDescription": "Activer les sessions par histoire avec contexte minimal pour une réduction de 50-90% des tokens (expérimental)"
+  },
+  "theme": {
+    "title": "Apparence",
+    "description": "Personnalisez l'apparence de PFactory",
+    "mode": "Mode",
+    "modeDescription": "Choisir entre les thèmes clair et sombre",
+    "light": "Clair",
+    "dark": "Sombre",
+    "system": "Système"
+  },
+  "devtools": {
+    "title": "Outils de développement",
+    "description": "Configurez votre IDE et terminal préférés pour travailler avec les worktrees",
+    "detecting": "Détection des outils installés...",
+    "detectAgain": "Détecter à nouveau",
+    "ide": {
+      "label": "IDE préféré",
+      "description": "PFactory ouvrira les worktrees dans cet éditeur",
+      "placeholder": "Sélectionner un IDE...",
+      "customPath": "Chemin IDE personnalisé",
+      "customPathPlaceholder": "/chemin/vers/votre/ide"
+    },
+    "terminal": {
+      "label": "Terminal préféré",
+      "description": "PFactory ouvrira les sessions terminal ici",
+      "placeholder": "Sélectionner un terminal...",
+      "customPath": "Chemin terminal personnalisé",
+      "customPathPlaceholder": "/chemin/vers/votre/terminal"
+    },
+    "detected": "Détecté",
+    "notInstalled": "Non installé",
+    "detectedSummary": "Détecté sur votre système :",
+    "noToolsDetected": "Aucun outil supplémentaire détecté (VS Code et le terminal système seront utilisés)"
+  },
+  "updates": {
+    "title": "Mises à jour",
+    "description": "Gérer les mises à jour de PFactory",
+    "appUpdateReady": "Mise à jour de l'app prête",
+    "newVersion": "Nouvelle version",
+    "released": "Publiée le",
+    "downloading": "Téléchargement...",
+    "updateDownloaded": "Mise à jour téléchargée ! Cliquez sur Installer pour redémarrer et appliquer la mise à jour.",
+    "installAndRestart": "Installer et redémarrer",
+    "downloadUpdate": "Télécharger la mise à jour",
+    "version": "Version",
+    "loading": "Chargement...",
+    "checkingForUpdates": "Vérification des mises à jour...",
+    "newVersionAvailable": "Nouvelle version disponible :",
+    "latestVersion": "Vous utilisez la dernière version.",
+    "viewRelease": "Voir la version complète sur GitHub",
+    "unableToCheck": "Impossible de vérifier les mises à jour",
+    "checkForUpdates": "Vérifier les mises à jour",
+    "autoUpdateProjects": "Mise à jour automatique des projets",
+    "autoUpdateProjectsDescription": "Mettre à jour automatiquement PFactory dans les projets quand une nouvelle version est disponible",
+    "betaUpdates": "Mises à jour bêta",
+    "betaUpdatesDescription": "Recevoir les versions bêta pré-release avec de nouvelles fonctionnalités (peut être moins stable)"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "description": "Configurer les préférences de notification par défaut",
+    "onTaskComplete": "À la fin d'une tâche",
+    "onTaskCompleteDescription": "Notifier quand une tâche se termine avec succès",
+    "onTaskFailed": "En cas d'échec",
+    "onTaskFailedDescription": "Notifier quand une tâche rencontre une erreur",
+    "onReviewNeeded": "Révision requise",
+    "onReviewNeededDescription": "Notifier quand le QA nécessite votre révision",
+    "sound": "Son",
+    "soundDescription": "Jouer un son avec les notifications"
+  },
+  "email": {
+    "title": "Comptes email",
+    "description": "Connectez un compte email pour recevoir des notifications lorsque les tâches se terminent, échouent ou nécessitent une révision.",
+    "loading": "Chargement des comptes email...",
+    "enableEmail": "Notifications par email",
+    "enableEmailDescription": "Envoyer des notifications par email pour les événements de tâches via votre compte email connecté",
+    "connectOutlook": "Connecter Outlook",
+    "connectedVia": "Connecté via",
+    "disconnect": "Déconnecter",
+    "noCredentialsConfigured": "Aucun identifiant OAuth configuré. Configurez les identifiants Microsoft ou Google dans l'onglet Intégrations.",
+    "connectionSuccess": "Compte email connecté avec succès",
+    "connectionFailed": "Échec de la connexion du compte email",
+    "sendTestEmail": "Email de test",
+    "testEmailSent": "Email de test envoyé avec succès",
+    "oauthCredentials": "Identifiants OAuth Microsoft",
+    "oauthCredentialsDescription": "Enregistrez une application dans Azure AD pour activer les notifications email Outlook. Scopes requis : Mail.Send, User.Read, offline_access.",
+    "microsoftClientId": "Client ID Microsoft",
+    "microsoftClientSecret": "Client Secret Microsoft",
+    "setup": {
+      "title": "Comment enregistrer une application Microsoft Azure AD",
+      "step1": "Accédez au <azureLink>portail d'enregistrement d'applications Azure</azureLink>",
+      "step2": "Cliquez sur « Nouvelle inscription », nommez-la (ex : « PFactory Notifications »), sélectionnez « Comptes dans n'importe quel annuaire organisationnel et comptes Microsoft personnels », puis cliquez sur Inscrire",
+      "step3": "Depuis la page de présentation de l'application, copiez l'« ID d'application (client) » et collez-le dans le champ Client ID ci-dessous",
+      "step4": "Allez dans « Certificats et secrets » → « Nouveau secret client » → copiez la Valeur (pas l'ID du secret) et collez-la dans le champ Client Secret ci-dessous",
+      "step5": "Allez dans « Authentification » → « Ajouter une plateforme » → « Web » → définissez l'URI de redirection sur :",
+      "step6": "Allez dans « Autorisations de l'API » → « Ajouter une autorisation » → « Microsoft Graph » → « Autorisations déléguées » → ajoutez : Mail.Send, User.Read, offline_access",
+      "httpsWarning": "Azure exige que les URI de redirection utilisent HTTPS (sauf http://localhost). Assurez-vous que votre déploiement utilise HTTPS ou un reverse proxy qui termine le TLS."
+    },
+    "connectGmail": "Connecter Gmail",
+    "googleClientId": "Client ID Google",
+    "googleClientSecret": "Client Secret Google",
+    "googleOauthCredentials": "Identifiants OAuth Google",
+    "googleOauthCredentialsDescription": "Enregistrez une application OAuth dans Google Cloud Console pour activer les notifications email Gmail. Scopes requis : gmail.send, userinfo.email.",
+    "setupGoogle": {
+      "title": "Comment configurer Google OAuth",
+      "step1": "Accédez à la <googleLink>page Identifiants de Google Cloud Console</googleLink>",
+      "step2": "Cliquez sur « Créer des identifiants » → « ID client OAuth » → sélectionnez « Application Web » comme type d'application",
+      "step3": "Copiez l'« ID client » et collez-le dans le champ Client ID Google ci-dessous",
+      "step4": "Copiez le « Secret du client » et collez-le dans le champ Client Secret Google ci-dessous",
+      "step5": "Sous « URI de redirection autorisés », ajoutez :",
+      "step6": "Allez dans « API et services activés » → activez l'« API Gmail » pour votre projet"
+    }
+  },
+  "actions": {
+    "save": "Enregistrer les paramètres",
+    "rerunWizard": "Relancer l'assistant",
+    "rerunWizardDescription": "Redémarrer l'assistant de configuration"
+  },
+  "projectSections": {
+    "general": {
+      "title": "Général",
+      "description": "Auto-Build et configuration de l'agent",
+      "useClaudeMd": "Utiliser CLAUDE.md",
+      "useClaudeMdDescription": "Inclure les instructions CLAUDE.md dans le contexte de l'agent"
+    },
+    "claude": {
+      "title": "Auth Claude",
+      "description": "Authentification Claude"
+    },
+    "github": {
+      "title": "Fournisseurs Git",
+      "description": "Synchronisation GitHub, GitLab & ADO",
+      "integrationTitle": "Intégration Fournisseur Git",
+      "integrationDescription": "Se connecter à GitHub, GitLab ou Azure DevOps (ADO) pour le suivi des tâches",
+      "syncDescription": "Synchroniser avec les fournisseurs Git (GitHub, GitLab, ADO)"
+    },
+    "gitlab": {
+      "title": "GitLab",
+      "description": "Synchronisation issues GitLab",
+      "integrationTitle": "Intégration GitLab",
+      "integrationDescription": "Se connecter à GitLab pour le suivi des issues",
+      "syncDescription": "Synchroniser avec GitLab Issues"
+    },
+    "memory": {
+      "title": "Mémoire",
+      "description": "Backend mémoire Graphiti",
+      "integrationTitle": "Mémoire",
+      "integrationDescription": "Configurer la mémoire persistante inter-sessions pour les agents",
+      "syncDescription": "Configurer la mémoire persistante"
+    },
+    "mcp": {
+      "title": "Serveurs MCP",
+      "description": "Outils infra activés auto pour les agents",
+      "integrationTitle": "Serveurs MCP",
+      "integrationDescription": "Catalogue des serveurs MCP par défaut. Chaque ligne montre si le serveur serait activé automatiquement pour ce projet — consultez la documentation pour la configuration des identifiants et les surcharges par projet.",
+      "columns": {
+        "server": "Serveur",
+        "status": "Statut",
+        "credentials": "Identifiants",
+        "markers": "Marqueurs projet",
+        "agents": "Agents",
+        "docs": "Docs"
+      },
+      "status": {
+        "active": "Activé auto",
+        "noCreds": "Identifiants manquants",
+        "noMarker": "Aucun marqueur correspondant",
+        "ready": "Prêt"
+      },
+      "empty": "Aucune entrée MCP disponible — le framework n'est peut-être pas chargé.",
+      "refresh": "Actualiser",
+      "openDocs": "Voir la doc",
+      "explainerHint": "Surcharge via .pfactory/.env : AGENT_MCP_<agent>_ADD ou _REMOVE"
+    }
+  },
+  "agentProfile": {
+    "label": "Profil d'agent",
+    "title": "Profil d'agent par défaut",
+    "sectionDescription": "Sélectionnez une configuration prédéfinie pour le modèle et le niveau de réflexion",
+    "profilesInfo": "Les profils d'agent fournissent des configurations prédéfinies pour le modèle Claude et le niveau de réflexion. Quand vous créez une nouvelle tâche, ces paramètres seront utilisés par défaut. Vous pouvez toujours les modifier dans l'assistant de création de tâche.",
+    "custom": "Personnalisé",
+    "customConfiguration": "Configuration personnalisée",
+    "customDescription": "Choisir le modèle et le niveau de réflexion",
+    "phaseConfiguration": "Configuration par phase",
+    "phaseConfigurationDescription": "Personnaliser le modèle et le niveau de réflexion pour chaque phase",
+    "clickToCustomize": "Cliquer pour personnaliser",
+    "model": "Modèle",
+    "thinking": "Réflexion",
+    "thinkingLevel": "Niveau de réflexion",
+    "selectModel": "Sélectionner un modèle",
+    "selectThinkingLevel": "Sélectionner un niveau de réflexion",
+    "perPhaseOptimization": "(optimisation par phase)",
+    "resetToDefaults": "Réinitialiser par défaut",
+    "phaseConfigNote": "Ces paramètres seront utilisés par défaut lors de la création de nouvelles tâches avec le profil Auto. Vous pouvez les modifier par tâche dans l'assistant de création.",
+    "phases": {
+      "spec": {
+        "label": "Création de spec",
+        "description": "Découverte, exigences, collecte de contexte"
+      },
+      "planning": {
+        "label": "Planification",
+        "description": "Planification de l'implémentation et architecture"
+      },
+      "coding": {
+        "label": "Codage",
+        "description": "Implémentation du code"
+      },
+      "qa": {
+        "label": "Révision QA",
+        "description": "Assurance qualité et validation"
+      },
+      "qa_fixer": {
+        "label": "Correcteur QA",
+        "description": "Corrige les problèmes signalés par la révision QA"
+      }
+    }
+  },
+  "workspace": {
+    "roles": {
+      "backend": "Backend",
+      "frontend": "Frontend",
+      "mobile": "Mobile",
+      "shared": "Partagé",
+      "apiGateway": "Passerelle API",
+      "worker": "Worker",
+      "other": "Autre"
+    }
+  },
+  "integrations": {
+    "title": "Intégrations",
+    "description": "Gérer les comptes Claude et les clés API",
+    "claudeAccounts": "Comptes Claude",
+    "claudeAccountsDescription": "Ajoutez plusieurs abonnements Claude pour basculer automatiquement entre eux quand vous atteignez les limites.",
+    "noAccountsYet": "Aucun compte configuré",
+    "default": "Par défaut",
+    "active": "Actif",
+    "authenticated": "Authentifié",
+    "needsAuth": "Auth requise",
+    "authenticate": "Authentifier",
+    "setActive": "Définir actif",
+    "manualTokenEntry": "Saisie manuelle du token",
+    "runSetupToken": "Exécutez claude setup-token pour obtenir votre token",
+    "tokenPlaceholder": "sk-ant-oat01-...",
+    "emailPlaceholder": "Email (optionnel, pour l'affichage)",
+    "saveToken": "Enregistrer le token",
+    "accountNamePlaceholder": "Nom du compte (ex: Travail, Personnel)",
+    "autoSwitching": "Basculement automatique de compte",
+    "autoSwitchingDescription": "Basculer automatiquement entre les comptes Claude pour éviter les interruptions. Configurez la surveillance proactive pour changer avant d'atteindre les limites.",
+    "enableAutoSwitching": "Activer le basculement automatique",
+    "masterSwitch": "Interrupteur principal pour toutes les fonctionnalités auto-swap",
+    "proactiveMonitoring": "Surveillance proactive",
+    "proactiveDescription": "Vérifier l'utilisation régulièrement et changer avant d'atteindre les limites",
+    "checkUsageEvery": "Vérifier l'utilisation toutes les",
+    "seconds15": "15 secondes",
+    "seconds30": "30 secondes (recommandé)",
+    "minute1": "1 minute",
+    "disabled": "Désactivé",
+    "sessionThreshold": "Seuil d'utilisation de session",
+    "sessionThresholdDescription": "Changer quand l'utilisation de session atteint ce niveau (recommandé: 95%)",
+    "weeklyThreshold": "Seuil d'utilisation hebdomadaire",
+    "weeklyThresholdDescription": "Changer quand l'utilisation hebdomadaire atteint ce niveau (recommandé: 99%)",
+    "reactiveRecovery": "Récupération réactive",
+    "reactiveDescription": "Basculer automatiquement quand une limite inattendue est atteinte",
+    "apiKeys": "Clés API",
+    "apiKeysInfo": "Les clés définies ici sont utilisées par défaut. Les projets individuels peuvent les remplacer dans leurs paramètres.",
+    "openaiKey": "Clé API OpenAI",
+    "openaiKeyDescription": "Utilisée pour les modèles OpenAI (ChatGPT)",
+    "comingSoon": "Les intégrations tierces (Linear, Jira, Slack, etc.) arrivent bientôt. Les comptes Claude et les clés API ont été déplacés vers la page Fournisseurs LLM.",
+    "cliAccounts": "Autres comptes CLI",
+    "cliAccountsDescription": "Connectez Codex CLI (OpenAI) et Antigravity CLI (Google) pour des capacités de codage IA supplémentaires.",
+    "refreshStatus": "Actualiser le statut",
+    "notInstalled": "Non installé",
+    "installed": "Installé",
+    "importCredentials": "Importer les identifiants",
+    "apiKeyEntry": "Clé API",
+    "apiKeyPlaceholder": "Entrez la clé API...",
+    "disconnect": "Déconnecter",
+    "loginInTerminal": "Connexion dans le terminal",
+    "waitingForAuth": "En attente d'authentification...",
+    "authenticatingWith": "Authentification avec {{cli}}...",
+    "completeOAuthInBrowser": "Complétez le flux OAuth dans votre navigateur lorsque vous y êtes invité.",
+    "authSuccess": "Authentification réussie !",
+    "authFailed": "L'authentification a expiré. Veuillez réessayer.",
+    "install": "Installer",
+    "installing": "Installation...",
+    "update": "Mettre à jour",
+    "updating": "Mise à jour...",
+    "updateAvailable": "Mise à jour disponible",
+    "credentialsDetected": "Identifiants détectés",
+    "codex": {
+      "name": "Codex CLI",
+      "description": "Assistant de codage d'OpenAI",
+      "installHint": "npm install -g @openai/codex",
+      "loginHint": "Exécutez 'codex login' dans votre terminal pour vous authentifier",
+      "importHint": "Importer depuis ~/.codex/auth.json",
+      "viaOAuth": "via ChatGPT OAuth",
+      "viaApiKey": "via clé API",
+      "tokenExpires": "Le token expire"
+    },
+    "gemini": {
+      "name": "Antigravity CLI",
+      "description": "Assistant de codage Antigravity de Google",
+      "installHint": "npm install -g @google/gemini-cli",
+      "loginHint": "Exécutez 'antigravity' et sélectionnez Connexion avec Google",
+      "importHint": "Importer depuis ~/.gemini/settings.json",
+      "viaGoogleLogin": "via Google Login",
+      "viaApiKey": "via clé API"
+    }
+  },
+  "debug": {
+    "title": "Debug & Logs",
+    "description": "Accédez aux logs et informations de débogage pour le dépannage",
+    "openLogsFolder": "Ouvrir le dossier des logs",
+    "copyDebugInfo": "Copier les infos de débogage",
+    "copied": "Copié !",
+    "loadInfo": "Charger les infos de débogage",
+    "systemInfo": "Informations système",
+    "logsLocation": "Emplacement des logs",
+    "recentErrors": "Erreurs récentes",
+    "noRecentErrors": "Aucune erreur récente",
+    "helpTitle": "Signaler des problèmes",
+    "helpText": "Lors du signalement de bugs, cliquez sur \"Copier les infos de débogage\" pour obtenir les informations système et les erreurs récentes qui nous aident à diagnostiquer le problème."
+  },
+  "projectSettings": {
+    "noProjectSelected": {
+      "title": "Aucun projet sélectionné",
+      "description": "Sélectionnez un projet dans la barre latérale pour configurer ses paramètres."
+    }
+  },
+  "connection": {
+    "successTitle": "Connexion réussie",
+    "successDescription": "Vos identifiants API sont valides."
+  },
+  "mcp": {
+    "title": "Aperçu des serveurs MCP",
+    "titleWithProject": "Aperçu des serveurs MCP pour {{projectName}}",
+    "description": "Configurez quels serveurs MCP sont disponibles pour les agents dans ce projet",
+    "descriptionNoProject": "Sélectionnez un projet pour configurer les serveurs MCP",
+    "serversEnabled": "{{count}} serveurs activés",
+    "configuration": "Configuration des serveurs MCP",
+    "configurationHint": "Les serveurs désactivés réduisent l'utilisation du contexte et le temps de démarrage",
+    "noProjectSelected": "Aucun projet sélectionné",
+    "noProjectSelectedDescription": "Sélectionnez un projet dans le menu déroulant pour voir et configurer les serveurs MCP.",
+    "projectNotInitialized": "Projet non initialisé",
+    "projectNotInitializedDescription": "Initialisez PFactory pour ce projet pour configurer les serveurs MCP.",
+    "browserAutomation": "Automatisation du navigateur (agents QA uniquement)",
+    "alwaysEnabled": "toujours activé",
+    "addServer": "Ajouter un serveur",
+    "addMcpTo": "Ajouter un serveur MCP à {{agent}}",
+    "addMcpDescription": "Sélectionnez un serveur MCP à ajouter à cet agent",
+    "allMcpsAdded": "Tous les serveurs MCP disponibles sont déjà ajoutés",
+    "added": "ajouté",
+    "removed": "supprimé",
+    "remove": "Supprimer",
+    "restore": "Restaurer",
+    "noMcpServers": "Aucun serveur MCP",
+    "cannotRemove": "Impossible à supprimer (requis)",
+    "servers": {
+      "context7": {
+        "name": "Context7",
+        "description": "Recherche de documentation pour les bibliothèques"
+      },
+      "graphiti": {
+        "name": "Graphiti Memory",
+        "description": "Graphe de connaissances pour le contexte inter-sessions",
+        "notConfigured": "Nécessite la configuration mémoire (voir paramètres Mémoire)"
+      },
+      "electron": {
+        "name": "Electron",
+        "description": "Automatisation d'applications desktop via Chrome DevTools"
+      },
+      "playwright": {
+        "name": "Playwright",
+        "description": "Automatisation du navigateur web pour les tests (Chromium headless)"
+      },
+      "autoClaude": {
+        "name": "Outils PFactory",
+        "description": "Suivi de la progression du build"
+      }
+    },
+    "customServers": "Serveurs personnalisés",
+    "addCustomServer": "Ajouter un serveur personnalisé",
+    "editCustomServer": "Modifier le serveur personnalisé",
+    "customServerDescription": "Ajouter un serveur MCP basé sur une commande ou HTTP",
+    "serverType": "Type de serveur",
+    "typeCommand": "Commande (npx/npm)",
+    "typeHttp": "HTTP",
+    "serverName": "Nom",
+    "serverNamePlaceholder": "Mon serveur MCP",
+    "serverDescription": "Description",
+    "serverDescriptionPlaceholder": "Ce que fait ce serveur",
+    "command": "Commande",
+    "args": "Arguments",
+    "argsHint": "Arguments séparés par des espaces",
+    "url": "URL",
+    "headers": "En-têtes",
+    "headerName": "Nom de l'en-tête",
+    "headerValue": "Valeur de l'en-tête",
+    "noCustomServers": "Aucun serveur personnalisé configuré. Ajoutez-en un pour l'utiliser avec vos agents.",
+    "errorNameRequired": "Le nom du serveur est requis",
+    "errorIdExists": "Un serveur avec cet ID existe déjà",
+    "errorCommandRequired": "La commande est requise pour les serveurs basés sur commande",
+    "errorUrlRequired": "L'URL est requise pour les serveurs basés sur HTTP",
+    "testConnection": "Test",
+    "testing": "Test en cours...",
+    "authToken": "Jeton d'authentification",
+    "authTokenPlaceholder": "Collez votre jeton API ou PAT ici",
+    "authTokenHint": "Utilisé comme jeton Bearer dans l'en-tête Authorization",
+    "advancedHeaders": "En-têtes supplémentaires",
+    "status": {
+      "healthy": "Le serveur répond",
+      "unhealthy": "Le serveur ne répond pas",
+      "needsAuth": "Authentification requise",
+      "checking": "Vérification...",
+      "unknown": "Statut inconnu"
+    },
+    "hints": {
+      "github": "Ceci ressemble à un serveur MCP GitHub. Vous aurez besoin d'un Personal Access Token avec les scopes appropriés.",
+      "createGithubPat": "Créer un PAT GitHub",
+      "google": "Ceci ressemble à une API Google. Vous aurez besoin d'un jeton OAuth ou d'une clé API.",
+      "createGoogleToken": "Créer des identifiants Google",
+      "anthropic": "Ceci ressemble à une API Anthropic. Vous aurez besoin d'une clé API.",
+      "createAnthropicKey": "Créer une clé API Anthropic",
+      "openai": "Ceci ressemble à une API OpenAI. Vous aurez besoin d'une clé API.",
+      "createOpenaiKey": "Créer une clé API OpenAI"
+    },
+    "quickTemplates": "Modèles rapides",
+    "quickTemplatesDescription": "Cliquez sur un modèle pour préremplir le formulaire",
+    "quickTemplatesLoading": "Détection des services installés...",
+    "quickTemplatesEmpty": "Aucun service supplémentaire détecté",
+    "quickTemplatesAvailable": "disponible",
+    "quickTemplatesInstalled": "installé",
+    "quickTemplatesNotAvailable": "non installé",
+    "categories": {
+      "core": "Essentiel",
+      "database": "Base de données",
+      "vcs": "Contrôle de version",
+      "browser": "Navigateur",
+      "search": "Recherche",
+      "devops": "DevOps",
+      "communication": "Communication"
+    }
+  },
+  "openaiEndpoints": {
+    "title": "Points d'accès compatibles OpenAI",
+    "description": "Connectez-vous à LM Studio, vLLM, OpenRouter, Together, Groq ou tout autre service implémentant le protocole OpenAI /v1/chat/completions.",
+    "add": "Ajouter un point d'accès",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "save": "Enregistrer",
+    "create": "Créer",
+    "cancel": "Annuler",
+    "test": "Tester",
+    "label": "Libellé",
+    "baseUrl": "URL de base",
+    "baseUrlHint": "Sans le suffixe /v1 — nous l'ajoutons automatiquement.",
+    "apiKey": "Clé API",
+    "apiKeyOptional": "(facultatif)",
+    "apiKeyEditPlaceholder": "Laisser vide pour conserver la clé existante",
+    "defaultModel": "Modèle par défaut",
+    "loading": "Chargement des points d'accès…",
+    "empty": "Aucun point d'accès pour l'instant. Cliquez sur « Ajouter un point d'accès » pour en connecter un.",
+    "confirmDelete": "Supprimer ce point d'accès ?",
+    "testSuccess": "Connexion réussie",
+    "testFailed": "Échec de la connexion",
+    "modelsFound": "{{count}} modèles",
+    "modelsHint": "{{count}} modèles détectés — cliquez sur le champ ou commencez à taper pour en choisir un.",
+    "unprobed": "Pas encore testé"
+  },
+  "gitProviders": {
+    "enableGitIntegration": "Activer l'intégration Git",
+    "enableGitIntegrationDescription": "Synchroniser les tickets de GitHub, GitLab ou Azure DevOps (ADO) et créer des tâches automatiquement",
+    "gitProvider": "Fournisseur Git",
+    "gitProviderDescription": "Sélectionnez votre fournisseur d'hébergement git et de suivi des tickets",
+    "gitToken": "Jeton d'accès personnel (PAT)",
+    "gitTokenDescription": "Créez un jeton d'accès personnel avec les autorisations de lecture/écriture de l'API",
+    "gitBaseUrl": "URL de base de l'API",
+    "gitBaseUrlDescription": "URL de base pour les instances auto-hébergées (laisser vide pour le cloud par défaut)",
+    "gitOrg": "Organisation",
+    "gitOrgDescription": "Nom de l'organisation Azure DevOps",
+    "gitProject": "Nom du projet",
+    "gitProjectDescription": "Nom du projet Azure DevOps",
+    "gitRepo": "Chemin du dépôt",
+    "gitRepoDescription": "Format : groupe/sous-groupe/depot (GitLab) ou nom-du-depot (Azure DevOps)",
+    "gitRepoPlaceholder": "groupe/nom-du-projet",
+    "gitTokenPlaceholder": "Entrez votre jeton PAT",
+    "gitBaseUrlPlaceholder": "https://gitlab.example.com",
+    "gitOrgPlaceholder": "ex. MonOrg",
+    "gitProjectPlaceholder": "ex. MonProjet",
+    "githubProvider": "GitHub",
+    "gitlabProvider": "GitLab",
+    "adoProvider": "Azure DevOps"
+  }
+}

@@ -1,0 +1,43 @@
+{{- if .Values.metrics.serviceMonitor.enabled -}}
+{{- /*
+Prometheus Operator ServiceMonitor (Epic #26 P6.4).
+
+Renders only when .Values.metrics.serviceMonitor.enabled=true AND
+the cluster has the Prometheus Operator CRDs installed. Operators
+without Prometheus Operator can scrape via annotation-based
+discovery (set .Values.metrics.podAnnotations.enabled=true — wired
+on the Deployment template).
+
+When .Values.metrics.scrapeTokenSecret is set, the chart adds a
+bearerTokenSecret reference so Prometheus Operator passes the token
+on every scrape. The matching METRICS_SCRAPE_TOKEN env on the app
+container gates /metrics (see metrics.py).
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "pfactory.fullname" . }}
+  labels:
+    {{- include "pfactory.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pfactory.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout | default "10s" }}
+      {{- if .Values.metrics.scrapeTokenSecret }}
+      bearerTokenSecret:
+        name: {{ .Values.metrics.scrapeTokenSecret.name }}
+        key: {{ .Values.metrics.scrapeTokenSecret.key | default "token" }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

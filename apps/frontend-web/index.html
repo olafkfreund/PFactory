@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- SVG favicon is the canonical PFactory mark (Gruvbox flask); raster
+         fallbacks live alongside but the SVG is preferred by modern browsers. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#282828" />
+    <meta name="description" content="PFactory — autonomous test generation + execution platform. v0.2.0 ships polyglot Planner + Browser/API/Integration lanes + evidence capture." />
+    <title>PFactory</title>
+    <!-- Mono-led identity: JetBrains Mono for the data plane, IBM Plex Sans for prose -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  </head>
+  <body>
+    <script>
+      // Apply theme synchronously before first paint to prevent color flash.
+      // Palette + light/dark are read from the localStorage cache written by App.tsx.
+      (function() {
+        try {
+          var theme = localStorage.getItem('pfactory-theme') || 'system';
+          var colorTheme = localStorage.getItem('pfactory-color-theme') || 'gruvbox';
+          var root = document.documentElement;
+          root.setAttribute('data-theme', colorTheme);
+          if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            root.classList.add('dark');
+          }
+        } catch(e) {}
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

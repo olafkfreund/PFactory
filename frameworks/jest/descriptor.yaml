@@ -1,0 +1,113 @@
+# frameworks/jest/descriptor.yaml
+#
+# Jest (TypeScript) descriptor — Unit lane.
+#
+# Jest is the primary TypeScript/JavaScript unit testing framework in PFactory v0.2.
+# It pairs with Playwright on the Browser lane: Playwright exercises the full
+# app through the browser; Jest handles the JS/TS logic that can't be easily
+# exercised end-to-end (pure functions, React components, async utilities, etc.).
+#
+# Related decisions:
+#   Decision 1  — generic prompts + registry
+#   Decision 11 — coverage_strategy: lcov (Jest emits LCOV via --coverage)
+#
+name: jest
+language: typescript
+lanes:
+  - unit
+
+# Jest 27+ introduced the modern `jest.config.ts` support.
+# 29.x is the LTS series at v0.2 release time; allow through 31.x minor bumps.
+version_range: ">=27.0,<31.0"
+
+runtime:
+  # Docker image built in Task 7 (#23).
+  # Contains Node 22, jest, ts-jest, @types/jest, nyc for coverage.
+  image: pfactory-runner-jest:latest
+  entrypoint:
+    - npx
+    - jest
+    - "--ci"
+    - "--forceExit"
+    - "--reporters=default"
+    - "--reporters=jest-junit"
+
+# Manifest signals for Jest detection.
+manifest_signals:
+  - "package.json:devDependencies.jest"
+  - "package.json:dependencies.jest"
+  - "jest.config.ts"
+  - "jest.config.js"
+  - "jest.config.mjs"
+  - "package.json:jest"
+
+# Glob patterns for where Jest tests live.
+test_path_conventions:
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.ts"
+  - "src/**/__tests__/**/*.ts"
+
+# Template filenames — populated in Task 12 (#28).
+templates:
+  - function-pure.test.ts.tmpl
+  - function-with-mock.test.ts.tmpl
+  - react-component.test.tsx.tmpl
+  - async-function.test.ts.tmpl
+  - error-boundary.test.tsx.tmpl
+
+# Per Decision 11: Jest emits LCOV coverage via --coverage (nyc underneath).
+# The Evaluator's coverage_delta primitive uses the LCOV data to compute
+# per-test line coverage delta.  For TypeScript/Jest, nyc is pre-installed
+# in the runner image and configured via jest.config.ts in the generated test.
+coverage_strategy: lcov
+
+# LLM context block — injected into the Gen-Functional prompt.
+# Teaches the LLM Jest idioms for reliable, non-flaky TypeScript unit tests.
+context_block: |
+  You are generating Jest tests in TypeScript for the Unit lane.
+
+  Test structure:
+    - Use describe() blocks for grouping related tests
+    - Use it() or test() for individual test cases
+    - Name tests descriptively: it('returns null when input is empty', ...)
+    - One logical assertion per test (use multiple expects only for related assertions)
+
+  Mocking:
+    - jest.fn() for function mocks
+    - jest.spyOn(object, 'method') for spying on existing methods
+    - jest.mock('./module') for module-level mocks
+    - Always restore mocks in afterEach with jest.restoreAllMocks()
+    - NEVER share mock state between tests; use beforeEach to reset
+
+  Async tests:
+    - Use async/await; NEVER return raw Promises
+    - Use jest.useFakeTimers() for timer-dependent code
+    - Call jest.runAllTimers() or jest.advanceTimersByTime() for deterministic timing
+    - Use @testing-library/user-event for React component interaction (not manual events)
+
+  React components:
+    - Use @testing-library/react's render() + screen queries
+    - Prefer screen.getByRole() over getByTestId() (same selector priority as Playwright)
+    - screen.getByRole('button', { name: 'Submit' }) is preferred
+    - Wrap state-changing interactions in act() (or use userEvent which does this automatically)
+    - Do NOT test implementation details (internal state, private methods)
+
+  Coverage:
+    - The runner calls --coverage automatically; you don't need to configure it
+    - Write tests that exercise branches, not just happy paths
+
+  Anti-patterns:
+    - setTimeout/setInterval in tests → use jest.useFakeTimers()
+    - Math.random() without a seed → mock it: jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    - Date.now() / new Date() for assertions → mock Date or use jest-date-mock
+    - Iterating over objects and asserting order → sort first or use expect.arrayContaining()
+    - Mocking too much (mocking the thing under test) → test real behavior, mock dependencies
+    - Global state mutations without afterEach cleanup → always restore
+
+# Evaluator hooks — dotted-path references for per-language Evaluator primitives.
+# Wired in Task 9 (#25).
+evaluator_hooks:
+  - agents.lang_typescript.preflight.run_ts_preflight
+  - agents.lang_typescript.flake_lint.run_ts_flake_lint
+  - agents.lang_typescript.mutate_probe.run_ts_mutate_probe

@@ -1,0 +1,41 @@
+{
+  "feature": "Add session expiry to the auth module",
+  "workflow_type": "feature",
+  "services_involved": ["backend"],
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Implement session expiry",
+      "type": "implementation",
+      "subtasks": [
+        {
+          "id": "add-expires-at",
+          "description": "Add expires_at field to Session model + populate on login",
+          "status": "completed",
+          "service": "backend",
+          "files_to_modify": ["app/auth/session.py", "app/auth/login.py"]
+        },
+        {
+          "id": "expire-on-lookup",
+          "description": "Reject + remove expired sessions in get_session",
+          "status": "completed",
+          "service": "backend",
+          "files_to_modify": ["app/auth/session.py"]
+        },
+        {
+          "id": "refresh-within-grace",
+          "description": "Add refresh_session with 5-min grace window",
+          "status": "completed",
+          "service": "backend",
+          "files_to_modify": ["app/auth/session.py"]
+        }
+      ],
+      "parallel_safe": false
+    }
+  ],
+  "final_acceptance": [
+    "All three functions behave per the AC. No regressions in logout_user."
+  ],
+  "status": "completed",
+  "planStatus": "completed"
+}

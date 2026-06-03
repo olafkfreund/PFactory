@@ -1,0 +1,18 @@
+---
+description: Pure function test — import a function, call it with fixed inputs, assert the output
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - input_args
+  - expected_output
+---
+import { ${function_name} } from '${module_path}';
+
+describe('${function_name}', () => {
+  it('returns the expected output for the given input', () => {
+    const result = ${function_name}(${input_args});
+    expect(result).toEqual(${expected_output});
+  });
+});

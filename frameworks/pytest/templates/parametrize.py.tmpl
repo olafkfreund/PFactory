@@ -1,0 +1,19 @@
+---
+description: Parametrized test — run the same assertion across multiple (input, expected) pairs using @pytest.mark.parametrize
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - parametrize_cases
+---
+import pytest
+
+from ${module_path} import ${function_name}
+
+
+@pytest.mark.parametrize("input_val,expected", [
+${parametrize_cases}
+])
+def test_${function_name}_parametrized(input_val, expected) -> None:
+    assert ${function_name}(input_val) == expected

@@ -1,0 +1,30 @@
+---
+description: API mocked flow — intercept a backend endpoint with route.fulfill and assert the UI renders the mocked data
+requires_target: true
+requires_auth: false
+vars:
+  - target_base_url
+  - test_name
+  - mocked_endpoint
+  - mocked_response_json
+---
+import { test, expect } from '@playwright/test';
+
+test('${test_name}', async ({ page }) => {
+  // Intercept the API endpoint and return the mocked response
+  await page.route('**${mocked_endpoint}**', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: '${mocked_response_json}',
+    });
+  });
+
+  // Navigate to the page that calls the mocked endpoint
+  await page.goto('${target_base_url}');
+
+  // The page should render without errors — a 500 or "Failed to fetch" banner
+  // would indicate the mock did not intercept correctly.
+  await expect(page.locator('body')).not.toContainText('Error');
+  await expect(page.locator('body')).not.toContainText('Failed to fetch');
+});

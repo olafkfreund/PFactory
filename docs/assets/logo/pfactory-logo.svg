@@ -1,0 +1,44 @@
+<svg width="520" height="140" viewBox="0 0 520 140" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PFactory — Plan Factory">
+  <title>PFactory — Plan Factory</title>
+  <defs>
+    <linearGradient id="pfBg2" x1="10" y1="10" x2="130" y2="130" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="0.55" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="pfWord" x1="170" y1="40" x2="170" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E293B"/>
+      <stop offset="1" stop-color="#334155"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ===== icon (scaled mark) ===== -->
+  <g transform="translate(10,6) scale(0.95)">
+    <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#pfBg2)"/>
+    <g stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1.5">
+      <path d="M28 12V116M52 12V116M76 12V116M100 12V116"/>
+      <path d="M12 28H116M12 52H116M12 76H116M12 100H116"/>
+    </g>
+    <g stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" fill="none" stroke-opacity="0.9">
+      <path d="M44 64 H62"/>
+      <path d="M62 64 C74 64 74 40 86 40"/>
+      <path d="M62 64 H86"/>
+      <path d="M62 64 C74 64 74 88 86 88"/>
+    </g>
+    <rect x="26" y="50" width="20" height="28" rx="4" fill="#FFFFFF"/>
+    <rect x="30" y="56" width="12" height="3" rx="1.5" fill="#3B82F6"/>
+    <rect x="30" y="62" width="12" height="3" rx="1.5" fill="#93C5FD"/>
+    <rect x="30" y="68" width="8"  height="3" rx="1.5" fill="#93C5FD"/>
+    <rect x="84" y="32" width="16" height="16" rx="4" fill="#FFFFFF"/>
+    <rect x="84" y="56" width="16" height="16" rx="4" fill="#FFFFFF"/>
+    <rect x="84" y="80" width="16" height="16" rx="4" fill="#FFFFFF"/>
+    <circle cx="92" cy="64" r="9.5" fill="#22C55E"/>
+    <path d="M88 64.5 L91 67.5 L96.5 61" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+
+  <!-- ===== wordmark ===== -->
+  <text x="150" y="74" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="46" font-weight="700" fill="url(#pfWord)" letter-spacing="-0.5">
+    P<tspan fill="#3B82F6">Factory</tspan>
+  </text>
+  <text x="152" y="100" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="15.5" font-weight="500" fill="#64748B" letter-spacing="3.5">PLAN&#160;&#183;&#160;GOVERN&#160;&#183;&#160;HAND&#160;OFF</text>
+</svg>

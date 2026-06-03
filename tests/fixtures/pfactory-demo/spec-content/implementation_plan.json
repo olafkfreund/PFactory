@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "phases": [
+    { "id": "AC#1", "name": "Generate produces non-empty text", "status": "complete" },
+    { "id": "AC#2", "name": "Greeting category vocabulary",      "status": "complete" },
+    { "id": "AC#3", "name": "Snarky tone vocabulary",            "status": "complete" },
+    { "id": "AC#4", "name": "Clear empties output",              "status": "complete" },
+    { "id": "AC#5", "name": "Two clicks yield different text",   "status": "complete" }
+  ]
+}

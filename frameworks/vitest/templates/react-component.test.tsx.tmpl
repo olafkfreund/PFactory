@@ -1,0 +1,22 @@
+---
+description: React component test — render a component and assert visible output by role
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - component_name
+  - expected_role
+  - expected_name
+---
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { ${component_name} } from '${module_path}';
+
+describe('${component_name}', () => {
+  it('renders the expected accessible element', () => {
+    render(<${component_name} />);
+    expect(
+      screen.getByRole('${expected_role}', { name: '${expected_name}' })
+    ).toBeInTheDocument();
+  });
+});

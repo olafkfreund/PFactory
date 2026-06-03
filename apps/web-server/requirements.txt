@@ -1,0 +1,84 @@
+# Magestic AI Web Server Dependencies
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# WebSocket
+websockets>=12.0
+
+# PTY (Terminal)
+ptyprocess>=0.7.0
+
+# Data Validation
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Async utilities
+aiofiles>=23.0.0
+
+# HTTP client (for OAuth token exchange, MS Graph API)
+httpx>=0.27.0
+
+# Git operations
+gitpython>=3.1.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.0
+aiosqlite>=0.20.0
+# asyncpg is the production driver; aiosqlite is kept for local dev
+# (engine.py picks via DATABASE_URL scheme — see P1.1).
+asyncpg>=0.30.0
+# Alembic for schema migrations (see apps/web-server/alembic.ini)
+alembic>=1.13.0
+
+# Authentication (JWT + password hashing)
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+email-validator>=2.0.0
+
+# Epic #26 P2.4 — AWS KMS backend for envelope-encrypted secrets at rest.
+# Required when APP_KMS_BACKEND=aws_kms. Lazy-imported by
+# server.crypto.kms.aws so non-AWS deployments don't pay the cold-start
+# cost of boto3 (~1s on first import).
+boto3>=1.35.0
+
+# Epic #26 P2.4 — HashiCorp Vault Transit KMS backend. Required when
+# APP_KMS_BACKEND=vault_transit. Lazy-imported by server.crypto.kms.vault.
+hvac>=2.3.0
+
+# Epic #26 P2.4 — Azure Key Vault KMS backend. Required when
+# APP_KMS_BACKEND=azure_kv. Both packages lazy-imported by
+# server.crypto.kms.azure. DefaultAzureCredential covers managed
+# identity, service principal env vars, az-CLI, etc. — no auth code
+# in the backend itself.
+azure-identity>=1.20.0
+azure-keyvault-keys>=4.10.0
+
+# Epic #26 P2.4 — Google Cloud KMS backend. Required when
+# APP_KMS_BACKEND=gcp_kms. google-crc32c is used to compute the
+# wire-format integrity checksums Cloud KMS verifies on every
+# encrypt/decrypt — it's a small (~30 KB) explicit dep, NOT pulled
+# in transitively by google-cloud-kms.
+google-cloud-kms>=3.0.0
+google-crc32c>=1.5.0
+
+# Epic #26 P3 — OIDC SSO via authlib. We use authlib's Starlette
+# integration which handles PKCE + state + nonce + JWKS validation
+# correctly out of the box. itsdangerous is needed for Starlette's
+# SessionMiddleware (which authlib uses to round-trip PKCE verifier
+# + state between /login and /callback).
+authlib>=1.3.0
+itsdangerous>=2.2.0
+
+# Epic #26 P6 — Observability v1.
+# structlog: structured JSON logs to stdout (banks parse with jq +
+# ship to Loki/ELK).
+# prometheus-fastapi-instrumentator: /metrics with cardinality-capped
+# `handler` labels (route templates, not raw paths).
+structlog>=24.4.0
+prometheus-fastapi-instrumentator>=7.0.0

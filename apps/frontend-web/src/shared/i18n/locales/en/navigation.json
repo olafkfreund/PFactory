@@ -1,0 +1,100 @@
+{
+  "sections": {
+    "project": "Project",
+    "tools": "Tools"
+  },
+  "items": {
+    "tests": "Tests",
+    "kanban": "Tasks",
+    "terminals": "Terminal",
+    "editor": "Files",
+    "chat": "Chat",
+    "changelog": "Changelog",
+    "context": "Index & Memory",
+    "githubIssues": "GitHub Issues",
+    "githubPRs": "GitHub PRs",
+    "gitlabIssues": "GitLab Issues",
+    "gitlabMRs": "GitLab MRs",
+    "adoIssues": "ADO Work Items",
+    "adoPRs": "ADO Pull Requests",
+    "worktrees": "Worktrees",
+    "agentTools": "MCP",
+    "skills": "Skills",
+    "cloud": "Cloud Reports",
+    "visualReports": "Visual Reports"
+  },
+  "actions": {
+    "settings": "Settings",
+    "help": "Help & Feedback",
+    "newTask": "Task",
+    "logout": "Log Out"
+  },
+  "tooltips": {
+    "settings": "Application Settings",
+    "help": "Help & Feedback",
+    "logout": "Log out and return to login screen"
+  },
+  "logoutDialog": {
+    "title": "Log Out",
+    "description": "Are you sure you want to log out? You will need to enter your API token again.",
+    "confirm": "Log Out",
+    "cancel": "Cancel"
+  },
+  "messages": {
+    "initializeToCreateTasks": "Initialize PFactory to create tasks"
+  },
+  "claudeCode": {
+    "checking": "Checking Claude Code...",
+    "upToDate": "Claude Code is up to date",
+    "updateAvailable": "Claude Code update available",
+    "notInstalled": "Claude Code not installed",
+    "error": "Error checking Claude Code",
+    "installed": "Installed",
+    "outdated": "Update available",
+    "missing": "Not installed",
+    "current": "Current",
+    "latest": "Latest",
+    "lastChecked": "Last checked",
+    "learnMore": "Learn more about Claude Code",
+    "updateWarningTitle": "Update Claude Code?",
+    "updateWarningDescription": "Updating will close all running Claude Code sessions. Any unsaved work in those sessions may be lost. Make sure to save your work before proceeding.",
+    "updateAnyway": "Update Anyway",
+    "noToken": "No auth token configured",
+    "tokenOk": "Auth token configured",
+    "noAuth": "No Auth",
+    "tokenConfigured": "Auth token configured",
+    "noTokenConfigured": "No auth token configured",
+    "setupAuth": "Set Up Auth"
+  },
+  "localLLM": {
+    "running": "Running",
+    "notRunning": "Not Running",
+    "notInstalled": "Not Installed",
+    "version": "Version",
+    "models": "Models",
+    "lastChecked": "Last checked",
+    "availableModels": "Available models",
+    "more": "more",
+    "startHint": "Ollama is installed but not running. Start it with: ollama serve",
+    "install": "Install Ollama"
+  },
+  "cliTools": {
+    "authenticated": "Authenticated",
+    "needsAuth": "Needs Authentication",
+    "notInstalled": "Not Installed",
+    "updateAvailable": "Update Available",
+    "installed": "Installed",
+    "current": "Current",
+    "latest": "Latest",
+    "lastChecked": "Last checked",
+    "viaOAuth": "via OAuth",
+    "viaApiKey": "via API Key",
+    "viaGoogleLogin": "via Google Login",
+    "tokenExpires": "Token expires",
+    "loginInTerminal": "Login",
+    "waitingForAuth": "Waiting...",
+    "importCredentials": "Import Credentials",
+    "loginHintCodex": "Complete login in your browser window. Codex CLI will authenticate via OpenAI.",
+    "loginHintGemini": "Complete login in your browser window. Antigravity CLI will authenticate via Google."
+  }
+}

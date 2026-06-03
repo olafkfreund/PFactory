@@ -1,0 +1,58 @@
+{
+  "name": "pfactory",
+  "version": "0.5.0",
+  "description": "PFactory (Plan Factory) - AI planning & governance incubator: ingests project plans, enriches with live org/cloud context, runs review gates, emits governed epics + child issues for AIFactory to execute.",
+  "license": "MIT OR GPL-3.0-only",
+  "author": "DataSeek Team",
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ],
+  "scripts": {
+    "install:backend": "node scripts/install-backend.js",
+    "install:frontend": "cd apps/frontend-web && npm install",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "dev": "cd apps/frontend-web && npm run dev",
+    "build": "cd apps/frontend-web && npm run build",
+    "lint": "cd apps/frontend-web && npm run lint",
+    "test": "cd apps/frontend-web && npm test",
+    "test:backend": "node scripts/test-backend.js",
+    "docs:install": "cd docs && npm install",
+    "docs:dev": "cd docs && npm start",
+    "docs:build": "cd docs && npm run build",
+    "demo": "./scripts/demo.sh",
+    "screenshots": "npm -w apps/frontend-web run capture-screenshots"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=10.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/olafkfreund/PFactory.git"
+  },
+  "homepage": "https://github.com/olafkfreund/PFactory",
+  "bugs": {
+    "url": "https://github.com/olafkfreund/PFactory/issues"
+  },
+  "keywords": [
+    "ai",
+    "pfactory",
+    "plan-factory",
+    "ai-planning",
+    "project-planning",
+    "agent-orchestration",
+    "governance",
+    "backstage",
+    "epics",
+    "fastapi",
+    "react",
+    "autonomous-agents"
+  ],
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "jsdom": "^27.4.0",
+    "playwright": "^1.60.0",
+    "typescript": "^5.0.0"
+  }
+}

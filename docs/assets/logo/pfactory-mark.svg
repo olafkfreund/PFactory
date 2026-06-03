@@ -1,0 +1,45 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PFactory mark">
+  <title>PFactory — Plan Factory</title>
+  <defs>
+    <linearGradient id="pfBg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="0.55" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="pfFlow" x1="34" y1="64" x2="98" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#E0F2FE" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+
+  <!-- badge -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#pfBg)"/>
+  <!-- blueprint grid -->
+  <g stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1.5">
+    <path d="M28 12V116M52 12V116M76 12V116M100 12V116"/>
+    <path d="M12 28H116M12 52H116M12 76H116M12 100H116"/>
+  </g>
+
+  <!-- decomposition flow: one plan node -> three governed work items -->
+  <g stroke="url(#pfFlow)" stroke-width="4" stroke-linecap="round" fill="none" stroke-opacity="0.9">
+    <path d="M44 64 H62"/>
+    <path d="M62 64 C74 64 74 40 86 40"/>
+    <path d="M62 64 H86"/>
+    <path d="M62 64 C74 64 74 88 86 88"/>
+  </g>
+
+  <!-- source plan node (the "P" suggestion via stacked doc) -->
+  <rect x="26" y="50" width="20" height="28" rx="4" fill="#FFFFFF"/>
+  <rect x="30" y="56" width="12" height="3" rx="1.5" fill="#3B82F6"/>
+  <rect x="30" y="62" width="12" height="3" rx="1.5" fill="#93C5FD"/>
+  <rect x="30" y="68" width="8"  height="3" rx="1.5" fill="#93C5FD"/>
+
+  <!-- three child work-items (epic -> children) -->
+  <rect x="84" y="32" width="16" height="16" rx="4" fill="#FFFFFF"/>
+  <rect x="84" y="56" width="16" height="16" rx="4" fill="#FFFFFF"/>
+  <rect x="84" y="80" width="16" height="16" rx="4" fill="#FFFFFF"/>
+
+  <!-- governance "approved" check on the middle (gate passed) -->
+  <circle cx="92" cy="64" r="9.5" fill="#22C55E"/>
+  <path d="M88 64.5 L91 67.5 L96.5 61" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

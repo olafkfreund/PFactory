@@ -1,0 +1,54 @@
+# Dependencies (rebuilt in container)
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# Built frontend (rebuilt in Stage 1)
+apps/web-server/static/
+
+# Git
+.git/
+.gitignore
+
+# Runtime/sensitive data
+.pfactory/
+.worktrees/
+.claude/
+
+# Environment files (injected at runtime)
+.env
+apps/backend/.env
+apps/web-server/.env
+apps/frontend-web/.env
+
+# GitHub metadata (not needed at runtime)
+.github/
+
+# Legacy data
+.auto-claude/
+
+# Documentation & AI instruction files
+*.md
+!apps/**/*.md
+guides/
+shared_docs/
+LICENSE
+
+# Tests and docs
+tests/
+_bmad/
+_bmad-output/
+docs/
+coverage/
+.pytest_cache/
+
+# IDE and OS
+.DS_Store
+.vscode/
+.idea/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

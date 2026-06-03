@@ -1,0 +1,22 @@
+---
+description: Kubernetes service health — assert liveness + readiness endpoints return 200 (api lane; point PFACTORY_TARGET_URL at the port-forwarded service, see #108)
+requires_target: true
+requires_auth: false
+vars:
+  - health_path
+  - ready_path
+---
+import os
+
+import httpx
+
+# Point PFACTORY_TARGET_URL at the service (e.g. a kubectl port-forward; #108).
+BASE_URL = os.environ["PFACTORY_TARGET_URL"].rstrip("/")
+
+
+def test_kubernetes_service_is_live_and_ready() -> None:
+    live = httpx.get(f"{BASE_URL}${health_path}", timeout=15)
+    assert live.status_code == 200, f"liveness {live.status_code}: {live.text}"
+
+    ready = httpx.get(f"{BASE_URL}${ready_path}", timeout=15)
+    assert ready.status_code == 200, f"readiness {ready.status_code}: {ready.text}"

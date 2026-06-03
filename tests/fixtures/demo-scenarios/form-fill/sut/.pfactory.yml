@@ -1,0 +1,10 @@
+version: 1
+default_target: web
+targets:
+  - name: web
+    type: http
+    base_url: http://localhost:8300/
+    health_check:
+      path: /
+      expect_status: 200
+    selectors_hint: data_testid

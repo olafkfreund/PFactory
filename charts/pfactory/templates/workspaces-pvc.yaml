@@ -1,0 +1,32 @@
+{{- /*
+Portal-managed project workspaces PVC (epic #82 PR-B).
+
+Created only when ``workspaces.enabled: true``.  Mounted into the
+web-server pod at ``workspaces.mountPath`` (see deployment.yaml's
+volume block).  The clone service in ``project_workspace_service.py``
+uses this path via the ``PROJECT_WORKSPACE_ROOT`` env var.
+
+Resizing: PVC expansion is in-place for storage classes that support
+``allowVolumeExpansion: true`` — most cloud-native classes do.  For
+classes that don't, the operator has to create a new PVC, copy data,
+and reattach.
+*/}}
+{{- if .Values.workspaces.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pfactory.fullname" . }}-workspaces
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pfactory.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workspaces
+spec:
+  accessModes:
+    - {{ .Values.workspaces.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.workspaces.size | default "100Gi" | quote }}
+  {{- if .Values.workspaces.storageClass }}
+  storageClassName: {{ .Values.workspaces.storageClass | quote }}
+  {{- end }}
+{{- end }}

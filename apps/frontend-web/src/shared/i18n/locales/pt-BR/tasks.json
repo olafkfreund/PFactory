@@ -1,0 +1,175 @@
+{
+  "status": {
+    "backlog": "Backlog",
+    "todo": "A Fazer",
+    "in_progress": "Em Progresso",
+    "review": "Revisão",
+    "complete": "Concluído",
+    "archived": "Arquivado"
+  },
+  "actions": {
+    "start": "Iniciar",
+    "stop": "Parar",
+    "recover": "Recuperar",
+    "resume": "Retomar",
+    "archive": "Arquivar",
+    "delete": "Excluir",
+    "view": "Ver Detalhes"
+  },
+  "labels": {
+    "running": "Executando",
+    "aiReview": "Revisão IA",
+    "needsReview": "Precisa Revisão",
+    "pending": "Pendente",
+    "stuck": "Travado",
+    "incomplete": "Incompleto",
+    "recovering": "Recuperando...",
+    "needsRecovery": "Precisa Recuperação",
+    "needsResume": "Precisa Retomar"
+  },
+  "reviewReason": {
+    "completed": "Concluído",
+    "hasErrors": "Com Erros",
+    "qaIssues": "Problemas de QA",
+    "approvePlan": "Aprovar Plano"
+  },
+  "tooltips": {
+    "archiveTask": "Arquivar tarefa",
+    "archiveAllDone": "Arquivar todas as tarefas concluídas"
+  },
+  "creation": {
+    "title": "Criar Nova Tarefa",
+    "description": "Descreva o que você quer construir",
+    "placeholder": "Descreva sua tarefa..."
+  },
+  "empty": {
+    "title": "Nenhuma tarefa ainda",
+    "description": "Crie sua primeira tarefa para começar"
+  },
+  "kanban": {
+    "emptyBacklog": "Nenhuma tarefa planejada",
+    "emptyBacklogHint": "Adicione uma tarefa para começar",
+    "emptyInProgress": "Nada em execução",
+    "emptyInProgressHint": "Inicie uma tarefa do Backlog",
+    "emptyAiReview": "Nenhuma tarefa em revisão",
+    "emptyAiReviewHint": "A IA revisará as tarefas concluídas",
+    "emptyHumanReview": "Nada para revisar",
+    "emptyHumanReviewHint": "Tarefas aguardam sua aprovação aqui",
+    "emptyDone": "Nenhuma tarefa concluída",
+    "emptyDoneHint": "Tarefas aprovadas aparecem aqui",
+    "emptyDefault": "Sem tarefas",
+    "dropHere": "Solte aqui",
+    "showArchived": "Mostrar arquivadas"
+  },
+  "execution": {
+    "phases": {
+      "idle": "Inativo",
+      "planning": "Planejando",
+      "coding": "Codificando",
+      "reviewing": "Revisando",
+      "fixing": "Corrigindo",
+      "complete": "Completo",
+      "failed": "Falhou"
+    },
+    "labels": {
+      "interrupted": "Interrompido",
+      "progress": "Progresso",
+      "progressWithStatus": "Progresso ({{status}})",
+      "entry": "entrada",
+      "entries": "entradas"
+    },
+    "progressStatus": {
+      "idle": "inativo",
+      "planning": "planejando",
+      "planCompleted": "planejamento concluído",
+      "coding": "codificando",
+      "reviewing": "revisando",
+      "fixing": "corrigindo",
+      "complete": "completo",
+      "failed": "falhou"
+    },
+    "shortPhases": {
+      "plan": "Plano",
+      "code": "Código",
+      "qa": "QA"
+    }
+  },
+  "files": {
+    "title": "Arquivos",
+    "tab": "Arquivos",
+    "noSpecPath": "Nenhum arquivo de spec disponível",
+    "noFiles": "Nenhum arquivo encontrado",
+    "loading": "Carregando arquivos...",
+    "loadingContent": "Carregando conteúdo...",
+    "errorLoading": "Falha ao carregar arquivos",
+    "errorLoadingContent": "Falha ao carregar conteúdo do arquivo",
+    "retry": "Tentar novamente",
+    "selectFile": "Selecione um arquivo para ver seu conteúdo",
+    "openInIDE": "Abrir na IDE",
+    "downloadFile": "Baixar arquivo",
+    "previewInBrowser": "Visualizar no navegador",
+    "backToParent": "Voltar"
+  },
+  "metadata": {
+    "severity": "severidade"
+  },
+  "skills": {
+    "title": "Habilidades de IA",
+    "description": "Selecione habilidades para guiar o agente de IA com conhecimento especializado",
+    "browseTab": "Navegar",
+    "searchTab": "Pesquisar",
+    "suggestionsTab": "Sugestões",
+    "selectCategory": "Selecione uma categoria para navegar pelas habilidades",
+    "categoryCount": "{{count}}",
+    "searchPlaceholder": "Pesquisar habilidades...",
+    "clearSearch": "Limpar pesquisa",
+    "noResults": "Nenhuma habilidade encontrada",
+    "analyzing": "Analisando…",
+    "loadingSuggestions": "Analisando descrição da tarefa...",
+    "noSuggestions": "Nenhuma sugestão para esta descrição",
+    "selectedCount": "{{count}}/{{max}} habilidades selecionadas",
+    "selected_one": "{{count}} habilidade selecionada",
+    "selected_other": "{{count}} habilidades selecionadas",
+    "maximumReached": "Máximo atingido",
+    "maxSkillsReached": "Máximo de {{max}} habilidades selecionadas",
+    "noSkillsSelected": "Nenhuma habilidade selecionada",
+    "selectSkill": "{{name}}",
+    "removeSkill": "Remover habilidade",
+    "relevanceMatch": "{{score}}% de correspondência",
+    "categories": "Categorias",
+    "allSkills": "Todas as Habilidades",
+    "showPreview": "Mostrar prévia",
+    "hidePreview": "Ocultar prévia",
+    "expandSection": "Mostrar Habilidades de IA",
+    "collapseSection": "Ocultar Habilidades de IA"
+  },
+  "createPR": {
+    "title": "Criar Pull Request",
+    "description": "Configure e crie uma pull request para as alterações desta tarefa",
+    "targetRepo": "Repositório de destino",
+    "yourRepo": "Seu repositório",
+    "upstreamRepo": "Repositório upstream (original)",
+    "baseBranch": "Branch base",
+    "prTitle": "Título da PR",
+    "prDescription": "Descrição",
+    "draft": "Criar como rascunho",
+    "submit": "Criar Pull Request",
+    "cancel": "Cancelar",
+    "creating": "Criando PR...",
+    "detectingFork": "Detectando informações do repositório...",
+    "forkDetectionFailed": "Não foi possível detectar informações do fork (usando padrões)",
+    "success": "Pull Request Criada",
+    "createdSuccessfully": "criada com sucesso",
+    "failed": "Falha ao criar PR"
+  },
+  "notifications": {
+    "profileSwitch": {
+      "title": "Perfil do Claude alterado",
+      "description": {
+        "rateLimit": "Alternado automaticamente para {{profileName}} devido a um limite de taxa",
+        "earlyFailure": "Alternado automaticamente para {{profileName}} após uma falha inicial",
+        "unknown": "Alternado automaticamente para {{profileName}}"
+      }
+    }
+  }
+}

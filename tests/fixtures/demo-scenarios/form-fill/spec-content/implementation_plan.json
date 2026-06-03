@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "phases": [
+    { "id": "AC#1", "name": "Posted message text appears verbatim", "status": "complete" },
+    { "id": "AC#2", "name": "Special characters preserved exactly",  "status": "complete" },
+    { "id": "AC#3", "name": "Name is shown with the message",        "status": "complete" },
+    { "id": "AC#4", "name": "Two posts both remain visible",         "status": "complete" }
+  ]
+}

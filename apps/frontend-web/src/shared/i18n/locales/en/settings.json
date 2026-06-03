@@ -1,0 +1,693 @@
+{
+  "title": "Settings",
+  "tabs": {
+    "app": "App Settings",
+    "project": "Project Settings"
+  },
+  "sections": {
+    "appearance": {
+      "title": "Appearance",
+      "description": "Customize how PFactory looks"
+    },
+    "display": {
+      "title": "Display",
+      "description": "Adjust the size of UI elements"
+    },
+    "language": {
+      "title": "Language",
+      "description": "Choose your preferred language"
+    },
+    "devtools": {
+      "title": "Developer Tools",
+      "description": "IDE and terminal preferences"
+    },
+    "agent": {
+      "title": "Agent Settings",
+      "description": "Default model and framework"
+    },
+    "llmProvider": {
+      "title": "LLM Providers",
+      "description": "Cloud agents and OpenAI-compatible endpoints",
+      "cloudAgents": {
+        "title": "Cloud Agents",
+        "description": "Claude / Codex / Antigravity CLI logins"
+      },
+      "openaiCompatible": {
+        "title": "OpenAI-Compatible Endpoints",
+        "description": "LM Studio, vLLM, Together, Groq, Ollama at :11434/v1, etc."
+      },
+      "apiKeys": {
+        "title": "API Keys",
+        "description": "Provider API keys used as defaults across all projects",
+        "info": "Keys set here are used as defaults. Individual projects can override these in their settings.",
+        "anthropic": {
+          "label": "Anthropic API Key",
+          "description": "Used for Anthropic Claude API access"
+        },
+        "openai": {
+          "label": "OpenAI API Key",
+          "description": "Used for OpenAI (ChatGPT) models"
+        },
+        "google": {
+          "label": "Google AI API Key",
+          "description": "Used for Google AI (Gemini) models"
+        },
+        "groq": {
+          "label": "Groq API Key",
+          "description": "Used for Groq inference acceleration"
+        },
+        "openrouter": {
+          "label": "OpenRouter API Key",
+          "description": "Used for OpenRouter multi-model gateway"
+        }
+      }
+    },
+    "integrations": {
+      "title": "Integrations",
+      "description": "Third-party service connections and OAuth credentials"
+    },
+    "gitCredentials": {
+      "title": "Git Credentials",
+      "description": "Stored PATs for cloning private repositories",
+      "info": "When you register a project via Git URL (Add Project → Clone from Git URL), select a credential here to clone private repos. Tokens are encrypted at rest and never logged.",
+      "noOrg": "No organization configured yet — register a project first.",
+      "orgIdLabel": "Organization ID",
+      "orgIdHelp": "Your organization's UUID. Find it in any org URL or via the orgs API. Multi-org picker lands with Epic #35.",
+      "existing": "Existing credentials",
+      "add": "Add credential",
+      "loading": "Loading credentials…",
+      "empty": "No credentials stored yet.",
+      "anyHost": "any host",
+      "created": "created",
+      "copyId": "Copy credential ID",
+      "newCredential": "New credential",
+      "name": "Name",
+      "host": "Host (optional)",
+      "username": "Username (optional)",
+      "token": "Personal Access Token",
+      "tokenHelp": "Token is encrypted at rest. After save it cannot be retrieved again — copy elsewhere if you need a backup.",
+      "fieldsRequired": "Name and token are required.",
+      "confirmDelete": "Delete this credential? This cannot be undone.",
+      "cancel": "Cancel",
+      "save": "Save credential",
+      "saving": "Saving…"
+    },
+    "testCredentials": {
+      "title": "Test Credentials",
+      "description": "Logins your generated tests authenticate with",
+      "info": "Reference a stored credential from .pfactory.yml (test_credentials + auth: { type: ref }). It is injected only on egress lanes when a subtask sets requires_auth, and scrubbed from every log and artifact. Secrets are encrypted at rest and never returned after creation.",
+      "noOrg": "No organization configured yet — enter your org ID above.",
+      "orgIdLabel": "Organization ID",
+      "orgIdHelp": "Your organization's UUID. Find it in any org URL or via the orgs API. Multi-org picker lands with Epic #35.",
+      "existing": "Stored credentials",
+      "add": "Add credential",
+      "loading": "Loading credentials…",
+      "empty": "No credentials stored yet.",
+      "noUser": "no username",
+      "created": "created",
+      "copyName": "Copy name (reference it in .pfactory.yml)",
+      "newCredential": "New credential",
+      "name": "Name",
+      "kind": "Kind",
+      "username": "Username (optional)",
+      "secret": "Secret (password / API token / TOTP seed)",
+      "secretHelp": "Encrypted at rest. After save it cannot be retrieved again — store a backup elsewhere if you need one.",
+      "fieldsRequired": "Name and secret are required.",
+      "confirmDelete": "Delete this credential? This cannot be undone.",
+      "cancel": "Cancel",
+      "save": "Save credential",
+      "saving": "Saving…"
+    },
+    "cloudAssessment": {
+      "title": "Cloud Assessment",
+      "description": "Cloud misconfiguration findings + topology"
+    },
+    "apiKeys": {
+      "title": "API Keys",
+      "description": "Scoped acw_ keys for the stdio MCP control plane. Replaces the host-wide admin token for enterprise deployments.",
+      "info": "Mint a scoped key, then set $PFACTORY_MCP_KEY (or drop the value in ~/.pfactory/.mcp-key) on the laptop that runs the stdio MCP. The key is shown once at creation — copy it before closing the panel.",
+      "noOrg": "Enter an organization ID first.",
+      "orgIdLabel": "Organization ID",
+      "orgIdHelp": "Your organization's UUID. Multi-org picker lands with Epic #35.",
+      "existing": "Active keys",
+      "mint": "Mint key",
+      "mintConfirm": "Mint key",
+      "minting": "Minting…",
+      "loading": "Loading keys…",
+      "empty": "No keys minted yet.",
+      "noScopes": "no scopes",
+      "created": "created",
+      "expires": "expires",
+      "newKey": "Mint a new key",
+      "name": "Name",
+      "nameRequired": "Name is required.",
+      "scopes": "Scopes",
+      "scopeRequired": "Pick at least one scope.",
+      "expiresLabel": "Expires in (days, optional)",
+      "expiresPlaceholder": "leave blank for no expiry",
+      "confirmRevoke": "Revoke this key? Any laptop or shell using it loses access immediately.",
+      "copyOnce": "Copy this key now — it will not be shown again.",
+      "copyOnceHelp": "The backend stores only a hash. If you lose the key you have to revoke and mint a new one.",
+      "copyKey": "Copy key",
+      "acknowledge": "I've copied it",
+      "cancel": "Cancel"
+    },
+    "api-profiles": {
+      "title": "API Profiles",
+      "description": "Custom API endpoint profiles"
+    },
+    "updates": {
+      "title": "Updates",
+      "description": "PFactory updates"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Alert preferences"
+    },
+    "debug": {
+      "title": "Debug & Logs",
+      "description": "Troubleshooting tools"
+    }
+  },
+  "language": {
+    "label": "Interface Language",
+    "description": "Select the language for the application interface"
+  },
+  "scale": {
+    "presets": "Scale Presets",
+    "presetsDescription": "Quick scale options for common preferences",
+    "fineTune": "Fine-tune Scale",
+    "fineTuneDescription": "Adjust from 75% to 200% in 5% increments",
+    "default": "Default",
+    "comfortable": "Comfortable",
+    "large": "Large"
+  },
+  "general": {
+    "otherAgentSettings": "Other Agent Settings",
+    "otherAgentSettingsDescription": "Additional agent configuration options",
+    "agentFramework": "Agent Framework",
+    "agentFrameworkDescription": "The coding framework used for autonomous tasks",
+    "agentFrameworkAutoClaude": "PFactory",
+    "aiTerminalNaming": "AI Terminal Naming",
+    "aiTerminalNamingDescription": "Automatically name terminals based on commands (uses Haiku)",
+    "featureModelSettings": "Feature Model Settings",
+    "featureModelSettingsDescription": "Model and thinking level for Chat and GitHub features",
+    "model": "Model",
+    "thinkingLevel": "Thinking Level",
+    "autoNameTerminals": "Automatically name terminals",
+    "autoNameTerminalsDescription": "Use AI to generate descriptive names for terminal tabs based on their activity",
+    "bmadSessionSegmentation": "BMad Session Segmentation",
+    "bmadSessionSegmentationDescription": "Enable per-story sessions with minimal context for 50-90% token reduction (experimental)"
+  },
+  "theme": {
+    "title": "Appearance",
+    "description": "Customize how PFactory looks",
+    "mode": "Mode",
+    "modeDescription": "Choose between light and dark themes",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "devtools": {
+    "title": "Developer Tools",
+    "description": "Configure your preferred IDE and terminal for working with worktrees",
+    "detecting": "Detecting installed tools...",
+    "detectAgain": "Detect Again",
+    "ide": {
+      "label": "Preferred IDE",
+      "description": "PFactory will open worktrees in this editor",
+      "placeholder": "Select IDE...",
+      "customPath": "Custom IDE Path",
+      "customPathPlaceholder": "/path/to/your/ide"
+    },
+    "terminal": {
+      "label": "Preferred Terminal",
+      "description": "PFactory will open terminal sessions here",
+      "placeholder": "Select terminal...",
+      "customPath": "Custom Terminal Path",
+      "customPathPlaceholder": "/path/to/your/terminal"
+    },
+    "detected": "Detected",
+    "notInstalled": "Not installed",
+    "detectedSummary": "Detected on your system:",
+    "noToolsDetected": "No additional tools detected (VS Code and system terminal will be used)"
+  },
+  "updates": {
+    "title": "Updates",
+    "description": "Manage PFactory updates",
+    "appUpdateReady": "App Update Ready",
+    "newVersion": "New Version",
+    "released": "Released",
+    "downloading": "Downloading...",
+    "updateDownloaded": "Update downloaded! Click Install to restart and apply the update.",
+    "installAndRestart": "Install and Restart",
+    "downloadUpdate": "Download Update",
+    "version": "Version",
+    "loading": "Loading...",
+    "checkingForUpdates": "Checking for updates...",
+    "newVersionAvailable": "New version available:",
+    "latestVersion": "You're running the latest version.",
+    "viewRelease": "View full release on GitHub",
+    "unableToCheck": "Unable to check for updates",
+    "checkForUpdates": "Check for Updates",
+    "autoUpdateProjects": "Auto-Update Projects",
+    "autoUpdateProjectsDescription": "Automatically update PFactory in projects when a new version is available",
+    "betaUpdates": "Beta Updates",
+    "betaUpdatesDescription": "Receive pre-release beta versions with new features (may be less stable)"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "description": "Configure default notification preferences",
+    "onTaskComplete": "On Task Complete",
+    "onTaskCompleteDescription": "Notify when a task finishes successfully",
+    "onTaskFailed": "On Task Failed",
+    "onTaskFailedDescription": "Notify when a task encounters an error",
+    "onReviewNeeded": "On Review Needed",
+    "onReviewNeededDescription": "Notify when QA requires your review",
+    "sound": "Sound",
+    "soundDescription": "Play sound with notifications"
+  },
+  "email": {
+    "title": "Email Accounts",
+    "description": "Connect an email account to receive notifications when tasks complete, fail, or need review.",
+    "loading": "Loading email accounts...",
+    "enableEmail": "Email Notifications",
+    "enableEmailDescription": "Send email notifications for task events via your connected email account",
+    "connectOutlook": "Connect Outlook",
+    "connectedVia": "Connected via",
+    "disconnect": "Disconnect",
+    "noCredentialsConfigured": "No OAuth credentials configured. Set Microsoft or Google credentials in the Integrations settings tab.",
+    "connectionSuccess": "Email account connected successfully",
+    "connectionFailed": "Failed to connect email account",
+    "sendTestEmail": "Test Email",
+    "testEmailSent": "Test email sent successfully",
+    "oauthCredentials": "Microsoft OAuth Credentials",
+    "oauthCredentialsDescription": "Register an app in Azure AD to enable Outlook email notifications. Required scopes: Mail.Send, User.Read, offline_access.",
+    "microsoftClientId": "Microsoft Client ID",
+    "microsoftClientSecret": "Microsoft Client Secret",
+    "setup": {
+      "title": "How to register a Microsoft Azure AD app",
+      "step1": "Go to the <azureLink>Azure App Registrations portal</azureLink>",
+      "step2": "Click \"New registration\", name it (e.g. \"PFactory Notifications\"), select \"Accounts in any organizational directory and personal Microsoft accounts\", then click Register",
+      "step3": "From the app overview page, copy the \"Application (client) ID\" and paste it in the Client ID field below",
+      "step4": "Go to \"Certificates & secrets\" → \"New client secret\" → copy the Value (not the Secret ID) and paste it in the Client Secret field below",
+      "step5": "Go to \"Authentication\" → \"Add a platform\" → \"Web\" → set the redirect URI to:",
+      "step6": "Go to \"API permissions\" → \"Add a permission\" → \"Microsoft Graph\" → \"Delegated permissions\" → add: Mail.Send, User.Read, offline_access",
+      "httpsWarning": "Azure requires redirect URIs to use HTTPS (except http://localhost). Make sure your deployment uses HTTPS or a reverse proxy that terminates TLS."
+    },
+    "connectGmail": "Connect Gmail",
+    "googleClientId": "Google Client ID",
+    "googleClientSecret": "Google Client Secret",
+    "googleOauthCredentials": "Google OAuth Credentials",
+    "googleOauthCredentialsDescription": "Register an OAuth app in Google Cloud Console to enable Gmail email notifications. Required scopes: gmail.send, userinfo.email.",
+    "setupGoogle": {
+      "title": "How to set up Google OAuth",
+      "step1": "Go to the <googleLink>Google Cloud Console Credentials page</googleLink>",
+      "step2": "Click \"Create Credentials\" → \"OAuth client ID\" → select \"Web application\" as the application type",
+      "step3": "Copy the \"Client ID\" and paste it in the Google Client ID field below",
+      "step4": "Copy the \"Client secret\" and paste it in the Google Client Secret field below",
+      "step5": "Under \"Authorized redirect URIs\", add:",
+      "step6": "Go to \"Enabled APIs & services\" → enable the \"Gmail API\" for your project"
+    }
+  },
+  "actions": {
+    "save": "Save Settings",
+    "rerunWizard": "Re-run Wizard",
+    "rerunWizardDescription": "Start the setup wizard again"
+  },
+  "projectSections": {
+    "general": {
+      "title": "General",
+      "description": "Auto-Build and agent config",
+      "useClaudeMd": "Use CLAUDE.md",
+      "useClaudeMdDescription": "Include CLAUDE.md instructions in agent context"
+    },
+    "claude": {
+      "title": "Claude Auth",
+      "description": "Claude authentication"
+    },
+    "github": {
+      "title": "Git Providers",
+      "description": "Sync GitHub, GitLab, & ADO issues",
+      "integrationTitle": "Git Provider Integration",
+      "integrationDescription": "Connect to GitHub, GitLab, or Azure DevOps (ADO) for issue and task tracking",
+      "syncDescription": "Sync with Git Providers (GitHub, GitLab, ADO)"
+    },
+    "gitlab": {
+      "title": "GitLab",
+      "description": "GitLab issues sync",
+      "integrationTitle": "GitLab Integration",
+      "integrationDescription": "Connect to GitLab for issue tracking",
+      "syncDescription": "Sync with GitLab Issues"
+    },
+    "memory": {
+      "title": "Memory",
+      "description": "Graphiti memory backend",
+      "integrationTitle": "Memory",
+      "integrationDescription": "Configure persistent cross-session memory for agents",
+      "syncDescription": "Configure persistent memory"
+    },
+    "mcp": {
+      "title": "MCP Servers",
+      "description": "Auto-enabled infra tools for agents",
+      "integrationTitle": "MCP Servers",
+      "integrationDescription": "Catalog of default MCP servers. Each row shows whether it would auto-enable for this project — see the docs for credential setup and per-project overrides.",
+      "columns": {
+        "server": "Server",
+        "status": "Status",
+        "credentials": "Credentials",
+        "markers": "Project markers",
+        "agents": "Agents",
+        "docs": "Docs"
+      },
+      "status": {
+        "active": "Auto-enabled",
+        "noCreds": "Missing credentials",
+        "noMarker": "No matching markers",
+        "ready": "Ready"
+      },
+      "empty": "No MCP catalog entries available — the framework may not be loaded.",
+      "refresh": "Refresh",
+      "openDocs": "Open docs",
+      "explainerHint": "Override via .pfactory/.env: AGENT_MCP_<agent>_ADD or _REMOVE"
+    }
+  },
+  "agentProfile": {
+    "label": "Agent Profile",
+    "title": "Default Agent Profile",
+    "sectionDescription": "Select a preset configuration for model and thinking level",
+    "profilesInfo": "Agent profiles provide preset configurations for Claude model and thinking level. When you create a new task, these settings will be used as defaults. You can always override them in the task creation wizard.",
+    "custom": "Custom",
+    "customConfiguration": "Custom Configuration",
+    "customDescription": "Choose model & thinking level",
+    "phaseConfiguration": "Phase Configuration",
+    "phaseConfigurationDescription": "Customize model and thinking level for each phase",
+    "clickToCustomize": "Click to customize",
+    "model": "Model",
+    "thinking": "Thinking",
+    "thinkingLevel": "Thinking Level",
+    "selectModel": "Select model",
+    "selectThinkingLevel": "Select thinking level",
+    "perPhaseOptimization": "(per-phase optimization)",
+    "resetToDefaults": "Reset to defaults",
+    "phaseConfigNote": "These settings will be used as defaults when creating new tasks with the Auto profile. You can override them per-task in the task creation wizard.",
+    "phases": {
+      "spec": {
+        "label": "Spec Creation",
+        "description": "Discovery, requirements, context gathering"
+      },
+      "planning": {
+        "label": "Planning",
+        "description": "Implementation planning and architecture"
+      },
+      "coding": {
+        "label": "Coding",
+        "description": "Actual code implementation"
+      },
+      "qa": {
+        "label": "QA Review",
+        "description": "Quality assurance and validation"
+      },
+      "qa_fixer": {
+        "label": "QA Fixer",
+        "description": "Fixes issues reported by QA review"
+      }
+    }
+  },
+  "workspace": {
+    "roles": {
+      "backend": "Backend",
+      "frontend": "Frontend",
+      "mobile": "Mobile",
+      "shared": "Shared",
+      "apiGateway": "API Gateway",
+      "worker": "Worker",
+      "other": "Other"
+    }
+  },
+  "integrations": {
+    "title": "Integrations",
+    "description": "Manage Claude accounts and API keys",
+    "claudeAccounts": "Claude Accounts",
+    "claudeAccountsDescription": "Add multiple Claude subscriptions to automatically switch between them when you hit rate limits.",
+    "noAccountsYet": "No accounts configured yet",
+    "default": "Default",
+    "active": "Active",
+    "authenticated": "Authenticated",
+    "needsAuth": "Needs Auth",
+    "authenticate": "Authenticate",
+    "setActive": "Set Active",
+    "manualTokenEntry": "Manual Token Entry",
+    "runSetupToken": "Run claude setup-token to get your token",
+    "tokenPlaceholder": "sk-ant-oat01-...",
+    "emailPlaceholder": "Email (optional, for display)",
+    "saveToken": "Save Token",
+    "accountNamePlaceholder": "Account name (e.g., Work, Personal)",
+    "autoSwitching": "Automatic Account Switching",
+    "autoSwitchingDescription": "Automatically switch between Claude accounts to avoid interruptions. Configure proactive monitoring to switch before hitting limits.",
+    "enableAutoSwitching": "Enable automatic switching",
+    "masterSwitch": "Master switch for all auto-swap features",
+    "proactiveMonitoring": "Proactive Monitoring",
+    "proactiveDescription": "Check usage regularly and swap before hitting limits",
+    "checkUsageEvery": "Check usage every",
+    "seconds15": "15 seconds",
+    "seconds30": "30 seconds (recommended)",
+    "minute1": "1 minute",
+    "disabled": "Disabled",
+    "sessionThreshold": "Session usage threshold",
+    "sessionThresholdDescription": "Switch when session usage reaches this level (recommended: 95%)",
+    "weeklyThreshold": "Weekly usage threshold",
+    "weeklyThresholdDescription": "Switch when weekly usage reaches this level (recommended: 99%)",
+    "reactiveRecovery": "Reactive Recovery",
+    "reactiveDescription": "Auto-swap when unexpected rate limit is hit",
+    "apiKeys": "API Keys",
+    "apiKeysInfo": "Keys set here are used as defaults. Individual projects can override these in their settings.",
+    "openaiKey": "OpenAI API Key",
+    "openaiKeyDescription": "Used for OpenAI (ChatGPT) models",
+    "comingSoon": "Third-party integrations (Linear, Jira, Slack, etc.) are coming soon. Claude accounts and API keys have moved to the LLM Providers page.",
+    "cliAccounts": "Other CLI Accounts",
+    "cliAccountsDescription": "Connect Codex CLI (OpenAI) and Antigravity CLI (Google) for additional AI coding capabilities.",
+    "refreshStatus": "Refresh Status",
+    "notInstalled": "Not Installed",
+    "installed": "Installed",
+    "importCredentials": "Import Credentials",
+    "apiKeyEntry": "API Key",
+    "apiKeyPlaceholder": "Enter API key...",
+    "disconnect": "Disconnect",
+    "loginInTerminal": "Login in Terminal",
+    "waitingForAuth": "Waiting for authentication...",
+    "authenticatingWith": "Authenticating with {{cli}}...",
+    "completeOAuthInBrowser": "Complete the OAuth flow in your browser when prompted.",
+    "authSuccess": "Authentication successful!",
+    "authFailed": "Authentication timed out. Please try again.",
+    "install": "Install",
+    "installing": "Installing...",
+    "update": "Update",
+    "updating": "Updating...",
+    "updateAvailable": "Update available",
+    "credentialsDetected": "Credentials detected",
+    "codex": {
+      "name": "Codex CLI",
+      "description": "OpenAI's coding assistant",
+      "installHint": "npm install -g @openai/codex",
+      "loginHint": "Run 'codex login' in your terminal to authenticate",
+      "importHint": "Import from ~/.codex/auth.json",
+      "viaOAuth": "via ChatGPT OAuth",
+      "viaApiKey": "via API Key",
+      "tokenExpires": "Token expires"
+    },
+    "gemini": {
+      "name": "Antigravity CLI",
+      "description": "Google's Antigravity AI coding assistant",
+      "installHint": "npm install -g @google/gemini-cli",
+      "loginHint": "Run 'antigravity' and select Login with Google",
+      "importHint": "Import from ~/.gemini/settings.json",
+      "viaGoogleLogin": "via Google Login",
+      "viaApiKey": "via API Key"
+    }
+  },
+  "debug": {
+    "title": "Debug & Logs",
+    "description": "Access logs and debug information for troubleshooting",
+    "openLogsFolder": "Open Logs Folder",
+    "copyDebugInfo": "Copy Debug Info",
+    "copied": "Copied!",
+    "loadInfo": "Load Debug Info",
+    "systemInfo": "System Information",
+    "logsLocation": "Logs Location",
+    "recentErrors": "Recent Errors",
+    "noRecentErrors": "No recent errors",
+    "helpTitle": "Reporting Issues",
+    "helpText": "When reporting bugs, click \"Copy Debug Info\" to get system information and recent errors that help us diagnose the issue."
+  },
+  "projectSettings": {
+    "noProjectSelected": {
+      "title": "No Project Selected",
+      "description": "Select a project from the sidebar to configure its settings."
+    }
+  },
+  "connection": {
+    "successTitle": "Connection successful",
+    "successDescription": "Your API credentials are valid."
+  },
+  "mcp": {
+    "title": "MCP Server Overview",
+    "titleWithProject": "MCP Server Overview for {{projectName}}",
+    "description": "Configure which MCP servers are available for agents in this project",
+    "descriptionNoProject": "Select a project to configure MCP servers",
+    "serversEnabled": "{{count}} servers enabled",
+    "configuration": "MCP Server Configuration",
+    "configurationHint": "Disabled servers reduce context usage and startup time",
+    "noProjectSelected": "No Project Selected",
+    "noProjectSelectedDescription": "Select a project from the dropdown to view and configure MCP servers.",
+    "projectNotInitialized": "Project Not Initialized",
+    "projectNotInitializedDescription": "Initialize PFactory for this project to configure MCP servers.",
+    "browserAutomation": "Browser Automation (QA agents only)",
+    "alwaysEnabled": "always enabled",
+    "addServer": "Add Server",
+    "addMcpTo": "Add MCP Server to {{agent}}",
+    "addMcpDescription": "Select an MCP server to add to this agent",
+    "allMcpsAdded": "All available MCP servers are already added",
+    "added": "added",
+    "removed": "removed",
+    "remove": "Remove",
+    "restore": "Restore",
+    "noMcpServers": "No MCP servers",
+    "cannotRemove": "Cannot remove (required)",
+    "servers": {
+      "context7": {
+        "name": "Context7",
+        "description": "Documentation lookup for libraries"
+      },
+      "graphiti": {
+        "name": "Graphiti Memory",
+        "description": "Knowledge graph for cross-session context",
+        "notConfigured": "Requires memory configuration (see Memory settings)"
+      },
+      "electron": {
+        "name": "Electron",
+        "description": "Desktop app automation via Chrome DevTools"
+      },
+      "playwright": {
+        "name": "Playwright",
+        "description": "Web browser automation for testing (headless Chromium)"
+      },
+      "autoClaude": {
+        "name": "PFactory Tools",
+        "description": "Build progress tracking"
+      }
+    },
+    "customServers": "Custom Servers",
+    "addCustomServer": "Add Custom Server",
+    "editCustomServer": "Edit Custom Server",
+    "customServerDescription": "Add a command-based or HTTP-based MCP server",
+    "serverType": "Server Type",
+    "typeCommand": "Command (npx/npm)",
+    "typeHttp": "HTTP",
+    "serverName": "Name",
+    "serverNamePlaceholder": "My MCP Server",
+    "serverDescription": "Description",
+    "serverDescriptionPlaceholder": "What this server does",
+    "command": "Command",
+    "args": "Arguments",
+    "argsHint": "Space-separated arguments",
+    "url": "URL",
+    "headers": "Headers",
+    "headerName": "Header Name",
+    "headerValue": "Header Value",
+    "noCustomServers": "No custom servers configured. Add one to use with your agents.",
+    "errorNameRequired": "Server name is required",
+    "errorIdExists": "A server with this ID already exists",
+    "errorCommandRequired": "Command is required for command-based servers",
+    "errorUrlRequired": "URL is required for HTTP-based servers",
+    "testConnection": "Test",
+    "testing": "Testing...",
+    "authToken": "Authentication Token",
+    "authTokenPlaceholder": "Paste your API token or PAT here",
+    "authTokenHint": "Used as Bearer token in the Authorization header",
+    "advancedHeaders": "Additional Headers",
+    "status": {
+      "healthy": "Server is responding",
+      "unhealthy": "Server is not responding",
+      "needsAuth": "Authentication required",
+      "checking": "Checking...",
+      "unknown": "Status unknown"
+    },
+    "hints": {
+      "github": "This looks like a GitHub MCP server. You'll need a Personal Access Token with appropriate scopes.",
+      "createGithubPat": "Create GitHub PAT",
+      "google": "This looks like a Google API. You'll need an OAuth token or API key.",
+      "createGoogleToken": "Create Google Credentials",
+      "anthropic": "This looks like an Anthropic API. You'll need an API key.",
+      "createAnthropicKey": "Create Anthropic API Key",
+      "openai": "This looks like an OpenAI API. You'll need an API key.",
+      "createOpenaiKey": "Create OpenAI API Key"
+    },
+    "quickTemplates": "Quick Templates",
+    "quickTemplatesDescription": "Click a template to pre-fill the form",
+    "quickTemplatesLoading": "Detecting installed services...",
+    "quickTemplatesEmpty": "No additional services detected",
+    "quickTemplatesAvailable": "available",
+    "quickTemplatesInstalled": "installed",
+    "quickTemplatesNotAvailable": "not installed",
+    "categories": {
+      "core": "Core",
+      "database": "Database",
+      "vcs": "Version Control",
+      "browser": "Browser",
+      "search": "Search",
+      "devops": "DevOps",
+      "communication": "Communication"
+    }
+  },
+  "openaiEndpoints": {
+    "title": "OpenAI-Compatible Endpoints",
+    "description": "Connect to LM Studio, vLLM, OpenRouter, Together, Groq, or any service implementing the OpenAI /v1/chat/completions protocol.",
+    "add": "Add endpoint",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "create": "Create",
+    "cancel": "Cancel",
+    "test": "Test",
+    "label": "Label",
+    "baseUrl": "Base URL",
+    "baseUrlHint": "Without the /v1 suffix — we append it automatically.",
+    "apiKey": "API key",
+    "apiKeyOptional": "(optional)",
+    "apiKeyEditPlaceholder": "Leave blank to keep existing key",
+    "defaultModel": "Default model",
+    "loading": "Loading endpoints…",
+    "empty": "No endpoints yet. Click \"Add endpoint\" to connect one.",
+    "confirmDelete": "Delete this endpoint?",
+    "testSuccess": "Connection successful",
+    "testFailed": "Connection failed",
+    "modelsFound": "{{count}} models",
+    "modelsHint": "{{count}} models discovered — click the field or start typing to pick one.",
+    "unprobed": "Not tested yet"
+  },
+  "gitProviders": {
+    "enableGitIntegration": "Enable Git Integration",
+    "enableGitIntegrationDescription": "Sync issues and tasks from GitHub, GitLab, or Azure DevOps (ADO) and create tasks automatically",
+    "gitProvider": "Git Provider",
+    "gitProviderDescription": "Select your git hosting and issue tracking provider",
+    "gitToken": "Personal Access Token",
+    "gitTokenDescription": "Create a Personal Access Token with API read/write permissions",
+    "gitBaseUrl": "Base API URL",
+    "gitBaseUrlDescription": "Base URL for self-hosted instances (leave empty for default cloud)",
+    "gitOrg": "Organization",
+    "gitOrgDescription": "Azure DevOps Organization name",
+    "gitProject": "Project Name",
+    "gitProjectDescription": "Azure DevOps Project name",
+    "gitRepo": "Repository Path",
+    "gitRepoDescription": "Format: group/subgroup/repo (GitLab) or repo-name (Azure DevOps)",
+    "gitRepoPlaceholder": "group/project-name",
+    "gitTokenPlaceholder": "Enter your PAT token",
+    "gitBaseUrlPlaceholder": "https://gitlab.example.com",
+    "gitOrgPlaceholder": "e.g. MyOrg",
+    "gitProjectPlaceholder": "e.g. MyProject",
+    "githubProvider": "GitHub",
+    "gitlabProvider": "GitLab",
+    "adoProvider": "Azure DevOps"
+  }
+}

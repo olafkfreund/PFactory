@@ -1,0 +1,11 @@
+version: 1
+# One http target serves both the React UI (browser lane) and the
+# GET /api/quote route (api lane). Local demo app — no auth.
+targets:
+  - name: web
+    type: http
+    base_url: http://localhost:8200
+    health_check:
+      path: /api/quote?base=1&qty=1
+      expect_status: 200
+default_target: web

@@ -1,0 +1,275 @@
+@import 'tailwindcss';
+@import './styles/syntax-highlighting.css';
+
+@plugin '@tailwindcss/typography';
+
+/* ============================================
+   Tailwind Theme Configuration (v4)
+   ============================================ */
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  /* Typography: a refined sans for prose + a characterful mono for the data
+     plane (test ids, verdicts, lane codes, reports) — fits a test tool whose
+     content IS code, and Gruvbox's terminal heritage. Not Inter. */
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+}
+
+/* ============================================
+   Theme CSS Variables
+   ============================================ */
+
+/* Default Theme - Light Mode */
+:root {
+  font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Gruvbox — light mode (bg0 #fbf1c7 · fg #3c3836) */
+  --background: 48 87% 88%;          /* bg0   #fbf1c7 */
+  --foreground: 20 5% 22%;           /* fg1   #3c3836 */
+  --card: 46 80% 92%;                /* cream */
+  --card-foreground: 20 5% 22%;
+  --popover: 46 80% 92%;
+  --popover-foreground: 20 5% 22%;
+  --primary: 56 80% 26%;             /* green  #79740e */
+  --primary-foreground: 48 87% 92%;
+  --secondary: 43 36% 81%;           /* bg1   #ebdbb2 */
+  --secondary-foreground: 20 5% 22%;
+  --muted: 43 36% 81%;
+  --muted-foreground: 26 10% 44%;
+  --accent: 18 96% 35%;              /* orange #af3a03 */
+  --accent-foreground: 48 87% 92%;
+  --destructive: 2 99% 31%;          /* red    #9d0006 */
+  --destructive-foreground: 48 87% 92%;
+  --success: 146 30% 37%;            /* aqua   #427b58 */
+  --success-foreground: 48 87% 92%;
+  --warning: 36 80% 39%;             /* yellow #b57614 */
+  --warning-foreground: 48 87% 92%;
+  --info: 189 90% 25%;               /* blue   #076678 */
+  --info-foreground: 48 87% 92%;
+  --border: 40 33% 73%;              /* bg2   #d5c4a1 */
+  --input: 40 33% 73%;
+  --ring: 56 80% 26%;
+  --radius: 0.5rem;
+
+  color-scheme: light;
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+}
+
+/* Gruvbox — dark mode (bg0 #282828 · fg #ebdbb2) */
+.dark {
+  --background: 0 0% 16%;            /* bg0  #282828 */
+  --foreground: 43 36% 81%;         /* fg1  #ebdbb2 */
+  --card: 20 5% 22%;                /* bg1  #3c3836 */
+  --card-foreground: 43 36% 81%;
+  --popover: 24 7% 29%;             /* bg2  #504945 */
+  --popover-foreground: 43 36% 81%;
+  --primary: 61 66% 44%;            /* green  #b8bb26 */
+  --primary-foreground: 0 0% 12%;
+  --secondary: 24 7% 29%;           /* bg2 */
+  --secondary-foreground: 43 36% 81%;
+  --muted: 24 7% 29%;
+  --muted-foreground: 40 14% 59%;   /* fg4  #a89984 */
+  --accent: 27 99% 55%;             /* orange #fe8019 */
+  --accent-foreground: 0 0% 12%;
+  --destructive: 6 96% 59%;         /* red    #fb4934 */
+  --destructive-foreground: 0 0% 12%;
+  --success: 110 33% 62%;           /* aqua   #8ec07c */
+  --success-foreground: 0 0% 12%;
+  --warning: 42 95% 58%;            /* yellow #fabd2f */
+  --warning-foreground: 0 0% 12%;
+  --info: 155 16% 58%;              /* blue   #83a598 */
+  --info-foreground: 0 0% 12%;
+  --border: 24 7% 29%;              /* bg2 */
+  --input: 24 7% 29%;
+  --ring: 61 66% 44%;
+
+  color-scheme: dark;
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+}
+
+/* ============================================
+   Gruvbox Color Theme
+   ============================================ */
+
+[data-theme="gruvbox"] {
+  --primary: 56 80% 26%;             /* green  #79740e */
+  --primary-foreground: 48 87% 92%;
+  --accent: 18 96% 35%;              /* orange #af3a03 */
+  --accent-foreground: 48 87% 92%;
+  --ring: 56 80% 26%;
+}
+[data-theme="gruvbox"].dark, .dark[data-theme="gruvbox"] {
+  --background: 0 0% 16%;            /* bg0  #282828 */
+  --card: 20 5% 22%;                /* bg1  #3c3836 */
+  --popover: 24 7% 29%;             /* bg2  #504945 */
+  --border: 24 7% 29%;
+  --primary: 61 66% 44%;            /* green  #b8bb26 */
+  --accent: 27 99% 55%;             /* orange #fe8019 */
+}
+
+/* ============================================
+   shadcn "Mira" theme — switchable via data-theme="shadcn"
+   Neutral base + yellow primary, from the shadcn/ui preset b1ZzvpxAJ
+   (ui.shadcn.com), converted oklch -> HSL to match the portal's
+   hsl(var(--token)) system. Gruvbox remains the default.
+   success / warning / info are not part of the shadcn preset;
+   tasteful complements are supplied so semantic colors stay legible.
+   ============================================ */
+[data-theme="shadcn"] {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 4%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 4%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 4%;
+  --primary: 47 100% 50%;            /* yellow */
+  --primary-foreground: 30 84% 25%;
+  --secondary: 240 5% 96%;
+  --secondary-foreground: 240 6% 10%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 96%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 357 100% 45%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 142 71% 45%;            /* complement (not in shadcn preset) */
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;             /* complement (not in shadcn preset) */
+  --warning-foreground: 0 0% 4%;
+  --info: 217 91% 60%;               /* matches the preset's blue charts */
+  --info-foreground: 0 0% 100%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 63%;
+  --radius: 0.625rem;
+}
+
+.dark[data-theme="shadcn"] {
+  --background: 0 0% 4%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 9%;
+  --card-foreground: 0 0% 98%;
+  --popover: 0 0% 9%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 44 100% 47%;            /* yellow */
+  --primary-foreground: 30 84% 25%;
+  --secondary: 240 4% 16%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 63%;
+  --accent: 0 0% 15%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 359 100% 70%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 142 69% 58%;
+  --success-foreground: 0 0% 4%;
+  --warning: 38 92% 55%;
+  --warning-foreground: 0 0% 4%;
+  --info: 213 94% 68%;
+  --info-foreground: 0 0% 4%;
+  --border: 180 1% 14%;
+  --input: 0 0% 18%;
+  --ring: 0 0% 45%;
+  --radius: 0.625rem;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Accessibility: respect the user's reduced-motion preference (a11y) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Terminal grid drag-and-drop styles */
+.terminal-grid-item {
+  transition: transform 200ms ease-out, box-shadow 200ms ease-out, opacity 200ms ease-out;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.terminal-grid-item.dragging {
+  z-index: 50;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+/* Prevent xterm.js from overflowing its container */
+.xterm {
+  width: 100% !important;
+  max-width: 100%;
+}
+
+.xterm-viewport,
+.xterm-screen {
+  width: 100% !important;
+}

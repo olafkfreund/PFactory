@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "phases": [
+    { "id": "AC#1", "name": "Quote core maths (pytest)",        "status": "complete" },
+    { "id": "AC#2", "name": "Form validation (jest)",           "status": "complete" },
+    { "id": "AC#3", "name": "Submit flow renders (playwright)", "status": "complete" },
+    { "id": "AC#4", "name": "Quote API JSON (httpx)",           "status": "complete" }
+  ]
+}

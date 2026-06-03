@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "PFactory Helm chart values",
+  "type": "object",
+  "required": ["image", "replicaCount"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["repository"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]},
+        "pullSecrets": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "replicaCount": {"type": "integer", "minimum": 1, "maximum": 5},
+    "resources": {"type": "object"},
+    "podSecurityContext": {"type": "object"},
+    "containerSecurityContext": {"type": "object"},
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": {"enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "targetPort": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "className": {"type": "string"}
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": {"type": "boolean"},
+        "automountServiceAccountToken": {"type": "boolean"}
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"}
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "properties": {
+        "autoApply": {"type": "boolean"}
+      }
+    },
+    "postgres": {
+      "type": "object",
+      "properties": {
+        "bundled": {"type": "boolean"}
+      }
+    },
+    "externalSecrets": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "backend": {"enum": ["vault", "aws-sm", "azure-kv", "gcp-sm"]}
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "provider": {"enum": ["keycloak", "okta", "azure_ad"]}
+      }
+    },
+    "kms": {
+      "type": "object",
+      "properties": {
+        "backend": {"enum": ["fernet", "aws_kms", "vault_transit", "azure_kv", "gcp_kms"]}
+      }
+    },
+    "global": {
+      "type": "object",
+      "properties": {
+        "customCABundle": {
+          "type": "object",
+          "properties": {
+            "secretName": {"type": "string"},
+            "key": {"type": "string"}
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

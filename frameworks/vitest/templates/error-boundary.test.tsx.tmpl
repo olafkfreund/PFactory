@@ -1,0 +1,18 @@
+---
+description: Error path test — assert the function throws (or rejects) for invalid input
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - invalid_args
+  - expected_error_message
+---
+import { describe, it, expect } from 'vitest';
+import { ${function_name} } from '${module_path}';
+
+describe('${function_name} (error path)', () => {
+  it('throws for invalid input', () => {
+    expect(() => ${function_name}(${invalid_args})).toThrow('${expected_error_message}');
+  });
+});

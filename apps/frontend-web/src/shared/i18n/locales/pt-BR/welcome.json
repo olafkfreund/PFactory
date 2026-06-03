@@ -1,0 +1,16 @@
+{
+  "hero": {
+    "title": "Bem-vindo ao PFactory",
+    "subtitle": "Construa software de forma autônoma com agentes de IA"
+  },
+  "actions": {
+    "newProject": "Novo Projeto",
+    "openProject": "Abrir Projeto"
+  },
+  "recentProjects": {
+    "title": "Projetos Recentes",
+    "empty": "Nenhum projeto ainda",
+    "emptyDescription": "Crie um novo projeto ou abra um existente para começar",
+    "openFolder": "Abrir Pasta"
+  }
+}

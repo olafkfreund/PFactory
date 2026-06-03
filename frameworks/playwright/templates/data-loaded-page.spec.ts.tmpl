@@ -1,0 +1,21 @@
+---
+description: Data loaded page — navigate to a page and assert that a specific data element is visible with the expected text
+requires_target: true
+requires_auth: false
+vars:
+  - target_base_url
+  - test_name
+  - page_url
+  - expected_data_selector
+  - expected_data_text
+---
+import { test, expect } from '@playwright/test';
+
+test('${test_name}', async ({ page }) => {
+  await page.goto('${target_base_url}${page_url}');
+
+  // Wait for the data container to appear and verify its content
+  const dataElement = page.locator('${expected_data_selector}');
+  await expect(dataElement).toBeVisible();
+  await expect(dataElement).toContainText('${expected_data_text}');
+});

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ spec_name }} - Implementation Plan Review</title>
+    <style>
+        :root {
+            --primary: #0ea5e9;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #c03030;
+            --bg-dark: #092334;
+            --bg-light: #082f49;
+            --text-dark: #f2f2f2;
+            --text-light: #9494a0;
+            --border: #204660;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-dark);
+            background: var(--bg-light);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, #064e6e 100%);
+            color: white;
+            padding: 3rem 2rem;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header .subtitle {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-dark);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .stat-card .label {
+            color: var(--text-light);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card .value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .card {
+            background: var(--bg-dark);
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-dark);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card h3 {
+            font-size: 1.25rem;
+            margin: 1.5rem 0 0.75rem;
+            color: var(--text-dark);
+        }
+
+        .icon {
+            width: 24px;
+            height: 24px;
+            display: inline-block;
+        }
+
+        .phase {
+            border-left: 3px solid var(--border);
+            padding-left: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .phase.active {
+            border-left-color: var(--primary);
+        }
+
+        .phase.completed {
+            border-left-color: var(--success);
+        }
+
+        .phase-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .phase-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .phase-badge.pending {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-light);
+        }
+
+        .phase-badge.in-progress {
+            background: rgba(14, 165, 233, 0.15);
+            color: var(--primary);
+        }
+
+        .phase-badge.completed {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .subtasks {
+            list-style: none;
+            margin-top: 1rem;
+        }
+
+        .subtask {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 6px;
+            margin-bottom: 0.75rem;
+            transition: all 0.2s;
+        }
+
+        .subtask:hover {
+            background: rgba(255, 255, 255, 0.06);
+            transform: translateX(4px);
+        }
+
+        .subtask-status {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .subtask-status.pending {
+            background: #204660;
+        }
+
+        .subtask-status.in-progress {
+            background: var(--primary);
+            animation: pulse 2s infinite;
+        }
+
+        .subtask-status.completed {
+            background: var(--success);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .subtask-content {
+            flex: 1;
+        }
+
+        .subtask-id {
+            font-size: 0.75rem;
+            color: var(--text-light);
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+
+        .subtask-description {
+            margin-top: 0.25rem;
+            color: var(--text-dark);
+        }
+
+        .subtask-files {
+            margin-top: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .file-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .file-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.75rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.875rem;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+
+        .file-badge.create {
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        .file-badge.modify {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .criteria {
+            list-style: none;
+        }
+
+        .criteria li {
+            padding: 0.75rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+
+        .criteria li:before {
+            content: "✓";
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            background: var(--success);
+            color: white;
+            text-align: center;
+            border-radius: 50%;
+            flex-shrink: 0;
+            font-size: 0.875rem;
+            line-height: 20px;
+        }
+
+        .metadata {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+
+        .metadata-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .metadata-label {
+            font-size: 0.875rem;
+            color: var(--text-light);
+            margin-bottom: 0.25rem;
+        }
+
+        .metadata-value {
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .table-of-contents {
+            position: sticky;
+            top: 2rem;
+            background: var(--bg-dark);
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .toc-title {
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-dark);
+        }
+
+        .toc-list {
+            list-style: none;
+        }
+
+        .toc-list a {
+            display: block;
+            padding: 0.5rem 0;
+            color: var(--text-light);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .toc-list a:hover {
+            color: var(--primary);
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 2rem;
+            align-items: start;
+        }
+
+        @media (max-width: 768px) {
+            .grid-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .table-of-contents {
+                position: static;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-light);
+            font-size: 0.875rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #204660;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 1rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--success));
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ spec_name }}</h1>
+            <p class="subtitle">Implementation Plan Review</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="label">Total Phases</div>
+                <div class="value">{{ total_phases }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Total Subtasks</div>
+                <div class="value">{{ completed_subtasks }}/{{ total_subtasks }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Complexity</div>
+                <div class="value">{{ complexity|upper }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Estimated Sessions</div>
+                <div class="value">{{ estimated_sessions }}</div>
+            </div>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: {{ progress }}%"></div>
+        </div>
+
+        <div class="grid-layout">
+            <aside class="table-of-contents">
+                <div class="toc-title">📋 Contents</div>
+                <ul class="toc-list">
+                    <li><a href="#overview">Overview</a></li>
+                    <li><a href="#phases">Implementation Phases</a></li>
+                    <li><a href="#criteria">Success Criteria</a></li>
+                    <li><a href="#metadata">Metadata</a></li>
+                </ul>
+            </aside>
+
+            <main>
+                <div id="overview" class="card">
+                    <h2>📄 Overview</h2>
+                    <p>{{ overview }}</p>
+
+                    {% if workflow_type %}
+                    <h3>Workflow Type</h3>
+                    <p><strong>Type:</strong> {{ workflow_type }}</p>
+                    {% endif %}
+                </div>
+
+                <div id="phases" class="card">
+                    <h2>⚙️ Implementation Phases</h2>
+
+                    {% for phase in phases %}
+                    <div class="phase {{ phase.status }}">
+                        <div class="phase-header">
+                            <h3>Phase {{ phase.phase }}: {{ phase.name }}</h3>
+                            <span class="phase-badge {{ phase.status }}">
+                                {% if phase.status == 'completed' %}✓{% elif phase.status == 'in_progress' %}⏳{% else %}○{% endif %}
+                                {{ phase.status|upper }}
+                            </span>
+                        </div>
+
+                        {% if phase.description %}
+                        <p>{{ phase.description }}</p>
+                        {% endif %}
+
+                        {% if phase.subtasks %}
+                        <ul class="subtasks">
+                            {% for subtask in phase.subtasks %}
+                            <li class="subtask">
+                                <div class="subtask-status {{ subtask.status }}"></div>
+                                <div class="subtask-content">
+                                    <div class="subtask-id">{{ subtask.id }}</div>
+                                    <div class="subtask-description">{{ subtask.description }}</div>
+
+                                    {% if subtask.files_to_create or subtask.files_to_modify %}
+                                    <div class="subtask-files">
+                                        <div class="file-list">
+                                            {% for file in subtask.files_to_create %}
+                                            <span class="file-badge create">+ {{ file }}</span>
+                                            {% endfor %}
+                                            {% for file in subtask.files_to_modify %}
+                                            <span class="file-badge modify">✎ {{ file }}</span>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+
+                {% if success_criteria %}
+                <div id="criteria" class="card">
+                    <h2>✅ Success Criteria</h2>
+                    <ul class="criteria">
+                        {% for criterion in success_criteria %}
+                        <li>{{ criterion }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+
+                <div id="metadata" class="card">
+                    <h2>📊 Metadata</h2>
+                    <div class="metadata">
+                        <div class="metadata-item">
+                            <span class="metadata-label">Created At</span>
+                            <span class="metadata-value">{{ created_at }}</span>
+                        </div>
+                        <div class="metadata-item">
+                            <span class="metadata-label">Workflow Type</span>
+                            <span class="metadata-value">{{ workflow_type }}</span>
+                        </div>
+                        {% if services_involved %}
+                        <div class="metadata-item">
+                            <span class="metadata-label">Services Involved</span>
+                            <span class="metadata-value">{{ services_involved|join(', ') }}</span>
+                        </div>
+                        {% endif %}
+                        {% if recommended_workers %}
+                        <div class="metadata-item">
+                            <span class="metadata-label">Recommended Workers</span>
+                            <span class="metadata-value">{{ recommended_workers }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <div class="footer">
+            Generated by MagesticAI • {{ generated_at }}
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,187 @@
+{
+  "wizard": {
+    "title": "Assistente de Configuração",
+    "description": "Configure seu ambiente PFactory em poucos passos simples",
+    "helpText": "Este assistente ajudará você a configurar seu ambiente em apenas alguns passos. Você pode configurar seu token OAuth do Claude, ativar recursos de memória e criar sua primeira tarefa."
+  },
+  "welcome": {
+    "title": "Bem-vindo ao PFactory",
+    "subtitle": "Construa software de forma autônoma com agentes de IA",
+    "getStarted": "Começar",
+    "skip": "Pular Configuração",
+    "features": {
+      "aiPowered": {
+        "title": "Desenvolvimento com IA",
+        "description": "Gere código e construa funcionalidades usando agentes Claude Code"
+      },
+      "specDriven": {
+        "title": "Fluxo Orientado a Specs",
+        "description": "Defina tarefas com especificações claras e deixe o PFactory cuidar da implementação"
+      },
+      "memory": {
+        "title": "Memória e Contexto",
+        "description": "Memória persistente entre sessões com Graphiti"
+      },
+      "parallel": {
+        "title": "Execução Paralela",
+        "description": "Execute múltiplos agentes em paralelo para ciclos de desenvolvimento mais rápidos"
+      }
+    }
+  },
+  "oauth": {
+    "title": "Autenticação Claude",
+    "description": "Conecte sua conta Claude para habilitar recursos de IA",
+    "keychainTitle": "Armazenamento Seguro",
+    "keychainDescription": "Seus tokens são criptografados usando o keychain do seu sistema. Você pode ver uma solicitação de senha do macOS — clique em \"Sempre Permitir\" para não ver novamente."
+  },
+  "memory": {
+    "title": "Memória",
+    "description": "A Memória do PFactory ajuda a lembrar o contexto entre suas sessões de codificação"
+  },
+  "completion": {
+    "title": "Tudo Pronto!",
+    "subtitle": "PFactory está pronto para ajudá-lo a construir software incrível",
+    "setupComplete": "Configuração Completa",
+    "setupCompleteDescription": "Seu ambiente está configurado e pronto. Você pode começar a criar tarefas imediatamente ou explorar o aplicativo no seu ritmo.",
+    "whatsNext": "O Que Vem a Seguir?",
+    "createTask": {
+      "title": "Criar uma Tarefa",
+      "description": "Comece criando sua primeira tarefa para ver o PFactory em ação.",
+      "action": "Abrir Criador de Tarefas"
+    },
+    "customizeSettings": {
+      "title": "Personalizar Configurações",
+      "description": "Ajuste suas preferências, configure integrações ou execute este assistente novamente.",
+      "action": "Abrir Configurações"
+    },
+    "exploreDocs": {
+      "title": "Explorar Documentação",
+      "description": "Aprenda mais sobre recursos avançados, melhores práticas e solução de problemas."
+    },
+    "finish": "Finalizar e Começar a Construir",
+    "rerunHint": "Você sempre pode executar este assistente novamente em Configurações → Aplicativo"
+  },
+  "importCredentials": {
+    "checking": "Verificando credenciais existentes...",
+    "title": "Credenciais Existentes Detectadas",
+    "description": "Encontramos credenciais do Claude Code existentes no seu sistema.",
+    "found": "Credenciais do Claude Code CLI encontradas",
+    "foundDescription": "Um token OAuth válido foi encontrado em ~/.claude/.credentials.json. Deseja importá-lo para o PFactory?",
+    "importButton": "Sim, Importar Credenciais",
+    "manualSetup": "Não, Configurar Manualmente",
+    "success": "Credenciais importadas com sucesso! Continuando...",
+    "error": "Falha ao importar credenciais. Você pode configurar a autenticação manualmente."
+  },
+  "providerChoice": {
+    "title": "Escolha seu Provedor de IA",
+    "subtitle": "Selecione como você deseja alimentar o PFactory. Você pode alterar isso depois nas Configurações.",
+    "claude": {
+      "title": "Claude",
+      "description": "Faça login com sua conta Anthropic ou token OAuth"
+    },
+    "openaiCompat": {
+      "title": "Compatível com OpenAI",
+      "description": "Use qualquer servidor compatível com OpenAI (LM Studio, Ollama, vLLM, etc.)"
+    },
+    "skip": {
+      "title": "Pular",
+      "description": "Configurar mais tarde nas Configurações"
+    }
+  },
+  "steps": {
+    "welcome": "Boas-vindas",
+    "providerChoice": "Provedor",
+    "openaiCompatSetup": "Config OpenAI",
+    "importCredentials": "Importar",
+    "authChoice": "Método de Auth",
+    "auth": "Auth",
+    "claudeCode": "CLI",
+    "devtools": "Dev Tools",
+    "memory": "Memória",
+    "done": "Concluído"
+  },
+  "claudeCode": {
+    "title": "Claude Code CLI",
+    "description": "Instale ou atualize o Claude Code CLI para habilitar recursos de IA",
+    "detecting": "Verificando instalação do Claude Code...",
+    "info": {
+      "title": "O que é Claude Code?",
+      "description": "Claude Code é a CLI oficial da Anthropic que alimenta os recursos de IA do PFactory. Ela fornece autenticação segura e acesso direto aos modelos Claude."
+    },
+    "status": {
+      "installed": "Instalado",
+      "outdated": "Atualização Disponível",
+      "notFound": "Não Instalado"
+    },
+    "version": {
+      "current": "Versão Atual",
+      "latest": "Versão Mais Recente"
+    },
+    "install": {
+      "button": "Instalar Claude Code",
+      "updating": "Atualizar Claude Code",
+      "inProgress": "Instalando...",
+      "success": "Comando de instalação enviado ao terminal. Por favor, complete a instalação lá.",
+      "instructions": "O instalador abrirá no seu terminal. Siga as instruções para completar a instalação."
+    },
+    "learnMore": "Saiba mais sobre o Claude Code"
+  },
+  "devtools": {
+    "title": "Ferramentas de Desenvolvimento",
+    "description": "Escolha sua IDE e terminal preferidos para trabalhar com worktrees do PFactory",
+    "detecting": "Detectando ferramentas instaladas...",
+    "detectAgain": "Detectar Novamente",
+    "whyConfigure": "Por que configurar isso?",
+    "whyConfigureDescription": "Quando o PFactory constrói funcionalidades em worktrees isoladas, você pode abri-las diretamente na sua IDE ou terminal preferido para testar e revisar as alterações.",
+    "ide": {
+      "label": "IDE Preferida",
+      "description": "PFactory abrirá worktrees neste editor",
+      "customPath": "Caminho da IDE Personalizada"
+    },
+    "terminal": {
+      "label": "Terminal Preferido",
+      "description": "PFactory abrirá sessões de terminal aqui",
+      "customPath": "Caminho do Terminal Personalizado"
+    },
+    "detectedSummary": "Detectado no seu sistema:",
+    "noToolsDetected": "Nenhuma ferramenta adicional detectada (VS Code e terminal do sistema serão usados)",
+    "custom": "Personalizado...",
+    "saveAndContinue": "Salvar e Continuar"
+  },
+  "openaiCompatSetup": {
+    "title": "Servidor Compatível com OpenAI",
+    "subtitle": "Conecte-se a qualquer servidor compatível com OpenAI como LM Studio, Ollama, vLLM ou LocalAI.",
+    "baseUrlLabel": "URL Base do Servidor",
+    "baseUrlHint": "A URL base do seu servidor compatível com OpenAI (ex. LM Studio, LocalAI, vLLM).",
+    "apiKeyLabel": "Chave de API",
+    "apiKeyPlaceholder": "Digite a chave de API se necessário",
+    "testButton": "Testar Conexão",
+    "testing": "Testando...",
+    "testSuccess": "Conexão bem-sucedida!",
+    "testSuccessModels": "{{count}} modelo(s) disponível(is) encontrado(s).",
+    "testFailed": "Conexão falhou",
+    "testError": "Falha ao testar conexão. Verifique a URL do servidor e tente novamente.",
+    "success": "Conexão bem-sucedida! O servidor está acessível.",
+    "failed": "Conexão falhou. Por favor, verifique a URL e a chave de API.",
+    "continueButton": "Continuar",
+    "skip": "Pular por agora"
+  },
+  "ollama": {
+    "notInstalled": {
+      "title": "Ollama não instalado",
+      "description": "Ollama fornece modelos de embedding locais e gratuitos para busca semântica. Instale com um clique para habilitar este recurso.",
+      "installSuccess": "Instalação iniciada no seu terminal. Complete a instalação lá e clique em Tentar Novamente.",
+      "installButton": "Instalar Ollama",
+      "installing": "Instalando...",
+      "retry": "Tentar Novamente",
+      "learnMore": "Saiba mais",
+      "fallbackNote": "A memória ainda funcionará com busca por palavras-chave mesmo sem o Ollama."
+    },
+    "notRunning": {
+      "title": "Ollama não está executando",
+      "description": "Ollama está instalado mas não está executando. Inicie o Ollama para usar modelos de embedding locais.",
+      "retry": "Tentar Novamente",
+      "fallbackNote": "A memória ainda funcionará com busca por palavras-chave mesmo sem embeddings."
+    }
+  }
+}

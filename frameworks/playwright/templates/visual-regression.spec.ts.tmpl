@@ -1,0 +1,29 @@
+---
+description: Visual regression — navigate to a page and assert it matches a stored screenshot baseline
+requires_target: true
+requires_auth: false
+vars:
+  - target_base_url
+  - test_name
+  - page_path
+  - snapshot_name
+  - max_diff_pixel_ratio
+---
+import { test, expect } from '@playwright/test';
+
+test('${test_name}', async ({ page }) => {
+  await page.goto('${target_base_url}${page_path}');
+
+  // Settle the page with an auto-waited assertion (never a fixed timeout) so the
+  // screenshot is stable rather than flaky.
+  await expect(page.getByRole('main')).toBeVisible();
+
+  // Compare against the stored baseline. maxDiffPixelRatio tolerates tiny
+  // anti-aliasing / font-rendering differences; disabling animations and
+  // freezing the caret removes the two biggest sources of visual flake.
+  await expect(page).toHaveScreenshot('${snapshot_name}', {
+    maxDiffPixelRatio: ${max_diff_pixel_ratio},
+    animations: 'disabled',
+    caret: 'hide',
+  });
+});

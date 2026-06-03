@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pfactory.fullname" . }}-config
+  labels:
+    {{- include "pfactory.labels" . | nindent 4 }}
+data:
+  # Non-secret runtime configuration. Secrets live in K8s Secret
+  # objects (created by ExternalSecret templates or out-of-band).
+  APP_KMS_BACKEND: {{ .Values.kms.backend | quote }}
+  APP_OIDC_ENABLED: {{ .Values.oidc.enabled | quote }}
+  {{- if .Values.oidc.enabled }}
+  APP_OIDC_PROVIDER: {{ .Values.oidc.provider | quote }}
+  APP_OIDC_ISSUER_URL: {{ .Values.oidc.issuerUrl | quote }}
+  APP_OIDC_CLIENT_ID: {{ .Values.oidc.clientId | quote }}
+  {{- if .Values.oidc.scope }}
+  APP_OIDC_SCOPE: {{ .Values.oidc.scope | quote }}
+  {{- end }}
+  {{- if .Values.oidc.groupToRole }}
+  APP_OIDC_GROUP_TO_ROLE: {{ .Values.oidc.groupToRole | toJson | quote }}
+  {{- end }}
+  APP_OIDC_DEFAULT_ROLE: {{ .Values.oidc.defaultRole | quote }}
+  {{- end }}
+  {{- if eq .Values.kms.backend "aws_kms" }}
+  AWS_KMS_KEY_ID: {{ .Values.kms.awsKmsKeyId | quote }}
+  {{- end }}
+  {{- if eq .Values.kms.backend "vault_transit" }}
+  VAULT_TRANSIT_KEY: {{ .Values.kms.vaultTransitKey | quote }}
+  {{- end }}
+  {{- if eq .Values.kms.backend "azure_kv" }}
+  AZURE_KEYVAULT_URL: {{ .Values.kms.azureKeyvaultUrl | quote }}
+  AZURE_KEYVAULT_KEY: {{ .Values.kms.azureKeyvaultKey | quote }}
+  {{- end }}
+  {{- if eq .Values.kms.backend "gcp_kms" }}
+  GCP_KMS_KEY_NAME: {{ .Values.kms.gcpKmsKeyName | quote }}
+  {{- end }}
+  {{- if and .Values.global .Values.global.customCABundle.secretName }}
+  # Make Python's ssl + httpx + boto3 use the corporate CA bundle.
+  SSL_CERT_FILE: /etc/ssl/custom-ca/{{ .Values.global.customCABundle.key }}
+  REQUESTS_CA_BUNDLE: /etc/ssl/custom-ca/{{ .Values.global.customCABundle.key }}
+  {{- end }}
+  APP_MIGRATIONS_AUTO_APPLY: {{ .Values.migrations.autoApply | quote }}

@@ -1,0 +1,51 @@
+# =============================================================================
+# PFactory — local-dev docker-compose
+# =============================================================================
+# Simple compose file for running PFactory on a developer laptop.
+# Production deployments use the Helm chart (P0.13's runbook); this file
+# is NOT the production deployment surface.
+#
+# Usage:
+#   cp .env.example .env       # optional — defaults below cover common cases
+#   docker compose up -d
+#
+# The chainguard-based image (uid 65532, no NET_ADMIN, distroless runtime,
+# read-only-fs friendly) means the legacy macvlan + iptables firewall setup
+# is gone. Egress control belongs in the customer's K8s NetworkPolicy
+# (Helm chart, P4 of Epic #26), not in the image.
+# =============================================================================
+
+services:
+  app:
+    build: .
+    image: pfactory:local
+    container_name: pfactory
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3102}:3102"
+    volumes:
+      - ${PFACTORY_DATA_DIR:-./data}:/home/nonroot/.pfactory
+    environment:
+      - APP_DEBUG=false
+      # APP_API_TOKEN auto-generated on first run if unset
+      # CLAUDE_CODE_OAUTH_TOKEN: set via UI OAuth flow
+    # PSS-restricted security context (matches what the Helm chart sets).
+    # Dropped capabilities and read-only root fs are documented in P0.5's
+    # docker-acceptance tests; production deployments enforce them.
+    user: "65532:65532"
+    read_only: false  # set true and add tmpfs mounts for stricter local parity
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"

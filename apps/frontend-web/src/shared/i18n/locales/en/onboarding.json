@@ -1,0 +1,192 @@
+{
+  "wizard": {
+    "title": "Setup Wizard",
+    "description": "Configure your PFactory environment in a few simple steps",
+    "helpText": "This wizard will help you set up your environment in just a few steps. You can configure your Claude OAuth token, set up memory features, and create your first task."
+  },
+  "welcome": {
+    "title": "Welcome to PFactory",
+    "subtitle": "Build software autonomously with AI-powered agents",
+    "getStarted": "Get Started",
+    "skip": "Skip Setup",
+    "features": {
+      "aiPowered": {
+        "title": "AI-Powered Development",
+        "description": "Generate code and build features using Claude Code agents"
+      },
+      "specDriven": {
+        "title": "Spec-Driven Workflow",
+        "description": "Define tasks with clear specifications and let PFactory handle the implementation"
+      },
+      "memory": {
+        "title": "Memory & Context",
+        "description": "Persistent memory across sessions with Graphiti"
+      },
+      "parallel": {
+        "title": "Parallel Execution",
+        "description": "Run multiple agents in parallel for faster development cycles"
+      }
+    }
+  },
+  "oauth": {
+    "title": "Claude Authentication",
+    "description": "Connect your Claude account to enable AI features",
+    "keychainTitle": "Secure Storage",
+    "keychainDescription": "Your tokens are encrypted using your system's keychain. You may see a password prompt from macOS — click \"Always Allow\" to avoid seeing it again."
+  },
+  "memory": {
+    "title": "Memory",
+    "description": "PFactory Memory helps remember context across your coding sessions"
+  },
+  "completion": {
+    "title": "You're All Set!",
+    "subtitle": "PFactory is ready to help you build amazing software",
+    "setupComplete": "Setup Complete",
+    "setupCompleteDescription": "Your environment is configured and ready. You can start creating tasks immediately or explore the application at your own pace.",
+    "whatsNext": "What's Next?",
+    "createTask": {
+      "title": "Create a Task",
+      "description": "Start by creating your first task to see PFactory in action.",
+      "action": "Open Task Creator"
+    },
+    "customizeSettings": {
+      "title": "Customize Settings",
+      "description": "Fine-tune your preferences, configure integrations, or re-run this wizard.",
+      "action": "Open Settings"
+    },
+    "exploreDocs": {
+      "title": "Explore Documentation",
+      "description": "Learn more about advanced features, best practices, and troubleshooting."
+    },
+    "finish": "Finish & Start Building",
+    "rerunHint": "You can always re-run this wizard from Settings → Application"
+  },
+  "importCredentials": {
+    "checking": "Checking for existing credentials...",
+    "title": "Existing Credentials Detected",
+    "description": "We found existing Claude Code credentials on your system.",
+    "found": "Claude Code CLI credentials found",
+    "foundDescription": "A valid OAuth token was found in ~/.claude/.credentials.json. Would you like to import it into PFactory?",
+    "importButton": "Yes, Import Credentials",
+    "manualSetup": "No, Set Up Manually",
+    "success": "Credentials imported successfully! Continuing...",
+    "error": "Failed to import credentials. You can set up authentication manually."
+  },
+  "providerChoice": {
+    "title": "Choose Your AI Provider",
+    "subtitle": "Select how you want to power PFactory. You can change this later in Settings.",
+    "claude": {
+      "title": "Claude",
+      "description": "Sign in with your Anthropic account or OAuth token"
+    },
+    "openaiCompat": {
+      "title": "OpenAI Compatible",
+      "description": "Use any OpenAI-compatible server (LM Studio, Ollama, vLLM, etc.)"
+    },
+    "skip": {
+      "title": "Skip",
+      "description": "Set up later in Settings"
+    }
+  },
+  "steps": {
+    "welcome": "Welcome",
+    "providerChoice": "Provider",
+    "openaiCompatSetup": "OpenAI Setup",
+    "importCredentials": "Import",
+    "authChoice": "Auth Method",
+    "auth": "Auth",
+    "claudeCode": "CLI",
+    "devtools": "Dev Tools",
+    "memory": "Memory",
+    "done": "Done"
+  },
+  "claudeCode": {
+    "title": "Claude Code CLI",
+    "description": "Install or update the Claude Code CLI to enable AI-powered features",
+    "detecting": "Checking Claude Code installation...",
+    "info": {
+      "title": "What is Claude Code?",
+      "description": "Claude Code is Anthropic's official CLI that powers PFactory's AI features. It provides secure authentication and direct access to Claude models."
+    },
+    "status": {
+      "installed": "Installed",
+      "outdated": "Update Available",
+      "notFound": "Not Installed"
+    },
+    "version": {
+      "current": "Current Version",
+      "latest": "Latest Version"
+    },
+    "install": {
+      "button": "Install Claude Code",
+      "updating": "Update Claude Code",
+      "inProgress": "Installing...",
+      "success": "Installation command sent to terminal. Please complete the installation there.",
+      "successComplete": "Claude Code CLI installed successfully!",
+      "instructions": "The installer will open in your terminal. Follow the prompts to complete installation.",
+      "stepClaude": "Installing Claude Code CLI...",
+      "stepDone": "Installation complete",
+      "nodeRequired": "Node.js is required",
+      "nodeRequiredDescription": "Install Node.js first, then run the following command:"
+    },
+    "learnMore": "Learn more about Claude Code"
+  },
+  "devtools": {
+    "title": "Developer Tools",
+    "description": "Choose your preferred IDE and terminal for working with PFactory worktrees",
+    "detecting": "Detecting installed tools...",
+    "detectAgain": "Detect Again",
+    "whyConfigure": "Why configure these?",
+    "whyConfigureDescription": "When PFactory builds features in isolated worktrees, you can open them directly in your preferred IDE or terminal to test and review changes.",
+    "ide": {
+      "label": "Preferred IDE",
+      "description": "PFactory will open worktrees in this editor",
+      "customPath": "Custom IDE Path"
+    },
+    "terminal": {
+      "label": "Preferred Terminal",
+      "description": "PFactory will open terminal sessions here",
+      "customPath": "Custom Terminal Path"
+    },
+    "detectedSummary": "Detected on your system:",
+    "noToolsDetected": "No additional tools detected (VS Code and system terminal will be used)",
+    "custom": "Custom...",
+    "saveAndContinue": "Save & Continue"
+  },
+  "openaiCompatSetup": {
+    "title": "OpenAI Compatible Server",
+    "subtitle": "Connect to any OpenAI-compatible server such as LM Studio, Ollama, vLLM, or LocalAI.",
+    "baseUrlLabel": "Server Base URL",
+    "baseUrlHint": "The base URL of your OpenAI-compatible server (e.g. LM Studio, LocalAI, vLLM).",
+    "apiKeyLabel": "API Key",
+    "apiKeyPlaceholder": "Enter API key if required",
+    "testButton": "Test Connection",
+    "testing": "Testing...",
+    "testSuccess": "Connection successful!",
+    "testSuccessModels": "Found {{count}} available models.",
+    "testFailed": "Connection failed",
+    "testError": "Failed to test connection. Check the server URL and try again.",
+    "success": "Connection successful! Server is reachable.",
+    "failed": "Connection failed. Please check the URL and API key.",
+    "continueButton": "Continue",
+    "skip": "Skip for now"
+  },
+  "ollama": {
+    "notInstalled": {
+      "title": "Ollama not installed",
+      "description": "Ollama provides free, local embedding models for semantic search. Install it with one click to enable this feature.",
+      "installSuccess": "Installation started in your terminal. Complete the installation there, then click Retry.",
+      "installButton": "Install Ollama",
+      "installing": "Installing...",
+      "retry": "Retry",
+      "learnMore": "Learn more",
+      "fallbackNote": "Memory will still work with keyword search even without Ollama."
+    },
+    "notRunning": {
+      "title": "Ollama not running",
+      "description": "Ollama is installed but not running. Start Ollama to use local embedding models.",
+      "retry": "Retry",
+      "fallbackNote": "Memory will still work with keyword search even without embeddings."
+    }
+  }
+}

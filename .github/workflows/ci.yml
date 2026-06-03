@@ -1,0 +1,558 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+# Cancel superseded runs on the same ref
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-lint-test:
+    name: backend (ruff + pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Create venv + install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+          uv pip install ruff
+
+      - name: Ruff lint
+        run: apps/backend/.venv/bin/ruff check apps/backend tests
+
+      - name: Pytest (skip slow)
+        env:
+          GRAPHITI_ENABLED: "false"
+          APP_DISABLE_AUTH: "true"  # endpoint tests use anonymous TestClient
+        run: apps/backend/.venv/bin/pytest tests/ -m "not slow" -q
+
+  critical-fast:
+    name: critical (fast PR gate)
+    runs-on: ubuntu-latest
+    # Fast, hermetic, high-signal subset (pytest -m critical; the curated
+    # module list lives in tests/conftest.py CRITICAL_MODULES). Mirrors the
+    # full backend job's setup but runs only the critical lane so PRs get a
+    # quick green/red signal; the comprehensive suite still runs in
+    # `backend (ruff + pytest)`. Mark this a required check in branch
+    # protection so it gates merges.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Create venv + install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+          uv pip install ruff
+
+      - name: Ruff lint
+        run: apps/backend/.venv/bin/ruff check apps/backend tests
+
+      - name: Pytest (critical lane only)
+        env:
+          GRAPHITI_ENABLED: "false"
+          APP_DISABLE_AUTH: "true"  # endpoint tests use anonymous TestClient
+        run: apps/backend/.venv/bin/pytest tests/ -m critical -q
+
+  postgres-acceptance:
+    name: postgres (P1 acceptance, PG ${{ matrix.pg }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["15", "16"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_USER: pfactory_test
+          POSTGRES_PASSWORD: pfactory_test
+          POSTGRES_DB: pfactory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_POSTGRES_URL: "postgresql+asyncpg://pfactory_test:pfactory_test@localhost:5432/pfactory_test"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Pytest postgres acceptance (PG ${{ matrix.pg }})
+        env:
+          CI: "true"
+        run: apps/backend/.venv/bin/pytest tests/postgres/ -m postgres -v
+
+  secrets-acceptance:
+    name: secrets (P2 acceptance)
+    runs-on: ubuntu-latest
+    # P2 EncryptedString / KMS acceptance. Three services run as
+    # sidecars so the integration tests gate every PR:
+    #   - postgres   → P2.3 column migration + backfill tests
+    #   - localstack → P2.4 AWS KMS round-trip test
+    #   - vault      → P2.4 Vault Transit round-trip test
+    # Azure and GCP backends stay skipped in CI — no faithful emulator
+    # exists; they're verified at deploy time against real cloud creds.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pfactory_test
+          POSTGRES_PASSWORD: pfactory_test
+          POSTGRES_DB: pfactory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      localstack:
+        image: localstack/localstack:3
+        env:
+          SERVICES: kms
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -sf http://localhost:4566/_localstack/health | grep -q '\"kms\"'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      vault:
+        image: hashicorp/vault:1.18
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: root-test-token
+        ports:
+          - 8200:8200
+        # The Vault image is Alpine-based and ships the `vault` binary
+        # but NOT `wget` or `curl`. Using `vault status` for the
+        # healthcheck guarantees the probe binary exists. Dev mode auto-
+        # unseals on boot, so `vault status` exits 0 once the server is
+        # serving requests — exactly the "healthy" semantics we want.
+        # IPC_LOCK is dropped because GitHub Actions sandboxes the cap
+        # anyway, and dev mode doesn't need mlock.
+        options: >-
+          --health-cmd "VAULT_ADDR=http://127.0.0.1:8200 vault status"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_URL: "postgresql+asyncpg://pfactory_test:pfactory_test@localhost:5432/pfactory_test"
+      AWS_ENDPOINT_URL: "http://localhost:4566"
+      VAULT_ADDR: "http://localhost:8200"
+      VAULT_TOKEN: "root-test-token"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Pytest secrets acceptance
+        env:
+          CI: "true"
+        run: apps/backend/.venv/bin/pytest tests/secrets/ -m secrets -v
+
+  oidc-acceptance:
+    name: oidc (P3 acceptance)
+    runs-on: ubuntu-latest
+    # P3 OIDC SSO tests. Boots a Keycloak dev-mode container with the
+    # `pfactory` realm imported from tests/oidc/fixtures/keycloak-realm.json.
+    # Tests that need the IdP read OIDC_ISSUER_URL/CLIENT_ID/SECRET from
+    # the job env. Until P3.1 lands real test bodies, the suite collects
+    # cleanly with all 6 acceptance tests in skip-pending state.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Keycloak (with realm import)
+        # Keycloak's official image's `start-dev` mode auto-unseals
+        # itself and can import a realm at boot from a mounted file.
+        # Run it as a normal `docker run` (not a service container) so
+        # we can mount the realm JSON from the checked-out tree without
+        # the service-container's no-mount restriction.
+        run: |
+          docker run -d --name keycloak \
+            -p 8080:8080 \
+            -v "$PWD/tests/oidc/fixtures/keycloak-realm.json:/opt/keycloak/data/import/realm.json:ro" \
+            -e KEYCLOAK_ADMIN=admin \
+            -e KEYCLOAK_ADMIN_PASSWORD=admin \
+            quay.io/keycloak/keycloak:25.0 \
+            start-dev --import-realm
+          # Wait until the realm endpoint responds with 200.
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/realms/pfactory/.well-known/openid-configuration >/dev/null; then
+              echo "keycloak ready"; break
+            fi
+            sleep 2
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Pytest oidc acceptance
+        env:
+          CI: "true"
+          OIDC_ISSUER_URL: "http://localhost:8080/realms/pfactory"
+          OIDC_CLIENT_ID: "pfactory-web"
+          OIDC_CLIENT_SECRET: "pfactory-test-secret"
+        run: apps/backend/.venv/bin/pytest tests/oidc/ -m oidc -v
+
+  helm-acceptance:
+    name: helm (P4 acceptance)
+    runs-on: ubuntu-latest
+    # P4 Helm chart tests. The harness lands first (P4.0a) with all
+    # seven acceptance tests skip-pending; chart templates + lint +
+    # kubeconform + kind install arrive in P4.1+. Job is green from
+    # day one — same pattern as P2.0a and P3.0a.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.16.0"
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL -o /tmp/kc.tgz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf /tmp/kc.tgz -C /tmp/
+          sudo install /tmp/kubeconform /usr/local/bin/
+
+      - name: Install kind + kubectl
+        uses: helm/kind-action@v1.10.0
+        with:
+          install_only: true
+          version: "v0.24.0"
+          kubectl_version: "v1.30.0"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install test deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Pytest helm acceptance
+        env:
+          CI: "true"
+        run: apps/backend/.venv/bin/pytest tests/helm/ -m helm -v
+
+  audit-acceptance:
+    name: audit (P5 acceptance)
+    runs-on: ubuntu-latest
+    # P5 audit-hardening tests run entirely in-process against
+    # in-memory SQLite — hash chain, retention job, GDPR erasure,
+    # and export streaming are all pure-Python. No service container
+    # needed. Same TDD-first scaffold as P2.0a/P3.0a/P4.0a.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Pytest audit acceptance
+        env:
+          CI: "true"
+        run: apps/backend/.venv/bin/pytest tests/audit/ -m audit -v
+
+  obs-acceptance:
+    name: obs (P6 acceptance)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Pytest obs acceptance
+        env:
+          CI: "true"
+        run: apps/backend/.venv/bin/pytest tests/obs/ -m obs -v
+
+  rmux-acceptance:
+    name: rmux (R0b acceptance)
+    runs-on: ubuntu-latest
+    # Epic #44 / issue #45. R0b ships apps/web-server/server/rmux/wrapper.py
+    # — the async subprocess wrapper that every later rmux phase depends
+    # on. Tests run against a real rmux daemon installed on the runner.
+    # The binary is pinned by SHA-256; see design doc §3.4.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rmux v0.3.1 (linux-x86_64 gnu, SHA-256 pinned)
+        run: |
+          set -euo pipefail
+          # Pinned release tarball. Update VERSION + EXPECTED_SHA together
+          # whenever bumping. Helvesec/rmux's v0.3.x assets are versioned
+          # in the filename (rmux-v${VERSION}-…) and ship the gnu (not
+          # musl) linux target.
+          VERSION="0.3.1"
+          ARCH_TARGET="x86_64-unknown-linux-gnu"
+          ASSET="rmux-v${VERSION}-${ARCH_TARGET}.tar.gz"
+          URL="https://github.com/Helvesec/rmux/releases/download/v${VERSION}/${ASSET}"
+          EXPECTED_SHA="511d3caceea4fcbc1458877a192efffcde5ceb1455f040f1a79c63ab00804cf8"
+          curl -fsSL -o /tmp/rmux.tar.gz "${URL}"
+          echo "${EXPECTED_SHA}  /tmp/rmux.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/rmux.tar.gz -C /tmp/
+          # The v0.3.x tarballs unpack into a versioned subdir; locate
+          # the binary rather than assuming /tmp/rmux.
+          BIN_PATH="/tmp/rmux-v${VERSION}-${ARCH_TARGET}/rmux"
+          test -x "${BIN_PATH}"
+          sudo install -m 0755 "${BIN_PATH}" /usr/local/bin/rmux
+          rmux -V
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Pytest rmux acceptance (unit + integration round-trip)
+        env:
+          CI: "true"
+        run: apps/backend/.venv/bin/pytest tests/rmux/ -v
+
+  evidence-acceptance:
+    name: evidence (P7 acceptance)
+    runs-on: ubuntu-latest
+    # P7 closes the v1.0 Epic. Tests verify the compliance docs + the
+    # three ship-readiness drill scripts exist and have the structural
+    # contract auditors expect. No service containers — purely
+    # filesystem / subprocess validation.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install test deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Pytest evidence acceptance
+        env:
+          CI: "true"
+        run: apps/backend/.venv/bin/pytest tests/evidence/ -m evidence -v
+
+  frontend-typecheck:
+    name: frontend (typecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Type-check frontend
+        run: npm -w apps/frontend-web run typecheck
+
+  docker-acceptance:
+    name: docker (P0 acceptance)
+    runs-on: ubuntu-latest
+    # Docker is preinstalled on ubuntu-latest runners. Tests opt-in via
+    # `-m docker`; all are skipped until P0.1+ implementations land,
+    # so this job is green from day 1 and turns red the moment an
+    # implementation chunk lands but its acceptance test doesn't pass.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        # buildx is needed for `docker buildx imagetools inspect`, used by
+        # tests/docker/test_p0_multi_arch.py to verify our base images
+        # support both amd64 + arm64 manifests. QEMU is NOT needed here —
+        # the test inspects manifests, it doesn't cross-build. Cross-arch
+        # building happens in release.yml at tag push time only.
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Trivy (for P0.8 CVE scan)
+        uses: aquasecurity/setup-trivy@v0.2.6
+        with:
+          version: latest
+
+      - name: Install Syft (for P0.9 SBOM generation)
+        uses: anchore/sbom-action/download-syft@v0.17.8
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install test deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+
+      - name: Docker version
+        run: docker version
+
+      - name: Pytest docker acceptance
+        env:
+          CI: "true"
+        run: apps/backend/.venv/bin/pytest tests/docker/ -m docker -v
+
+      # NOTE: `npm -w apps/frontend-web run lint` invokes eslint which is
+      # not declared as a devDependency. To enable the lint step, add
+      # eslint + plugins to apps/frontend-web/package.json devDependencies
+      # and uncomment:
+      # - name: Lint frontend
+      #   run: npm -w apps/frontend-web run lint

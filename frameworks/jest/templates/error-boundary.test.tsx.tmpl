@@ -1,0 +1,38 @@
+---
+description: Error boundary test — render a throwing child inside an ErrorBoundary, assert the fallback UI is shown
+requires_target: false
+requires_auth: false
+vars:
+  - component_path
+  - boundary_component_name
+  - throwing_child_component
+---
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+import { ${boundary_component_name} } from '${component_path}';
+
+// Suppress React's console.error noise for expected errors in this test
+const originalError = console.error;
+beforeAll(() => {
+  console.error = jest.fn();
+});
+afterAll(() => {
+  console.error = originalError;
+});
+
+const ThrowingChild = (): JSX.Element => {
+  throw new Error('${throwing_child_component} intentional test error');
+};
+
+describe('${boundary_component_name}', () => {
+  it('catches a child error and renders the fallback UI', () => {
+    render(
+      <${boundary_component_name}>
+        <ThrowingChild />
+      </${boundary_component_name}>
+    );
+
+    // The boundary's fallback should be visible; the throwing child should not
+    expect(screen.queryByText('${throwing_child_component} intentional test error')).not.toBeInTheDocument();
+  });
+});

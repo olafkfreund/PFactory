@@ -1,0 +1,22 @@
+---
+description: Data-loaded page — visit a page, assert the expected list/content rendered after load
+requires_target: true
+requires_auth: false
+vars:
+  - target_base_url
+  - test_name
+  - page_path
+  - list_selector
+  - min_item_count
+---
+describe('${test_name}', () => {
+  it('renders the loaded content', () => {
+    cy.visit('${target_base_url}${page_path}');
+
+    // .should() retries until the items have rendered (no fixed wait).
+    cy.get('${list_selector}')
+      .should('have.length.at.least', ${min_item_count})
+      .first()
+      .should('be.visible');
+  });
+});

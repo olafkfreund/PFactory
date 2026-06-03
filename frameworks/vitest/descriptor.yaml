@@ -1,0 +1,114 @@
+# frameworks/vitest/descriptor.yaml
+#
+# Vitest (TypeScript) descriptor — Unit lane.
+#
+# Vitest is the Vite-native unit testing framework — a near drop-in for Jest
+# (same describe/it/expect surface, `vi` instead of `jest`) that is the default
+# in Vite/Vue/SvelteKit projects and increasingly in React ones. It reuses the
+# TypeScript Evaluator hooks (preflight / flake-lint / mutate-probe), so adding
+# it is descriptor-only (#110).
+#
+# Related decisions:
+#   Decision 1  — generic prompts + registry
+#   Decision 11 — coverage_strategy: lcov (Vitest emits LCOV via --coverage)
+#
+name: vitest
+language: typescript
+lanes:
+  - unit
+
+# Vitest 1.x was the first stable major; 4.x is current. Allow through 4.x and
+# stop before a hypothetical 5.0 breaking change.
+version_range: ">=1.0,<5.0"
+
+runtime:
+  # Docker image (deferred — built alongside the other runner images).
+  # Node 22 + vitest + @vitest/coverage-v8 + @testing-library/react.
+  image: pfactory-runner-vitest:latest
+  entrypoint:
+    - npx
+    - vitest
+    - run
+    - "--reporter=default"
+    - "--reporter=junit"
+    - "--coverage"
+
+# Manifest signals for Vitest detection.
+# Vitest is frequently configured inside vite.config.ts (the `test` block), so
+# that file is a (lower-confidence) signal in addition to a dedicated config.
+manifest_signals:
+  - "package.json:devDependencies.vitest"
+  - "package.json:dependencies.vitest"
+  - "vitest.config.ts"
+  - "vitest.config.js"
+  - "vitest.config.mts"
+  - "vite.config.ts:test"
+
+# Glob patterns for where Vitest tests live (same conventions as Jest).
+test_path_conventions:
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.ts"
+  - "src/**/__tests__/**/*.ts"
+
+# Template filenames shipped with this framework.
+templates:
+  - function-pure.test.ts.tmpl
+  - function-with-mock.test.ts.tmpl
+  - react-component.test.tsx.tmpl
+  - async-function.test.ts.tmpl
+  - error-boundary.test.tsx.tmpl
+
+# Per Decision 11: Vitest emits LCOV via --coverage (v8 or istanbul provider).
+# The Evaluator's coverage_delta primitive consumes the LCOV report. The runner
+# image pre-installs @vitest/coverage-v8.
+coverage_strategy: lcov
+
+# LLM context block — injected into the Gen-Functional prompt.
+context_block: |
+  You are generating Vitest tests in TypeScript for the Unit lane.
+
+  Vitest mirrors Jest's API; the key difference is the `vi` namespace (not
+  `jest`). Always import test globals explicitly — do not assume globals:
+    import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+  Test structure:
+    - Use describe() blocks for grouping related tests
+    - Use it() (or test()) for individual cases; name them descriptively:
+      it('returns null when input is empty', ...)
+    - One logical assertion per test
+
+  Mocking:
+    - vi.fn() for function mocks
+    - vi.spyOn(object, 'method') for spying on existing methods
+    - vi.mock('./module') for module-level mocks (hoisted — declare at top level)
+    - Restore in afterEach with vi.restoreAllMocks()
+    - NEVER share mock state between tests; reset in beforeEach
+
+  Async tests:
+    - Use async/await; NEVER return raw Promises
+    - vi.useFakeTimers() for timer-dependent code; vi.advanceTimersByTime(n)
+    - Always vi.useRealTimers() in afterEach when you faked them
+
+  React components (when @testing-library/react is present):
+    - render() + screen queries; prefer screen.getByRole() over getByTestId()
+    - Use @testing-library/user-event for interaction (it wraps act())
+    - Do NOT test implementation details (internal state, private methods)
+
+  Coverage:
+    - The runner passes --coverage automatically; do not configure it in-test
+    - Exercise branches, not just the happy path
+
+  Anti-patterns:
+    - setTimeout/setInterval in tests → vi.useFakeTimers()
+    - Math.random() without a seed → vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    - Date.now() / new Date() in assertions → vi.setSystemTime(new Date('2020-01-01'))
+    - Iterating an object and asserting order → sort first / expect.arrayContaining()
+    - Mocking the unit under test → test real behaviour, mock only dependencies
+    - Global state mutated without afterEach cleanup → always restore
+
+# Evaluator hooks — reuse the shared TypeScript primitives (same as Jest).
+evaluator_hooks:
+  - agents.lang_typescript.preflight.run_ts_preflight
+  - agents.lang_typescript.flake_lint.run_ts_flake_lint
+  - agents.lang_typescript.mutate_probe.run_ts_mutate_probe

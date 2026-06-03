@@ -1,0 +1,26 @@
+---
+description: API-mocked flow — stub a network call with a fixture, assert the UI renders the stubbed data
+requires_target: true
+requires_auth: false
+vars:
+  - target_base_url
+  - test_name
+  - page_path
+  - api_method
+  - api_url_glob
+  - fixture_name
+  - rendered_selector
+  - expected_text
+---
+describe('${test_name}', () => {
+  it('renders data returned by the stubbed API', () => {
+    cy.intercept('${api_method}', '${api_url_glob}', { fixture: '${fixture_name}' }).as('apiCall');
+
+    cy.visit('${target_base_url}${page_path}');
+
+    // Wait on the aliased request, not an arbitrary timeout.
+    cy.wait('@apiCall');
+
+    cy.get('${rendered_selector}').should('contain.text', '${expected_text}');
+  });
+});

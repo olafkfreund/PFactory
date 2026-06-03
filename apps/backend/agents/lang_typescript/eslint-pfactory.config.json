@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json.schemastore.org/eslintrc",
+  "_comment": "PFactory ESLint flat-config v9 — flake-risk rules for LLM-generated TypeScript tests.",
+  "root": true,
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module"
+  },
+  "plugins": [
+    "@typescript-eslint",
+    "playwright"
+  ],
+  "rules": {
+    "no-console": "error",
+    "@typescript-eslint/no-non-null-assertion": "warn",
+    "playwright/no-wait-for-timeout": "error",
+    "playwright/expect-expect": "warn",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.name='setTimeout'][arguments.1.type='Literal']",
+        "message": "pfactory/no-hardcoded-sleep: bare setTimeout() with a literal delay is flaky — use jest.useFakeTimers() or Playwright auto-wait assertions instead."
+      },
+      {
+        "selector": "MemberExpression[object.name='Math'][property.name='random']",
+        "message": "pfactory/no-math-random-no-seed: Math.random() without a deterministic seed is non-deterministic — mock it with jest.spyOn(Math, 'random').mockReturnValue(0.5) or a seedable RNG."
+      }
+    ]
+  }
+}

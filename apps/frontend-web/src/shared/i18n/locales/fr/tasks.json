@@ -1,0 +1,205 @@
+{
+  "status": {
+    "backlog": "Backlog",
+    "todo": "À faire",
+    "in_progress": "En cours",
+    "review": "Révision",
+    "complete": "Terminé",
+    "archived": "Archivé"
+  },
+  "actions": {
+    "start": "Démarrer",
+    "stop": "Arrêter",
+    "recover": "Récupérer",
+    "resume": "Reprendre",
+    "archive": "Archiver",
+    "delete": "Supprimer",
+    "view": "Voir les détails"
+  },
+  "labels": {
+    "running": "En cours",
+    "aiReview": "Révision IA",
+    "needsReview": "À réviser",
+    "pending": "En attente",
+    "stuck": "Bloqué",
+    "incomplete": "Incomplet",
+    "recovering": "Récupération...",
+    "needsRecovery": "Récupération requise",
+    "needsResume": "Reprise requise"
+  },
+  "reviewReason": {
+    "completed": "Terminé",
+    "hasErrors": "Contient des erreurs",
+    "qaIssues": "Problèmes QA",
+    "approvePlan": "Approuver le plan"
+  },
+  "tooltips": {
+    "archiveTask": "Archiver la tâche",
+    "archiveAllDone": "Archiver toutes les tâches terminées"
+  },
+  "creation": {
+    "title": "Créer une nouvelle tâche",
+    "description": "Décrivez ce que vous voulez construire",
+    "placeholder": "Décrivez votre tâche..."
+  },
+  "empty": {
+    "title": "Aucune tâche",
+    "description": "Créez votre première tâche pour commencer"
+  },
+  "kanban": {
+    "emptyBacklog": "Aucune tâche planifiée",
+    "emptyBacklogHint": "Ajoutez une tâche pour commencer",
+    "emptyInProgress": "Rien en cours",
+    "emptyInProgressHint": "Démarrez une tâche depuis le Backlog",
+    "emptyAiReview": "Aucune tâche en révision",
+    "emptyAiReviewHint": "L'IA révisera les tâches terminées",
+    "emptyHumanReview": "Rien à réviser",
+    "emptyHumanReviewHint": "Les tâches attendent votre approbation ici",
+    "emptyDone": "Aucune tâche terminée",
+    "emptyDoneHint": "Les tâches approuvées apparaissent ici",
+    "emptyDefault": "Aucune tâche",
+    "dropHere": "Déposer ici",
+    "showArchived": "Afficher les archivées"
+  },
+  "execution": {
+    "phases": {
+      "idle": "Inactif",
+      "planning": "Planification",
+      "coding": "Codage",
+      "reviewing": "Révision",
+      "fixing": "Correction",
+      "complete": "Terminé",
+      "failed": "Échoué"
+    },
+    "labels": {
+      "interrupted": "Interrompu",
+      "progress": "Progression",
+      "progressWithStatus": "Progression ({{status}})",
+      "entry": "entrée",
+      "entries": "entrées"
+    },
+    "progressStatus": {
+      "idle": "inactif",
+      "planning": "planification",
+      "planCompleted": "planification terminée",
+      "coding": "codage",
+      "reviewing": "révision",
+      "fixing": "correction",
+      "complete": "terminé",
+      "failed": "échoué"
+    },
+    "shortPhases": {
+      "plan": "Plan",
+      "code": "Code",
+      "qa": "QA"
+    }
+  },
+  "files": {
+    "title": "Fichiers",
+    "tab": "Fichiers",
+    "noSpecPath": "Aucun fichier de spécification disponible",
+    "noFiles": "Aucun fichier trouvé",
+    "loading": "Chargement des fichiers...",
+    "loadingContent": "Chargement du contenu...",
+    "errorLoading": "Échec du chargement des fichiers",
+    "errorLoadingContent": "Échec du chargement du contenu du fichier",
+    "retry": "Réessayer",
+    "selectFile": "Sélectionnez un fichier pour voir son contenu",
+    "openInIDE": "Ouvrir dans l'IDE",
+    "downloadFile": "Télécharger le fichier",
+    "previewInBrowser": "Aperçu dans le navigateur",
+    "backToParent": "Retour"
+  },
+  "metadata": {
+    "severity": "sévérité"
+  },
+  "skills": {
+    "title": "Compétences IA",
+    "description": "Sélectionnez des compétences pour guider l'agent IA avec des connaissances spécialisées",
+    "browseTab": "Parcourir",
+    "searchTab": "Rechercher",
+    "suggestionsTab": "Suggestions",
+    "selectCategory": "Sélectionnez une catégorie pour parcourir les compétences",
+    "categoryCount": "{{count}}",
+    "searchPlaceholder": "Rechercher des compétences...",
+    "clearSearch": "Effacer la recherche",
+    "noResults": "Aucune compétence trouvée",
+    "analyzing": "Analyse en cours…",
+    "loadingSuggestions": "Analyse de la description de la tâche...",
+    "noSuggestions": "Aucune suggestion pour cette description",
+    "selectedCount": "{{count}}/{{max}} compétences sélectionnées",
+    "selected_one": "{{count}} compétence sélectionnée",
+    "selected_other": "{{count}} compétences sélectionnées",
+    "maximumReached": "Maximum atteint",
+    "maxSkillsReached": "Maximum {{max}} compétences sélectionnées",
+    "noSkillsSelected": "Aucune compétence sélectionnée",
+    "selectSkill": "{{name}}",
+    "removeSkill": "Supprimer la compétence",
+    "relevanceMatch": "{{score}}% de correspondance",
+    "categories": "Catégories",
+    "allSkills": "Toutes les compétences",
+    "showPreview": "Afficher l'aperçu",
+    "hidePreview": "Masquer l'aperçu",
+    "expandSection": "Afficher les compétences IA",
+    "collapseSection": "Masquer les compétences IA"
+  },
+  "createPR": {
+    "title": "Créer une Pull Request",
+    "description": "Configurez et créez une pull request pour les modifications de cette tâche",
+    "targetRepo": "Dépôt cible",
+    "yourRepo": "Votre dépôt",
+    "upstreamRepo": "Dépôt amont (original)",
+    "baseBranch": "Branche de base",
+    "prTitle": "Titre de la PR",
+    "prDescription": "Description",
+    "draft": "Créer en brouillon",
+    "submit": "Créer la Pull Request",
+    "cancel": "Annuler",
+    "creating": "Création de la PR...",
+    "detectingFork": "Détection des informations du dépôt...",
+    "forkDetectionFailed": "Impossible de détecter les infos du fork (valeurs par défaut utilisées)",
+    "success": "Pull Request créée",
+    "createdSuccessfully": "créée avec succès",
+    "failed": "Échec de la création de la PR"
+  },
+  "notifications": {
+    "profileSwitch": {
+      "title": "Profil Claude changé",
+      "description": {
+        "rateLimit": "Bascule automatique vers {{profileName}} suite à une limite de débit",
+        "earlyFailure": "Bascule automatique vers {{profileName}} après un échec précoce",
+        "unknown": "Bascule automatique vers {{profileName}}"
+      }
+    }
+  },
+  "agentConsole": {
+    "tab": "Console en direct",
+    "noSession": "Aucune console en direct disponible pour l'instant. Démarrez la tâche pour voir le panneau de l'agent.",
+    "connecting": "Connexion à la console en direct…",
+    "connected": "Connecté (lecture seule)",
+    "connectionLost": "Connexion à la console en direct perdue",
+    "attachButton": "Prendre le contrôle",
+    "detachButton": "Relâcher",
+    "attachConfirmTitle": "Prendre le contrôle du shell de l'agent ?",
+    "attachConfirmBody": "Vous pourrez saisir dans le terminal de l'agent en cours d'exécution. Toutes vos actions seront enregistrées dans le journal d'audit sous votre compte. Ceci ne peut pas être annulé pour une tâche en cours.",
+    "attachConfirmConfirm": "Prendre le contrôle",
+    "attachConfirmCancel": "Annuler",
+    "attachedBadge": "Contrôle actif — saisie autorisée",
+    "raceLostTitle": "Une autre session a déjà le contrôle",
+    "raceLostBody": "Un autre utilisateur est déjà attaché à la console en direct de cette tâche. Réessayez après qu'il se soit déconnecté.",
+    "raceLostDismiss": "OK",
+    "headerHint": "Miroir en lecture seule du terminal de l'agent. Cliquez sur Prendre le contrôle pour intervenir."
+  },
+  "delegation": {
+    "enableLabel": "Déléguer le codage à l'agent autonome du projet",
+    "enableHelp": "PFactory rédige toujours le plan, puis transmet le ticket à GitHub Copilot Coding Agent (projets GitHub) ou GitLab Duo Workflow (projets GitLab). Utilise votre siège Copilot/Duo — aucun jeton Claude supplémentaire pour le codage.",
+    "githubOnlyTooltip": "La délégation nécessite un projet GitHub. La prise en charge de GitLab Duo Workflow est prévue pour une version ultérieure.",
+    "githubOrGitlabTooltip": "La délégation nécessite un projet GitHub ou GitLab. Azure DevOps n'a pas d'agent de codage autonome équivalent.",
+    "projectDefaultLabel": "Déléguer le codage à Copilot par défaut pour les nouvelles tâches",
+    "projectDefaultHelp": "Chaque nouvelle tâche dans ce projet GitHub démarre avec la délégation activée. Le bouton par tâche de l'assistant peut toujours l'outrepasser au cas par cas.",
+    "badgeLabel": "Délégué à Copilot ↗",
+    "badgeTooltipPending": "PFactory a transmis ce ticket à l'agent Copilot Coding de GitHub. En attente de la PR résultante — rafraîchissez dans quelques minutes.",
+    "badgeTooltipInReview": "Copilot a ouvert une PR pour ce ticket. Cliquez pour l'ouvrir.",
+    "declinedNotice": "Copilot a peut-être refusé cette tâche — aucune PR correspondante ouverte dans les 24 heures. Vous pouvez réessayer avec l'agent local d'PFactory."
+  }
+}

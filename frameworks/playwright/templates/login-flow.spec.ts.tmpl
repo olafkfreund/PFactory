@@ -1,0 +1,34 @@
+---
+description: Login flow — fill injected credentials, submit, assert redirect to the success URL
+requires_target: true
+requires_auth: true
+vars:
+  - target_base_url
+  - test_name
+  - login_path
+  - username_selector
+  - password_selector
+  - submit_selector
+  - success_url_pattern
+  - username_env
+  - secret_env
+---
+import { test, expect } from '@playwright/test';
+
+test('${test_name}', async ({ page }) => {
+  await page.goto('${target_base_url}${login_path}');
+
+  // Credentials come from the env vars the credential vault injects — never
+  // hard-coded. The Executor populates these only on egress lanes.
+  await page.locator('${username_selector}').fill(process.env['${username_env}'] ?? '');
+  await page.locator('${password_selector}').fill(process.env['${secret_env}'] ?? '');
+
+  // Submit and wait for navigation to the post-login landing.
+  await Promise.all([
+    page.waitForURL('**/${success_url_pattern}**'),
+    page.locator('${submit_selector}').click(),
+  ]);
+
+  // Assert the redirect completed to the expected URL pattern.
+  expect(page.url()).toContain('${success_url_pattern}');
+});

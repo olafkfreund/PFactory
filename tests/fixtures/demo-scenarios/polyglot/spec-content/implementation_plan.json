@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "phases": [
+    { "id": "AC#1", "name": "Tax added + rounded (pytest)",          "status": "complete" },
+    { "id": "AC#2", "name": "Tax HALF_UP rounding (pytest)",         "status": "complete" },
+    { "id": "AC#3", "name": "Slugify lowercases/hyphenates (jest)",  "status": "complete" },
+    { "id": "AC#4", "name": "Slugify collapses separators (jest)",   "status": "complete" }
+  ]
+}

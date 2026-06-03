@@ -1,0 +1,115 @@
+{{- if .Values.postgres.bundled -}}
+{{- /*
+Bundled Postgres for POC / development mode. NOT production-grade —
+single replica, no PITR, no automated backup. Production deployments
+should set postgres.bundled=false and point DATABASE_URL at a
+managed external instance via ExternalSecret.
+
+Operators choosing this path acknowledge the trade-offs in
+.Values.postgres.bundled's documentation.
+*/}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.postgres.externalSecretName }}
+  labels:
+    {{- include "pfactory.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # Bundled mode connects via in-cluster service DNS. The user +
+  # password match the StatefulSet's POSTGRES_USER / _PASSWORD env.
+  database-url: postgresql+asyncpg://pfactory:pfactory-bundled-pass@{{ include "pfactory.fullname" . }}-postgres:5432/pfactory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pfactory.fullname" . }}-postgres
+  labels:
+    {{- include "pfactory.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  selector:
+    {{- include "pfactory.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pfactory.fullname" . }}-postgres
+  labels:
+    {{- include "pfactory.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  replicas: 1
+  serviceName: {{ include "pfactory.fullname" . }}-postgres
+  selector:
+    matchLabels:
+      {{- include "pfactory.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "pfactory.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: POSTGRES_USER
+              value: pfactory
+            - name: POSTGRES_PASSWORD
+              value: pfactory-bundled-pass
+            - name: POSTGRES_DB
+              value: pfactory
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, pfactory]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, pfactory]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.cloudnativeStorage | default "10Gi" }}
+{{- end }}

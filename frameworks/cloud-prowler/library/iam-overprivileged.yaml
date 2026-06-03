@@ -1,0 +1,37 @@
+# cloud-prowler check: over-privileged identities (#138)
+id: iam-overprivileged
+title: Over-privileged / wildcard IAM
+severity: high
+providers: [aws, gcp, azure]
+cis: ["CIS AWS 1.16", "CIS GCP 1.4/1.5", "CIS Azure 1.x"]
+
+prowler_checks:
+  aws:
+    - iam_policy_no_administrative_privileges
+    - iam_inline_policy_no_administrative_privileges
+    - iam_no_root_access_key
+    - iam_user_no_policies   # policies attach to groups/roles, not users
+  gcp:
+    - iam_no_service_roles_at_project_level
+    - iam_account_no_primitive_roles   # owner/editor are too broad
+  azure:
+    - entra_no_global_administrators_excessive   # too many Global Admins
+
+whats_wrong: >
+  Identities (users, roles, service accounts) carry far more permission than
+  they need — `Action:"*"` / `Resource:"*"` policies, AWS AdministratorAccess
+  on a service role, GCP primitive Owner/Editor roles, or an excess of Azure
+  Global Administrators. Long-lived root/owner access keys make it worse.
+
+why_it_matters: >
+  Over-privilege is blast radius: one leaked key or compromised workload can
+  read, modify or destroy the whole account. Least-privilege is the single
+  biggest limiter on the impact of any other finding here.
+
+how_to_fix: >
+  Replace wildcard grants with least-privilege policies scoped to the specific
+  actions + resources used (derive from access-analyzer / recommender data).
+  Prefer short-lived role assumption (STS / workload identity) over static keys;
+  delete root/owner access keys. On GCP swap primitive roles for predefined or
+  custom roles; on Azure cap Global Admins (2–4) and use PIM for just-in-time
+  elevation.

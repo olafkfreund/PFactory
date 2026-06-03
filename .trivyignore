@@ -1,0 +1,20 @@
+# Trivy CVE allow-list — audited exceptions only.
+#
+# Every line must include the CVE ID + a rationale. NEVER blanket-skip.
+# When a patched upstream lands or we migrate the dependency, REMOVE the
+# corresponding line.
+
+# CVE-2024-23342  python-ecdsa < 0.19.x  Minerva timing side-channel on ECDSA
+# operations.
+#
+# Audited not-applicable to PFactory:
+#   - Pulled in transitively by python-jose[cryptography].
+#   - Our JWT use sets JWT_ALGORITHM=HS256 (HMAC), never EC. See
+#     apps/web-server/server/config.py:JWT_ALGORITHM default.
+#   - Minerva attacks the EC signing path — irrelevant when we never
+#     invoke EC.
+#   - CVE upstream notes: "no known patched version exists" as of the
+#     2024-01-23 publication. We are not the only project blocked here;
+#     a migration to pyjwt (which depends on cryptography, not ecdsa)
+#     is filed as follow-up.
+CVE-2024-23342

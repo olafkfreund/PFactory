@@ -1,0 +1,359 @@
+/**
+ * IPC Channel names for Electron communication
+ * Main process <-> Renderer process communication
+ */
+
+export const IPC_CHANNELS = {
+  // Project operations
+  PROJECT_ADD: 'project:add',
+  PROJECT_REMOVE: 'project:remove',
+  PROJECT_LIST: 'project:list',
+  PROJECT_UPDATE_SETTINGS: 'project:updateSettings',
+  PROJECT_INITIALIZE: 'project:initialize',
+  PROJECT_CHECK_VERSION: 'project:checkVersion',
+
+  // Tab state operations (persisted in main process)
+  TAB_STATE_GET: 'tabState:get',
+  TAB_STATE_SAVE: 'tabState:save',
+
+  // Task operations
+  TASK_LIST: 'task:list',
+  TASK_CREATE: 'task:create',
+  TASK_DELETE: 'task:delete',
+  TASK_UPDATE: 'task:update',
+  TASK_START: 'task:start',
+  TASK_STOP: 'task:stop',
+  TASK_REVIEW: 'task:review',
+  TASK_UPDATE_STATUS: 'task:updateStatus',
+  TASK_RECOVER_STUCK: 'task:recoverStuck',
+  TASK_CHECK_RUNNING: 'task:checkRunning',
+
+  // Workspace management (for human review)
+  // Per-spec architecture: Each spec has its own worktree at .worktrees/{spec-name}/
+  TASK_WORKTREE_STATUS: 'task:worktreeStatus',
+  TASK_WORKTREE_DIFF: 'task:worktreeDiff',
+  TASK_WORKTREE_MERGE: 'task:worktreeMerge',
+  TASK_WORKTREE_MERGE_PREVIEW: 'task:worktreeMergePreview',  // Preview merge conflicts before merging
+  TASK_WORKTREE_DISCARD: 'task:worktreeDiscard',
+  TASK_WORKTREE_OPEN_IN_IDE: 'task:worktreeOpenInIDE',
+  TASK_WORKTREE_OPEN_IN_TERMINAL: 'task:worktreeOpenInTerminal',
+  TASK_WORKTREE_DETECT_TOOLS: 'task:worktreeDetectTools',  // Detect installed IDEs/terminals
+  TASK_LIST_WORKTREES: 'task:listWorktrees',
+  TASK_ARCHIVE: 'task:archive',
+  TASK_UNARCHIVE: 'task:unarchive',
+
+  // Task events (main -> renderer)
+  TASK_PROGRESS: 'task:progress',
+  TASK_ERROR: 'task:error',
+  TASK_LOG: 'task:log',
+  TASK_STATUS_CHANGE: 'task:statusChange',
+  TASK_EXECUTION_PROGRESS: 'task:executionProgress',
+
+  // Task phase logs (persistent, collapsible logs by phase)
+  TASK_LOGS_GET: 'task:logsGet',           // Load logs from spec dir
+  TASK_LOGS_WATCH: 'task:logsWatch',       // Start watching for log changes
+  TASK_LOGS_UNWATCH: 'task:logsUnwatch',   // Stop watching for log changes
+  TASK_LOGS_CHANGED: 'task:logsChanged',   // Event: logs changed (main -> renderer)
+  TASK_LOGS_STREAM: 'task:logsStream',     // Event: streaming log chunk (main -> renderer)
+
+  // Terminal operations
+  TERMINAL_CREATE: 'terminal:create',
+  TERMINAL_DESTROY: 'terminal:destroy',
+  TERMINAL_INPUT: 'terminal:input',
+  TERMINAL_RESIZE: 'terminal:resize',
+  TERMINAL_INVOKE_CLAUDE: 'terminal:invokeClaude',
+  TERMINAL_GENERATE_NAME: 'terminal:generateName',
+
+  // Terminal session management
+  TERMINAL_GET_SESSIONS: 'terminal:getSessions',
+  TERMINAL_RESTORE_SESSION: 'terminal:restoreSession',
+  TERMINAL_CLEAR_SESSIONS: 'terminal:clearSessions',
+  TERMINAL_RESUME_CLAUDE: 'terminal:resumeClaude',
+  TERMINAL_GET_SESSION_DATES: 'terminal:getSessionDates',
+  TERMINAL_GET_SESSIONS_FOR_DATE: 'terminal:getSessionsForDate',
+  TERMINAL_RESTORE_FROM_DATE: 'terminal:restoreFromDate',
+  TERMINAL_CHECK_PTY_ALIVE: 'terminal:checkPtyAlive',
+
+  // Terminal worktree operations (isolated development in worktrees)
+  TERMINAL_WORKTREE_CREATE: 'terminal:worktreeCreate',
+  TERMINAL_WORKTREE_REMOVE: 'terminal:worktreeRemove',
+  TERMINAL_WORKTREE_LIST: 'terminal:worktreeList',
+
+  // Terminal events (main -> renderer)
+  TERMINAL_OUTPUT: 'terminal:output',
+  TERMINAL_EXIT: 'terminal:exit',
+  TERMINAL_TITLE_CHANGE: 'terminal:titleChange',
+  TERMINAL_CLAUDE_SESSION: 'terminal:claudeSession',  // Claude session ID captured
+  TERMINAL_RATE_LIMIT: 'terminal:rateLimit',  // Claude Code rate limit detected
+  TERMINAL_OAUTH_TOKEN: 'terminal:oauthToken',  // OAuth token captured from setup-token output
+
+  // Claude profile management (multi-account support)
+  CLAUDE_PROFILES_GET: 'claude:profilesGet',
+  CLAUDE_PROFILE_SAVE: 'claude:profileSave',
+  CLAUDE_PROFILE_DELETE: 'claude:profileDelete',
+  CLAUDE_PROFILE_RENAME: 'claude:profileRename',
+  CLAUDE_PROFILE_SET_ACTIVE: 'claude:profileSetActive',
+  CLAUDE_PROFILE_SWITCH: 'claude:profileSwitch',
+  CLAUDE_PROFILE_INITIALIZE: 'claude:profileInitialize',
+  CLAUDE_PROFILE_SET_TOKEN: 'claude:profileSetToken',  // Set OAuth token for a profile
+  CLAUDE_PROFILE_AUTO_SWITCH_SETTINGS: 'claude:autoSwitchSettings',
+  CLAUDE_PROFILE_UPDATE_AUTO_SWITCH: 'claude:updateAutoSwitch',
+  CLAUDE_PROFILE_FETCH_USAGE: 'claude:fetchUsage',
+  CLAUDE_PROFILE_GET_BEST_PROFILE: 'claude:getBestProfile',
+
+  // SDK/CLI rate limit event (for non-terminal Claude invocations)
+  CLAUDE_SDK_RATE_LIMIT: 'claude:sdkRateLimit',
+  // Retry a rate-limited operation with a different profile
+  CLAUDE_RETRY_WITH_PROFILE: 'claude:retryWithProfile',
+
+  // Usage monitoring (proactive account switching)
+  USAGE_UPDATED: 'claude:usageUpdated',  // Event: usage data updated (main -> renderer)
+  USAGE_REQUEST: 'claude:usageRequest',  // Request current usage snapshot
+  PROACTIVE_SWAP_NOTIFICATION: 'claude:proactiveSwapNotification',  // Event: proactive swap occurred
+
+  // Settings
+  SETTINGS_GET: 'settings:get',
+  SETTINGS_SAVE: 'settings:save',
+  // API Profile management (custom Anthropic-compatible endpoints)
+  PROFILES_GET: 'profiles:get',
+  PROFILES_SAVE: 'profiles:save',
+  PROFILES_UPDATE: 'profiles:update',
+  PROFILES_DELETE: 'profiles:delete',
+  PROFILES_SET_ACTIVE: 'profiles:setActive',
+  PROFILES_TEST_CONNECTION: 'profiles:test-connection',
+  PROFILES_TEST_CONNECTION_CANCEL: 'profiles:test-connection-cancel',
+  PROFILES_DISCOVER_MODELS: 'profiles:discover-models',
+  PROFILES_DISCOVER_MODELS_CANCEL: 'profiles:discover-models-cancel',
+
+  // Dialogs
+  DIALOG_SELECT_DIRECTORY: 'dialog:selectDirectory',
+  DIALOG_CREATE_PROJECT_FOLDER: 'dialog:createProjectFolder',
+  DIALOG_GET_DEFAULT_PROJECT_LOCATION: 'dialog:getDefaultProjectLocation',
+
+  // App info
+  APP_VERSION: 'app:version',
+
+  // Shell operations
+  SHELL_OPEN_EXTERNAL: 'shell:openExternal',
+  SHELL_OPEN_TERMINAL: 'shell:openTerminal',
+
+  // Context operations
+  CONTEXT_GET: 'context:get',
+  CONTEXT_REFRESH_INDEX: 'context:refreshIndex',
+  CONTEXT_MEMORY_STATUS: 'context:memoryStatus',
+  CONTEXT_SEARCH_MEMORIES: 'context:searchMemories',
+  CONTEXT_GET_MEMORIES: 'context:getMemories',
+
+  // Environment configuration
+  ENV_GET: 'env:get',
+  ENV_UPDATE: 'env:update',
+  ENV_CHECK_CLAUDE_AUTH: 'env:checkClaudeAuth',
+  ENV_INVOKE_CLAUDE_SETUP: 'env:invokeClaudeSetup',
+
+  // GitHub integration
+  GITHUB_GET_REPOSITORIES: 'github:getRepositories',
+  GITHUB_GET_ISSUES: 'github:getIssues',
+  GITHUB_GET_ISSUE: 'github:getIssue',
+  GITHUB_GET_ISSUE_COMMENTS: 'github:getIssueComments',
+  GITHUB_CHECK_CONNECTION: 'github:checkConnection',
+  GITHUB_INVESTIGATE_ISSUE: 'github:investigateIssue',
+  GITHUB_IMPORT_ISSUES: 'github:importIssues',
+  GITHUB_CREATE_RELEASE: 'github:createRelease',
+
+  // GitHub OAuth (gh CLI authentication)
+  GITHUB_CHECK_CLI: 'github:checkCli',
+  GITHUB_CHECK_AUTH: 'github:checkAuth',
+  GITHUB_START_AUTH: 'github:startAuth',
+  GITHUB_GET_TOKEN: 'github:getToken',
+  GITHUB_GET_USER: 'github:getUser',
+  GITHUB_LIST_USER_REPOS: 'github:listUserRepos',
+  GITHUB_DETECT_REPO: 'github:detectRepo',
+  GITHUB_GET_BRANCHES: 'github:getBranches',
+  GITHUB_CREATE_REPO: 'github:createRepo',
+  GITHUB_ADD_REMOTE: 'github:addRemote',
+  GITHUB_LIST_ORGS: 'github:listOrgs',
+
+  // GitHub OAuth events (main -> renderer) - for streaming device code during auth
+  GITHUB_AUTH_DEVICE_CODE: 'github:authDeviceCode',
+
+  // GitHub events (main -> renderer)
+  GITHUB_INVESTIGATION_PROGRESS: 'github:investigationProgress',
+  GITHUB_INVESTIGATION_COMPLETE: 'github:investigationComplete',
+  GITHUB_INVESTIGATION_ERROR: 'github:investigationError',
+
+  // GitHub Auto-Fix operations
+  GITHUB_AUTOFIX_START: 'github:autofix:start',
+  GITHUB_AUTOFIX_STOP: 'github:autofix:stop',
+  GITHUB_AUTOFIX_GET_QUEUE: 'github:autofix:getQueue',
+  GITHUB_AUTOFIX_CHECK_LABELS: 'github:autofix:checkLabels',
+  GITHUB_AUTOFIX_CHECK_NEW: 'github:autofix:checkNew',
+  GITHUB_AUTOFIX_GET_CONFIG: 'github:autofix:getConfig',
+  GITHUB_AUTOFIX_SAVE_CONFIG: 'github:autofix:saveConfig',
+  GITHUB_AUTOFIX_BATCH: 'github:autofix:batch',
+  GITHUB_AUTOFIX_GET_BATCHES: 'github:autofix:getBatches',
+
+  // GitHub Auto-Fix events (main -> renderer)
+  GITHUB_AUTOFIX_PROGRESS: 'github:autofix:progress',
+  GITHUB_AUTOFIX_COMPLETE: 'github:autofix:complete',
+  GITHUB_AUTOFIX_ERROR: 'github:autofix:error',
+  GITHUB_AUTOFIX_BATCH_PROGRESS: 'github:autofix:batchProgress',
+  GITHUB_AUTOFIX_BATCH_COMPLETE: 'github:autofix:batchComplete',
+  GITHUB_AUTOFIX_BATCH_ERROR: 'github:autofix:batchError',
+
+  // GitHub Issue Analysis Preview (proactive batch workflow)
+  GITHUB_AUTOFIX_ANALYZE_PREVIEW: 'github:autofix:analyzePreview',
+  GITHUB_AUTOFIX_ANALYZE_PREVIEW_PROGRESS: 'github:autofix:analyzePreviewProgress',
+  GITHUB_AUTOFIX_ANALYZE_PREVIEW_COMPLETE: 'github:autofix:analyzePreviewComplete',
+  GITHUB_AUTOFIX_ANALYZE_PREVIEW_ERROR: 'github:autofix:analyzePreviewError',
+  GITHUB_AUTOFIX_APPROVE_BATCHES: 'github:autofix:approveBatches',
+
+  // GitHub PR Review operations
+  GITHUB_PR_LIST: 'github:pr:list',
+  GITHUB_PR_GET: 'github:pr:get',
+  GITHUB_PR_GET_DIFF: 'github:pr:getDiff',
+  GITHUB_PR_REVIEW: 'github:pr:review',
+  GITHUB_PR_REVIEW_CANCEL: 'github:pr:reviewCancel',
+  GITHUB_PR_GET_REVIEW: 'github:pr:getReview',
+  GITHUB_PR_POST_REVIEW: 'github:pr:postReview',
+  GITHUB_PR_DELETE_REVIEW: 'github:pr:deleteReview',
+  GITHUB_PR_MERGE: 'github:pr:merge',
+  GITHUB_PR_ASSIGN: 'github:pr:assign',
+  GITHUB_PR_POST_COMMENT: 'github:pr:postComment',
+  GITHUB_PR_FIX: 'github:pr:fix',
+  GITHUB_PR_FOLLOWUP_REVIEW: 'github:pr:followupReview',
+  GITHUB_PR_CHECK_NEW_COMMITS: 'github:pr:checkNewCommits',
+
+  // GitHub PR Review events (main -> renderer)
+  GITHUB_PR_REVIEW_PROGRESS: 'github:pr:reviewProgress',
+  GITHUB_PR_REVIEW_COMPLETE: 'github:pr:reviewComplete',
+  GITHUB_PR_REVIEW_ERROR: 'github:pr:reviewError',
+
+  // GitHub PR Logs (for viewing AI review logs)
+  GITHUB_PR_GET_LOGS: 'github:pr:getLogs',
+
+  // GitHub Issue Triage operations
+  GITHUB_TRIAGE_RUN: 'github:triage:run',
+  GITHUB_TRIAGE_GET_RESULTS: 'github:triage:getResults',
+  GITHUB_TRIAGE_APPLY_LABELS: 'github:triage:applyLabels',
+  GITHUB_TRIAGE_GET_CONFIG: 'github:triage:getConfig',
+  GITHUB_TRIAGE_SAVE_CONFIG: 'github:triage:saveConfig',
+
+  // GitHub Issue Triage events (main -> renderer)
+  GITHUB_TRIAGE_PROGRESS: 'github:triage:progress',
+  GITHUB_TRIAGE_COMPLETE: 'github:triage:complete',
+  GITHUB_TRIAGE_ERROR: 'github:triage:error',
+
+  // Memory Infrastructure status (LadybugDB - no Docker required)
+  MEMORY_STATUS: 'memory:status',
+  MEMORY_LIST_DATABASES: 'memory:listDatabases',
+  MEMORY_TEST_CONNECTION: 'memory:testConnection',
+
+  // Graphiti validation
+  GRAPHITI_VALIDATE_LLM: 'graphiti:validateLlm',
+  GRAPHITI_TEST_CONNECTION: 'graphiti:testConnection',
+
+  // Ollama model detection and management
+  OLLAMA_CHECK_STATUS: 'ollama:checkStatus',
+  OLLAMA_CHECK_INSTALLED: 'ollama:checkInstalled',
+  OLLAMA_INSTALL: 'ollama:install',
+  OLLAMA_LIST_MODELS: 'ollama:listModels',
+  OLLAMA_LIST_EMBEDDING_MODELS: 'ollama:listEmbeddingModels',
+  OLLAMA_PULL_MODEL: 'ollama:pullModel',
+  OLLAMA_PULL_PROGRESS: 'ollama:pullProgress',
+
+  // AI Factory source updates
+  AUTOBUILD_SOURCE_CHECK: 'autobuild:source:check',
+  AUTOBUILD_SOURCE_DOWNLOAD: 'autobuild:source:download',
+  AUTOBUILD_SOURCE_VERSION: 'autobuild:source:version',
+  AUTOBUILD_SOURCE_PROGRESS: 'autobuild:source:progress',
+
+  // AI Factory source environment configuration
+  AUTOBUILD_SOURCE_ENV_GET: 'autobuild:source:env:get',
+  AUTOBUILD_SOURCE_ENV_UPDATE: 'autobuild:source:env:update',
+  AUTOBUILD_SOURCE_ENV_CHECK_TOKEN: 'autobuild:source:env:checkToken',
+
+  // Changelog operations
+  CHANGELOG_GET_DONE_TASKS: 'changelog:getDoneTasks',
+  CHANGELOG_LOAD_TASK_SPECS: 'changelog:loadTaskSpecs',
+  CHANGELOG_GENERATE: 'changelog:generate',
+  CHANGELOG_SAVE: 'changelog:save',
+  CHANGELOG_READ_EXISTING: 'changelog:readExisting',
+  CHANGELOG_SUGGEST_VERSION: 'changelog:suggestVersion',
+  CHANGELOG_SUGGEST_VERSION_FROM_COMMITS: 'changelog:suggestVersionFromCommits',
+
+  // Changelog git operations (for git-based changelog generation)
+  CHANGELOG_GET_BRANCHES: 'changelog:getBranches',
+  CHANGELOG_GET_TAGS: 'changelog:getTags',
+  CHANGELOG_GET_COMMITS_PREVIEW: 'changelog:getCommitsPreview',
+  CHANGELOG_SAVE_IMAGE: 'changelog:saveImage',
+  CHANGELOG_READ_LOCAL_IMAGE: 'changelog:readLocalImage',
+
+  // Changelog events (main -> renderer)
+  CHANGELOG_GENERATION_PROGRESS: 'changelog:generationProgress',
+  CHANGELOG_GENERATION_COMPLETE: 'changelog:generationComplete',
+  CHANGELOG_GENERATION_ERROR: 'changelog:generationError',
+
+  // Insights operations
+  INSIGHTS_GET_SESSION: 'insights:getSession',
+  INSIGHTS_SEND_MESSAGE: 'insights:sendMessage',
+  INSIGHTS_CLEAR_SESSION: 'insights:clearSession',
+  INSIGHTS_CREATE_TASK: 'insights:createTask',
+  INSIGHTS_LIST_SESSIONS: 'insights:listSessions',
+  INSIGHTS_NEW_SESSION: 'insights:newSession',
+  INSIGHTS_SWITCH_SESSION: 'insights:switchSession',
+  INSIGHTS_DELETE_SESSION: 'insights:deleteSession',
+  INSIGHTS_RENAME_SESSION: 'insights:renameSession',
+  INSIGHTS_UPDATE_MODEL_CONFIG: 'insights:updateModelConfig',
+
+  // Insights events (main -> renderer)
+  INSIGHTS_STREAM_CHUNK: 'insights:streamChunk',
+  INSIGHTS_STATUS: 'insights:status',
+  INSIGHTS_ERROR: 'insights:error',
+
+  // File explorer operations
+  FILE_EXPLORER_LIST: 'fileExplorer:list',
+  FILE_EXPLORER_READ: 'fileExplorer:read',
+
+  // Git operations
+  GIT_GET_BRANCHES: 'git:getBranches',
+  GIT_GET_CURRENT_BRANCH: 'git:getCurrentBranch',
+  GIT_DETECT_MAIN_BRANCH: 'git:detectMainBranch',
+  GIT_CHECK_STATUS: 'git:checkStatus',
+  GIT_INITIALIZE: 'git:initialize',
+
+  // App auto-update operations
+  APP_UPDATE_CHECK: 'app-update:check',
+  APP_UPDATE_DOWNLOAD: 'app-update:download',
+  APP_UPDATE_INSTALL: 'app-update:install',
+  APP_UPDATE_GET_VERSION: 'app-update:get-version',
+
+  // App auto-update events (main -> renderer)
+  APP_UPDATE_AVAILABLE: 'app-update:available',
+  APP_UPDATE_DOWNLOADED: 'app-update:downloaded',
+  APP_UPDATE_PROGRESS: 'app-update:progress',
+  APP_UPDATE_ERROR: 'app-update:error',
+
+  // Release operations
+  RELEASE_SUGGEST_VERSION: 'release:suggestVersion',
+  RELEASE_CREATE: 'release:create',
+  RELEASE_PREFLIGHT: 'release:preflight',
+  RELEASE_GET_VERSIONS: 'release:getVersions',
+
+  // Release events (main -> renderer)
+  RELEASE_PROGRESS: 'release:progress',
+
+  // Debug operations
+  DEBUG_GET_INFO: 'debug:getInfo',
+  DEBUG_OPEN_LOGS_FOLDER: 'debug:openLogsFolder',
+  DEBUG_COPY_DEBUG_INFO: 'debug:copyDebugInfo',
+  DEBUG_GET_RECENT_ERRORS: 'debug:getRecentErrors',
+  DEBUG_LIST_LOG_FILES: 'debug:listLogFiles',
+
+  // Claude Code CLI operations
+  CLAUDE_CODE_CHECK_VERSION: 'claudeCode:checkVersion',
+  CLAUDE_CODE_INSTALL: 'claudeCode:install',
+
+  // MCP Server health checks
+  MCP_CHECK_HEALTH: 'mcp:checkHealth',           // Quick connectivity check
+  MCP_TEST_CONNECTION: 'mcp:testConnection'      // Full MCP protocol test
+} as const;

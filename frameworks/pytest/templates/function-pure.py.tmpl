@@ -1,0 +1,16 @@
+---
+description: Pure function test — import a function, call it with fixed inputs, assert the output with pytest
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - input_args
+  - expected_output
+---
+from ${module_path} import ${function_name}
+
+
+def test_${function_name}_returns_expected_output() -> None:
+    result = ${function_name}(${input_args})
+    assert result == ${expected_output}

@@ -1,0 +1,32 @@
+---
+description: ServiceNow Table API — query a table and assert a field on the first record (api lane; needs target URL + bearer auth)
+requires_target: true
+requires_auth: true
+vars:
+  - table
+  - sysparm_query
+  - expected_field
+  - expected_value
+---
+import os
+
+import httpx
+
+# The api lane injects PFACTORY_TARGET_URL (the ServiceNow instance, e.g.
+# https://acme.service-now.com) and TEST_PASSWORD (a bearer token resolved from
+# .pfactory.yml test_credentials — see guides/test-target-auth.md).
+BASE_URL = os.environ["PFACTORY_TARGET_URL"].rstrip("/")
+TOKEN = os.environ.get("TEST_PASSWORD", "")
+
+
+def test_servicenow_${table}_record_has_expected_field() -> None:
+    resp = httpx.get(
+        f"{BASE_URL}/api/now/table/${table}",
+        params={"sysparm_query": "${sysparm_query}", "sysparm_limit": "1"},
+        headers={"Authorization": f"Bearer {TOKEN}", "Accept": "application/json"},
+        timeout=30,
+    )
+    assert resp.status_code == 200, f"ServiceNow API {resp.status_code}: {resp.text}"
+    records = resp.json().get("result", [])
+    assert records, "ServiceNow query returned no records"
+    assert records[0]["${expected_field}"] == "${expected_value}"

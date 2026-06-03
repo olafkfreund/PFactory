@@ -1,0 +1,72 @@
+{
+  "sections": {
+    "project": "Projeto",
+    "tools": "Ferramentas"
+  },
+  "items": {
+    "kanban": "Tarefas",
+    "terminals": "Terminais de Agentes",
+    "editor": "Editor de Arquivos",
+    "chat": "Chat",
+    "changelog": "Changelog",
+    "context": "Índice & Memória",
+    "githubIssues": "Issues do GitHub",
+    "githubPRs": "PRs do GitHub",
+    "gitlabIssues": "Issues do GitLab",
+    "gitlabMRs": "MRs do GitLab",
+    "adoIssues": "Itens de Trabalho do ADO",
+    "adoPRs": "Pull Requests do ADO",
+    "worktrees": "Worktrees",
+    "agentTools": "MCP",
+    "skills": "Habilidades",
+    "cloud": "Nuvem"
+  },
+  "actions": {
+    "settings": "Configurações",
+    "help": "Ajuda e Feedback",
+    "newTask": "Nova Tarefa"
+  },
+  "tooltips": {
+    "settings": "Configurações do Aplicativo",
+    "help": "Ajuda e Feedback"
+  },
+  "messages": {
+    "initializeToCreateTasks": "Inicialize o PFactory para criar tarefas"
+  },
+  "claudeCode": {
+    "checking": "Verificando Claude Code...",
+    "upToDate": "Claude Code está atualizado",
+    "updateAvailable": "Atualização do Claude Code disponível",
+    "notInstalled": "Claude Code não instalado",
+    "error": "Erro ao verificar Claude Code",
+    "installed": "Instalado",
+    "outdated": "Atualização disponível",
+    "missing": "Não instalado",
+    "current": "Atual",
+    "latest": "Mais recente",
+    "lastChecked": "Última verificação",
+    "learnMore": "Saiba mais sobre o Claude Code",
+    "updateWarningTitle": "Atualizar Claude Code?",
+    "updateWarningDescription": "A atualização fechará todas as sessões do Claude Code em execução. Qualquer trabalho não salvo nessas sessões pode ser perdido. Certifique-se de salvar seu trabalho antes de prosseguir.",
+    "updateAnyway": "Atualizar Mesmo Assim"
+  },
+  "cliTools": {
+    "authenticated": "Autenticado",
+    "needsAuth": "Autenticação necessária",
+    "notInstalled": "Não instalado",
+    "updateAvailable": "Atualização disponível",
+    "installed": "Instalado",
+    "current": "Atual",
+    "latest": "Mais recente",
+    "lastChecked": "Última verificação",
+    "viaOAuth": "via OAuth",
+    "viaApiKey": "via chave de API",
+    "viaGoogleLogin": "via Google Login",
+    "tokenExpires": "Expiração do token",
+    "loginInTerminal": "Login",
+    "waitingForAuth": "Aguardando...",
+    "importCredentials": "Importar credenciais",
+    "loginHintCodex": "Complete o login na janela do navegador. O Codex CLI se autenticará via OpenAI.",
+    "loginHintGemini": "Complete o login na janela do navegador. O Antigravity CLI se autenticará via Google."
+  }
+}

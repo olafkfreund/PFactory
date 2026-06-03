@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "phases": [
+    { "id": "AC#1", "name": "Typical weights map to correct brackets", "status": "complete" },
+    { "id": "AC#2", "name": "Lower boundary 500g is $5",              "status": "complete" },
+    { "id": "AC#3", "name": "Upper boundaries 2000g and 10000g",      "status": "complete" },
+    { "id": "AC#4", "name": "Non-positive weight raises ValueError",  "status": "complete" }
+  ]
+}

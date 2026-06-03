@@ -1,0 +1,19 @@
+---
+description: Async function test — use pytest-asyncio to await a coroutine and assert the resolved value
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - async_input_args
+  - expected_async_output
+---
+import pytest
+
+from ${module_path} import ${function_name}
+
+
+@pytest.mark.asyncio
+async def test_${function_name}_resolves_to_expected_output() -> None:
+    result = await ${function_name}(${async_input_args})
+    assert result == ${expected_async_output}

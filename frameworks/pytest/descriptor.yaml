@@ -1,0 +1,103 @@
+# frameworks/pytest/descriptor.yaml
+#
+# Python pytest descriptor — sanity check mirroring v0.1 behavior.
+#
+# This is PFactory's "home base" framework — the one that existed in v0.1.
+# It is the reference implementation for how descriptor fields map to the
+# Python/pytest tooling chain.  All v0.2 descriptors use the same schema.
+#
+# Related decisions:
+#   Decision 1 — generic prompts + framework descriptor registry
+#   Decision 11 — per-framework coverage_strategy (cobertura for pytest)
+#
+name: pytest
+language: python
+lanes:
+  - unit
+  # api: Python API/contract tests are pytest tests driving httpx against a
+  # running HTTP target (declared in .pfactory.yml). The Evaluator runs the
+  # api lane with network access + PFACTORY_TARGET_URL injected.
+  - api
+
+# Semantic version range (PEP 440 / packaging.specifiers).
+# pytest 7.x+ is required for PFactory's --tb=short + junit-xml output format.
+# 8.x is the current stable series at v0.2 release time.
+version_range: ">=7.0,<10.0"
+
+runtime:
+  # Docker image built in Task 7 (#23).  The v0.1 image is re-tagged to
+  # match the registry convention at that task.
+  image: pfactory-runner-pytest:latest
+  entrypoint:
+    - python
+    - "-m"
+    - pytest
+    - "--tb=short"
+    - "--junit-xml=/scratch/junit.xml"
+    - "--cov"
+    - "--cov-report=xml:/scratch/coverage.xml"
+
+# Manifest signals the Planner uses to detect pytest in a project.
+# Format: "<filename>:<key-or-section>" — the Planner checks these in order;
+# the first match wins.  Multiple signals increase detection confidence.
+manifest_signals:
+  - "requirements.txt:pytest"
+  - "requirements-dev.txt:pytest"
+  - "pyproject.toml:tool.pytest.ini_options"
+  - "setup.cfg:tool:pytest"
+  - "pytest.ini"
+  - "tox.ini:pytest"
+
+# Glob patterns for where pytest tests live by convention.
+# Gen-Functional uses the first matching pattern when writing a new test file.
+test_path_conventions:
+  - "tests/**/test_*.py"
+  - "tests/**/*_test.py"
+
+# Template filenames (populated in Task 12, #28).
+templates:
+  - function-pure.py.tmpl
+  - function-with-mock.py.tmpl
+  - fixture-driven.py.tmpl
+  - parametrize.py.tmpl
+  - async-function.py.tmpl
+
+# Per Decision 11: pytest emits Cobertura XML coverage reports via pytest-cov.
+# The Evaluator's coverage_delta primitive parses this XML.
+coverage_strategy: cobertura
+
+# LLM context block — injected into the Gen-Functional prompt when generating
+# pytest tests.  This block teaches the LLM the pytest idioms and anti-patterns
+# that lead to reliable, non-flaky tests.
+context_block: |
+  You are generating pytest tests in Python.
+
+  Fixture and test structure:
+    - Use pytest fixtures (scope: function by default; session for expensive setup)
+    - Prefer conftest.py for shared fixtures; keep test-local fixtures in the test file
+    - Name tests with the pattern: test_<subject>_<condition>_<expected>
+    - One logical assertion per test function (use multiple asserts only when atomically related)
+
+  Coverage idioms:
+    - Use pytest-cov: the runner calls --cov --cov-report=xml automatically
+    - Mark slow tests with @pytest.mark.slow so they can be excluded in pre-commit
+
+  Anti-patterns to avoid:
+    - time.sleep() in tests — use freezegun or monkeypatching instead
+    - datetime.now() in assertions — freeze time via freezegun
+    - random without a seed — always seed with random.seed(42) or use pytest-randomly
+    - Iterating over dicts/sets and asserting order — sort first or use set equality
+    - Hard-coded file paths — always use tmp_path or monkeypatch.chdir()
+
+  Mocking:
+    - Use unittest.mock.patch as a decorator or context manager
+    - Prefer pytest-mock's mocker fixture for cleaner mock lifetime management
+    - Mock at the import site of the module under test, not the original module
+
+  Parametrize:
+    - Use @pytest.mark.parametrize to cover multiple inputs/edge cases in one test function
+    - Always include a descriptive ID: @pytest.mark.parametrize("x,y", [...], ids=[...])
+
+# Evaluator hooks — dotted-path references for per-language Evaluator primitives.
+# Populated in Task 9 (#25).  Empty tuples are valid until then.
+evaluator_hooks: []

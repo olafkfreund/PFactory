@@ -1,0 +1,357 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pfactory.fullname" . }}
+  labels:
+    {{- include "pfactory.labels" . | nindent 4 }}
+spec:
+  # Epic #44 R3 — multi-replica rmux is out of scope for v1 (cross-pod
+  # session visibility needs Redis pub/sub, planned for v1.1).  Pin
+  # to 1 when ``rmux.enabled=true`` regardless of what replicaCount or
+  # HPA say.  When rmux is off, honour the operator-set replicaCount.
+  replicas: {{ if .Values.rmux.enabled }}1{{ else }}{{ .Values.replicaCount }}{{ end }}
+  strategy:
+    # Rolling update with maxSurge=0 — v1.0 has one replica, so we
+    # tear down before bringing up to avoid double-DB-writes during
+    # the version switch. v1.1 (multi-replica + Redis pub/sub) will
+    # bump this to maxSurge=1.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "pfactory.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pfactory.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll pods on ConfigMap change.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "pfactory.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.sandbox.gvisor.enabled }}
+      # gVisor sandboxing (Epic #35 #37). Routes syscalls through the
+      # runsc user-space kernel. RuntimeClass must already exist in
+      # the cluster — see values.yaml's ``sandbox.gvisor`` block.
+      runtimeClassName: {{ .Values.sandbox.gvisor.runtimeClassName | quote }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: pfactory
+          image: {{ include "pfactory.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "pfactory.fullname" . }}-config
+          env:
+            # DATABASE_URL: produced by ExternalSecret OR by an
+            # out-of-band Secret named values.postgres.externalSecretName.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.externalSecretName }}
+                  key: database-url
+            {{- if .Values.oidc.enabled }}
+            - name: APP_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oidc.clientSecretRef.name }}
+                  key: {{ .Values.oidc.clientSecretRef.key }}
+            {{- end }}
+            {{- if eq .Values.kms.backend "fernet" }}
+            - name: KMS_FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kms.fernetKeyRef.name }}
+                  key: {{ .Values.kms.fernetKeyRef.key }}
+            {{- end }}
+            {{- if .Values.rmux.enabled }}
+            # Epic #44 R3 — flip on the rmux Live Agent Console.
+            # The web-server's startup runtime checks for the binary
+            # before mounting the bridge router; if WITH_RMUX=false
+            # (no binary in the image), the flag is honoured at the
+            # env level but the feature stays off and a warning is
+            # logged — operator misconfiguration can't run rmux without
+            # the binary.
+            - name: PFACTORY_RMUX_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if .Values.remoteControl.enabled }}
+            # Claude Code Remote Control — signal to the agent_service
+            # that this deployment is set up to serve remote-control
+            # sessions.  The per-task ``enableRemoteControl`` flag
+            # still gates whether a SPECIFIC task uses Remote Control;
+            # this env var is just a "deployment supports it" marker.
+            - name: PFACTORY_REMOTE_CONTROL_SUPPORTED
+              value: "true"
+            {{- end }}
+            {{- if .Values.workspaces.enabled }}
+            # Portal-managed project workspaces (#82 PR-B).  Points the
+            # clone service in project_workspace_service.py at the PVC
+            # mount so ``POST /api/projects {gitUrl}`` writes the cloned
+            # repos to durable storage instead of the pod's tmpfs root.
+            - name: PROJECT_WORKSPACE_ROOT
+              value: {{ .Values.workspaces.mountPath | quote }}
+            {{- end }}
+            {{- if .Values.mcpCredentials.enabled }}
+            # MCP credentials — env-var-only providers.  File-based
+            # providers (AWS / GCP / Kubernetes) land via volumeMount.
+            # Each block is independent so operators can mount partial
+            # provider sets.  Empty Secret keys are tolerated by K8s
+            # (the env var just resolves to the empty string), but the
+            # MCP credential probes treat empty as "not configured" —
+            # they only enable the catalog server when the value is
+            # truthy.
+            {{- if .Values.mcpCredentials.providers.github }}
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpCredentials.secretName | quote }}
+                  key: github-token
+            {{- end }}
+            {{- if .Values.mcpCredentials.providers.gitlab }}
+            - name: GITLAB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpCredentials.secretName | quote }}
+                  key: gitlab-token
+            - name: GITLAB_INSTANCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpCredentials.secretName | quote }}
+                  key: gitlab-instance-url
+                  optional: true
+            {{- end }}
+            {{- if .Values.mcpCredentials.providers.azureDevOps }}
+            - name: AZURE_DEVOPS_PERSONAL_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpCredentials.secretName | quote }}
+                  key: azure-devops-token
+            - name: AZURE_DEVOPS_ORG_SERVICE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpCredentials.secretName | quote }}
+                  key: azure-devops-org-url
+            {{- end }}
+            {{- if .Values.mcpCredentials.providers.azure }}
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpCredentials.secretName | quote }}
+                  key: azure-tenant-id
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpCredentials.secretName | quote }}
+                  key: azure-client-id
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpCredentials.secretName | quote }}
+                  key: azure-client-secret
+            {{- end }}
+            {{- if .Values.mcpCredentials.providers.gcp }}
+            # GCP MCP reads the SA JSON via GOOGLE_APPLICATION_CREDENTIALS.
+            # The file mount happens below; this env points at it.
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/etc/pfactory/gcp-sa.json"
+            {{- end }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # readOnlyRootFilesystem=true demands every writable path
+            # be a tmpfs/emptyDir mount.
+            - name: tmp
+              mountPath: /tmp
+            - name: pfactory-data
+              mountPath: /home/nonroot/.pfactory
+            {{- if .Values.rmux.enabled }}
+            # Epic #44 R3 — rmux daemon socket + pane FIFOs.  Owned by
+            # the pod user (nonroot) and tmpfs-backed for low-latency
+            # pipe-pane I/O.
+            - name: pfactory-rmux
+              mountPath: /var/run/pfactory/rmux
+            - name: pfactory-panes
+              mountPath: /var/run/pfactory/panes
+            {{- end }}
+            {{- if .Values.remoteControl.enabled }}
+            # Claude Code Remote Control — mount the full-scope OAuth
+            # credentials from the operator's ``claude auth login`` so
+            # spawned agents fall through to them (the inference-only
+            # token PFactory uses by default gets rejected by Remote
+            # Control).  ``subPath`` ensures the file lands at exactly
+            # the path Claude Code expects, not in a directory of
+            # secret-projected files.  readOnly + the implicit 0400
+            # mode on secret volumes keeps the token tightly scoped.
+            - name: claude-remote-credentials
+              mountPath: {{ .Values.remoteControl.mountPath | quote }}
+              subPath: credentials.json
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.mcpCredentials.enabled .Values.mcpCredentials.providers.aws }}
+            # AWS credentials — mounted at the path the awscli/SDK
+            # native discovery checks first.  ``subPath`` projects the
+            # single Secret key as a file at the exact location, not
+            # a directory.
+            - name: mcp-aws-credentials
+              mountPath: /home/nonroot/.aws/credentials
+              subPath: aws-credentials
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.mcpCredentials.enabled .Values.mcpCredentials.providers.kubernetes }}
+            # Kubernetes — operator-supplied kubeconfig.  For
+            # cloud-native identity (in-cluster ServiceAccount), set
+            # providers.kubernetes=false; the MCP server will pick up
+            # /var/run/secrets/kubernetes.io/serviceaccount/ on its own.
+            - name: mcp-kubeconfig
+              mountPath: /home/nonroot/.kube/config
+              subPath: kubeconfig
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.mcpCredentials.enabled .Values.mcpCredentials.providers.gcp }}
+            # GCP service account JSON.  GOOGLE_APPLICATION_CREDENTIALS
+            # env (set above) points here.  Path is under /etc rather
+            # than /home/nonroot to make the source obvious in audits.
+            - name: mcp-gcp-sa
+              mountPath: /etc/pfactory/gcp-sa.json
+              subPath: gcp-service-account.json
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.global .Values.global.customCABundle.secretName }}
+            - name: custom-ca
+              mountPath: /etc/ssl/custom-ca
+              readOnly: true
+            {{- end }}
+            {{- if .Values.workspaces.enabled }}
+            # Portal-managed project workspaces (#82 PR-B).  Backing PVC
+            # is templated by workspaces-pvc.yaml.  Path is also what
+            # PROJECT_WORKSPACE_ROOT env var (set above) points the
+            # clone service at.
+            - name: pfactory-workspaces
+              mountPath: {{ .Values.workspaces.mountPath | quote }}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: pfactory-data
+          emptyDir: {}
+        {{- if .Values.rmux.enabled }}
+        - name: pfactory-rmux
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.rmux.rmuxEmptyDirSizeLimit }}
+        - name: pfactory-panes
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.rmux.panesEmptyDirSizeLimit }}
+        {{- end }}
+        {{- if .Values.remoteControl.enabled }}
+        - name: claude-remote-credentials
+          secret:
+            secretName: {{ required "remoteControl.credentialsSecretName is required when remoteControl.enabled=true — see charts/pfactory/values.yaml for the kubectl create secret command" .Values.remoteControl.credentialsSecretName }}
+            # defaultMode 0400 on the projected file — Claude Code
+            # refuses to read credentials with looser perms.  K8s
+            # converts this to mode 0400 inside the volume.
+            defaultMode: 0400
+            items:
+              - key: credentials.json
+                path: credentials.json
+        {{- end }}
+        {{- if .Values.mcpCredentials.enabled }}
+        # Each file-mounted MCP provider gets its own Volume that
+        # projects ONLY the key it needs from the shared Secret.  This
+        # gives the operator one Secret to rotate while keeping the
+        # pod's volume list explicit about which keys are exposed.
+        # All mounts use defaultMode: 0400 — the cloud CLIs (and
+        # Kubernetes' kubectl) refuse to read credentials with looser
+        # perms, same posture as remoteControl above.
+        {{- $secretName := required "mcpCredentials.secretName is required when mcpCredentials.enabled=true — see charts/pfactory/values.yaml for the kubectl create secret command" .Values.mcpCredentials.secretName }}
+        {{- if .Values.mcpCredentials.providers.aws }}
+        - name: mcp-aws-credentials
+          secret:
+            secretName: {{ $secretName | quote }}
+            defaultMode: 0400
+            items:
+              - key: aws-credentials
+                path: aws-credentials
+        {{- end }}
+        {{- if .Values.mcpCredentials.providers.kubernetes }}
+        - name: mcp-kubeconfig
+          secret:
+            secretName: {{ $secretName | quote }}
+            defaultMode: 0400
+            items:
+              - key: kubeconfig
+                path: kubeconfig
+        {{- end }}
+        {{- if .Values.mcpCredentials.providers.gcp }}
+        - name: mcp-gcp-sa
+          secret:
+            secretName: {{ $secretName | quote }}
+            defaultMode: 0400
+            items:
+              - key: gcp-service-account.json
+                path: gcp-service-account.json
+        {{- end }}
+        {{- end }}
+        {{- if and .Values.global .Values.global.customCABundle.secretName }}
+        - name: custom-ca
+          secret:
+            secretName: {{ .Values.global.customCABundle.secretName }}
+        {{- end }}
+        {{- if .Values.workspaces.enabled }}
+        # PVC for portal-managed project workspaces (#82 PR-B).  See
+        # templates/workspaces-pvc.yaml for the claim itself.
+        - name: pfactory-workspaces
+          persistentVolumeClaim:
+            claimName: {{ include "pfactory.fullname" . }}-workspaces
+        {{- end }}

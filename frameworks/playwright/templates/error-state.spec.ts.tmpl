@@ -1,0 +1,20 @@
+---
+description: Error state — trigger a server-side or client-side error and assert the error UI element is displayed
+requires_target: true
+requires_auth: false
+vars:
+  - target_base_url
+  - test_name
+  - error_trigger_url
+  - expected_error_selector
+---
+import { test, expect } from '@playwright/test';
+
+test('${test_name}', async ({ page }) => {
+  // Navigate to the URL that triggers the error state
+  await page.goto('${target_base_url}${error_trigger_url}');
+
+  // Assert the error element is visible to the user
+  const errorElement = page.locator('${expected_error_selector}');
+  await expect(errorElement).toBeVisible();
+});

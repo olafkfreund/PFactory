@@ -1,0 +1,19 @@
+---
+description: Async function test — await an async function and assert its resolved value
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - input_args
+  - expected_output
+---
+import { describe, it, expect } from 'vitest';
+import { ${function_name} } from '${module_path}';
+
+describe('${function_name}', () => {
+  it('resolves to the expected value', async () => {
+    const result = await ${function_name}(${input_args});
+    expect(result).toEqual(${expected_output});
+  });
+});

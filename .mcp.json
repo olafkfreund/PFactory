@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "pfactory": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "${CLAUDE_PROJECT_DIR:-.}/scripts/start-pfactory-mcp.sh"
+      ],
+      "env": {
+        "PFACTORY_PROJECT_DIR": "${CLAUDE_PROJECT_DIR:-.}",
+        "PFACTORY_API_URL": "http://localhost:3102",
+        "PFACTORY_API_TOKEN_FILE": "~/.pfactory/.token"
+      }
+    }
+  }
+}

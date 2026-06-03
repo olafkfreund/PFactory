@@ -1,0 +1,16 @@
+---
+layout: default
+---
+<p class="post-meta">
+  <a href="{{ '/blog/' | relative_url }}">← Blog</a>
+  <span aria-hidden="true">·</span>
+  <time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: "%B %-d, %Y" }}</time>
+  {%- if page.author %} <span aria-hidden="true">·</span> {{ page.author }}{% endif -%}
+</p>
+<h1 class="post-title">{{ page.title }}</h1>
+{% if page.subtitle %}<p class="post-subtitle">{{ page.subtitle }}</p>{% endif %}
+
+{{ content }}
+
+<hr>
+<p class="post-foot"><a href="{{ '/blog/' | relative_url }}">← All posts</a></p>

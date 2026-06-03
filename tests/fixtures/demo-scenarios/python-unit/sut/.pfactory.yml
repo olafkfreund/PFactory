@@ -1,0 +1,4 @@
+version: 1
+# Pure Python library — the unit (pytest) + mutation (mutmut) lanes only.
+# There is no running service to exercise, so no http/k8s/compose targets.
+targets: []

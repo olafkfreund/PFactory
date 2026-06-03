@@ -1,0 +1,24 @@
+---
+description: Fixture-driven test — define a pytest fixture for setup, inject it into the test, assert the function output
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - fixture_name
+  - fixture_setup_code
+  - expected_output
+---
+import pytest
+
+from ${module_path} import ${function_name}
+
+
+@pytest.fixture
+def ${fixture_name}():
+    ${fixture_setup_code}
+
+
+def test_${function_name}_with_fixture(${fixture_name}) -> None:
+    result = ${function_name}(${fixture_name})
+    assert result == ${expected_output}

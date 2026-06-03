@@ -1,0 +1,72 @@
+<section class="pipeline reveal">
+  <header class="pipeline__header">
+    <h2 class="pipeline__title">The five-agent pipeline</h2>
+    <span class="pipeline__caption">spec&nbsp;→&nbsp;graded&nbsp;tests · v0.2</span>
+  </header>
+  <div class="pipeline__flow" role="list">
+
+    <div class="pipeline__node" role="listitem" style="--na:#b8bb26">
+      <span class="pipeline__step">01</span>
+      <span class="pipeline__node-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><rect x="5" y="5.5" width="14" height="15" rx="2"/><path d="M9 11h6M9 15h4"/>
+        </svg>
+      </span>
+      <p class="pipeline__node-name">Planner</p>
+      <span class="pipeline__node-meta">test_plan.json</span>
+    </div>
+
+    <div class="pipeline__arrow" aria-hidden="true"><span></span></div>
+
+    <div class="pipeline__node" role="listitem" style="--na:#8ec07c">
+      <span class="pipeline__step">02</span>
+      <span class="pipeline__node-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/>
+        </svg>
+      </span>
+      <p class="pipeline__node-name">Gen-Functional</p>
+      <span class="pipeline__node-meta">tests/*</span>
+    </div>
+
+    <div class="pipeline__arrow" aria-hidden="true"><span></span></div>
+
+    <div class="pipeline__node" role="listitem" style="--na:#83a598">
+      <span class="pipeline__step">03</span>
+      <span class="pipeline__node-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12 4 7.5"/>
+        </svg>
+      </span>
+      <p class="pipeline__node-name">Executor</p>
+      <span class="pipeline__node-meta">docker sandbox</span>
+    </div>
+
+    <div class="pipeline__arrow" aria-hidden="true"><span></span></div>
+
+    <div class="pipeline__node" role="listitem" style="--na:#fabd2f">
+      <span class="pipeline__step">04</span>
+      <span class="pipeline__node-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="3.3"/><path d="M12 3.8v3M20.2 12h-3"/>
+        </svg>
+      </span>
+      <p class="pipeline__node-name">Evaluator</p>
+      <span class="pipeline__node-meta">verdicts.json</span>
+    </div>
+
+    <div class="pipeline__arrow" aria-hidden="true"><span></span></div>
+
+    <div class="pipeline__node pipeline__node--final" role="listitem" style="--na:#fe8019">
+      <span class="pipeline__step">05</span>
+      <span class="pipeline__node-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 13l2-8h12l2 8M4 13v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5M4 13h5l1.2 2h3.6l1.2-2H20"/>
+        </svg>
+      </span>
+      <p class="pipeline__node-name">Triager</p>
+      <span class="pipeline__node-meta">triage_report.md</span>
+    </div>
+
+  </div>
+</section>

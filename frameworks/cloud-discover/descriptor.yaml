@@ -1,0 +1,50 @@
+# frameworks/cloud-discover/descriptor.yaml
+#
+# Cloud discovery framework (#133 E / #138) — the read-only "do we get in,
+# and what's here?" stage that precedes any cloud assessment.
+#
+# Discovery shells out to the host provider CLIs (aws / gcloud / az) via
+# agents/cloud/discovery.py (access_check + discover) and emits the normalized
+# inventory that agents/diagrams/render_cloud_topology turns into a diagram.
+# Read-only by design: only describe/list/get calls — nothing mutates.
+#
+# Lane: integration (a cloud account is an external system we wire into and
+# inspect, like a service in the integration lane).
+name: cloud-discover
+language: cloud
+lanes:
+  - integration
+
+# Discovery is CLI-driven (aws/gcloud/az), not pinned to one tool version.
+version_range: ">=0"
+
+runtime:
+  # The cloud runner image carries the provider CLIs + Prowler. Discovery
+  # itself runs host-side; the image is the assessment runtime (cloud-prowler).
+  image: pfactory-runner-cloud:latest
+  entrypoint: []
+
+# A cloud_provider target in .pfactory.yml is the signal this framework applies.
+manifest_signals:
+  - ".pfactory.yml:targets"
+
+# Discovery writes the frozen inventory + context under the task's context/.
+test_path_conventions:
+  - "context/**/*.json"
+
+# No generated test files — discovery emits inventory, not code.
+templates: []
+
+# Cloud runs emit no per-test coverage XML.
+coverage_strategy: skip
+
+context_block: |
+  # Cloud discovery (read-only)
+
+  Stage 1 of the cloud flow — the access gate. `access_check` reports identity
+  + account; `discover` enumerates the account into the normalized inventory
+  (global services + per-region/global resources). Implemented for AWS, GCP and
+  Azure in `agents/cloud/discovery.py`. Only describe/list/get calls are issued;
+  the account is never mutated. If access fails, the pipeline stops here.
+
+evaluator_hooks: []

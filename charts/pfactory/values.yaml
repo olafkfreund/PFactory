@@ -1,0 +1,429 @@
+# Default values for the PFactory chart.
+# This file is the primary configuration surface for operators.
+#
+# Sections:
+#   image           — container image + pull config
+#   replicaCount    — pinned to 1 for v1.0 (WebSocket fan-out limitation)
+#   resources       — CPU/memory requests + limits
+#   securityContext — PSS-restricted defaults; do not relax without review
+#   service         — ClusterIP by default; Ingress controls public exposure
+#   ingress         — disabled by default; operators wire their controller
+#   serviceAccount  — dedicated SA, no automount of API token
+#   podDisruptionBudget — minAvailable: 1
+#   hpa             — disabled by default (single replica)
+#   networkPolicy   — default-deny + explicit 443 egress
+#   migrations      — Alembic Job mode (autoApply=false in prod)
+#   postgres        — bundled (CNPG) OR external (via ExternalSecret)
+#   externalSecrets — store config for the 4 supported backends
+#   oidc            — OIDC SSO settings (gated by enabled flag)
+#   kms             — at-rest encryption backend selection
+#   global          — cross-cutting: customCABundle, priorityClass, etc.
+
+image:
+  # Override with your private mirror; image-mirroring.md covers cosign
+  # signature-preserving copy.
+  repository: ghcr.io/dataseeek/pfactory
+  tag: ""  # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+replicaCount: 1  # v1.1 will support >1 via Redis pub/sub for WS fan-out
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+# PSS-restricted compatible. NEVER set runAsUser=0 or
+# allowPrivilegeEscalation=true — admission controllers reject.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# Sandbox: opt-in stronger pod isolation via Kubernetes RuntimeClass.
+# Currently supports gVisor (Google's user-space kernel that filters
+# syscalls between the workload and the host kernel). Disabled by
+# default — gVisor adds ~5-15% CPU overhead and blocks a handful of
+# syscalls that some workloads need.
+#
+# Prereqs (cluster operator must provision separately):
+#   1. gVisor runsc installed on the node pool
+#   2. A RuntimeClass object named per ``runtimeClassName`` below
+#      (default ``gvisor``) created in the cluster
+#
+# PFactory's bash allowlist (git, curl, npm install, apt-get) works
+# under gVisor in practice. Workloads known NOT to work: tcpdump,
+# BPF programs, nested containers, anything that mmap()'s /dev/kvm.
+# See guides/security/gvisor.md for the full compatibility note.
+#
+# Epic #35 child #37.
+sandbox:
+  gvisor:
+    enabled: false
+    # Override only if your cluster operator created the RuntimeClass
+    # under a different name (e.g. some platforms use "runsc" directly).
+    runtimeClassName: gvisor
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3102
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""  # e.g. "nginx" or "alb"
+  annotations: {}
+  hosts:
+    - host: pfactory.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # API token automount is OFF: pods that don't talk to the K8s API
+  # don't need it, and dropping it shrinks the blast radius of a
+  # container compromise.
+  automountServiceAccountToken: false
+
+rbac:
+  create: false  # the app doesn't read the K8s API in v1.0
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 50
+
+networkPolicy:
+  # Default-deny + explicit allowlist. ALWAYS enabled in production.
+  enabled: true
+  # Egress: 443/tcp to anywhere (Anthropic API, IdP, KMS, external
+  # Postgres if hosted off-cluster). Operators can tighten further
+  # by overriding egress rules.
+  egress:
+    allowExternalHttps: true
+    # If your Postgres is in-cluster on a non-443 port, add a rule:
+    # - to: [{namespaceSelector: {matchLabels: {name: postgres}}}]
+    #   ports: [{protocol: TCP, port: 5432}]
+    extraRules: []
+  ingress:
+    # Default: only the ingress controller may reach us.
+    fromIngressNamespace: "ingress-nginx"
+    extraRules: []
+
+migrations:
+  # Production: false. Operators run the alembic Job out-of-band so
+  # rollouts can be ordered/audited. Set true for POC/dev mode where
+  # the app autoApplies on boot.
+  autoApply: false
+  # When false, an alembic-upgrade Job is created and the deployment
+  # waits for it to complete via init container.
+  jobImage: ""  # defaults to the same image as the app
+  jobBackoffLimit: 3
+
+postgres:
+  # When true: install cloudnative-pg sub-chart for POC mode.
+  # When false: point at external Postgres via DATABASE_URL secret.
+  bundled: false
+  # External-Postgres mode: name of the K8s Secret carrying
+  # DATABASE_URL (key="database-url"). For ExternalSecret backends,
+  # see .externalSecrets below — those create this Secret for you.
+  externalSecretName: pfactory-db
+  # CNPG sub-chart values (used when bundled=true). Defaults are
+  # POC-grade — operators should override for production.
+  cloudnative-pg:
+    cluster:
+      instances: 1
+      storage:
+        size: 10Gi
+
+# Pick ONE backend. The chart renders only the matching ExternalSecret
+# template; the others stay dormant.
+externalSecrets:
+  enabled: false
+  # One of: vault, aws-sm, azure-kv, gcp-sm
+  backend: vault
+  # Secret references inside the chosen backend. Override per env.
+  refs:
+    databaseUrl: "secret/data/pfactory/db#url"
+    jwtSecret: "secret/data/pfactory/jwt#secret"
+    oidcClientSecret: "secret/data/pfactory/oidc#client_secret"
+    kmsFernetKey: "secret/data/pfactory/kms#fernet_key"
+    anthropicApiKey: "secret/data/pfactory/llm#anthropic_key"
+  # ClusterSecretStore name (created out-of-band by platform team).
+  clusterSecretStoreName: pfactory-secrets
+
+oidc:
+  enabled: false
+  provider: keycloak  # keycloak | okta | azure_ad
+  issuerUrl: ""
+  clientId: ""
+  # Mounted from the Secret created by externalSecrets (or a plain
+  # K8s Secret if externalSecrets.enabled=false).
+  clientSecretRef:
+    name: pfactory-oidc
+    key: client-secret
+  scope: ""  # empty → preset default per provider
+  groupToRole: {}  # e.g. {"pfactory-admin": "admin"}
+  defaultRole: "member"
+
+kms:
+  # One of: fernet (local key, POC only), aws_kms, vault_transit,
+  # azure_kv, gcp_kms.
+  backend: fernet
+  # Backend-specific key references (env vars at the pod).
+  fernetKeyRef:
+    name: pfactory-kms
+    key: fernet-key
+  awsKmsKeyId: ""
+  vaultTransitKey: "pfactory-root"
+  azureKeyvaultUrl: ""
+  azureKeyvaultKey: ""
+  gcpKmsKeyName: ""
+
+# Epic #26 P6 — Prometheus /metrics + Grafana dashboard.
+metrics:
+  # When set, the application requires this bearer for /metrics
+  # scrapes. The ServiceMonitor below references the same secret so
+  # Prometheus Operator passes it automatically. Leave empty for
+  # open-scrape mode (default v1.0 — NetworkPolicy restricts source).
+  scrapeTokenSecret:
+    name: ""  # e.g., "pfactory-metrics" — provisioned by ExternalSecret
+    key: token
+  serviceMonitor:
+    # Opt-in: requires the Prometheus Operator CRDs to be installed
+    # cluster-wide. When false, operators scrape via pod annotations
+    # (standard Prometheus configmap-based discovery).
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}      # extra labels for the ServiceMonitor selector
+    relabelings: []
+
+# Probes default to /api/health (P0); the cold-start window (database
+# migrations, model loading) is generous so PSS-restricted runtimes
+# without privileged init don't get killed.
+probes:
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 60  # 5min cold-start window
+
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Epic #44 R3 — rmux Live Agent Console (opt-in dev/demo capability).
+# Pointing this at a bank-pilot image (built with ``WITH_RMUX=false``)
+# is safe: the pod logs a warning and the feature stays disabled
+# regardless of ``enabled: true`` here, so operator misconfiguration
+# never runs without the binary.
+#
+# When ``enabled: true``:
+#   • ``PFACTORY_RMUX_ENABLED=true`` env var is injected
+#   • ``emptyDir`` volumes mounted at ``/var/run/pfactory/rmux/`` and
+#     ``/var/run/pfactory/panes/`` (owned by the pod user, tmpfs-backed
+#     by default for low-latency pipe-pane I/O)
+#   • Replicas are pinned to 1 regardless of HPA — multi-replica rmux
+#     requires v1.1's Redis pub/sub for session visibility across pods
+rmux:
+  enabled: false
+  # Memory cap for the panes ``emptyDir`` (FIFOs + buffered bytes).
+  # 100Mi is generous for the v1 single-task-at-a-time model.
+  panesEmptyDirSizeLimit: 100Mi
+  # Memory cap for the rmux daemon socket dir.  10Mi covers the
+  # socket + lockfile with plenty of margin.
+  rmuxEmptyDirSizeLimit: 10Mi
+
+# ---------------------------------------------------------------------------
+# Portal-managed project workspaces (epic #82).
+#
+# When PFactory accepts a Git URL via ``POST /api/projects {gitUrl}``
+# (added in PR-A), the portal clones the repo into a writable directory
+# rooted at ``PROJECT_WORKSPACE_ROOT``.  On laptop installs that defaults
+# to ``~/.pfactory/workspaces/``; on K8s installs we need a PVC mounted
+# at a fixed path so cloned workspaces survive pod restarts.
+#
+# When ``workspaces.enabled: true``:
+#   1. A PVC of ``workspaces.size`` is created in the release namespace.
+#   2. The PVC is mounted at ``workspaces.mountPath`` on the web-server pod.
+#   3. ``PROJECT_WORKSPACE_ROOT`` env var is set to ``workspaces.mountPath``
+#      so the clone service in ``project_workspace_service.py`` puts every
+#      cloned repo under that path.
+#
+# When ``workspaces.enabled: false`` (default) nothing about the pod
+# changes — laptop / single-tenant deployments that don't use the
+# clone-from-URL flow keep working exactly as they did pre-#82.
+#
+# Multi-replica caveat: ``accessMode: ReadWriteOnce`` is fine for the
+# v1.0 single-replica web-server.  v1.1's Redis-fan-out (#40) will let
+# replicas > 1 share state, but the workspace PVC will then need to be
+# RWX (NFS / Azure Files / EFS / CephFS) for cross-pod access.
+workspaces:
+  # Master toggle.  False means: no PVC, no env var, behaviour unchanged.
+  enabled: false
+  # PVC size.  100Gi is the recommended default — enough for ~50 cloned
+  # repos averaging 2Gi each.  Resize via ``kubectl edit pvc`` on
+  # supporting storage classes; recreate the PVC if not.
+  size: 100Gi
+  # StorageClass name.  Empty string lets Kubernetes pick the cluster
+  # default; set explicitly for clusters with multiple classes (e.g.
+  # ``gp3``, ``managed-premium``, ``standard-rwo``).
+  storageClass: ""
+  # Access mode.  Stay on RWO for v1.0 (single replica); v1.1 will need
+  # RWX when Redis fan-out lets replicas > 1.
+  accessMode: ReadWriteOnce
+  # In-container mount path + ``PROJECT_WORKSPACE_ROOT`` value.  Keep
+  # under /var/lib so it's clearly out-of-tree from the app code; the
+  # ``nonroot`` user needs write access (the PVC's fsGroup honours
+  # podSecurityContext.fsGroup automatically).
+  mountPath: "/var/lib/pfactory/workspaces"
+
+# ---------------------------------------------------------------------------
+# Remote Control — Claude Code's native --remote-control flag.
+#
+# When per-task ``enableRemoteControl: true`` is set (or the project's
+# ``remoteControlByDefault`` is on), the agent subprocess registers a
+# session with Anthropic's API and the user can drive it from
+# claude.ai/code or the Claude mobile app.  Anthropic's docs:
+#   https://code.claude.com/docs/en/remote-control
+#
+# Auth: Remote Control rejects the inference-only OAuth token PFactory
+# uses by default; it requires the full-scope credentials in
+# ~/.claude/.credentials.json (produced by ``claude auth login``).
+# The agent_service scrubs CLAUDE_CODE_OAUTH_TOKEN from the spawned
+# env when remote-control is enabled, so the subprocess falls through
+# to ~/.claude/.credentials.json.  For K8s deployments, we mount that
+# file from a Secret.
+#
+# Operator setup (one time, from a logged-in workstation):
+#   kubectl create secret generic claude-remote-credentials \
+#     --from-file=credentials.json=$HOME/.claude/.credentials.json \
+#     -n pfactory
+#
+# Then set credentialsSecretName below to "claude-remote-credentials".
+# Rotate by re-running ``claude auth login`` + ``kubectl create secret``
+# with --dry-run + ``kubectl apply``.
+#
+# Constraints (from Anthropic's docs):
+#   • Subscription: Pro / Max / Team / Enterprise (not API-key users)
+#   • Provider: Anthropic API only — Bedrock/Vertex/Foundry not supported
+#   • Concurrency: one Remote Control session per claude process
+#     (already matches PFactory's one-claude-per-task model)
+remoteControl:
+  # Master toggle.  When false (default), no Remote Control wiring is
+  # added to the pod at all — behaviour is byte-for-byte unchanged.
+  enabled: false
+  # Name of a Kubernetes Secret with key ``credentials.json`` containing
+  # the contents of ~/.claude/.credentials.json from a machine where
+  # the operator has run ``claude auth login``.  Required when
+  # ``enabled: true``.
+  credentialsSecretName: ""
+  # Where Claude Code looks for credentials inside the container.
+  # The image runs as the ``nonroot`` user, so the default home is
+  # /home/nonroot.  Don't change this unless you've also changed the
+  # container's runAsUser / fsGroup.
+  mountPath: "/home/nonroot/.claude/.credentials.json"
+
+# ---------------------------------------------------------------------------
+# MCP credentials — for the default-MCP-servers catalog (Epic #100).
+#
+# When enabled, mounts a single Kubernetes Secret with well-known keys at
+# the standard paths each cloud CLI expects.  The MCP subprocess catalog
+# (apps/backend/agents/tools_pkg/mcp_catalog.py) auto-detects credentials
+# via these files / env vars — no extra wiring needed beyond populating
+# the Secret.
+#
+# Toggle individual providers via ``mcpCredentials.providers.<name>: true``
+# to mount only the keys you have populated.  Each provider is independent
+# — you can mount AWS creds but not Azure, etc.
+#
+# Operator setup (one-time, from a logged-in workstation):
+#
+#   kubectl create secret generic pfactory-mcp-credentials \
+#     --from-file=aws-credentials=$HOME/.aws/credentials \
+#     --from-file=kubeconfig=$HOME/.kube/config \
+#     --from-file=gcp-service-account.json=/path/to/sa.json \
+#     --from-literal=github-token=ghp_xxxxx \
+#     --from-literal=gitlab-token=glpat-xxxxx \
+#     --from-literal=gitlab-instance-url=https://gitlab.example.com \
+#     --from-literal=azure-devops-token=adopat_xxxxx \
+#     --from-literal=azure-devops-org-url=https://dev.azure.com/myorg \
+#     --from-literal=azure-tenant-id=xxxx \
+#     --from-literal=azure-client-id=xxxx \
+#     --from-literal=azure-client-secret=xxxx \
+#     -n pfactory
+#
+# Cloud-native identity is PREFERRED over mounted creds where available:
+#   • AWS: IRSA — annotate the ServiceAccount with eks.amazonaws.com/role-arn;
+#     leave mcpCredentials.providers.aws=false.
+#   • Azure: AKS Pod Identity / Managed Identity — set
+#     ``AZURE_USE_MSI=true`` via env (extraEnv) and leave .providers.azure=false.
+#   • GCP: Workload Identity Federation — annotate the SA with
+#     iam.gke.io/gcp-service-account; leave .providers.gcp=false.
+#
+# Use the Secret-mount path below for bare-metal / on-prem K8s where
+# cloud-native identity isn't available.
+mcpCredentials:
+  # Master toggle.  When false (default), no MCP credential wiring is
+  # added to the pod — behaviour is byte-for-byte unchanged.
+  enabled: false
+  # Name of a Kubernetes Secret with the well-known keys listed above.
+  # Required when ``enabled: true`` AND at least one provider is true.
+  secretName: pfactory-mcp-credentials
+  # Per-provider toggles.  Each one mounts ONLY the keys / env vars
+  # that provider's MCP server needs — set to true only after you've
+  # populated the corresponding Secret keys.
+  providers:
+    aws: false           # mounts ``aws-credentials`` -> ~/.aws/credentials (0400)
+    azure: false         # injects AZURE_* env triplet from string keys
+    gcp: false           # mounts ``gcp-service-account.json`` -> /etc/pfactory/gcp-sa.json (0400)
+    kubernetes: false    # mounts ``kubeconfig`` -> ~/.kube/config (0400)
+    github: false        # injects GITHUB_TOKEN env from ``github-token`` string key
+    gitlab: false        # injects GITLAB_TOKEN + GITLAB_INSTANCE_URL env
+    azureDevOps: false   # injects AZURE_DEVOPS_PERSONAL_ACCESS_TOKEN + AZURE_DEVOPS_ORG_SERVICE_URL env
+
+# Cross-cutting platform-team settings.
+global:
+  # When set, mounts a corporate root-CA bundle into the pod and
+  # points SSL_CERT_FILE at it. Required when egress passes through
+  # a TLS-intercepting proxy.
+  customCABundle:
+    secretName: ""  # e.g. "corp-root-ca"
+    key: "ca-bundle.crt"
+  # Image pull secrets shared across all pods (avoids per-template
+  # repetition).
+  imagePullSecrets: []

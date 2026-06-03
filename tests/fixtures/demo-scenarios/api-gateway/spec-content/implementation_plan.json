@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "phases": [
+    { "id": "AC#1", "name": "Health endpoint returns ok",        "status": "complete" },
+    { "id": "AC#2", "name": "Set then get round-trips value",    "status": "complete" },
+    { "id": "AC#3", "name": "List reflects stored keys",         "status": "complete" },
+    { "id": "AC#4", "name": "Missing key returns 404",           "status": "complete" }
+  ]
+}

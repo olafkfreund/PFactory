@@ -1,0 +1,35 @@
+{
+  "$comment": "PFactory Stryker mutation-testing template. Placeholders: $TEST_FILE, $RUNNER_IMAGE.",
+  "testRunner": "jest",
+  "reporters": ["json"],
+  "coverageAnalysis": "off",
+  "mutate": [
+    "$TEST_FILE"
+  ],
+  "mutator": {
+    "plugins": [],
+    "excludedMutations": [
+      "StringLiteral",
+      "ObjectLiteral",
+      "ArrayDeclaration"
+    ]
+  },
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.config.ts",
+    "enableFindRelatedTests": false
+  },
+  "timeoutMS": 30000,
+  "timeoutFactor": 2,
+  "concurrency": 1,
+  "dryRunOnly": false,
+  "maxConcurrentTestRunners": 1,
+  "disableTypeChecks": false,
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "build"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "_runnerImage": "$RUNNER_IMAGE"
+}

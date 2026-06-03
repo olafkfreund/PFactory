@@ -1,0 +1,28 @@
+---
+description: Login flow — fill credentials, submit, assert redirect to the success URL
+requires_target: true
+requires_auth: false
+vars:
+  - target_base_url
+  - test_name
+  - username_selector
+  - password_selector
+  - submit_selector
+  - success_url_pattern
+---
+describe('${test_name}', () => {
+  it('logs in and redirects to the expected page', () => {
+    cy.visit('${target_base_url}/login');
+
+    // Credentials come from Cypress.env(), never hard-coded.
+    cy.get('${username_selector}').type(Cypress.env('TEST_USERNAME') || 'test-user@example.com');
+    cy.get('${password_selector}').type(Cypress.env('TEST_PASSWORD') || 'test-password-123', {
+      log: false,
+    });
+
+    cy.get('${submit_selector}').click();
+
+    // Assertion-based wait (retries) — no cy.wait(<number>).
+    cy.url().should('include', '${success_url_pattern}');
+  });
+});

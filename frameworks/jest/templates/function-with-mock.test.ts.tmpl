@@ -1,0 +1,29 @@
+---
+description: Function with mocked dependency — jest.mock a collaborator, call the function under test, assert the return value
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - mocked_dependency_path
+  - mocked_return_value
+---
+import { ${function_name} } from '${module_path}';
+import * as dep from '${mocked_dependency_path}';
+
+jest.mock('${mocked_dependency_path}');
+
+describe('${function_name} with mocked dependency', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('calls through to the mocked dependency and returns its value', () => {
+    const mockFn = jest.spyOn(dep, 'default').mockReturnValue(${mocked_return_value});
+
+    const result = ${function_name}();
+
+    expect(mockFn).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(${mocked_return_value});
+  });
+});

@@ -1,0 +1,9 @@
+version: 1
+default_target: gateway
+targets:
+  - name: gateway
+    type: http
+    base_url: http://localhost:8400
+    health_check:
+      path: /health
+      expect_status: 200

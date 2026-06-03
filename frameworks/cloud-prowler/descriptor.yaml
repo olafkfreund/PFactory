@@ -1,0 +1,57 @@
+# frameworks/cloud-prowler/descriptor.yaml
+#
+# Cloud misconfiguration assessment framework (#133 E / #138).
+#
+# Runs Prowler (CSPM, 500+ CIS checks, OCSF JSON) in the pfactory-runner-cloud
+# image against a discovered cloud account, then maps Prowler's OCSF severities
+# to PFactory verdicts. Per-provider credential auth is handled by the runner
+# (agents/cloud/runner.py): AWS profile · GCP ADC · Azure --az-cli-auth.
+#
+# OCSF → verdict mapping (agents/cloud/assessment.py):
+#   any FAIL at/above the target's fail_on_severity  → reject
+#   FAIL(s) below the gate                           → flag
+#   no FAILs                                          → accept
+#
+# Lane: integration (assesses an external cloud account).
+name: cloud-prowler
+language: cloud
+lanes:
+  - integration
+
+# Prowler 5.x — the series bundled in the cloud runner image.
+version_range: ">=5,<6"
+
+runtime:
+  image: pfactory-runner-cloud:latest
+  entrypoint:
+    - prowler
+
+# A cloud_provider target in .pfactory.yml is the signal this framework applies.
+manifest_signals:
+  - ".pfactory.yml:targets"
+
+# Prowler writes OCSF JSON into the task's findings/.
+test_path_conventions:
+  - "findings/**/*.ocsf.json"
+
+# Findings are catalogued under library/ (canonical high-signal checks); they
+# are reference material, not generated test files.
+templates: []
+
+# Cloud assessments emit no per-test coverage XML.
+coverage_strategy: skip
+
+context_block: |
+  # Cloud misconfiguration assessment (read-only · Prowler/CIS → OCSF)
+
+  Stage 2 of the cloud flow. Prowler runs read-only against the discovered
+  account (`run_cloud_assessment` in `agents/cloud/runner.py`) and emits OCSF
+  JSON. `agents/cloud/assessment.py` (`parse_ocsf` + `assess`) maps OCSF
+  severities to a verdict using the target's `fail_on_severity` gate:
+  any FAIL at/above the gate → reject; below → flag; none → accept. High-signal
+  checks are catalogued under `library/` (public storage, over-privileged IAM,
+  open management ports).
+
+# The OCSF → verdict mapping lives here; referenced for discoverability.
+evaluator_hooks:
+  - agents.cloud.assessment.assess

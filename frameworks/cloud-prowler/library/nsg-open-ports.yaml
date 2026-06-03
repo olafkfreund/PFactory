@@ -1,0 +1,34 @@
+# cloud-prowler check: management ports open to the internet (#138)
+id: nsg-open-ports
+title: Management ports open to 0.0.0.0/0
+severity: high
+providers: [aws, gcp, azure]
+cis: ["CIS AWS 5.2", "CIS GCP 3.6/3.7", "CIS Azure 6.x"]
+
+prowler_checks:
+  aws:
+    - ec2_securitygroup_allow_ingress_from_internet_to_any_port
+    - ec2_securitygroup_allow_ingress_from_internet_to_port_22   # SSH
+    - ec2_securitygroup_allow_ingress_from_internet_to_port_3389 # RDP
+  gcp:
+    - compute_firewall_rdp_access_from_the_internet_allowed
+    - compute_firewall_ssh_access_from_the_internet_allowed
+  azure:
+    - network_ssh_internet_access_restricted
+    - network_rdp_internet_access_restricted
+
+whats_wrong: >
+  A security group / firewall rule / network security group allows inbound
+  traffic from 0.0.0.0/0 (or ::/0) to a sensitive port — SSH (22), RDP (3389),
+  database ports, or "all ports". The host is reachable by the entire internet.
+
+why_it_matters: >
+  Internet-exposed management ports are continuously scanned and brute-forced;
+  they are a primary initial-access vector for ransomware and crypto-mining.
+  A single over-broad rule can undo an otherwise sound network design.
+
+how_to_fix: >
+  Scope ingress to known CIDRs (corporate egress, VPN) or remove it entirely and
+  reach hosts via a bastion / SSM Session Manager / IAP / Azure Bastion. Never
+  expose 22/3389/database ports to 0.0.0.0/0. Default-deny inbound and add
+  narrow allow rules; audit "all ports" / "all protocols" rules first.

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "phases": [
+    { "id": "AC#1", "name": "Discount applied and clamped",        "status": "complete" },
+    { "id": "AC#2", "name": "Bulk total sums discounted lines",    "status": "complete" },
+    { "id": "AC#3", "name": "Bulk total rounds HALF_UP to 2dp",    "status": "complete" }
+  ]
+}

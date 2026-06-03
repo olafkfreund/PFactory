@@ -1,0 +1,210 @@
+{
+  "status": {
+    "backlog": "Backlog",
+    "todo": "To Do",
+    "in_progress": "In Progress",
+    "review": "Review",
+    "complete": "Complete",
+    "archived": "Archived"
+  },
+  "actions": {
+    "start": "Start",
+    "stop": "Stop",
+    "recover": "Recover",
+    "resume": "Resume",
+    "archive": "Archive",
+    "delete": "Delete",
+    "view": "View Details"
+  },
+  "labels": {
+    "running": "Running",
+    "aiReview": "AI Review",
+    "needsReview": "Needs Review",
+    "pending": "Pending",
+    "stuck": "Stuck",
+    "incomplete": "Incomplete",
+    "recovering": "Recovering...",
+    "needsRecovery": "Needs Recovery",
+    "needsResume": "Needs Resume",
+    "recovered": "Task recovered",
+    "recoveryFailed": "Failed to recover task"
+  },
+  "reviewReason": {
+    "completed": "Completed",
+    "hasErrors": "Has Errors",
+    "qaIssues": "QA Issues",
+    "approvePlan": "Approve Plan"
+  },
+  "tooltips": {
+    "archiveTask": "Archive task",
+    "archiveAllDone": "Archive all done tasks"
+  },
+  "creation": {
+    "title": "Create New Task",
+    "description": "Describe what you want to build",
+    "placeholder": "Describe your task..."
+  },
+  "empty": {
+    "title": "No tasks yet",
+    "description": "Create your first task to get started"
+  },
+  "kanban": {
+    "emptyBacklog": "No tasks planned",
+    "emptyBacklogHint": "Add a task to get started",
+    "emptyInProgress": "Nothing running",
+    "emptyInProgressHint": "Start a task from Backlog",
+    "emptyAiReview": "No tasks in review",
+    "emptyAiReviewHint": "AI will review completed tasks",
+    "emptyHumanReview": "Nothing to review",
+    "emptyHumanReviewHint": "Tasks await your approval here",
+    "emptyDone": "No completed tasks",
+    "emptyDoneHint": "Approved tasks appear here",
+    "emptyDefault": "No tasks",
+    "dropHere": "Drop here",
+    "showArchived": "Show archived",
+    "archiveFailed": "Failed to archive tasks",
+    "archiveSuccess": "Tasks archived"
+  },
+  "execution": {
+    "phases": {
+      "idle": "Idle",
+      "planning": "Planning",
+      "planReview": "Plan Review",
+      "coding": "Coding",
+      "reviewing": "Reviewing",
+      "fixing": "Fixing",
+      "complete": "Complete",
+      "failed": "Failed"
+    },
+    "labels": {
+      "interrupted": "Interrupted",
+      "progress": "Progress",
+      "progressWithStatus": "Progress ({{status}})",
+      "entry": "entry",
+      "entries": "entries"
+    },
+    "progressStatus": {
+      "idle": "idle",
+      "planning": "planning",
+      "planCompleted": "planning completed",
+      "coding": "coding",
+      "reviewing": "reviewing",
+      "fixing": "fixing issues",
+      "complete": "complete",
+      "failed": "failed"
+    },
+    "shortPhases": {
+      "plan": "Plan",
+      "code": "Code",
+      "qa": "QA"
+    }
+  },
+  "files": {
+    "title": "Files",
+    "tab": "Files",
+    "noSpecPath": "No spec files available",
+    "noFiles": "No files found",
+    "loading": "Loading files...",
+    "loadingContent": "Loading content...",
+    "errorLoading": "Failed to load files",
+    "errorLoadingContent": "Failed to load file content",
+    "retry": "Retry",
+    "selectFile": "Select a file to view its contents",
+    "openInIDE": "Open in IDE",
+    "downloadFile": "Download file",
+    "previewInBrowser": "Preview in browser",
+    "backToParent": "Back"
+  },
+  "metadata": {
+    "severity": "severity"
+  },
+  "skills": {
+    "title": "AI Skills",
+    "description": "Select skills to guide the AI agent with specialized knowledge",
+    "browseTab": "Browse",
+    "searchTab": "Search",
+    "suggestionsTab": "Suggestions",
+    "selectCategory": "Select a category to browse skills",
+    "categoryCount": "{{count}}",
+    "searchPlaceholder": "Search skills...",
+    "clearSearch": "Clear search",
+    "noResults": "No skills found",
+    "analyzing": "Analyzing…",
+    "loadingSuggestions": "Analyzing task description...",
+    "noSuggestions": "No suggestions for this description",
+    "selectedCount": "{{count}}/{{max}} skills selected",
+    "selected_one": "{{count}} skill selected",
+    "selected_other": "{{count}} skills selected",
+    "maximumReached": "Maximum reached",
+    "maxSkillsReached": "Maximum {{max}} skills selected",
+    "noSkillsSelected": "No skills selected",
+    "selectSkill": "{{name}}",
+    "removeSkill": "Remove skill",
+    "relevanceMatch": "{{score}}% match",
+    "categories": "Categories",
+    "allSkills": "All Skills",
+    "showPreview": "Show preview",
+    "hidePreview": "Hide preview",
+    "expandSection": "Show AI Skills",
+    "collapseSection": "Hide AI Skills"
+  },
+  "createPR": {
+    "title": "Create Pull Request",
+    "description": "Configure and create a pull request for this task's changes",
+    "targetRepo": "Target Repository",
+    "yourRepo": "Your repository",
+    "upstreamRepo": "Upstream repository (original)",
+    "baseBranch": "Base Branch",
+    "prTitle": "PR Title",
+    "prDescription": "Description",
+    "draft": "Create as draft",
+    "submit": "Create Pull Request",
+    "cancel": "Cancel",
+    "creating": "Creating PR...",
+    "detectingFork": "Detecting repository info...",
+    "forkDetectionFailed": "Could not detect fork info (will use defaults)",
+    "success": "Pull Request Created",
+    "createdSuccessfully": "created successfully",
+    "failed": "Failed to create PR"
+  },
+  "notifications": {
+    "profileSwitch": {
+      "title": "Switched Claude profile",
+      "description": {
+        "rateLimit": "Automatically switched to {{profileName}} due to a rate limit",
+        "earlyFailure": "Automatically switched to {{profileName}} after an early failure",
+        "unknown": "Automatically switched to {{profileName}}"
+      }
+    }
+  },
+  "agentConsole": {
+    "tab": "Live Console",
+    "noSession": "No live console available yet. Start the task to see the agent's pane.",
+    "connecting": "Connecting to live console…",
+    "connected": "Connected (read-only)",
+    "connectionLost": "Connection to live console lost",
+    "attachButton": "Attach",
+    "detachButton": "Detach",
+    "attachConfirmTitle": "Attach to the agent's shell?",
+    "attachConfirmBody": "You'll be able to type into the running agent's terminal. Everything you do is recorded in the audit log under your account. This cannot be undone for an in-flight task.",
+    "attachConfirmConfirm": "Attach now",
+    "attachConfirmCancel": "Cancel",
+    "attachedBadge": "Attached — input enabled",
+    "raceLostTitle": "Another session has control",
+    "raceLostBody": "Another viewer is already attached to this task's live console. Try again after they detach.",
+    "raceLostDismiss": "OK",
+    "headerHint": "Read-only mirror of the agent's terminal. Click Attach to take control."
+  },
+  "delegation": {
+    "enableLabel": "Delegate coding to the project's autonomous agent",
+    "enableHelp": "PFactory still plans the spec, then hands the issue to GitHub Copilot Coding Agent (GitHub projects) or GitLab Duo Workflow (GitLab projects) for implementation. Uses your Copilot/Duo seat — no extra Claude tokens spent on coding.",
+    "githubOnlyTooltip": "Delegation requires a GitHub project. GitLab Duo Workflow support is planned for a later release.",
+    "githubOrGitlabTooltip": "Delegation requires a GitHub or GitLab project. Azure DevOps has no equivalent autonomous coding agent.",
+    "projectDefaultLabel": "Delegate coding to Copilot for new tasks by default",
+    "projectDefaultHelp": "Every new task in this GitHub project starts with delegation enabled. The wizard's per-task toggle still overrides on a case-by-case basis.",
+    "badgeLabel": "Delegated to Copilot ↗",
+    "badgeTooltipPending": "PFactory handed this issue to GitHub Copilot Coding Agent. Watching for the resulting PR — refresh in a few minutes.",
+    "badgeTooltipInReview": "Copilot opened a PR for this issue. Click to open the PR.",
+    "declinedNotice": "Copilot may have declined this task — no matching PR opened within 24 hours. You can re-run with the local PFactory agent."
+  }
+}

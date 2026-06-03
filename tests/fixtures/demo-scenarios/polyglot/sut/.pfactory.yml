@@ -1,0 +1,4 @@
+version: 1
+# Polyglot library — pytest (Python) + Jest (TypeScript) unit lanes. No
+# running service, so no http/k8s/compose targets.
+targets: []

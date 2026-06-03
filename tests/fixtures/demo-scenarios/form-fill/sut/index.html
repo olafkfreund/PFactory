@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Message Board</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:560px;margin:40px auto;color:#111}
+  h1{font-size:22px}
+  label{display:block;margin:10px 0 4px;font-weight:600}
+  input,textarea{width:100%;padding:8px;border:1px solid #bbb;border-radius:6px;box-sizing:border-box}
+  button{margin-top:12px;padding:9px 16px;border:0;border-radius:6px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
+  .err{color:#b91c1c;font-size:14px;margin-top:6px}
+  ul{margin-top:18px;padding-left:0;list-style:none}
+  li{border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;margin:6px 0}
+  .who{font-weight:600;color:#2563eb}
+</style></head>
+<body>
+<h1>Message Board</h1>
+<form data-testid="post-form">
+  <label for="name">Name</label>
+  <input data-testid="name-input" id="name" />
+  <label for="message">Message</label>
+  <textarea data-testid="message-input" id="message" rows="3"></textarea>
+  <button type="submit" data-testid="post-btn">Post</button>
+  <p data-testid="form-error" class="err" style="display:none"></p>
+</form>
+<ul data-testid="posts"></ul>
+<script>
+  const $ = s => document.querySelector(s);
+  $('[data-testid=post-form]').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = $('[data-testid=name-input]').value.trim();
+    const msg = $('[data-testid=message-input]').value;
+    const err = $('[data-testid=form-error]');
+    if (!msg.trim()) { err.textContent = 'Message cannot be empty'; err.style.display = 'block'; return; }
+    err.style.display = 'none';
+    const li = document.createElement('li');
+    const who = name || 'Anonymous';
+    li.innerHTML = '<span class="who"></span><div class="body"></div>';
+    li.querySelector('.who').textContent = who + ': ';
+    li.querySelector('.body').textContent = msg;     // textContent → exact text, no HTML injection
+    // SEEDED BUG (AC#4): replace the whole list instead of appending, so only
+    // the most-recent post is ever visible. A test posting twice and expecting
+    // BOTH messages will fail and the Triager surfaces it as a reject.
+    const list = $('[data-testid=posts]');
+    list.innerHTML = '';
+    list.appendChild(li);
+    $('[data-testid=message-input]').value = '';
+  });
+</script>
+</body></html>

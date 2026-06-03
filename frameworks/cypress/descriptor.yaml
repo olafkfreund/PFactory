@@ -1,0 +1,108 @@
+# frameworks/cypress/descriptor.yaml
+#
+# Cypress (TypeScript) descriptor — Browser lane.
+#
+# Cypress is the most common Playwright alternative on the Browser lane — a
+# huge installed base, especially in older React/Angular/Vue projects. It reuses
+# the TypeScript Evaluator hooks, so adding it is descriptor-only (#110).
+#
+# Related decisions:
+#   Decision 1  — generic prompts + registry
+#   Decision 9  — selector strategy: role/data-* → text → CSS
+#   Decision 11 — coverage_strategy: skip (browser lane, N/A — not zero)
+#   Decision 12 — evidence capture: screenshots + video
+#
+name: cypress
+language: typescript
+lanes:
+  - browser
+
+# Cypress 12 introduced the stable component-testing + modern config surface;
+# 13/14 are current. Allow through 14.x and stop before a hypothetical 15.0.
+version_range: ">=12.0,<15.0"
+
+runtime:
+  # Docker image (deferred — built alongside the other runner images).
+  # Node 22 + cypress + cypress-multi-reporters + mocha-junit-reporter + Chromium.
+  image: pfactory-runner-cypress:latest
+  entrypoint:
+    - npx
+    - cypress
+    - run
+    - "--reporter"
+    - junit
+    - "--reporter-options"
+    - "mochaFile=/scratch/junit.xml"
+
+# Manifest signals for Cypress detection.
+manifest_signals:
+  - "package.json:devDependencies.cypress"
+  - "package.json:dependencies.cypress"
+  - "cypress.config.ts"
+  - "cypress.config.js"
+  - "cypress.config.mjs"
+
+# Glob patterns for Cypress E2E specs. cypress/e2e/ is the v10+ default;
+# the **/*.cy.ts fallback covers component specs colocated with source.
+test_path_conventions:
+  - "cypress/e2e/**/*.cy.ts"
+  - "cypress/e2e/**/*.cy.tsx"
+  - "**/*.cy.ts"
+
+# Template filenames shipped with this framework.
+templates:
+  - login-flow.cy.ts.tmpl
+  - form-submit-validation.cy.ts.tmpl
+  - api-mocked-flow.cy.ts.tmpl
+  - data-loaded-page.cy.ts.tmpl
+  - error-state.cy.ts.tmpl
+
+# Per Decision 11: Browser lane = skip. Cypress drives the served APPLICATION,
+# not the test code; per-test line coverage doesn't fit PFactory's model. The
+# Evaluator receives coverage_delta=None (NOT 0) and skips the coverage rule.
+coverage_strategy: skip
+
+# LLM context block — injected into the Gen-Functional prompt.
+context_block: |
+  You are generating Cypress tests in TypeScript for the Browser lane.
+
+  Selector priority (try each in order; stop at first match):
+    1. cy.get('[data-cy="submit"]')          — prefer data-cy / data-testid
+    2. cy.contains('button', 'Submit')        — accessible text
+    3. cy.get('[aria-label="Email"]')         — ARIA attributes
+    4. cy.get('css-selector')                 — LAST RESORT; add a TODO comment
+
+  NEVER generate XPath selectors.
+  NEVER use a brittle .nth()/CSS-class selector without a TODO comment.
+
+  Wait strategy (retry-ability only):
+    - cy.get(...).should('be.visible')        ← retries automatically
+    - cy.contains(...).should('have.text', ...)← retries automatically
+    - For network: cy.intercept(...).as('x') then cy.wait('@x')
+    NEVER use cy.wait(<number>) — replace with an assertion or aliased wait.
+
+  Network:
+    - Stub with cy.intercept('GET', '/api/...', { fixture: 'x.json' }).as('get')
+    - Assert against the aliased request/response, not arbitrary timeouts
+
+  Authentication:
+    - Use cy.session('user', () => { ...login... }) to log in once and cache it
+    - NEVER log in through the UI inside every test; use cy.session or cy.request
+    - Drive credentials from Cypress.env(), never hard-code secrets
+
+  Evidence capture (Decision 12):
+    - Screenshots on failure + video are captured by the runner automatically
+    - Do NOT manually configure video/screenshots in the test
+
+  Anti-patterns:
+    - cy.wait(<number>)               → use .should() retries or cy.wait('@alias')
+    - Hard-coded test data/secrets    → fixtures + Cypress.env()
+    - UI login in every test          → cy.session()
+    - Chaining off a detached element → re-query with cy.get() inside .then()
+    - Asserting object iteration order → sort first / assert membership
+
+# Evaluator hooks — reuse the shared TypeScript primitives (same as Playwright).
+evaluator_hooks:
+  - agents.lang_typescript.preflight.run_ts_preflight
+  - agents.lang_typescript.flake_lint.run_ts_flake_lint
+  - agents.lang_typescript.mutate_probe.run_ts_mutate_probe

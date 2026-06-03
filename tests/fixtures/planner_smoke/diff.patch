@@ -1,0 +1,77 @@
+diff --git a/app/auth/session.py b/app/auth/session.py
+index 1234567..89abcde 100644
+--- a/app/auth/session.py
++++ b/app/auth/session.py
+@@ -1,5 +1,7 @@
++from datetime import datetime, timedelta, timezone
+ from dataclasses import dataclass
+
++SESSION_TTL_HOURS = 24
++GRACE_WINDOW_MIN = 5
+
+ @dataclass
+ class Session:
+@@ -7,16 +9,49 @@ class Session:
+     user_id: str
+     email: str
+     created_at: str
++    expires_at: str | None = None
+
+
+ _STORE: dict[str, Session] = {}
+
+
++def _now_utc():
++    return datetime.now(timezone.utc)
++
++
+ def get_session(session_id: str) -> Session | None:
+-    return _STORE.get(session_id)
++    s = _STORE.get(session_id)
++    if s is None:
++        return None
++    if s.expires_at is None:
++        return s
++    # Expired? Drop + return None.
++    if datetime.fromisoformat(s.expires_at) <= _now_utc():
++        del _STORE[session_id]
++        return None
++    return s
+
+
++def refresh_session(session_id: str) -> Session | None:
++    """Refresh a session if it's within the grace window of expiry."""
++    s = _STORE.get(session_id)
++    if s is None or s.expires_at is None:
++        return s
++    expires = datetime.fromisoformat(s.expires_at)
++    if expires - _now_utc() > timedelta(minutes=GRACE_WINDOW_MIN):
++        return s  # Outside grace window — no refresh.
++    s.expires_at = (_now_utc() + timedelta(hours=SESSION_TTL_HOURS)).isoformat()
++    return s
++
++
+ def logout_user(session_id: str) -> None:
+     _STORE.pop(session_id, None)
+diff --git a/app/auth/login.py b/app/auth/login.py
+index abcdef0..fedcba9 100644
+--- a/app/auth/login.py
++++ b/app/auth/login.py
+@@ -1,4 +1,5 @@
++from datetime import datetime, timedelta, timezone
+ import uuid
+
+ from .session import Session, _STORE
+@@ -10,8 +11,12 @@ def login_user(email: str, password: str) -> Session | None:
+         return None
+     session_id = str(uuid.uuid4())
++    now = datetime.now(timezone.utc)
++    expires = now + timedelta(hours=24)
+     s = Session(
+         id=session_id, user_id=user.id, email=email,
+-        created_at=datetime.utcnow().isoformat(),
++        created_at=now.isoformat(),
++        expires_at=expires.isoformat(),
+     )
+     _STORE[session_id] = s
+     return s

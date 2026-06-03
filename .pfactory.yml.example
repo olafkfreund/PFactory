@@ -1,0 +1,162 @@
+# .pfactory.yml.example
+# =====================
+# Example PFactory target configuration for AIFactory projects.
+# Copy this file to .pfactory.yml and fill in your specific values.
+#
+# Repository: https://github.com/olafkfreund/PFactory
+# Docs:       https://olafkfreund.github.io/PFactory/
+#
+# Decision 10 (v0.2): Each AIFactory repo carries one .pfactory.yml
+# declaring all targets.  Subtasks reference targets by name.
+#
+# SECURITY: All credential fields store env-var NAMES, not values.
+# .pfactory.yml is safe to commit; secrets are resolved at Executor
+# invocation time via pfactory_yml.secrets.resolve_env_var().
+
+version: 1
+
+# Optional: default target when a subtask does not specify one
+# default_target: api
+
+# ============================================================
+# Targets
+# ============================================================
+targets:
+
+  # ----------------------------------------------------------
+  # HTTP target — REST API (API lane + Browser lane)
+  # ----------------------------------------------------------
+  # Use for any HTTP/HTTPS service endpoint.  For browser tests
+  # point base_url at the app root; for API tests at the API base.
+  - name: api
+    type: http
+    base_url: https://api.staging.example.com
+
+    # Auth: bearer token read from env var at Executor runtime
+    auth:
+      type: bearer
+      token_env: STAGING_API_TOKEN   # must be set in CI/CD secrets
+
+    # Liveness probe — Executor polls this before running tests
+    health_check:
+      path: /healthz
+      expect_status: 200
+      timeout_seconds: 30
+
+    # Optional: path to OpenAPI spec for API-lane Gen-Functional context
+    openapi_spec: openapi.yaml
+
+    # Optional: selector hint for Browser-lane test generation
+    # selectors_hint: data_testid
+
+  # ----------------------------------------------------------
+  # Kubernetes target — in-cluster service (API / Integration lane)
+  # ----------------------------------------------------------
+  # Executor port-forwards to the service and runs tests locally.
+  # Only serviceaccount or mtls auth is supported for in-cluster access.
+  - name: cluster
+    type: kubernetes
+    context: prod-readonly             # kubectl context name
+    namespace: example-app            # Kubernetes namespace
+    service: frontend                  # service to port-forward (optional)
+    port: 80                           # service port (optional)
+    port_forward: true                 # start kubectl port-forward before tests
+
+    auth:
+      type: serviceaccount
+      # Path to the mounted ServiceAccount token (standard Kubernetes path)
+      token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+  # ----------------------------------------------------------
+  # Docker Compose target — local app runtime (Browser lane)
+  # ----------------------------------------------------------
+  # Decision 5 (v0.2): docker-compose is the default runtime for
+  # Browser-lane tests.  The Executor runs docker compose up, waits
+  # for the health URL, then runs Playwright/Cypress against it.
+  - name: web
+    type: docker_compose
+    compose_file: docker-compose.test.yml  # relative to repo root
+
+    # Services to start (must include at least one)
+    services:
+      - app
+      - db
+      - redis
+
+    # Poll these URLs before running tests (all must respond)
+    wait_for:
+      - url: http://localhost:3000/ready
+        timeout_seconds: 60
+        expect_status: 200
+      - url: http://localhost:3000/api/health
+        timeout_seconds: 30
+        expect_status: 200
+
+  # ----------------------------------------------------------
+  # Feature flag target — gate / rollout testing (Integration lane)
+  # ----------------------------------------------------------
+  # Used to test dark-launch / A-B / rollout variants.
+  # Supported providers: growthbook | launchdarkly | split | unleash
+  - name: billing-flag
+    type: feature_flag
+    flag_key: new-billing-flow        # feature flag key in the provider
+    service: launchdarkly             # flag provider
+
+    auth:
+      type: bearer
+      token_env: LD_SDK_KEY           # LaunchDarkly SDK key (server-side)
+
+# ============================================================
+# Test-target login credentials (optional — #107)
+# ============================================================
+# Store the secret encrypted in the portal (POST /api/test-credentials -> tc_…),
+# then reference it here so generated tests can log in. REQUIRES egress.enabled.
+# A target opts in with `auth: { type: ref, ref: <name> }`.
+# See guides/test-target-auth.md.
+#
+# egress:
+#   enabled: true
+# test_credentials:
+#   login:
+#     ref: store:tc_a1b2          # store:<id> | env:NAME | vault:path#field
+#     kind: form                  # form | api_token | basic_auth | totp
+#     as_secret: TEST_PASSWORD    # env var the secret is exposed as
+#     as_username: TEST_USERNAME  # optional
+# # ...and on the relevant target:
+# #   auth:
+# #     type: ref
+# #     ref: login
+# #     login_url: /login
+# #     username_selector: "#email"
+# #     password_selector: "#password"
+# #     submit_selector: "button[type=submit]"
+# #     success_url_pattern: "**/dashboard"
+
+# ============================================================
+# Test data seeding + reset (optional)
+# ============================================================
+# Commands run by the Executor before/after the test suite.
+# Paths are relative to the repo root.
+test_data:
+  fixtures_dir: tests/fixtures        # static fixture files
+  seed_command: ./scripts/seed-test-db.sh   # populate test data
+  reset_command: ./scripts/reset-test-db.sh # restore clean state
+
+# ============================================================
+# Evidence capture policy (optional — fleshed out in Task 16)
+# ============================================================
+# evidence_policy:
+#   screenshots: true
+#   video: retain-on-failure
+#   trace: retain-on-failure
+#   network_har: false
+#   retention_days_pass: 7
+
+# ============================================================
+# Test path overrides (optional — overrides framework defaults)
+# ============================================================
+# test_paths:
+#   browser: tests/e2e/
+#   api: tests/api/
+#   integration: tests/integration/
+#   unit: tests/unit/

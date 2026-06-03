@@ -1,0 +1,91 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+junit.xml
+
+# Node
+node_modules/
+.npm
+.pnpm-store/
+.yarn/cache
+.yarn/install-state.gz
+.parcel-cache/
+.next/
+.nuxt/
+.vite/
+
+# Build outputs
+*.log
+*.tgz
+*.tar.gz
+*.pid
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Direnv / local secrets
+# .envrc is checked in (it's the entry point for `nix develop` via direnv);
+# .direnv/ is the local cache that must stay out of git.
+.direnv/
+.env
+.env.*
+!.env.example
+
+# Nix
+result
+result-*
+.devenv/
+.devenv.flake.nix
+
+# Jekyll local builds (Pages builds remotely)
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata
+docs/Gemfile.lock
+docs/vendor/
+
+# PFactory runtime state (user home dir)
+# (Listed for documentation; not actually under repo root)
+# ~/.pfactory/
+
+# Docker scratch
+.docker-scratch/
+
+# /demo working directories (per-run panes/casts) — only the clean
+# docs/static/demos/ media is committed for the Pages showcase.
+docs/static/recordings/
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+
+# Vite build output for the portal — hashed bundle filenames change every
+# build, producing large churn + checkout reverts. The frontend is built
+# (`apps/frontend-web` → outDir ../web-server/static) and served in prod; the
+# hashed asset bundle is regenerated, never hand-edited, so it is not tracked.
+apps/web-server/static/assets/
+apps/web-server/static/index.html
+
+# Planner-smoke test artifact (a generated .pfactory/ workspace under a fixture).
+tests/fixtures/planner_smoke/project_tree/.pfactory/

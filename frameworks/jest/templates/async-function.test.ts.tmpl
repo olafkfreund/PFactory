@@ -1,0 +1,18 @@
+---
+description: Async function test — await the function, assert the resolved value equals the expected output
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - async_input_args
+  - expected_async_output
+---
+import { ${function_name} } from '${module_path}';
+
+describe('${function_name} (async)', () => {
+  it('resolves to the expected output', async () => {
+    const result = await ${function_name}(${async_input_args});
+    expect(result).toEqual(${expected_async_output});
+  });
+});

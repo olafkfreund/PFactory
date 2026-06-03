@@ -1,0 +1,138 @@
+# frameworks/playwright/descriptor.yaml
+#
+# Playwright (TypeScript) descriptor — Browser lane.
+#
+# This is PFactory v0.2's headline capability: browser-first test generation.
+# The operating model (Decision 2) puts Browser tests first; Playwright is the
+# primary browser framework for TypeScript.
+#
+# Key design decisions that shaped this descriptor:
+#   Decision 1  — generic prompts + registry (this descriptor provides the context block)
+#   Decision 9  — selector strategy: role-based → data-testid → CSS
+#   Decision 11 — coverage_strategy: skip (browser lane, N/A — not zero)
+#   Decision 12 — evidence capture: screenshots + video + trace + HAR
+#
+name: playwright
+language: typescript
+lanes:
+  - browser
+
+# @playwright/test >= 1.40.0 introduced the modern fixtures API used in the
+# context block.  < 2.0 keeps API surface stable for v0.2; bump to >=2.0
+# in v0.3 when the Playwright team formalizes 2.x breaking changes.
+version_range: ">=1.40,<2.0"
+
+runtime:
+  # Docker image built in Task 7 (#23).
+  # Contains Node 22, @playwright/test, chromium (baseline; firefox + webkit opt-in).
+  image: pfactory-runner-playwright:latest
+  entrypoint:
+    - npx
+    - playwright
+    - test
+    - "--reporter=junit"
+    - "--output=/scratch/junit.xml"
+
+# Manifest signals for Playwright detection.
+# Ordered by confidence: devDependencies first, then direct deps, then config files.
+manifest_signals:
+  - "package.json:devDependencies.@playwright/test"
+  - "package.json:dependencies.@playwright/test"
+  - "playwright.config.ts"
+  - "playwright.config.js"
+  - "playwright.config.mts"
+
+# Glob patterns for Playwright test files.
+# The default convention is tests/e2e/**/*.spec.ts.
+# The e2e/ fallback covers projects that skip the tests/ prefix.
+test_path_conventions:
+  - "tests/e2e/**/*.spec.ts"
+  - "e2e/**/*.spec.ts"
+  - "tests/**/*.spec.ts"
+
+# Template filenames — populated in Task 12 (#28).
+templates:
+  - login-flow.spec.ts.tmpl
+  - form-submit-validation.spec.ts.tmpl
+  - api-mocked-flow.spec.ts.tmpl
+  - data-loaded-page.spec.ts.tmpl
+  - error-state.spec.ts.tmpl
+  - visual-regression.spec.ts.tmpl
+
+# Per Decision 11: Browser lane = skip.
+# Playwright tests instrument the served APPLICATION, not the test code itself.
+# V8 coverage collection requires runtime probes that don't fit PFactory's
+# per-test model.  The Evaluator receives coverage_delta=None (NOT 0) for
+# browser-lane tests and skips the coverage rule in its verdict logic.
+#
+# This prevents browser tests from being penalised as "low value" merely
+# because they can't report line coverage.
+coverage_strategy: skip
+
+# LLM context block — injected into the Gen-Functional prompt.
+# Teaches the LLM the Playwright TypeScript idioms for robust, non-flaky tests.
+context_block: |
+  You are generating Playwright tests in TypeScript for the Browser lane.
+
+  Selector priority (try each in order; stop at first match):
+    1. page.getByRole('button', { name: 'Submit' })
+       — always prefer role-based selectors
+    2. page.getByTestId('element-id')
+       — when the app has data-testid attributes (check existing markup)
+    3. page.getByLabel('Email'), page.getByPlaceholder('Enter email')
+       — for form inputs
+    4. page.locator('css-selector')
+       — LAST RESORT; add a TODO comment for the human reviewer
+
+  NEVER generate XPath selectors.
+  NEVER use page.locator('.brittle-css-class') without a TODO comment.
+
+  Wait strategy (auto-wait only):
+    - expect(page.locator(...)).toBeVisible()        ← auto-waits
+    - expect(page.getByRole(...)).toHaveText('...')  ← auto-waits
+    - page.waitForURL('**/dashboard')                ← OK for navigation
+    NEVER use page.waitForTimeout(N) — replace with assertion-based waits.
+    NEVER use setTimeout() in test bodies.
+
+  Authentication:
+    - Use Playwright's storageState for auth (see auth context fixture)
+    - NEVER login via UI inside a test; use programmatic auth or storageState
+    - The auth setup file is tests/e2e/auth-setup.ts (generated once per project)
+
+  Page Objects:
+    - When the catalog shows >1 test on the same page, emit a Page Object
+    - Place Page Objects in tests/e2e/pages/ (e.g. LoginPage.ts)
+    - Page Objects use Locator fields, not string selectors
+
+  Evidence capture (Decision 12):
+    - Screenshots, video, and trace are captured automatically by the runner
+    - test.info().attach() can add extra screenshots mid-test for debugging
+    - Do NOT manually control playwright video/trace; the runner config handles this
+
+  Visual regression (#109):
+    - Assert UI stability with expect(page).toHaveScreenshot('<name>.png', {...})
+      — the runner diffs against the stored per-target baseline and fails on drift
+    - Always set a threshold: maxDiffPixelRatio (e.g. 0.01) tolerates tiny
+      anti-aliasing/font differences without hiding real regressions
+    - Stabilise BEFORE snapshotting (this is the #1 source of visual flake):
+        animations: 'disabled'  and  caret: 'hide'  in the toHaveScreenshot options
+        mask dynamic regions (clocks, ads, avatars) with { mask: [page.locator(...)] }
+        await an auto-waited assertion (e.g. toBeVisible) so the page has settled
+    - One screenshot assertion per logical view; name snapshots stably and
+      descriptively ('checkout-summary.png'), never with timestamps or random ids
+    - NEVER hand-write pixel comparisons or call page.screenshot() for assertions
+      — use toHaveScreenshot so baselines + diffs are managed by the runner
+
+  Anti-patterns:
+    - page.waitForTimeout(N)       → use auto-wait expectations instead
+    - Hard-coded test data          → use fixtures or .pfactory.yml seed scripts
+    - UI login in every test        → use storageState fixture
+    - await page.pause()            → debug-only, never commit
+    - Brittle nth() selectors       → prefer getByRole + accessible names
+
+# Evaluator hooks — dotted-path references for per-language Evaluator primitives.
+# Wired in Task 9 (#25).
+evaluator_hooks:
+  - agents.lang_typescript.preflight.run_ts_preflight
+  - agents.lang_typescript.flake_lint.run_ts_flake_lint
+  - agents.lang_typescript.mutate_probe.run_ts_mutate_probe

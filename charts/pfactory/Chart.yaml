@@ -1,0 +1,35 @@
+apiVersion: v2
+name: pfactory
+description: |
+  PFactory — browser-based AI task management + agent orchestration
+  platform. Production Helm chart for self-hosted enterprise
+  deployments with PSS-restricted security, NetworkPolicy egress
+  control, ExternalSecrets integration, and OIDC SSO.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://github.com/dataseeek/PFactory
+sources:
+  - https://github.com/dataseeek/PFactory
+maintainers:
+  - name: DataSeek Team
+    email: olaf@freundcloud.com
+icon: https://raw.githubusercontent.com/dataseeek/PFactory/main/assets/pfactory_logo.png
+keywords:
+  - ai
+  - llm
+  - agent-orchestration
+  - claude
+  - enterprise
+annotations:
+  category: AI/MachineLearning
+  artifacthub.io/license: AGPL-3.0
+  artifacthub.io/changes: |
+    - kind: added
+      description: First release for the v1.0 enterprise pilot (Epic #26).
+# CNPG (Cloud Native PostgreSQL) is added as an OPTIONAL dependency
+# in P4.4 (postgres.bundled=true mode). Until then, the chart targets
+# external Postgres only — production deployments typically point at
+# a managed instance (RDS / Cloud SQL / AKS Postgres) via
+# ExternalSecret anyway.
+dependencies: []

@@ -1,0 +1,19 @@
+---
+description: React component test — render a component with @testing-library/react and assert accessible text is visible
+requires_target: false
+requires_auth: false
+vars:
+  - component_path
+  - component_name
+  - test_text_query
+---
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+import { ${component_name} } from '${component_path}';
+
+describe('${component_name}', () => {
+  it('renders without crashing and displays expected text', () => {
+    render(<${component_name} />);
+    expect(screen.getByText('${test_text_query}')).toBeInTheDocument();
+  });
+});

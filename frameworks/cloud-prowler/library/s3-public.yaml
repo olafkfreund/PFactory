@@ -1,0 +1,35 @@
+# cloud-prowler check: public object storage (#138)
+id: s3-public
+title: Public object storage
+severity: critical
+providers: [aws, gcp, azure]
+cis: ["CIS AWS 2.1.5", "CIS GCP 5.1", "CIS Azure 3.x"]
+
+# Prowler check ids this catalogue entry corresponds to (per provider).
+prowler_checks:
+  aws:
+    - s3_bucket_public_access
+    - s3_account_level_public_access_blocks
+    - s3_bucket_policy_public_write_access
+  gcp:
+    - cloudstorage_bucket_public_access
+  azure:
+    - storage_blob_public_access_level_is_disabled
+
+whats_wrong: >
+  An object-storage bucket/container grants read (or write) access to anyone on
+  the internet — via a public ACL, a wildcard bucket policy, or a disabled
+  public-access block. Anonymous users can list and download (or overwrite)
+  objects.
+
+why_it_matters: >
+  Public buckets are a leading cause of cloud data breaches: credentials,
+  backups, PII and source can be scraped at scale by anyone. Public write is
+  worse — it enables tampering and malware hosting under your domain.
+
+how_to_fix: >
+  Enable account-level public-access blocks (AWS S3 Block Public Access; GCP
+  uniform bucket-level access + public-access prevention; Azure
+  "allow blob public access = disabled"). Remove public ACLs and wildcard
+  Principal:"*" statements from bucket policies. Serve intentionally-public
+  assets through a CDN with signed URLs instead of a public bucket.

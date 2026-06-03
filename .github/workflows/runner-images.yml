@@ -1,0 +1,161 @@
+# runner-images.yml — Task 7 (#23), sub-task 7.4
+#
+# Build all PFactory framework runner images on push to main and on PRs
+# that touch any Dockerfile or this workflow file.
+#
+# Registry push is deferred to a separate task once a registry (GHCR or ECR)
+# is provisioned. For now the workflow verifies each image builds successfully
+# and passes a hello-world smoke by loading it into the local Docker daemon.
+#
+# Image tags produced (build-only, not pushed):
+#   pfactory-runner-{pytest,jest,playwright,vitest,cypress,cloud}:<commit-sha>
+#   pfactory-runner-{pytest,jest,playwright,vitest,cypress,cloud}:latest
+
+name: Build runner images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/pfactory-runner-*/**'
+      - '.github/workflows/runner-images.yml'
+  pull_request:
+    paths:
+      - 'docker/pfactory-runner-*/**'
+      - '.github/workflows/runner-images.yml'
+
+# Cancel superseded runs on the same ref (matches ci.yml convention)
+concurrency:
+  group: runner-images-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.runner }} image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # keep building remaining images if one fails
+      matrix:
+        runner: [pytest, jest, playwright, vitest, cypress, cloud]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # docker/setup-buildx-action enables BuildKit features (layer caching,
+      # multi-platform builds, --check flag). Required for dockerfile:1.7 syntax.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the image and load it into the local Docker daemon so the
+      # hello-world smoke step below can run it.
+      # push: false — no registry configured yet (deferred task).
+      # load: true  — exports image to local daemon for the smoke test.
+      - name: Build pfactory-runner-${{ matrix.runner }}
+        uses: docker/build-push-action@v5
+        with:
+          context: docker/pfactory-runner-${{ matrix.runner }}
+          file: docker/pfactory-runner-${{ matrix.runner }}/Dockerfile
+          push: false
+          load: true
+          tags: |
+            pfactory-runner-${{ matrix.runner }}:${{ github.sha }}
+            pfactory-runner-${{ matrix.runner }}:latest
+          # GHA cache: reuse layer cache across runs scoped per framework image.
+          # mode=max: cache all layers, not just the final stage.
+          cache-from: type=gha,scope=runner-${{ matrix.runner }}
+          cache-to: type=gha,mode=max,scope=runner-${{ matrix.runner }}
+
+      # Hello-world smoke: verify the image runs a trivial command.
+      # Each case mirrors what test_docker_runner.py tests in CI.
+      - name: Hello-world smoke — ${{ matrix.runner }}
+        run: |
+          case "${{ matrix.runner }}" in
+            pytest)
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=64m \
+                pfactory-runner-pytest:latest \
+                python -c 'print("pfactory-runner-pytest ok")'
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=64m \
+                pfactory-runner-pytest:latest \
+                pytest --version
+              ;;
+            jest)
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=64m \
+                pfactory-runner-jest:latest \
+                node -e 'console.log("pfactory-runner-jest ok")'
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=64m \
+                pfactory-runner-jest:latest \
+                jest --version
+              ;;
+            playwright)
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=256m \
+                pfactory-runner-playwright:latest \
+                node -e 'console.log("pfactory-runner-playwright ok")'
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=256m \
+                pfactory-runner-playwright:latest \
+                npx playwright --version
+              ;;
+            vitest)
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=64m \
+                pfactory-runner-vitest:latest \
+                node -e 'console.log("pfactory-runner-vitest ok")'
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=64m \
+                pfactory-runner-vitest:latest \
+                vitest --version
+              ;;
+            cypress)
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=256m \
+                pfactory-runner-cypress:latest \
+                node -e 'console.log("pfactory-runner-cypress ok")'
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=256m \
+                pfactory-runner-cypress:latest \
+                cypress --version
+              ;;
+            cloud)
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=64m \
+                pfactory-runner-cloud:latest \
+                prowler --version
+              docker run --rm \
+                --network=none \
+                --read-only \
+                --tmpfs /tmp:rw,size=64m \
+                pfactory-runner-cloud:latest \
+                checkov --version
+              ;;
+          esac

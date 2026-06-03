@@ -1,0 +1,36 @@
+# Test dependencies for the Auto-Build Framework
+# Install with: pip install -r tests/requirements-test.txt
+
+# Testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+pytest-timeout>=2.0.0
+
+# Mocking
+pytest-mock>=3.0.0
+
+# For testing async code
+anyio>=4.0.0
+
+# Code coverage
+coverage>=7.0.0
+
+# For snapshot/approval testing (optional)
+# pytest-snapshot>=0.9.0
+
+# Type checking (for running mypy on tests)
+mypy>=1.0.0
+types-toml>=0.10.0
+
+# Epic #26 P2.3 column-migration tests use sync `create_engine` to
+# seed pre-migration rows. asyncpg is the production driver; psycopg2
+# is needed only for these test paths (kept out of the web-server
+# runtime requirements deliberately).
+psycopg2-binary>=2.9.0
+
+# Epic #26 P4 helm tests parse rendered Helm manifests via
+# `yaml.safe_load_all`. PyYAML isn't a transitive dep of the helm-
+# acceptance job's venv (which only installs requirements-test.txt),
+# so declare it explicitly.
+PyYAML>=6.0

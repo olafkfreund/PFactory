@@ -1,0 +1,21 @@
+---
+description: Function with mocked dependency — patch a collaborator with unittest.mock.patch and assert the return value
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - mocked_dependency_path
+  - mocked_return_value
+---
+from unittest.mock import patch
+
+from ${module_path} import ${function_name}
+
+
+def test_${function_name}_calls_mocked_dependency() -> None:
+    with patch('${mocked_dependency_path}', return_value=${mocked_return_value}) as mock_dep:
+        result = ${function_name}()
+
+    mock_dep.assert_called_once()
+    assert result == ${mocked_return_value}

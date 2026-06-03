@@ -1,0 +1,18 @@
+# PFactory code owners
+#
+# Owners are auto-requested as reviewers on PRs touching matching paths.
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# Order matters — later patterns override earlier ones.
+
+# Default — all files
+*                           @dataseeek
+
+# Critical infrastructure (require explicit review)
+/.github/                   @dataseeek
+/docker-compose.yml         @dataseeek
+/Dockerfile                 @dataseeek
+/scripts/                   @dataseeek
+/CODEOWNERS                 @dataseeek
+/SECURITY.md                @dataseeek
+/LICENSE                    @dataseeek

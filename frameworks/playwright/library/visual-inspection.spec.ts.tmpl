@@ -1,0 +1,49 @@
+---
+description: Visual inspection flow — drive a UI step-by-step, screenshot each verification step (pass) and any failure (error), for human inspection + the automated-test/ report (browser lane; needs target URL + storageState auth for SSO).
+requires_target: true
+requires_auth: true
+lane: browser
+vars:
+  - flow_name
+  - steps   # ordered list of { label, action, assertion }
+---
+import { test, expect, type Page } from "@playwright/test";
+
+/**
+ * Visual Inspection convention (#170 / P1):
+ *   - one labeled screenshot per verification STEP, named "NN-<slug>-pass.png"
+ *     (NN = 2-digit step number) so the packager assembles the report in order;
+ *   - on assertion failure, Playwright's `screenshot: 'only-on-failure'` policy
+ *     captures the "-fail" error shot automatically.
+ * The packager (agents/visual_inspection/packager.py) reads these by name.
+ *
+ * Credentials are never in this file — storageState (auth.setup.ts, #107) carries
+ * the authenticated session; this spec declares `dependencies: ["setup"]` via the
+ * generated playwright.config.ts.
+ */
+
+let stepNo = 0;
+
+async function verify(page: Page, label: string, assertion: () => Promise<void>) {
+  stepNo += 1;
+  const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const nn = String(stepNo).padStart(2, "0");
+  // The assertion throws on failure → Playwright captures the -fail shot.
+  await assertion();
+  // Passed → capture the labeled verification screenshot the report shows.
+  await page.screenshot({ path: `${nn}-${slug}-pass.png`, fullPage: true });
+}
+
+test("visual inspection: ${flow_name}", async ({ page }) => {
+  await page.goto("/");
+
+  // @@STEPS@@ — Gen-Functional expands one `verify(...)` block per declared step:
+  //
+  //   await page.getByRole("link", { name: "Incidents" }).click();
+  //   await verify(page, "Open incidents list", async () => {
+  //     await expect(page.getByRole("heading", { name: "Incidents" })).toBeVisible();
+  //   });
+  //
+  // Prefer stable selectors (getByRole / getByLabel / data-* ); for ServiceNow,
+  // enter the `gsft_main` iframe first (see the connector context_block, P3).
+});

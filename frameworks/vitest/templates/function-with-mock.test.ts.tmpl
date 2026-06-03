@@ -1,0 +1,30 @@
+---
+description: Function with a mocked dependency — mock a collaborator, assert it was called and the result
+requires_target: false
+requires_auth: false
+vars:
+  - module_path
+  - function_name
+  - dependency_module
+  - dependency_export
+  - input_args
+  - expected_output
+---
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { ${function_name} } from '${module_path}';
+import * as dependency from '${dependency_module}';
+
+describe('${function_name}', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('invokes its dependency and returns the expected output', () => {
+    const spy = vi.spyOn(dependency, '${dependency_export}');
+
+    const result = ${function_name}(${input_args});
+
+    expect(spy).toHaveBeenCalled();
+    expect(result).toEqual(${expected_output});
+  });
+});

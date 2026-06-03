@@ -1,0 +1,100 @@
+{
+  "sections": {
+    "project": "Projet",
+    "tools": "Outils"
+  },
+  "items": {
+    "tests": "Tests",
+    "kanban": "Tâches",
+    "terminals": "Terminal",
+    "editor": "Fichiers",
+    "chat": "Chat",
+    "changelog": "Journal des modifications",
+    "context": "Index & Mémoire",
+    "githubIssues": "Issues GitHub",
+    "githubPRs": "PRs GitHub",
+    "gitlabIssues": "Issues GitLab",
+    "gitlabMRs": "MRs GitLab",
+    "adoIssues": "Éléments ADO",
+    "adoPRs": "Pull Requests ADO",
+    "worktrees": "Worktrees",
+    "agentTools": "MCP",
+    "skills": "Compétences",
+    "cloud": "Rapports cloud",
+    "visualReports": "Rapports visuels"
+  },
+  "actions": {
+    "settings": "Paramètres",
+    "help": "Aide & Feedback",
+    "newTask": "Tâche",
+    "logout": "Déconnexion"
+  },
+  "tooltips": {
+    "settings": "Paramètres de l'application",
+    "help": "Aide & Feedback",
+    "logout": "Se déconnecter et revenir à l'écran de connexion"
+  },
+  "logoutDialog": {
+    "title": "Déconnexion",
+    "description": "Êtes-vous sûr de vouloir vous déconnecter ? Vous devrez entrer votre jeton API à nouveau.",
+    "confirm": "Déconnexion",
+    "cancel": "Annuler"
+  },
+  "messages": {
+    "initializeToCreateTasks": "Initialisez PFactory pour créer des tâches"
+  },
+  "claudeCode": {
+    "checking": "Vérification de Claude Code...",
+    "upToDate": "Claude Code est à jour",
+    "updateAvailable": "Mise à jour Claude Code disponible",
+    "notInstalled": "Claude Code non installé",
+    "error": "Erreur de vérification de Claude Code",
+    "installed": "Installé",
+    "outdated": "Mise à jour disponible",
+    "missing": "Non installé",
+    "current": "Actuelle",
+    "latest": "Dernière",
+    "lastChecked": "Dernière vérification",
+    "learnMore": "En savoir plus sur Claude Code",
+    "updateWarningTitle": "Mettre à jour Claude Code ?",
+    "updateWarningDescription": "La mise à jour fermera toutes les sessions Claude Code en cours. Tout travail non sauvegardé dans ces sessions pourrait être perdu. Assurez-vous de sauvegarder votre travail avant de continuer.",
+    "updateAnyway": "Mettre à jour quand même",
+    "noToken": "Aucun jeton d'authentification configuré",
+    "tokenOk": "Jeton d'authentification configuré",
+    "noAuth": "Pas d'auth",
+    "tokenConfigured": "Jeton d'authentification configuré",
+    "noTokenConfigured": "Aucun jeton d'authentification configuré",
+    "setupAuth": "Configurer l'auth"
+  },
+  "localLLM": {
+    "running": "En cours d'exécution",
+    "notRunning": "Arrêté",
+    "notInstalled": "Non installé",
+    "version": "Version",
+    "models": "Modèles",
+    "lastChecked": "Dernière vérification",
+    "availableModels": "Modèles disponibles",
+    "more": "de plus",
+    "startHint": "Ollama est installé mais n'est pas en cours d'exécution. Démarrez-le avec : ollama serve",
+    "install": "Installer Ollama"
+  },
+  "cliTools": {
+    "authenticated": "Authentifié",
+    "needsAuth": "Authentification requise",
+    "notInstalled": "Non installé",
+    "updateAvailable": "Mise à jour disponible",
+    "installed": "Installé",
+    "current": "Actuelle",
+    "latest": "Dernière",
+    "lastChecked": "Dernière vérification",
+    "viaOAuth": "via OAuth",
+    "viaApiKey": "via clé API",
+    "viaGoogleLogin": "via Google Login",
+    "tokenExpires": "Expiration du jeton",
+    "loginInTerminal": "Connexion",
+    "waitingForAuth": "En attente...",
+    "importCredentials": "Importer les identifiants",
+    "loginHintCodex": "Terminez la connexion dans votre navigateur. Codex CLI s'authentifiera via OpenAI.",
+    "loginHintGemini": "Terminez la connexion dans votre navigateur. Antigravity CLI s'authentifiera via Google."
+  }
+}
