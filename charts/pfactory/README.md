@@ -1,7 +1,7 @@
-# AIFactory Helm chart
+# PFactory Helm chart
 
 Production Helm chart for self-hosted enterprise deployments of
-AIFactory (Epic #26). PSS-restricted by default; NetworkPolicy-
+PFactory (Epic #26). PSS-restricted by default; NetworkPolicy-
 enforced egress; integrates with the four major external-secret
 backends (Vault, AWS Secrets Manager, Azure Key Vault, GCP Secrets
 Manager).
@@ -10,16 +10,16 @@ Manager).
 
 ```bash
 helm dep update
-helm install aifactory ./charts/aifactory \
+helm install pfactory ./charts/pfactory \
   --set postgres.bundled=true \
-  --set image.repository=ghcr.io/olafkfreund/aifactory \
+  --set image.repository=ghcr.io/dataseeek/pfactory \
   --set image.tag=1.0.0
 ```
 
 ## Production install (external Postgres + ExternalSecrets + OIDC)
 
-See [guides/deployment/helm-install.md](../../guides/deployment/helm-install.md)
-for the full operator runbook — per-cloud setup, secret seeding,
+See [guides/shipping.md](../../guides/shipping.md)
+for the full operator runbook — image build, secret seeding,
 migration job mode, customCABundle for TLS-intercepting proxies.
 
 ## Values surface
