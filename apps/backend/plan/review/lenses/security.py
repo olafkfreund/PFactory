@@ -71,17 +71,36 @@ class SecurityLens:
                 )
                 break
 
+        # Public exposure from live infra — drill into each adapter's policies so
+        # findings name the actual resource (e.g. the security group) + ports/CIDRs,
+        # deduped by resource so a re-run doesn't multiply them.
+        seen: set[str] = set()
         for entry in plan.enrichment.infra:
             if not isinstance(entry, dict):
                 continue
-            blob = " ".join(str(v) for v in entry.values())
-            if "0.0.0.0/0" in blob or str(entry.get("public", "")).lower() == "true":
+            adapter = entry.get("adapter", "infra")
+            target = entry.get("target", "")
+            for pol in entry.get("policies", []) or []:
+                if not (isinstance(pol, dict) and pol.get("public")):
+                    continue
+                res = pol.get("group_name") or pol.get("group_id") or pol.get("kind") or "resource"
+                rid = pol.get("group_id") or res
+                key = f"{adapter}:{rid}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                ports = ", ".join(str(p) for p in pol.get("open_ports", [])) or "?"
+                cidrs = ", ".join(str(c) for c in pol.get("open_cidrs", [])) or "0.0.0.0/0"
                 score = min(score, 0.6)
-                name = entry.get("name") or entry.get("kind") or "resource"
                 findings.append(
                     Finding(
-                        title=f"Public network exposure on '{name}'",
-                        detail="Open to 0.0.0.0/0 — restrict ingress to known CIDRs.",
+                        title=f"{res} ({rid}) is open to the internet",
+                        detail=(
+                            f"{adapter}{('/' + target) if target else ''}: security group "
+                            f"'{res}' allows ingress from {cidrs} on port(s) {ports}. "
+                            "Restrict the source CIDR to known ranges or place it behind "
+                            "a load balancer / bastion."
+                        ),
                         severity="high",
                         source=self.name,
                     )

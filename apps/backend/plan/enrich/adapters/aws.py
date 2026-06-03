@@ -61,6 +61,37 @@ def _sg_is_public(sg: dict) -> bool:
     return False
 
 
+def _public_detail(sg: dict) -> tuple[list[str], list[str]]:
+    """Return (open_cidrs, open_ports) for the world-open ingress rules of an SG."""
+    cidrs: list[str] = []
+    ports: list[str] = []
+    for rule in sg.get("ip_permissions", []) or []:
+        world = any(
+            r.get("cidr_ip") in _PUBLIC_CIDRS for r in rule.get("ip_ranges", []) or []
+        ) or any(
+            r.get("cidr_ipv6") in _PUBLIC_CIDRS for r in rule.get("ipv6_ranges", []) or []
+        )
+        if not world:
+            continue
+        cidrs.extend(
+            r.get("cidr_ip") for r in rule.get("ip_ranges", []) or []
+            if r.get("cidr_ip") in _PUBLIC_CIDRS
+        )
+        cidrs.extend(
+            r.get("cidr_ipv6") for r in rule.get("ipv6_ranges", []) or []
+            if r.get("cidr_ipv6") in _PUBLIC_CIDRS
+        )
+        fp, tp = rule.get("from_port"), rule.get("to_port")
+        proto = rule.get("protocol")
+        if proto in ("-1", -1, None) and fp is None:
+            ports.append("ALL")
+        elif fp == tp and fp is not None:
+            ports.append(str(fp))
+        elif fp is not None and tp is not None:
+            ports.append(f"{fp}-{tp}")
+    return sorted(set(cidrs)), sorted(set(ports))
+
+
 def _build_reader(region: str | None) -> AwsReader:  # pragma: no cover
     """Lazily construct a real AWS reader from boto3 (read-only calls only)."""
     import boto3
@@ -106,6 +137,9 @@ def _build_reader(region: str | None) -> AwsReader:  # pragma: no cover
                         {
                             "ip_ranges": p.get("IpRanges", []),
                             "ipv6_ranges": p.get("Ipv6Ranges", []),
+                            "from_port": p.get("FromPort"),
+                            "to_port": p.get("ToPort"),
+                            "protocol": p.get("IpProtocol"),
                         }
                         for p in sg.get("IpPermissions", [])
                     ],
@@ -216,14 +250,17 @@ class AwsAdapter(InfraAdapter):
             "instance_types": instance_types,
             "regions": sorted(regions),
         }
-        policies = [
-            {
+        policies = []
+        for sg in public_sgs:
+            cidrs, ports = _public_detail(sg)
+            policies.append({
+                "kind": "security-group",
                 "group_id": sg.get("group_id"),
                 "group_name": sg.get("group_name"),
                 "public": True,
-            }
-            for sg in public_sgs
-        ]
+                "open_cidrs": cidrs or ["0.0.0.0/0"],
+                "open_ports": ports or ["?"],
+            })
 
         return InfraSnapshot(
             adapter=self.name,

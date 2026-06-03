@@ -174,24 +174,26 @@ def _k8s_workloads_need_limits(
 
 @rule("public-exposure")
 def _public_exposure(plan: NormalizedPlan, epic: EpicPlan) -> list[Finding]:
-    """Flag world-open network exposure (0.0.0.0/0) in infra or plan text."""
-    findings: list[Finding] = []
-    for entry in plan.enrichment.infra:
-        if not isinstance(entry, dict):
-            continue
-        blob = " ".join(str(v) for v in entry.values())
-        if "0.0.0.0/0" in blob or str(entry.get("public", "")).lower() == "true":
-            name = entry.get("name") or entry.get("kind") or "resource"
-            findings.append(
-                Finding(
-                    title=f"Public exposure on '{name}'",
-                    detail="Resource is exposed to 0.0.0.0/0 — restrict the CIDR.",
-                    severity="high",
-                    source="public-exposure",
-                    blocking=False,
-                )
+    """Flag world-open exposure (0.0.0.0/0) written into the plan *text*.
+
+    Live-infra exposure is owned by the security lens (which names the actual
+    resource + ports), so this rule only covers the plan document itself to
+    avoid duplicate, unnamed findings.
+    """
+    text = " ".join(
+        [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
+    )
+    if "0.0.0.0/0" in text:
+        return [
+            Finding(
+                title="Plan text specifies world-open exposure (0.0.0.0/0)",
+                detail="The plan opens a resource to 0.0.0.0/0 — restrict the source CIDR.",
+                severity="high",
+                source="public-exposure",
+                blocking=False,
             )
-    return findings
+        ]
+    return []
 
 
 # ── runners ────────────────────────────────────────────────────────────

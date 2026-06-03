@@ -163,7 +163,12 @@ class PlanService:
             except Exception:
                 pass
 
-        infra = list(plan.enrichment.infra)
+        # Replace any prior snapshot from the adapters we're (re)running so a
+        # re-process doesn't accumulate duplicate findings.
+        infra = [
+            e for e in plan.enrichment.infra
+            if not (isinstance(e, dict) and e.get("adapter") in names)
+        ]
         for name in names:
             try:
                 infra.append(get_adapter(name).to_enrichment())
