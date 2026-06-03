@@ -12,6 +12,7 @@ Flow:  ingest → process (detect → plan-type → decompose → synthesize →
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
 from plan.decompose.models import EpicPlan
@@ -104,9 +105,9 @@ class PlanService:
     # ── process (the pipeline core) ────────────────────────────────────
 
     def process(self, session_id: str, *, external_runner=None) -> PlanSession:
-        """Detect → plan-type → decompose → synthesize → review gates."""
+        """Detect → plan-type → enrich → decompose → synthesize → review gates."""
         session = self.get(session_id)
-        plan = plan_type_apply(detect_apply(session.plan))
+        plan = self._enrich(plan_type_apply(detect_apply(session.plan)))
         descriptor = select_for(plan)
         epic = decompose(plan, descriptor=descriptor)
         artifacts = synthesize(plan, epic, descriptor=descriptor)
@@ -118,6 +119,40 @@ class PlanService:
         session.review = review
         session.status = "processed"
         return session
+
+    def _enrich(self, plan: NormalizedPlan) -> NormalizedPlan:
+        """Attach live infra context from the adapters named in
+        ``PFACTORY_ENRICH_ADAPTERS`` (comma-separated, e.g. ``aws``).
+
+        Off by default (empty env). Each adapter's ``to_enrichment()`` is
+        read-only and never raises, so a failed/absent environment just yields
+        an ``available: false`` finding.
+        """
+        names = [
+            n.strip()
+            for n in os.environ.get("PFACTORY_ENRICH_ADAPTERS", "").split(",")
+            if n.strip()
+        ]
+        if not names:
+            return plan
+
+        from plan.enrich.base import get_adapter
+
+        for mod in ("kubernetes", "openshift", "azure", "aws", "gcp"):
+            try:
+                __import__(f"plan.enrich.adapters.{mod}")
+            except Exception:
+                pass
+
+        infra = list(plan.enrichment.infra)
+        for name in names:
+            try:
+                infra.append(get_adapter(name).to_enrichment())
+            except Exception as exc:
+                infra.append({"adapter": name, "available": False, "error": str(exc)})
+        return plan.model_copy(
+            update={"enrichment": plan.enrichment.model_copy(update={"infra": infra})}
+        )
 
     # ── approval ───────────────────────────────────────────────────────
 
