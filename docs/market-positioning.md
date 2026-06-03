@@ -1,3 +1,9 @@
+---
+layout: default
+title: Positioning
+permalink: /market-positioning/
+---
+
 # PFactory — Market Positioning
 
 > Created: 2026-06-03 · Living document (issue-tracked). Sources at the bottom.

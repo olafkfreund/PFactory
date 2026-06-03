@@ -1,7 +1,7 @@
 <section class="pipeline reveal">
   <header class="pipeline__header">
-    <h2 class="pipeline__title">The five-agent pipeline</h2>
-    <span class="pipeline__caption">spec&nbsp;→&nbsp;graded&nbsp;tests · v0.2</span>
+    <h2 class="pipeline__title">The planning pipeline</h2>
+    <span class="pipeline__caption">plan&nbsp;→&nbsp;governed&nbsp;epics</span>
   </header>
   <div class="pipeline__flow" role="list">
 
@@ -12,8 +12,8 @@
           <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><rect x="5" y="5.5" width="14" height="15" rx="2"/><path d="M9 11h6M9 15h4"/>
         </svg>
       </span>
-      <p class="pipeline__node-name">Planner</p>
-      <span class="pipeline__node-meta">test_plan.json</span>
+      <p class="pipeline__node-name">Ingest</p>
+      <span class="pipeline__node-meta">docx · pdf · md</span>
     </div>
 
     <div class="pipeline__arrow" aria-hidden="true"><span></span></div>
@@ -22,11 +22,11 @@
       <span class="pipeline__step">02</span>
       <span class="pipeline__node-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/>
+          <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>
         </svg>
       </span>
-      <p class="pipeline__node-name">Gen-Functional</p>
-      <span class="pipeline__node-meta">tests/*</span>
+      <p class="pipeline__node-name">Enrich</p>
+      <span class="pipeline__node-meta">Backstage · K8s · cloud</span>
     </div>
 
     <div class="pipeline__arrow" aria-hidden="true"><span></span></div>
@@ -35,11 +35,11 @@
       <span class="pipeline__step">03</span>
       <span class="pipeline__node-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12 4 7.5"/>
+          <rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M12 12H6v4M12 12h6v4"/>
         </svg>
       </span>
-      <p class="pipeline__node-name">Executor</p>
-      <span class="pipeline__node-meta">docker sandbox</span>
+      <p class="pipeline__node-name">Decompose</p>
+      <span class="pipeline__node-meta">epic + children</span>
     </div>
 
     <div class="pipeline__arrow" aria-hidden="true"><span></span></div>
@@ -48,11 +48,11 @@
       <span class="pipeline__step">04</span>
       <span class="pipeline__node-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="3.3"/><path d="M12 3.8v3M20.2 12h-3"/>
+          <path d="M12 3l8 3v5c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>
         </svg>
       </span>
-      <p class="pipeline__node-name">Evaluator</p>
-      <span class="pipeline__node-meta">verdicts.json</span>
+      <p class="pipeline__node-name">Review &amp; approve</p>
+      <span class="pipeline__node-meta">gates + human</span>
     </div>
 
     <div class="pipeline__arrow" aria-hidden="true"><span></span></div>
@@ -61,11 +61,11 @@
       <span class="pipeline__step">05</span>
       <span class="pipeline__node-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 13l2-8h12l2 8M4 13v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5M4 13h5l1.2 2h3.6l1.2-2H20"/>
+          <path d="M5 3h9l5 5v13a0 0 0 0 1 0 0H5z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>
         </svg>
       </span>
-      <p class="pipeline__node-name">Triager</p>
-      <span class="pipeline__node-meta">triage_report.md</span>
+      <p class="pipeline__node-name">Emit</p>
+      <span class="pipeline__node-meta">GitHub → AIFactory</span>
     </div>
 
   </div>

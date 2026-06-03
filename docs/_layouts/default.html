@@ -36,11 +36,8 @@
       <ul class="nav-links">
         <li><a href="{{ '/' | relative_url }}"{% if page.url == '/' %} class="active"{% endif %}>Home</a></li>
         <li><a href="{{ '/architecture/' | relative_url }}"{% if page.url contains '/architecture/' %} class="active"{% endif %}>Architecture</a></li>
-        <li><a href="{{ '/showcase/' | relative_url }}"{% if page.url contains '/showcase/' %} class="active"{% endif %}>Showcase</a></li>
-        <li><a href="{{ '/demos/' | relative_url }}"{% if page.url contains '/demos/' %} class="active"{% endif %}>Demos</a></li>
-        <li><a href="{{ '/design-plan/' | relative_url }}"{% if page.url contains '/design-plan/' %} class="active"{% endif %}>Design</a></li>
-        <li><a href="{{ '/tasks/' | relative_url }}"{% if page.url contains '/tasks/' %} class="active"{% endif %}>Tasks</a></li>
-        <li><a href="{{ '/progress/' | relative_url }}"{% if page.url contains '/progress/' %} class="active"{% endif %}>Progress</a></li>
+        <li><a href="{{ '/roadmap/' | relative_url }}"{% if page.url contains '/roadmap/' %} class="active"{% endif %}>Roadmap</a></li>
+        <li><a href="{{ '/market-positioning/' | relative_url }}"{% if page.url contains '/market-positioning/' %} class="active"{% endif %}>Positioning</a></li>
         <li><a href="{{ '/blog/' | relative_url }}"{% if page.url contains '/blog' %} class="active"{% endif %}>Blog</a></li>
         <li><a href="{{ site.repo_url }}" rel="noopener">GitHub</a></li>
       </ul>
