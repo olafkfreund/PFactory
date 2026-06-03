@@ -1,0 +1,90 @@
+"""Review-stage data contracts: Finding, LensScore, PlanReview (issues #15–#17).
+
+The review gates evaluate a plan through several *lenses* (architecture,
+security, best-practices, feasibility). Each lens returns a :class:`LensScore`
+(0–1 plus :class:`Finding` notes); the gate aggregates them against a threshold
+into a :class:`PlanReview`. A :class:`HumanApproval` record (bound to the plan's
+content hash) gates emission — and is invalidated when the plan changes.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+Severity = Literal["info", "low", "medium", "high", "critical"]
+LensName = Literal["architecture", "security", "best-practices", "feasibility"]
+
+
+class Finding(BaseModel):
+    """One observation from a lens or a deterministic policy check."""
+
+    title: str
+    detail: str = ""
+    severity: Severity = "info"
+    source: str = ""  # lens name, or "checkov"/"opa"/"llm"/"cloud-mcp"
+    blocking: bool = False
+
+
+class LensScore(BaseModel):
+    """The result of evaluating a plan through one review lens."""
+
+    lens: str
+    score: float = 0.0  # 0–1
+    max: float = 1.0
+    findings: list[Finding] = Field(default_factory=list)
+    blocking: bool = False  # this lens hard-fails the gate when it has a blocker
+
+    def has_blocking_finding(self) -> bool:
+        return any(f.blocking for f in self.findings)
+
+
+class HumanApproval(BaseModel):
+    """Human sign-off, bound to the plan content hash (issue #17)."""
+
+    approved: bool = False
+    approved_by: str = ""
+    approved_at: str = ""
+    plan_hash: str = ""  # NormalizedPlan.content_hash at approval time
+    valid: bool = False
+    review_count: int = 0
+    feedback: list[str] = Field(default_factory=list)
+
+
+class PlanReview(BaseModel):
+    """Aggregated review of a plan across all lenses + human approval."""
+
+    plan_id: str
+    lenses: list[LensScore] = Field(default_factory=list)
+    threshold: float = 0.75
+    aggregate_score: float = 0.0
+    gates_passed: bool = False
+    code_gates_applied: bool = True
+    human_approval: HumanApproval = Field(default_factory=HumanApproval)
+
+    def recompute(self) -> PlanReview:
+        """Recompute ``aggregate_score`` and ``gates_passed`` from the lenses.
+
+        Gates pass when every lens scores at/above ``threshold`` AND no lens
+        carries a blocking finding. The aggregate is the mean lens score.
+        """
+        if self.lenses:
+            self.aggregate_score = round(
+                sum(ls.score for ls in self.lenses) / len(self.lenses), 4
+            )
+        else:
+            self.aggregate_score = 0.0
+        all_pass = bool(self.lenses) and all(
+            ls.score >= self.threshold for ls in self.lenses
+        )
+        no_blockers = not any(ls.has_blocking_finding() for ls in self.lenses)
+        self.gates_passed = all_pass and no_blockers
+        return self
+
+    def blocking_findings(self) -> list[Finding]:
+        return [f for ls in self.lenses for f in ls.findings if f.blocking]
+
+    def ready_to_emit(self) -> bool:
+        """True only when automated gates passed AND human approval is valid."""
+        return self.gates_passed and self.human_approval.approved and self.human_approval.valid
