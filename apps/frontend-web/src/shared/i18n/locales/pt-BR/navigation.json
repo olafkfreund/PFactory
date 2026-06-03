@@ -19,7 +19,8 @@
     "worktrees": "Worktrees",
     "agentTools": "MCP",
     "skills": "Habilidades",
-    "cloud": "Nuvem"
+    "cloud": "Nuvem",
+    "planning": "Planejamento"
   },
   "actions": {
     "settings": "Configurações",

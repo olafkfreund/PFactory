@@ -21,7 +21,8 @@
     "agentTools": "MCP",
     "skills": "Skills",
     "cloud": "Cloud Reports",
-    "visualReports": "Visual Reports"
+    "visualReports": "Visual Reports",
+    "planning": "Planning"
   },
   "actions": {
     "settings": "Settings",
