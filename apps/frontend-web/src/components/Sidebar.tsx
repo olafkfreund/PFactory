@@ -21,7 +21,8 @@ import {
   Lightbulb,
   Cloud,
   Camera,
-  LogOut
+  LogOut,
+  Map
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
@@ -53,7 +54,7 @@ import { GitSetupModal } from './GitSetupModal';
 import { RateLimitIndicator } from './RateLimitIndicator';
 import type { Project, AutoBuildVersionInfo, GitStatus, ProjectEnvConfig } from '../shared/types';
 
-export type SidebarView = 'pfactory' | 'kanban' | 'terminals' | 'editor' | 'context' | 'github-issues' | 'github-prs' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'skills' | 'cloud' | 'visual-reports';
+export type SidebarView = 'pfactory' | 'kanban' | 'terminals' | 'editor' | 'context' | 'github-issues' | 'github-prs' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'skills' | 'cloud' | 'visual-reports' | 'planning';
 
 interface SidebarProps {
   onSettingsClick: () => void;
@@ -84,7 +85,8 @@ const baseNavItems: NavItem[] = [
   { id: 'worktrees', labelKey: 'navigation:items.worktrees', icon: GitBranch },
   { id: 'context', labelKey: 'navigation:items.context', icon: BookOpen },
   { id: 'cloud', labelKey: 'navigation:items.cloud', icon: Cloud },
-  { id: 'visual-reports', labelKey: 'navigation:items.visualReports', icon: Camera }
+  { id: 'visual-reports', labelKey: 'navigation:items.visualReports', icon: Camera },
+  { id: 'planning', labelKey: 'navigation:items.planning', icon: Map }
 ];
 
 // GitHub nav items shown when GitHub is enabled

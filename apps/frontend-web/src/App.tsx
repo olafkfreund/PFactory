@@ -24,6 +24,7 @@ import { TaskCreationWizard } from './components/TaskCreationWizard';
 import { CloudCheckDialog } from './components/CloudCheckDialog';
 import { TaskDetailModal } from './components/task-detail';
 import { PFactoryPortal } from './components/pfactory/PFactoryPortal';
+import { PlanningView } from './components/planning/PlanningView';
 import { OnboardingWizard } from './components/onboarding';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ProjectSwitchLoadingModal } from './components/ProjectSwitchLoadingModal';
@@ -312,7 +313,12 @@ function AuthenticatedApp() {
             />
 
             <main className="flex-1 overflow-hidden">
-              {activeView === 'pfactory' ? (
+              {activeView === 'planning' ? (
+                /* Planning Portal — global, project-independent. */
+                <div className="h-full overflow-hidden">
+                  <PlanningView />
+                </div>
+              ) : activeView === 'pfactory' ? (
                 /* PFactory's own surface: the test-generation review queue.
                    Global (reads ~/.pfactory workspaces), so it renders with or
                    without a selected project. */

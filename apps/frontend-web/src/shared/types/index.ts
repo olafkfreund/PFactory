@@ -20,3 +20,6 @@ export * from './cli';
 
 // IPC types (must be last to use types from other modules)
 export * from './ipc';
+
+// Planning portal types
+export * from './plan';

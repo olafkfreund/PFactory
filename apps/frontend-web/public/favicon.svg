@@ -1,17 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
-  <!-- PFactory logo: Gruvbox-green flask/test-tube on Gruvbox bg0 -->
-  <rect width="256" height="256" rx="56" fill="#282828"/>
-  <!-- Flask conical (lucide-style) -->
-  <g stroke="#b8bb26" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <!-- Neck -->
-    <path d="M 96 56 L 96 96 L 56 200 a 16 16 0 0 0 14 24 L 186 224 a 16 16 0 0 0 14 -24 L 160 96 L 160 56"/>
-    <!-- Top closure -->
-    <path d="M 88 56 L 168 56"/>
-    <!-- Liquid line -->
-    <path d="M 76 156 L 180 156" stroke="#fabd2f"/>
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PFactory mark">
+  <title>PFactory — Plan Factory</title>
+  <defs>
+    <linearGradient id="pfBg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="0.55" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- badge -->
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="url(#pfBg)"/>
+
+  <!-- decomposition flow: one plan node -> three governed work items -->
+  <g stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none" stroke-opacity="0.92">
+    <path d="M44 64 H62"/>
+    <path d="M62 64 C74 64 74 40 86 40"/>
+    <path d="M62 64 H86"/>
+    <path d="M62 64 C74 64 74 88 86 88"/>
   </g>
-  <!-- Bubbles -->
-  <circle cx="118" cy="186" r="5" fill="#83a598"/>
-  <circle cx="140" cy="200" r="4" fill="#d3869b"/>
-  <circle cx="152" cy="172" r="3" fill="#fe8019"/>
+
+  <!-- source plan node (stacked doc) -->
+  <rect x="24" y="48" width="22" height="32" rx="5" fill="#FFFFFF"/>
+
+  <!-- three child work-items (epic -> children) -->
+  <rect x="82" y="30" width="18" height="18" rx="5" fill="#FFFFFF"/>
+  <rect x="82" y="55" width="18" height="18" rx="5" fill="#FFFFFF"/>
+  <rect x="82" y="80" width="18" height="18" rx="5" fill="#FFFFFF"/>
+
+  <!-- governance "approved" check on the middle (gate passed) -->
+  <circle cx="91" cy="64" r="11" fill="#22C55E"/>
+  <path d="M86 64.5 L90 68.5 L96.5 60.5" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>
