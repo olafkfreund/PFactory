@@ -6,8 +6,8 @@ permalink: /blog/
 
 # Blog
 
-Notes on autonomous test generation, the 5-signal quality verdict, and what we
-learn building PFactory.
+Notes on AI planning, governance gates, live-infrastructure-grounded plans, and
+what we learn building PFactory — the Plan Factory in front of the execution agents.
 
 <ul class="post-list">
 {% for post in site.posts %}

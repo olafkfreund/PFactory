@@ -1,5 +1,5 @@
-title: PFactory
-description: Autonomous test generation + execution platform — Planner → Gen-Functional → Evaluator → Triager. Hand off a finished feature from AIFactory, Claude Code, or any tool (MCP, or a markdown/Gherkin/EARS file) and get an AI-graded test suite + triage report on your PR.
+title: PFactory — Plan Factory
+description: The AI planning & governance incubator in front of the execution agents. Ingest a project plan (docx/pdf/md), enrich it with live org + cloud context (Backstage, wikis, K8s/OpenShift/Azure/AWS/GCP, Terraform), run architecture/security/best-practice/feasibility gates, and emit governed GitHub epics + child issues for AIFactory to execute.
 
 # Keep the remote theme reference so the legacy Pages auto-builder is happy,
 # but override its layout via _layouts/default.html (Jekyll local layouts
@@ -41,5 +41,5 @@ exclude:
 
 # Repo + version metadata (used by the custom layout)
 repo_url: https://github.com/olafkfreund/PFactory
-release_tag: v0.1.0-mvp
-release_url: https://github.com/olafkfreund/PFactory/releases/tag/v0.1.0-mvp
+release_tag: v0.1-dev
+release_url: https://github.com/olafkfreund/PFactory/issues/1
