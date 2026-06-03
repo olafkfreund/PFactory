@@ -1,0 +1,111 @@
+# Backstage Software Template (golden path) for a new GCP project skeleton,
+# plus the PFactory `policy:` extension block at the bottom that the planning
+# factory enforces against any plan that selects this template.
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: gcp-project
+  title: GCP Project (Golden Path)
+  description: >-
+    Scaffold a compliant Google Cloud project skeleton: a project, baseline
+    IAM, a labelled storage bucket, and Terraform to provision it.
+  tags:
+    - gcp
+    - project
+    - golden-path
+    - cloud
+    - terraform
+spec:
+  owner: platform-team
+  type: infrastructure
+  parameters:
+    - title: Project details
+      required:
+        - projectId
+        - costCenter
+        - environment
+      properties:
+        projectId:
+          title: Project ID
+          type: string
+          description: Globally unique GCP project id.
+          pattern: "^[a-z][-a-z0-9]{4,28}[a-z0-9]$"
+        region:
+          title: Region
+          type: string
+          description: Default region for project resources.
+          default: europe-west1
+          enum:
+            - europe-west1
+            - europe-west4
+            - us-central1
+        costCenter:
+          title: Cost center
+          type: string
+          description: Billing cost-center label.
+        owner:
+          title: Owner
+          type: string
+          description: Owning team or person (becomes the `owner` label).
+        environment:
+          title: Environment
+          type: string
+          default: dev
+          enum:
+            - dev
+            - staging
+            - prod
+  steps:
+    - id: fetch-base
+      name: Fetch skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          projectId: ${{ parameters.projectId }}
+          region: ${{ parameters.region }}
+          costCenter: ${{ parameters.costCenter }}
+          owner: ${{ parameters.owner }}
+          environment: ${{ parameters.environment }}
+    - id: publish
+      name: Publish repository
+      action: publish:github
+      input:
+        repoUrl: github.com?owner=platform-team&repo=${{ parameters.projectId }}
+        description: "GCP project ${{ parameters.projectId }}"
+    - id: register
+      name: Register in catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+
+# ── PFactory policy extension ──────────────────────────────────────────────
+# Enforced by plan.templates.loader.enforce() via Template.check(context).
+policy:
+  required_tags:
+    - cost-center
+    - owner
+    - environment
+  allowed_regions:
+    - europe-west1
+    - europe-west4
+    - us-central1
+  required_iam:
+    - roles/viewer
+  security_baselines:
+    - uniform-bucket-level-access
+    - cmek
+  rules:
+    - id: GCP-LABELS-001
+      description: All projects must carry cost-center, owner, and environment labels.
+      severity: medium
+      blocking: false
+    - id: GCP-REGION-001
+      description: Resources must be deployed only in approved regions.
+      severity: high
+      blocking: true
