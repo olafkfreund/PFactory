@@ -12,7 +12,6 @@ from agents.handback.loop import (
     record_cycle,
 )
 
-
 # ── failure_signature ────────────────────────────────────────────────────
 
 

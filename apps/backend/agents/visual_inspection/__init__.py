@@ -6,6 +6,13 @@ screenshots, and package a human inspection report + recording into
 P2 adds the LLM correction plan + GitHub export + downloads.
 """
 
+from .correction_plan import build_correction_prompt, render_correction_plan
+from .issues import (
+    IssueSpec,
+    build_issue_specs,
+    issue_specs_to_dict,
+    register_issues,
+)
 from .model import (
     RunMeta,
     StepResult,
@@ -13,13 +20,6 @@ from .model import (
     new_run_id,
     slugify,
     verdict_for,
-)
-from .correction_plan import build_correction_prompt, render_correction_plan
-from .issues import (
-    IssueSpec,
-    build_issue_specs,
-    issue_specs_to_dict,
-    register_issues,
 )
 from .packager import PackagedRun, finalize_run, package_run
 from .report import render_inspection_report

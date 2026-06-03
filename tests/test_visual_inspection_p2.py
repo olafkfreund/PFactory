@@ -15,8 +15,8 @@ from agents.visual_inspection import (
     issue_specs_to_dict,
     register_issues,
     render_correction_plan,
+    store,
 )
-from agents.visual_inspection import store
 
 _TARGET = {"name": "snow", "platform": "servicenow", "base_url": "https://acme.service-now.com"}
 

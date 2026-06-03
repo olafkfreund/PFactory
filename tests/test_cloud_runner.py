@@ -73,7 +73,7 @@ def test_build_prowler_command_gcp_pins_project() -> None:
 def test_docker_argv_aws_mounts_profile() -> None:
     argv = _docker_argv("aws", "Calitii", "/scr", ["prowler", "aws"])
     assert "--network=bridge" in argv
-    assert f"AWS_PROFILE=Calitii" in argv
+    assert "AWS_PROFILE=Calitii" in argv
     assert "--user" not in argv  # AWS keeps the image's default user
 
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from agents.handback import build_correction_request
 from agents.handback.send import send_correction
 from agents.handback.trigger import maybe_handback
