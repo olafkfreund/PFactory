@@ -125,7 +125,7 @@ function ArtifactCard({ artifact }: { artifact: PlanArtifact }) {
           <p className="text-xs text-muted-foreground mt-0.5">
             <span className="font-mono">{artifact.filename}</span>
             {artifact.child && (
-              <span className="ml-2 text-muted-foreground/70">· {artifact.child}</span>
+              <span className="ml-2 text-muted-foreground/70">· {artifact.child.key}</span>
             )}
           </p>
         </div>

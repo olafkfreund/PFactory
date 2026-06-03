@@ -64,7 +64,7 @@ export interface PlanArtifact {
   kind: 'testing' | 'cicd';
   title: string;
   document: string; // markdown content
-  child: string | null;
+  child: EpicChild | null; // the dedicated child issue this artifact tracks
   filename: string;
 }
 

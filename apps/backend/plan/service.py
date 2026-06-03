@@ -136,6 +136,25 @@ class PlanService:
         if not names:
             return plan
 
+        # Only enrich with cloud/cluster adapters when the plan actually targets
+        # that infrastructure — otherwise a no-cloud plan would inherit the live
+        # account's posture (e.g. public security groups) as a false signal.
+        cloud_adapters = {"aws", "azure", "gcp", "kubernetes", "openshift"}
+        text = " ".join(
+            [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
+        ).lower()
+        cloud_keywords = (
+            "aws", "eks", "ecs", "lambda", "s3", "rds", "kubernetes", "k8s",
+            "openshift", "azure", "aks", "gcp", "gke", "cloud", "helm",
+            "terraform", "redis", "deploy", "ingress", "microservice",
+        )
+        cloud_relevant = any(k in text for k in cloud_keywords) or (
+            plan.plan_type in ("infra-change", "data-pipeline")
+        )
+        names = [n for n in names if n not in cloud_adapters or cloud_relevant]
+        if not names:
+            return plan
+
         from plan.enrich.base import get_adapter
 
         for mod in ("kubernetes", "openshift", "azure", "aws", "gcp"):
