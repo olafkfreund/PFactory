@@ -34,26 +34,26 @@ Public API::
 from .exceptions import PFactoryYmlError
 from .parser import _has_env_var_references, load_pfactory_yml, load_pfactory_yml_text
 from .schema import (
+    CONNECTOR_PLATFORMS,
     AuthSpec,
     BasicAuth,
     BearerAuth,
-    CONNECTOR_PLATFORMS,
     ConnectorTarget,
     DockerComposeTarget,
     EvidencePolicy,
     FeatureFlagTarget,
     HealthCheck,
     HttpTarget,
-    connector_platform_info,
     KubernetesTarget,
     MtlsAuth,
     NoneAuth,
     OAuth2ClientCredentialsAuth,
+    PFactoryConfig,
     ServiceAccountAuth,
     TargetSpec,
     TestData,
-    PFactoryConfig,
     WaitFor,
+    connector_platform_info,
 )
 from .secrets import MissingSecretError, resolve_auth_env_vars, resolve_env_var
 

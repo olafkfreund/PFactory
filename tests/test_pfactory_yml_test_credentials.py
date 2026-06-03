@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-from test_plan.subtask import Subtask
-from pfactory_yml.schema import (
-    TestCredentialEntry as CredEntry,  # alias: avoid pytest Test* collection
-)
 from pfactory_yml.schema import (
     PFactoryConfig,
 )
+from pfactory_yml.schema import (
+    TestCredentialEntry as CredEntry,  # alias: avoid pytest Test* collection
+)
+from pydantic import ValidationError
+from test_plan.subtask import Subtask
 
 
 def _http_target(auth: dict | None = None) -> dict:

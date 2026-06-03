@@ -6,17 +6,17 @@ Backend-pure: constructs PFactoryConfig models directly (no cloud calls).
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 from pfactory_yml.schema import (
     CloudProviderTarget,
     CloudScanConfig,
     EgressConfig,
-    RefAuth,
     PFactoryConfig,
+    RefAuth,
 )
 from pfactory_yml.schema import (
     TestCredentialEntry as CredEntry,  # avoid Test* collection
 )
+from pydantic import ValidationError
 
 
 def _cloud(**over):
