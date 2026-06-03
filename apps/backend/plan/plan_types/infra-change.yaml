@@ -1,0 +1,10 @@
+name: infra-change
+title: Infrastructure change
+applies_to: [software]
+match_keywords: [terraform, helm, kubernetes, openshift, cluster, network, ingress, iam, vpc, provisioning]
+stages:
+  decompose: true
+  synthesize_testing: false
+  synthesize_cicd: true
+  code_gates: true
+  review: true

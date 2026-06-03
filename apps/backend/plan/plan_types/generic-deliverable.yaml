@@ -1,0 +1,10 @@
+name: generic-deliverable
+title: Generic deliverable
+applies_to: [non-software, undetermined]
+match_keywords: []
+stages:
+  decompose: true
+  synthesize_testing: false
+  synthesize_cicd: false
+  code_gates: false
+  review: true
