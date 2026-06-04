@@ -7,8 +7,8 @@
  * Mounted from App.tsx via activeView === 'planning'.
  */
 
-import { useState } from 'react';
-import { Plus, Package, LayoutTemplate, Cpu } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Plus, Package, LayoutTemplate, Cpu, List, Columns } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import {
@@ -19,6 +19,8 @@ import {
 } from '../ui/dialog';
 import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
+import { PlanBoard } from './PlanBoard';
+import { cn } from '../../lib/utils';
 import { PlanUploadForm } from './PlanUploadForm';
 import { RegistryPanel } from './RegistryPanel';
 import { TemplatesPanel } from './TemplatesPanel';
@@ -41,6 +43,14 @@ export function PlanningView({ fetchFn }: Props) {
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [showNewPlanDialog, setShowNewPlanDialog] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
+
+  // Keep the session list loaded so the board has data even when the list pane
+  // isn't mounted (board mode hides the left sidebar).
+  useEffect(() => {
+    store.loadSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSessionSelect = (sessionId: string) => {
     setSelectedSessionId(sessionId);
@@ -61,17 +71,61 @@ export function PlanningView({ fetchFn }: Props) {
             Ingest, process, review and emit product plans.
           </p>
         </div>
-        <Button
-          onClick={() => setShowNewPlanDialog(true)}
-          aria-label="Create new plan"
-          data-testid="new-plan-btn"
-        >
-          <Plus className="mr-2 h-4 w-4" aria-hidden />
-          New plan
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* List ⇄ Board toggle */}
+          <div className="flex rounded-md border border-border p-0.5" role="group" aria-label="View mode">
+            <button
+              type="button"
+              onClick={() => { setViewMode('list'); }}
+              aria-pressed={viewMode === 'list'}
+              className={cn(
+                'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <List className="h-3.5 w-3.5" aria-hidden /> List
+            </button>
+            <button
+              type="button"
+              onClick={() => { setViewMode('board'); setSelectedSessionId(null); }}
+              aria-pressed={viewMode === 'board'}
+              className={cn(
+                'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                viewMode === 'board' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Columns className="h-3.5 w-3.5" aria-hidden /> Board
+            </button>
+          </div>
+          <Button
+            onClick={() => setShowNewPlanDialog(true)}
+            aria-label="Create new plan"
+            data-testid="new-plan-btn"
+          >
+            <Plus className="mr-2 h-4 w-4" aria-hidden />
+            New plan
+          </Button>
+        </div>
       </header>
 
-      {/* Main content: two-pane layout + meta tabs at bottom */}
+      {/* Board mode: full-width kanban of sessions by board_state */}
+      {viewMode === 'board' && !selectedSessionId ? (
+        <main className="flex-1 overflow-auto p-6" data-testid="plan-board-view">
+          {store.sessions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
+              <Columns className="h-8 w-8 opacity-30" aria-hidden />
+              <p className="text-sm font-medium">No plans yet — create one to populate the board.</p>
+            </div>
+          ) : (
+            <PlanBoard
+              sessions={store.sessions}
+              selectedId={selectedSessionId}
+              onSelect={handleSessionSelect}
+            />
+          )}
+        </main>
+      ) : (
+      /* Main content: two-pane layout + meta tabs at bottom */
       <div className="flex flex-1 overflow-hidden">
         {/* Left pane: session list */}
         <aside
@@ -142,6 +196,7 @@ export function PlanningView({ fetchFn }: Props) {
           )}
         </main>
       </div>
+      )}
 
       {/* New plan dialog */}
       <Dialog open={showNewPlanDialog} onOpenChange={setShowNewPlanDialog}>

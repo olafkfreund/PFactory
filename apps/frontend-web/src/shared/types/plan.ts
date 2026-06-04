@@ -272,6 +272,7 @@ export interface SessionSummary {
   session_id: string;
   title: string;
   status: PlanSessionStatus;
+  board_state?: BoardColumn;
   target_kind: 'software' | 'non-software' | 'undetermined';
   plan_type: string;
   children: number;
