@@ -163,7 +163,7 @@ describe('<PFactoryTaskDetail> lanes tab', () => {
       'data-lane-state', 'success',
     );
     expect(screen.getByTestId('lane-card-browser')).toHaveAttribute(
-      'data-lane-state', 'placeholder',
+      'data-lane-state', 'idle',
     );
   });
 });
