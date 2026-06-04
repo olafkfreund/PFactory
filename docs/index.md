@@ -33,6 +33,32 @@ nav_order: 1
 
 {% include pipeline-diagram.html %}
 
+## See it in action
+
+<video controls preload="metadata" playsinline
+       poster="{{ '/static/img/screenshots/10-feasibility.png' | relative_url }}"
+       style="width:100%;max-width:960px;border-radius:12px;border:1px solid rgba(184,187,38,0.25);box-shadow:0 8px 40px rgba(0,0,0,0.4);">
+  <source src="{{ '/static/videos/pfactory-walkthrough.mp4' | relative_url }}" type="video/mp4">
+  Your browser can't play embedded video —
+  <a href="{{ '/static/videos/pfactory-walkthrough.mp4' | relative_url }}">download the walkthrough</a>.
+</video>
+
+<p style="opacity:0.8;margin-top:0.75rem;">
+  <em>Upload a plan → process → <strong>live AWS feasibility</strong> (cost · time · technical access) →
+  cited review → honoured-document suggestions → board → approve →
+  <strong>emit tagged GitHub epics + issues</strong>. Captured from the real portal.</em>
+</p>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0.75rem;margin-top:1.25rem;">
+{% assign shots = "01-portal-list:Planning portal,07-board:Plans on the board,10-feasibility:Cost · time · access feasibility,11-ai-context:Live AWS context,12-review:Cited multi-lens review,15-emit:Tagged emit preview" | split: "," %}
+{% for s in shots %}{% assign p = s | split: ":" %}
+  <a href="{{ '/static/img/screenshots/' | append: p[0] | append: '.png' | relative_url }}" title="{{ p[1] }}">
+    <img src="{{ '/static/img/screenshots/' | append: p[0] | append: '.png' | relative_url }}" alt="{{ p[1] }}"
+         style="width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.08);" loading="lazy">
+  </a>
+{% endfor %}
+</div>
+
 ## Why a planning factory
 
 <div class="reveal" markdown="1">
