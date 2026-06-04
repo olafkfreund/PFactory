@@ -77,6 +77,9 @@ class PlanSession(BaseModel):
     review: PlanReview | None = None
     annotation: AnnotationResult | None = None  # honoured doc + suggested edits (#D)
     original_filename: str = ""  # the uploaded document's name, for rendering
+    selected_category: str = ""   # category the user chose at intake (#E)
+    selected_template: str = ""   # template the user chose — its policy IS enforced (#E)
+    suggested_template: str = ""  # best keyword match — informational only
     emit_result: dict | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -115,17 +118,24 @@ class PlanService:
         return session
 
     def ingest_text(self, text: str, *, title: str | None = None,
-                    channel: str = "portal") -> PlanSession:
+                    channel: str = "portal", category: str = "",
+                    template: str = "") -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title,
                            seq=self._next_seq())
-        return self._store(plan)
+        session = self._store(plan)
+        session.selected_category = category
+        session.selected_template = template
+        return session
 
     def ingest_bytes(self, data: bytes, *, filename: str, title: str | None = None,
-                     channel: str = "portal") -> PlanSession:
+                     channel: str = "portal", category: str = "",
+                     template: str = "") -> PlanSession:
         plan = ingest_bytes(data, filename=filename, source_channel=channel,
                             title=title, seq=self._next_seq())
         session = self._store(plan)
         session.original_filename = filename  # preserve for honouring the doc (#D)
+        session.selected_category = category
+        session.selected_template = template
         return session
 
     def _next_seq(self) -> int:
@@ -176,9 +186,30 @@ class PlanService:
         epic.effort_estimate = feasibility.effort
         epic.access_requirements = feasibility.access
 
+        # Template policy (#E). Enforcement is OPT-IN: a template's embedded policy
+        # (required tags / allowed regions / IAM / baselines) gates review only when
+        # the user explicitly selected it at intake — auto-matching is recorded as a
+        # non-gating suggestion (help, never override). Default the category from the
+        # selection, else the detected plan-type's category.
+        from plan.templates import build_context, load_templates, select_template
+
+        template_findings: list = []
+        try:
+            suggested = select_template(plan)
+            session.suggested_template = suggested.metadata.name if suggested else ""
+            if not session.selected_category:
+                session.selected_category = descriptor.category
+            if session.selected_template:
+                tmpl = load_templates().get(session.selected_template)
+                if tmpl is not None:
+                    template_findings = tmpl.check(build_context(plan))
+        except Exception:
+            template_findings = []
+
         def _composed_runner(p, e):
             out = list(external_runner(p, e)) if external_runner else []
             out.extend(feasibility.findings)
+            out.extend(template_findings)
             return out
 
         session.status = "reviewing"

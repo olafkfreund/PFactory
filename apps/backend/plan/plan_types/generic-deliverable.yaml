@@ -1,5 +1,6 @@
 name: generic-deliverable
 title: Generic deliverable
+category: generic
 applies_to: [non-software, undetermined]
 match_keywords: []
 stages:

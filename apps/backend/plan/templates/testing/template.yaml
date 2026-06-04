@@ -1,0 +1,26 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: testing
+  title: Testing / QA strategy
+  category: testing
+  description: A test plan / QA strategy — coverage, e2e, regression — handed to TFactory.
+  tags: [testing, qa, coverage, e2e, regression]
+spec:
+  type: testing
+  parameters:
+    - title: Test target
+      required: [owner]
+      properties:
+        owner: { type: string, title: Owning team }
+  steps:
+    - id: strategy
+      name: Define test strategy
+      action: fetch:template
+policy:
+  required_tags: [owner]
+  rules:
+    - id: testing-oracle
+      description: Tests must trace to acceptance criteria (the oracle).
+      severity: medium
+      blocking: false

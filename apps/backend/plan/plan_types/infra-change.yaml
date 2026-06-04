@@ -1,5 +1,6 @@
 name: infra-change
 title: Infrastructure change
+category: infrastructure
 applies_to: [software]
 match_keywords: [terraform, helm, kubernetes, openshift, cluster, network, ingress, iam, vpc, provisioning]
 stages:

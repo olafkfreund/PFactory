@@ -1,0 +1,26 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: product-planning
+  title: Product planning
+  category: product
+  description: A product plan — vision, personas, roadmap, GTM — reviewed + decomposed (no code stages).
+  tags: [product, roadmap, prd, vision, persona, gtm]
+spec:
+  type: documentation
+  parameters:
+    - title: Plan
+      required: [owner]
+      properties:
+        owner: { type: string, title: Owning PM }
+  steps:
+    - id: outline
+      name: Outline the plan
+      action: fetch:template
+policy:
+  required_tags: [owner]
+  rules:
+    - id: product-success-metrics
+      description: A product plan should state measurable success criteria.
+      severity: low
+      blocking: false
