@@ -80,10 +80,13 @@ def test_copilot_strip_trailer():
 
 
 def test_codex_build_env_provisions_codex_home(monkeypatch, tmp_path):
-    """With OPENAI_API_KEY set, the Codex provider writes an api-key auth.json
-    into a PFactory-owned CODEX_HOME so it never depends on the global login."""
+    """With OPENAI_API_KEY set *and* api-key billing opted in, the Codex provider
+    writes an api-key auth.json into a PFactory-owned CODEX_HOME so it never
+    depends on the global login. (Default is subscription-only — see
+    test_provider_auth_policy.py — which strips the key instead.)"""
     from providers.codex_agentic import CodexAgenticProvider
 
+    monkeypatch.setenv("PFACTORY_ALLOW_API_KEYS", "1")  # opt into metered API billing
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-123")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 

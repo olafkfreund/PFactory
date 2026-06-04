@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import shutil
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -40,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from providers import BaseLLMProvider
+from providers.auth_policy import scrub_api_keys
 from providers.gemini import _emit_sunset_warning  # Issue #22
 from providers.types import AssistantMessage, TextBlock
 
@@ -140,6 +142,11 @@ class GeminiAgenticProvider(BaseLLMProvider):
 
         logger.debug("GeminiAgenticProvider: spawning cmd=%r cwd=%r", cmd, cwd)
 
+        # Subscription-only policy (default ON): strip GEMINI/GOOGLE API keys from
+        # the subprocess env so the CLI uses the operator's Antigravity/Gemini
+        # login, never metered API billing. Opt out: PFACTORY_ALLOW_API_KEYS=1.
+        env = scrub_api_keys(dict(os.environ), "gemini")
+
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -148,6 +155,7 @@ class GeminiAgenticProvider(BaseLLMProvider):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=env,
             )
 
             prompt_bytes = self._pending_prompt.encode("utf-8")
