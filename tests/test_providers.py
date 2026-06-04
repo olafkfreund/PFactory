@@ -303,7 +303,11 @@ def test_provider_runner_collects_findings_from_registered_providers(monkeypatch
     )
 
     findings = provider_runner(_plan(), _epic())
-    assert [f.title for f in findings] == ["rotate keys"]
+    # The provider's finding is collected; provider_runner may also append
+    # advisory suggest-install notes (#3), which carry a 'provider:*' source.
+    assert "rotate keys" in [f.title for f in findings]
+    extras = [f for f in findings if f.title != "rotate keys"]
+    assert all(f.source.startswith("provider:") for f in extras)
 
 
 def test_provider_runner_compatible_with_run_gates(monkeypatch):

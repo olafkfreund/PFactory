@@ -31,7 +31,38 @@ from plan.synthesize.models import SynthesizedArtifact
 from plan.synthesize.run import synthesize
 from pydantic import BaseModel, Field
 
-SessionStatus = str  # ingested | processed | approved | rejected | emitted
+# Lifecycle status. The first five are persisted stages; `processing`/`reviewing`
+# are transient sub-states set during process() so the board shows live progress.
+SessionStatus = str
+# ingested | processing | reviewing | processed | approved | rejected | emitted
+
+# Task-board column ids (shared with the frontend kanban — see constants/task.ts).
+# "backlog" is rendered as "Plans ready".
+BoardColumn = str  # backlog | in_progress | ai_review | human_review | done
+
+
+def board_state(status: str, review: PlanReview | None) -> BoardColumn:
+    """Project a session's (status, review) onto a kanban column (#5).
+
+    plans-ready (backlog) → in-progress (processing) → AI review (gates running)
+    → human review (AI done: awaiting sign-off, blocked, or needs edit) →
+    done (approved by AI *and* human, or already emitted).
+    """
+    if status in ("approved", "emitted"):
+        return "done"
+    if status == "rejected":
+        return "human_review"  # needs attention / edit
+    if status == "ingested":
+        return "backlog"
+    if status == "processing":
+        return "in_progress"
+    if status == "reviewing":
+        return "ai_review"
+    if status == "processed":
+        # AI review is complete; a human must approve a clean plan or fix a
+        # blocked one — either way it awaits a person.
+        return "human_review"
+    return "backlog"
 
 
 class PlanSession(BaseModel):
@@ -46,11 +77,15 @@ class PlanSession(BaseModel):
     emit_result: dict | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
+    def board_state(self) -> BoardColumn:
+        return board_state(self.status, self.review)
+
     def summary(self) -> dict:
         return {
             "session_id": self.session_id,
             "title": self.plan.title,
             "status": self.status,
+            "board_state": self.board_state(),
             "target_kind": self.plan.target_kind,
             "plan_type": self.plan.plan_type,
             "children": len(self.epic.children) if self.epic else 0,
@@ -105,12 +140,27 @@ class PlanService:
     # ── process (the pipeline core) ────────────────────────────────────
 
     def process(self, session_id: str, *, external_runner=None) -> PlanSession:
-        """Detect → plan-type → enrich → decompose → synthesize → review gates."""
+        """Detect → plan-type → enrich → decompose → synthesize → review gates.
+
+        When no ``external_runner`` is supplied, the provider-MCP runner is used by
+        default so live runs get provider best-practice findings + suggest-install
+        advisories (#3). It never raises and adds no score penalty when providers
+        are absent, so the default is safe.
+        """
+        if external_runner is None:
+            from plan.providers.review_runner import provider_runner
+
+            external_runner = provider_runner
         session = self.get(session_id)
+        # Transient sub-states so a background-run session animates on the board:
+        # in-progress while we detect/enrich/decompose/synthesize, AI-review while
+        # the gates run. (Synchronous callers just see the final "processed".)
+        session.status = "processing"
         plan = self._enrich(plan_type_apply(detect_apply(session.plan)))
         descriptor = select_for(plan)
         epic = decompose(plan, descriptor=descriptor)
         artifacts = synthesize(plan, epic, descriptor=descriptor)
+        session.status = "reviewing"
         review = run_gates(plan, epic, external_runner=external_runner)
 
         session.plan = plan
