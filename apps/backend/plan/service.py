@@ -160,8 +160,24 @@ class PlanService:
         descriptor = select_for(plan)
         epic = decompose(plan, descriptor=descriptor)
         artifacts = synthesize(plan, epic, descriptor=descriptor)
+
+        # Feasibility (#C): price the proposed shape, estimate effort, verify
+        # access. Estimates are attached to the epic; findings are folded into
+        # the feasibility lens via a composed external runner.
+        from plan.feasibility import assess_feasibility
+
+        feasibility = assess_feasibility(plan, epic)
+        epic.cost_estimate = feasibility.cost
+        epic.effort_estimate = feasibility.effort
+        epic.access_requirements = feasibility.access
+
+        def _composed_runner(p, e):
+            out = list(external_runner(p, e)) if external_runner else []
+            out.extend(feasibility.findings)
+            return out
+
         session.status = "reviewing"
-        review = run_gates(plan, epic, external_runner=external_runner)
+        review = run_gates(plan, epic, external_runner=_composed_runner)
 
         session.plan = plan
         session.epic = epic

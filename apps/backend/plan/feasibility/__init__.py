@@ -1,0 +1,20 @@
+"""Feasibility engine (Phase C): can this plan actually be built, and at what
+cost / time / access?
+
+Runs after Synthesize and folds its findings into the review's feasibility lens.
+Three concerns, each behind a seam so the real cloud calls are guarded and never
+fail the pipeline (help, never override — a pricing/IAM outage yields a
+low-confidence estimate + advisory, not an error):
+
+- :mod:`plan.feasibility.cost`   — price the proposed resource shape (AWS Price
+  List · Azure Retail Prices · GCP Billing Catalog · static fallback).
+- :mod:`plan.feasibility.access` — verify the principal can actually do the work
+  (credentials · region enablement · IAM policy-simulation).
+- :mod:`plan.feasibility.effort` — calibrated time/effort from child complexity.
+
+:func:`plan.feasibility.run.assess_feasibility` is the single entry point.
+"""
+
+from plan.feasibility.run import FeasibilityResult, assess_feasibility
+
+__all__ = ["FeasibilityResult", "assess_feasibility"]
