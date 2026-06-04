@@ -141,17 +141,17 @@ RUN mkdir -p /home/nonroot/.pfactory
 # Environment
 # ---------------------------------------------------------------------------
 ENV APP_HOST=0.0.0.0 \
-    APP_PORT=3102 \
+    APP_PORT=3114 \
     APP_BACKEND_PATH=/home/projects/MagesticAI/apps/backend \
     APP_PROJECTS_DATA_DIR=/home/nonroot/.pfactory \
     APP_DEFAULT_SHELL=/bin/bash \
     PYTHONUNBUFFERED=1 \
     PATH="/home/nonroot/.npm-global/bin:/home/projects/MagesticAI/.venv/bin:$PATH"
 
-EXPOSE 3102
+EXPOSE 3114
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:3102/api/health || exit 1
+    CMD curl -f http://localhost:3114/api/health || exit 1
 
 WORKDIR /home/projects/MagesticAI/apps/web-server
 

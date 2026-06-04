@@ -41,7 +41,7 @@ export default defineConfig({
     : 'list',
 
   use: {
-    baseURL: process.env.PFACTORY_E2E_BASE_URL ?? 'http://localhost:3100',
+    baseURL: process.env.PFACTORY_E2E_BASE_URL ?? 'http://localhost:3115',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

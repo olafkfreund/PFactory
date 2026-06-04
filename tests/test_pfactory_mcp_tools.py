@@ -53,7 +53,7 @@ from agents.tools_pkg.tools.task_control import create_task_control_tools  # noq
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Isolated PFactory workspace root for one test."""
     monkeypatch.setenv("PFACTORY_WORKSPACE_ROOT", str(tmp_path / "pfactory"))
-    monkeypatch.setenv("PFACTORY_PORTAL_PORT", "3102")
+    monkeypatch.setenv("PFACTORY_PORTAL_PORT", "3114")
     # Default: auto-fire OFF. Tests that exercise the auto-fire path
     # opt in by setting PFACTORY_AUTO_PLAN=1 explicitly (see commit 2
     # of Task 5). Keeping the default off here means the existing 21

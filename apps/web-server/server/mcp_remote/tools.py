@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # Loopback URL the MCP tools use to call the web-server's own REST API.
 # Defaults to localhost on the standard FastAPI port; override via env
 # for tests that spin up the app on a random port.
-DEFAULT_LOOPBACK_URL = "http://localhost:3102"
+DEFAULT_LOOPBACK_URL = "http://localhost:3114"
 
 
 def _loopback_url() -> str:

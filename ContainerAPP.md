@@ -14,7 +14,7 @@ sudo docker compose up -d
 
 ## Access
 
-- **URL:** `http://localhost:${HOST_PORT:-3102}`
+- **URL:** `http://localhost:${HOST_PORT:-3114}`
 - **Token:** Auto-generated on first run, retrieve with:
 
 ```bash
@@ -63,7 +63,7 @@ Set in `docker-compose.yml` or `.env` file. Key vars:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APP_HOST` | `0.0.0.0` | Listen address |
-| `APP_PORT` | `3102` | Server port |
+| `APP_PORT` | `3114` | Server port |
 | `APP_API_TOKEN` | (auto-generated) | Auth token for login |
 | `APP_DEBUG` | `false` | Enable Swagger docs at `/docs` |
 | `APP_DEFAULT_SHELL` | `/bin/bash` | Default terminal shell |

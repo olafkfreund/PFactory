@@ -67,7 +67,7 @@ later `--scenario N` can build on a successful earlier run.
 | # | Name | Mode | What it proves |
 |---|---|---|---|
 | 1 | workspace_creation | auto | The snapshotter writes `status.json`, `aifactory_spec.md`, `source.json` under `~/.pfactory/workspaces/{proj}/specs/{spec}/`. |
-| 2 | portal_starts | auto | Web-server boots on `:3102`; `/api/pfactory/tasks` returns 200. |
+| 2 | portal_starts | auto | Web-server boots on `:3114`; `/api/pfactory/tasks` returns 200. |
 | 3 | handover_progression | auto | With `PFACTORY_AUTO_*=1`, status walks `pending → planning → generated → evaluated → triaged` within 5 minutes. |
 | 4 | tests_committed | auto | A `pfactory:` commit lands on `$PFACTORY_AIFACTORY_BRANCH` (requires `PFACTORY_TRIAGER_GIT_WRITE=1`). |
 | 5 | pytest_passes | auto | `cd $PFACTORY_AIFACTORY_ROOT && pytest tests/` exits 0 with the new tests running. |
@@ -100,11 +100,11 @@ items in the phase-2 backlog (see below).
 
 ### Scenario 2: portal reachable
 
-Boots the web-server (`apps/web-server`) on port 3102 and polls
-`http://localhost:3102/api/pfactory/tasks` until 200 or 30s elapse.
+Boots the web-server (`apps/web-server`) on port 3114 and polls
+`http://localhost:3114/api/pfactory/tasks` until 200 or 30s elapse.
 
 **If it fails:** check `/tmp/pfactory-portal.log` — the script redirects
-the server's stdout/stderr there. Common causes: port 3102 already in
+the server's stdout/stderr there. Common causes: port 3114 already in
 use, missing Python deps, `APP_API_TOKEN` not set (defaults to a generated
 one in `~/.pfactory/.token`).
 

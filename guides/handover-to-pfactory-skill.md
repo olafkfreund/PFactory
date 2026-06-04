@@ -81,7 +81,7 @@ or your user-level one.
    - With `PFACTORY_AUTO_PLAN=1` (default), schedules the Planner.
 3. The pipeline auto-advances Planner → Gen-Functional → Evaluator →
    Triager. The user polls via `mcp__pfactory__task_status` or watches
-   the portal at `:3102`.
+   the portal at `:3114`.
 
 ## What it does NOT do
 

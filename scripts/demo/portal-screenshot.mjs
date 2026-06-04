@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 
 const TOKEN = fs.readFileSync(process.env.HOME + '/.pfactory/.token', 'utf8').trim();
 const OUT = process.argv[2] || '/tmp/portal-themed.png';
-const URL = process.argv[3] || 'http://localhost:3100';
+const URL = process.argv[3] || 'http://localhost:3115';
 const CHROME = process.env.CHROME_PATH;
 
 const browser = await chromium.launch({headless: true, executablePath: CHROME});

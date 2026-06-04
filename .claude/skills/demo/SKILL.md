@@ -84,8 +84,8 @@ command -v agg >/dev/null || echo "note: agg absent — terminal pane uses the P
 
 Confirm the portal + backend are up (the recorders need them):
 
-- Backend (API) on `http://localhost:3102`, frontend on `http://localhost:3110`
-  (or `:3100` for the dev server — check `record-portal-walkthrough.ts`).
+- Backend (API) on `http://localhost:3114`, frontend on `http://localhost:3110`
+  (or `:3115` for the dev server — check `record-portal-walkthrough.ts`).
 - `~/.pfactory/.token` exists.
 
 If they're not running, start them per the project README

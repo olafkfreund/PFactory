@@ -15,7 +15,7 @@
 
 import { test as base, expect, APIRequestContext } from '@playwright/test';
 
-const API = process.env.PFACTORY_E2E_API ?? 'http://localhost:3102';
+const API = process.env.PFACTORY_E2E_API ?? 'http://localhost:3114';
 const TOKEN = process.env.PFACTORY_E2E_TOKEN ?? '';
 const FIXTURE_DIR =
   process.env.PFACTORY_E2E_FIXTURE_DIR ?? '/tmp/pfactory-e2e-fixture';

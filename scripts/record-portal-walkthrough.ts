@@ -11,7 +11,7 @@
  *     -movflags +faststart -an docs/static/recordings/portal-walkthrough.mp4
  *
  * Prereqs (script asserts these before launching):
- *   1. Portal up on PORTAL_URL (default http://localhost:3100)
+ *   1. Portal up on PORTAL_URL (default http://localhost:3115)
  *   2. ~/.pfactory/.token present (set when the backend booted)
  *   3. A project that matches PROJECT_NAME below registered in the portal
  *   4. The system Google Chrome at CHROME_PATH (NixOS).  Playwright's bundled
@@ -29,7 +29,7 @@ import {chromium, type Browser, type BrowserContext, type Page} from '@playwrigh
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-const PORTAL_URL = process.env.PFACTORY_PORTAL ?? 'http://localhost:3100';
+const PORTAL_URL = process.env.PFACTORY_PORTAL ?? 'http://localhost:3115';
 const PROJECT_NAME = process.env.PFACTORY_PROJECT_NAME ?? 'pfactory-demo';
 // UUID of the pfactory-demo project — discovered via the live portal's
 // localStorage.  Without this key the portal opens to the welcome/picker

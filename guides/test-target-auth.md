@@ -54,7 +54,7 @@ The portal stores test-target credentials **encrypted at rest** (the same
 secret is **never returned by the API after creation** — only metadata.
 
 ```bash
-curl -sX POST http://localhost:3102/api/test-credentials \
+curl -sX POST http://localhost:3114/api/test-credentials \
   -H 'Content-Type: application/json' \
   -d '{"name":"staging-login","kind":"form","username":"qa@acme.test","secret":"•••••"}'
 # → {"id":"tc_a1b2","name":"staging-login","kind":"form","username":"qa@acme.test", ...}

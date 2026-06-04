@@ -13,13 +13,13 @@
 # Prereqs (script will fail fast if missing):
 #   - gh CLI authenticated
 #   - jq, curl
-#   - Portal running at http://localhost:3102 (or pass --portal=URL)
+#   - Portal running at http://localhost:3114 (or pass --portal=URL)
 #   - ~/.pfactory/.token exists (created by the portal at first boot)
 #
 # Flags:
 #   --yolo         run uninterrupted (no Enter prompts between steps)
 #   --no-reset     skip step 1 (don't touch the GitHub repo)
-#   --portal=URL   override the portal base URL (default http://localhost:3102)
+#   --portal=URL   override the portal base URL (default http://localhost:3114)
 #   --help         print this help and exit
 #
 # Exit codes:
@@ -34,7 +34,7 @@ set -euo pipefail
 
 DEMO_REPO="olafkfreund/pfactory-demo"
 DEMO_REPO_LOCAL="/tmp/pfactory-demo"
-PORTAL="http://localhost:3102"
+PORTAL="http://localhost:3114"
 YOLO=0
 NO_RESET=0
 
@@ -221,11 +221,11 @@ curl -sS -H "$AUTH_HEADER" "${PORTAL}/api/projects/${PROJECT_ID}/tasks" \
 
 # Open the portal in a browser
 if command -v xdg-open >/dev/null 2>&1; then
-  xdg-open http://localhost:3100/ >/dev/null 2>&1 || true
+  xdg-open http://localhost:3115/ >/dev/null 2>&1 || true
 elif command -v open >/dev/null 2>&1; then
-  open http://localhost:3100/ || true
+  open http://localhost:3115/ || true
 fi
-ok "Browser opened to http://localhost:3100/"
+ok "Browser opened to http://localhost:3115/"
 
 prompt_enter
 
@@ -282,7 +282,7 @@ cat <<EOF
 
   The agent is running. Watch progress in the browser:
 
-    • Kanban:           http://localhost:3100/
+    • Kanban:           http://localhost:3115/
     • Task detail:      Click the task card, switch to the "Live Console" tab
     • Demo repo:        https://github.com/${DEMO_REPO}
     • Portal API:       ${PORTAL}/api/tasks/${FIRST_TASK_ID}

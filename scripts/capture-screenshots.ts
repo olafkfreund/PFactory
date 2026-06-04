@@ -1,11 +1,11 @@
 /**
  * PFactory screenshot capture for the docs site.
  *
- * Drives the running portal at http://localhost:3100 via Playwright
+ * Drives the running portal at http://localhost:3115 via Playwright
  * (headless Chromium) and saves ~14 PNGs to docs/static/img/screenshots/.
  *
  * Run with:
- *   1. Start the portal stack: web-server on :3102, vite dev on :3100
+ *   1. Start the portal stack: web-server on :3114, vite dev on :3115
  *   2. Run the demo: ./scripts/demo.sh --yolo  (seeds 3 tasks)
  *   3. npm -w apps/frontend-web run capture-screenshots
  *
@@ -17,7 +17,7 @@ import {chromium, type Browser, type Page} from '@playwright/test';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
-const PORTAL_URL = process.env.PFACTORY_PORTAL_URL ?? 'http://localhost:3100';
+const PORTAL_URL = process.env.PFACTORY_PORTAL_URL ?? 'http://localhost:3115';
 const TOKEN_FILE = path.join(
   process.env.HOME ?? '/root',
   '.pfactory',

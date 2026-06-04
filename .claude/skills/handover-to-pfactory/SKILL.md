@@ -161,7 +161,7 @@ Call the same tool with `confirm=true`. The response contains:
 - `task_id` — record this verbatim
 - `spec_dir` — the PFactory workspace path (e.g.
   `~/.pfactory/workspaces/<project>/specs/<id>/`)
-- `portal_url` — `http://localhost:3102/tasks/<task_id>` (the portal
+- `portal_url` — `http://localhost:3114/tasks/<task_id>` (the portal
   ships in Tasks 9-10; until then the URL is a placeholder)
 
 ### 5. Report cleanly back to the user

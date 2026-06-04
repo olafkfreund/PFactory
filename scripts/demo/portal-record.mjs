@@ -5,7 +5,7 @@ import * as path from 'node:path';
 const TOKEN = fs.readFileSync(process.env.HOME + '/.pfactory/.token', 'utf8').trim();
 const CHROME = process.env.CHROME_PATH;
 const OUT = process.argv[2]; // target webm path
-const FRONT = process.env.FRONT_URL || 'http://localhost:3100';
+const FRONT = process.env.FRONT_URL || 'http://localhost:3115';
 const SPEC = process.env.SPEC || ''; // when set, drill into this task + walk its tabs
 
 const vdir = fs.mkdtempSync('/tmp/portalrec-');

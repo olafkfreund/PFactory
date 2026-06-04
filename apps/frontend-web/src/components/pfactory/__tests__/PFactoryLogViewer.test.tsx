@@ -71,22 +71,22 @@ if (typeof globalThis.WebSocket === 'undefined') {
 
 describe('buildLogStreamUrl', () => {
   it('uses VITE_WS_BASE_URL when provided', () => {
-    expect(buildLogStreamUrl('042-x', 'ws://api.example.com:3102')).toBe(
-      'ws://api.example.com:3102/api/pfactory/tasks/042-x/logs/stream',
+    expect(buildLogStreamUrl('042-x', 'ws://api.example.com:3114')).toBe(
+      'ws://api.example.com:3114/api/pfactory/tasks/042-x/logs/stream',
     );
   });
 
   it('strips trailing slash from env base', () => {
-    expect(buildLogStreamUrl('042-x', 'ws://api.example.com:3102/')).toBe(
-      'ws://api.example.com:3102/api/pfactory/tasks/042-x/logs/stream',
+    expect(buildLogStreamUrl('042-x', 'ws://api.example.com:3114/')).toBe(
+      'ws://api.example.com:3114/api/pfactory/tasks/042-x/logs/stream',
     );
   });
 
   it('promotes http → ws via window.location fallback', () => {
     expect(buildLogStreamUrl(
       '042-x', undefined,
-      { protocol: 'http:', host: 'localhost:3100' },
-    )).toBe('ws://localhost:3100/api/pfactory/tasks/042-x/logs/stream');
+      { protocol: 'http:', host: 'localhost:3115' },
+    )).toBe('ws://localhost:3115/api/pfactory/tasks/042-x/logs/stream');
   });
 
   it('promotes https → wss', () => {

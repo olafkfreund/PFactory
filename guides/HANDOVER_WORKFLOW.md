@@ -27,7 +27,7 @@ You have two complementary tools:
    cd apps/web-server && python -m server.main
    ```
 
-   It listens on `http://localhost:3102` by default. Override with `PFACTORY_API_URL`.
+   It listens on `http://localhost:3114` by default. Override with `PFACTORY_API_URL`.
 
 3. **The API token exists at `~/.pfactory/.token`** (the web-server creates this on first start and prints the value once). Override path with `PFACTORY_API_TOKEN_FILE`.
 
@@ -44,7 +44,7 @@ Claude: ✅ Handed off to PFactory.
 
          • Task: spec-099-jwt-refresh-tokens
          • Title: Add JWT refresh tokens to auth middleware
-         • Track at: http://localhost:3102/tasks/p1:spec-099-jwt-refresh-tokens
+         • Track at: http://localhost:3114/tasks/p1:spec-099-jwt-refresh-tokens
 
          PFactory's planner runs first — when it hits the plan-review gate
          the portal will show the implementation plan for your approval.

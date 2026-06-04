@@ -389,7 +389,7 @@ export function SecuritySettings({
                     URL of the Graphiti MCP server for agent memory access
                   </p>
                   <Input
-                    placeholder="http://localhost:3102/mcp/"
+                    placeholder="http://localhost:3114/mcp/"
                     value={settings.graphitiMcpUrl || ''}
                     onChange={(e) => setSettings({ ...settings, graphitiMcpUrl: e.target.value || undefined })}
                   />

@@ -380,7 +380,7 @@ CMD ["python", "main.py"]
   app:
     build: .
     ports:
-      - "3102:3102"
+      - "3114:3114"
   postgres:
     image: postgres:15
     environment:

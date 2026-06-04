@@ -85,18 +85,18 @@ Nix path just makes setup deterministic.
 ## Running the portal
 
 ```bash
-# Backend (FastAPI on :3102)
+# Backend (FastAPI on :3114)
 cd apps/web-server
 source .venv/bin/activate    # if you have a per-app venv
 python -m server.main
 
-# Frontend (Vite dev server on :3100)
+# Frontend (Vite dev server on :3115)
 cd apps/frontend-web
 npm install                  # unset NODE_ENV first if inside nix develop
 npm run dev
 ```
 
-Then visit **http://localhost:3100** for the PFactory portal.
+Then visit **http://localhost:3115** for the PFactory portal.
 
 The portal exposes a `/pfactory` view powered by the components under
 `apps/frontend-web/src/components/pfactory/`:

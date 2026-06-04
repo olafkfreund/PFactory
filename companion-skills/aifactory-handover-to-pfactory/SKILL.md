@@ -48,7 +48,7 @@ reachable. Typical project-scoped form:
       ],
       "env": {
         "PFACTORY_PROJECT_DIR": "${CLAUDE_PROJECT_DIR:-.}",
-        "PFACTORY_API_URL": "http://localhost:3102",
+        "PFACTORY_API_URL": "http://localhost:3114",
         "PFACTORY_WORKSPACE_ROOT": "~/.pfactory"
       }
     }

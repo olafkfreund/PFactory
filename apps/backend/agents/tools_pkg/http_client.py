@@ -41,7 +41,7 @@ except ImportError:
     httpx = None  # type: ignore[assignment]
 
 
-DEFAULT_API_URL = "http://localhost:3102"
+DEFAULT_API_URL = "http://localhost:3114"
 DEFAULT_TOKEN_FILE = "~/.pfactory/.token"
 DEFAULT_MCP_KEY_FILE = "~/.pfactory/.mcp-key"
 DEFAULT_TIMEOUT = 30.0

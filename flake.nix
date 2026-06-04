@@ -59,7 +59,7 @@
           # NOTE: env literals here don't undergo bash expansion. For values
           # that need $HOME / $PWD interpolation, set them in shellHook.
           env = {
-            PFACTORY_PORTAL_PORT = "3102";
+            PFACTORY_PORTAL_PORT = "3114";
             # Off by default for deterministic tests; production sets to "1".
             PFACTORY_AUTO_PLAN = "0";
           };

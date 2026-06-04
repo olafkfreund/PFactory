@@ -58,8 +58,8 @@ def free_port() -> int:
     """Pick an unused TCP port on the host.
 
     Avoids collisions with a developer's locally-running PFactory backend
-    (port 3102). Tests that publish the container's 3102 to a host port
-    MUST use this fixture and poll that host port — never hardcode 3102.
+    (port 3114). Tests that publish the container's 3114 to a host port
+    MUST use this fixture and poll that host port — never hardcode 3114.
     """
     import socket
 

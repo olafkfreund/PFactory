@@ -16,7 +16,7 @@ def test_health_endpoint_responds(built_image: str, container_name: str, free_po
     docker_run(
         built_image,
         detach=True,
-        publish=[f"{free_port}:3102"],
+        publish=[f"{free_port}:3114"],
         name=container_name,
     )
     assert wait_for_health(f"http://localhost:{free_port}/api/health", timeout=60), \
@@ -43,7 +43,7 @@ def test_no_net_admin_required(built_image: str, container_name: str, free_port:
     docker_run(
         built_image,
         detach=True,
-        publish=[f"{free_port}:3102"],
+        publish=[f"{free_port}:3114"],
         name=container_name,
     )
     assert wait_for_health(f"http://localhost:{free_port}/api/health", timeout=60), \
@@ -83,7 +83,7 @@ def test_runs_with_read_only_root_fs(built_image: str, container_name: str, free
     docker_run(
         built_image,
         detach=True,
-        publish=[f"{free_port}:3102"],
+        publish=[f"{free_port}:3114"],
         name=container_name,
         read_only=True,
         # uid/gid=65532 so the nonroot app user can actually write to these
@@ -106,7 +106,7 @@ def test_dropped_capabilities(built_image: str, container_name: str, free_port: 
     docker_run(
         built_image,
         detach=True,
-        publish=[f"{free_port}:3102"],
+        publish=[f"{free_port}:3114"],
         name=container_name,
         cap_drop=["ALL"],
         security_opt=["no-new-privileges"],
