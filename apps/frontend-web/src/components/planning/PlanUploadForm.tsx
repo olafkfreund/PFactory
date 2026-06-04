@@ -64,7 +64,7 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
   useEffect(() => {
     let cancelled = false;
     getCategories({ fetchFn: fetchFn ?? store.fetchFn })
-      .then((r) => { if (!cancelled) setCategories(r.categories); })
+      .then((r) => { if (!cancelled) setCategories(Array.isArray(r?.categories) ? r.categories : []); })
       .catch(() => { /* picker is optional */ });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
