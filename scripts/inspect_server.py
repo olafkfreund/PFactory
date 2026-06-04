@@ -4,7 +4,7 @@ Mounts ONLY the Plan Factory routers (intake + pipeline + meta) on a bare
 FastAPI app — no database, auth, or the rest of the web-server machinery — so the
 planning pipeline can be driven and inspected locally without the full stack.
 
-    /tmp/pf-serve-venv/bin/python scripts/inspect_server.py   # serves :3102
+    /tmp/pf-serve-venv/bin/python scripts/inspect_server.py   # serves :3114
 
 Endpoints under /api/plan/* ; OpenAPI docs at /docs ; health at /health.
 """

@@ -22,7 +22,7 @@ and turns it into running infrastructure.
 The root `Dockerfile` is a two-stage Chainguard build: stage 1 builds the
 React frontend into `apps/web-server/static/`, stage 2 is the distroless
 Python runtime. It runs as the `nonroot` user (uid 65532), exposes port
-**3102**, and serves the FastAPI web-server (`server.main`) — including the
+**3114**, and serves the FastAPI web-server (`server.main`) — including the
 planning routes (`/api/plan/*`) added in `server/routes/plan_*.py`, which
 need no extra build args (in-memory, `fastapi` + `python-multipart` are
 already in `apps/web-server/requirements.txt`).
@@ -83,7 +83,7 @@ docker compose up -d
 docker exec pfactory cat /home/nonroot/.pfactory/.token
 ```
 
-- URL: `http://localhost:${HOST_PORT:-3102}`
+- URL: `http://localhost:${HOST_PORT:-3114}`
 - Data (token, projects DB) persists in `${PFACTORY_DATA_DIR:-./data}`,
   mounted at `/home/nonroot/.pfactory`.
 
@@ -188,7 +188,7 @@ in `.mcp.json`):
 
 | Env var | Default | Purpose |
 | --- | --- | --- |
-| `PFACTORY_API_URL` | `http://localhost:3102` | Web-server base URL (matches the app's `APP_PORT=3102`). |
+| `PFACTORY_API_URL` | `http://localhost:3114` | Web-server base URL (matches the app's `APP_PORT=3114`). |
 | `PFACTORY_API_TOKEN_FILE` | `~/.pfactory/.token` | API bearer token, auto-generated on first web-server run. |
 | `PFACTORY_PROJECT_DIR` | `${CLAUDE_PROJECT_DIR:-.}` | Repo root for project-scoped operations. |
 

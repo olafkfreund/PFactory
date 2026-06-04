@@ -224,7 +224,7 @@ def test_client_rewrites_path_to_proxy_prefix(monkeypatch):
             pass
 
     monkeypatch.setattr(http_client._state, "_client", _FakeClient())
-    monkeypatch.setattr(http_client._state, "_base_url", "http://localhost:3102")
+    monkeypatch.setattr(http_client._state, "_base_url", "http://localhost:3114")
     monkeypatch.setattr(http_client, "_read_token", lambda: "acw_test_key")
 
     import asyncio

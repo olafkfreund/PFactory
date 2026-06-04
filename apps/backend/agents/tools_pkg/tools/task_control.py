@@ -389,7 +389,7 @@ def create_task_control_tools() -> list:
                 "planner module not importable — task stays at status=pending"
             )
 
-        portal_port = os.environ.get("PFACTORY_PORTAL_PORT", "3102")
+        portal_port = os.environ.get("PFACTORY_PORTAL_PORT", "3114")
         return _format_json(
             {
                 "task_id": task_id,

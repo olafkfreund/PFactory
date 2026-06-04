@@ -24,13 +24,13 @@ setup-token:
 
 # ----- dev -----
 
-# Start the FastAPI web-server (port 3102)
+# Start the FastAPI web-server (port 3114 — PFactory's canonical backend port)
 backend:
-    cd apps/web-server && python -m server.main
+    cd apps/web-server && APP_PORT=3114 python -m server.main
 
-# Start the Vite dev server (port 3100)
+# Start the Vite dev server (port 3115 — PFactory's canonical frontend port)
 frontend:
-    cd apps/frontend-web && npm run dev
+    cd apps/frontend-web && npm run dev -- --port 3115
 
 # ----- docs -----
 

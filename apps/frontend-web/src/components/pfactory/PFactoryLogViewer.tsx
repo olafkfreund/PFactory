@@ -30,7 +30,7 @@ import { AlertTriangle, Loader2, Plug, Unplug } from 'lucide-react';
  * Build the absolute WebSocket URL for the log stream.
  *
  * Resolution order:
- *   1. ``VITE_WS_BASE_URL`` env (e.g., "ws://api.example.com:3102") +
+ *   1. ``VITE_WS_BASE_URL`` env (e.g., "ws://api.example.com:3114") +
  *      "/api/pfactory/tasks/{spec_id}/logs/stream".
  *   2. ``window.location`` — promote http(s) → ws(s); same host + port.
  *

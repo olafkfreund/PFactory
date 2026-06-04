@@ -85,7 +85,7 @@ sandbox:
 service:
   type: ClusterIP
   port: 80
-  targetPort: 3102
+  targetPort: 3114
   annotations: {}
 
 ingress:

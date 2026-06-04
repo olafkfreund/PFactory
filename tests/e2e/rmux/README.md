@@ -10,8 +10,8 @@ Playwright scenarios for the Live Agent Console. Three specs:
 
 ## Prerequisites
 
-- Web-server running at `http://localhost:3102` with `AIFACTORY_RMUX_ENABLED=true`
-- Frontend dev server at `http://localhost:3100`
+- Web-server running at `http://localhost:3114` with `AIFACTORY_RMUX_ENABLED=true`
+- Frontend dev server at `http://localhost:3115`
 - `rmux v0.3.x` installed on PATH (the web-server's startup smoke test gates on it)
 - At least one task in the `backlog` column of the `aifactory-test` project (the fixture imports the next one and runs it)
 

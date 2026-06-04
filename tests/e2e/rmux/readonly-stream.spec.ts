@@ -15,7 +15,7 @@
 
 import { test, expect } from './fixtures';
 
-const API = process.env.PFACTORY_E2E_API ?? 'http://localhost:3102';
+const API = process.env.PFACTORY_E2E_API ?? 'http://localhost:3114';
 const TOKEN = process.env.PFACTORY_E2E_TOKEN ?? '';
 
 test.describe('read-only WS stream', () => {

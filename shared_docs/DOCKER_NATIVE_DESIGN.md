@@ -40,8 +40,8 @@ This document outlines the architecture for a Docker-native version of PFactory 
 │  ┌─────────────────────────────────────────────────────────────────────┐│
 │  │                         Caddy / Nginx                                ││
 │  │  - Serves React SPA static files                                    ││
-│  │  - Reverse proxy: /api/* → FastAPI :3102                            ││
-│  │  - WebSocket proxy: /ws/* → FastAPI :3102                           ││
+│  │  - Reverse proxy: /api/* → FastAPI :3114                            ││
+│  │  - WebSocket proxy: /ws/* → FastAPI :3114                           ││
 │  │  - TLS termination (optional, for production)                       ││
 │  └──────────────────────────────┬──────────────────────────────────────┘│
 │                                 │                                        │
@@ -401,7 +401,7 @@ CMD ["/start.sh"]
 
 # Start FastAPI in background
 cd /app/pfactory
-uvicorn api.main:app --host 0.0.0.0 --port 3102 &
+uvicorn api.main:app --host 0.0.0.0 --port 3114 &
 
 # Start Caddy (foreground)
 caddy run --config /etc/caddy/Caddyfile
@@ -419,12 +419,12 @@ caddy run --config /etc/caddy/Caddyfile
 
     # Proxy API requests
     handle /api/* {
-        reverse_proxy localhost:3102
+        reverse_proxy localhost:3114
     }
 
     # Proxy WebSocket requests
     handle /ws/* {
-        reverse_proxy localhost:3102
+        reverse_proxy localhost:3114
     }
 }
 ```

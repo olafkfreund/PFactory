@@ -20,7 +20,7 @@ export interface ProjectSettings {
   notifications: NotificationSettings;
   /** Enable Graphiti MCP server for agent-accessible knowledge graph */
   graphitiMcpEnabled: boolean;
-  /** Graphiti MCP server URL (default: http://localhost:3102/mcp/) */
+  /** Graphiti MCP server URL (default: http://localhost:3114/mcp/) */
   graphitiMcpUrl?: string;
   /** Main branch name for worktree creation (default: auto-detected or 'main') */
   mainBranch?: string;

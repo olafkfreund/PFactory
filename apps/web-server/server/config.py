@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # Server configuration
     HOST: str = "0.0.0.0"
-    PORT: int = 3102
+    PORT: int = 3114
     DEBUG: bool = False
 
     # SSL configuration
@@ -54,11 +54,11 @@ class Settings(BaseSettings):
     # CORS — localhost defaults. Override or extend via APP_CORS_ORIGINS env var.
     # Accepts a comma-separated string ("https://a.com,https://b.com") or a JSON list.
     CORS_ORIGINS: list[str] = [
-        "http://localhost:3100",
+        "http://localhost:3115",
         "http://localhost:3000",
-        "https://localhost:3100",
+        "https://localhost:3115",
         "https://localhost:3000",
-        "https://localhost:3102",
+        "https://localhost:3114",
     ]
 
     @field_validator("CORS_ORIGINS", mode="before")

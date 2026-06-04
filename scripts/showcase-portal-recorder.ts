@@ -27,7 +27,7 @@
  *     --token "$(cat ~/.pfactory/.token)" \
  *     --output-dir ~/.pfactory/workspaces/pfactory-demo/specs/001-greeting-generator/findings/portal-screenshots \
  *     --portal-url http://localhost:3110 \
- *     --ws-url ws://localhost:3102/ws/events \
+ *     --ws-url ws://localhost:3114/ws/events \
  *     --max-wait-minutes 15
  */
 
@@ -91,7 +91,7 @@ function parseArgs(argv: string[]): CliArgs {
     token: args['token'] ?? '',
     outputDir: args['output-dir'] ? path.resolve(args['output-dir'].replace(/^~/, home)) : defaultOutputDir,
     portalUrl: args['portal-url'] ?? 'http://localhost:3110',
-    wsUrl: args['ws-url'] ?? 'ws://localhost:3102/ws/events',
+    wsUrl: args['ws-url'] ?? 'ws://localhost:3114/ws/events',
     maxWaitMinutes: args['max-wait-minutes'] ? Number(args['max-wait-minutes']) : 15,
   };
 }

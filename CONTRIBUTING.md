@@ -40,7 +40,7 @@ cd apps/web-server && .venv/bin/python -m server.main
 cd apps/frontend-web && npm run dev
 ```
 
-Open `https://localhost:3100`.
+Open `https://localhost:3115`.
 
 ## Branching workflow
 

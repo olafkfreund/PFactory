@@ -11,7 +11,7 @@ Both sets live under the `mcp__pfactory__*` namespace. Same `.mcp.json` entry, s
 
 ## Prerequisites
 
-1. **Web-server running** on the host. Default: `http://localhost:3102`. Start with:
+1. **Web-server running** on the host. Default: `http://localhost:3114`. Start with:
 
    ```bash
    cd apps/web-server && python -m server.main
@@ -23,7 +23,7 @@ Both sets live under the `mcp__pfactory__*` namespace. Same `.mcp.json` entry, s
 
    | Env var | Default | Purpose |
    |---|---|---|
-   | `PFACTORY_API_URL` | `http://localhost:3102` | Where to reach the web-server |
+   | `PFACTORY_API_URL` | `http://localhost:3114` | Where to reach the web-server |
    | `PFACTORY_API_TOKEN_FILE` | `~/.pfactory/.token` | Path to the bearer token |
 
    These are wired into `.mcp.json` so a Claude Code session in the repo picks them up automatically.
@@ -138,7 +138,7 @@ The MCP tools never raise; failures land as a content block with `isError: true`
 
 | Situation | What you see |
 |---|---|
-| Web-server isn't running | `Error: PFactory web-server not reachable at http://localhost:3102 — start it with: python -m server.main` |
+| Web-server isn't running | `Error: PFactory web-server not reachable at http://localhost:3114 — start it with: python -m server.main` |
 | Token file missing | `Error: PFactory API token not found at ~/.pfactory/.token — regenerate via the web UI or run: python -m server.main` |
 | Token rejected | `Error: PFactory token at ~/.pfactory/.token rejected — regenerate via the web UI` |
 | Task id not found | `Error: Resource not found at GET /api/tasks/xyz (HTTP 404)` |

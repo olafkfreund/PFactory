@@ -274,16 +274,16 @@ scenario_2_portal_starts() {
     log_info "Start the web-server + frontend dev server; hit the list endpoint."
 
     run_or_say "Start web-server (background)" \
-        bash -c "cd '$REPO_ROOT/apps/web-server' && APP_PORT=3102 nohup python -m server.main >/tmp/pfactory-portal.log 2>&1 &"
+        bash -c "cd '$REPO_ROOT/apps/web-server' && APP_PORT=3114 nohup python -m server.main >/tmp/pfactory-portal.log 2>&1 &"
 
     run_or_say "Wait for /api/pfactory/tasks to respond" \
-        bash -c "for i in {1..30}; do curl -sf http://localhost:3102/api/pfactory/tasks >/dev/null && exit 0; sleep 1; done; exit 1"
+        bash -c "for i in {1..30}; do curl -sf http://localhost:3114/api/pfactory/tasks >/dev/null && exit 0; sleep 1; done; exit 1"
 
     if [[ "$DRY_RUN" -eq 1 ]]; then
         log_pass "(dry-run) portal start + readiness probe would run"
         return 0
     fi
-    log_pass "portal /api/pfactory/tasks reachable on :3102"
+    log_pass "portal /api/pfactory/tasks reachable on :3114"
 }
 
 scenario_3_handover_progression() {

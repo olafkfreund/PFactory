@@ -22,7 +22,7 @@ services:
     container_name: pfactory
     restart: unless-stopped
     ports:
-      - "${HOST_PORT:-3102}:3102"
+      - "${HOST_PORT:-3114}:3114"
     volumes:
       - ${PFACTORY_DATA_DIR:-./data}:/home/nonroot/.pfactory
     environment:
