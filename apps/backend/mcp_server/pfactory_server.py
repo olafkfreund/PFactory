@@ -134,10 +134,18 @@ async def _run(spec_dir_factory: Callable[[], Path]) -> None:
         sys.exit(2)
 
     task_control_tools = create_task_control_tools()
+
+    # Plan tools (#2, Phase F): let any host hand a plan to PFactory and track
+    # it over MCP. Like task-control, these are registered ONLY on the standalone
+    # server, not for the in-process agent.
+    from agents.tools_pkg.tools.plan_control import create_plan_tools
+
+    plan_tools = create_plan_tools()
+
     sdk_cfg = create_sdk_mcp_server(
         name="pfactory",
         version="1.0.0",
-        tools=spec_internal_tools + task_control_tools,
+        tools=spec_internal_tools + task_control_tools + plan_tools,
     )
 
     server = sdk_cfg["instance"]  # mcp.server.lowlevel.server.Server

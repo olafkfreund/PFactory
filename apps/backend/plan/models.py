@@ -19,7 +19,9 @@ from pydantic import BaseModel, Field
 from spec_sources import NormalizedSpec
 
 TargetKind = Literal["software", "non-software", "undetermined"]
-SourceChannel = Literal["portal", "cli", "mcp", "github_issue", "github_discussion"]
+SourceChannel = Literal[
+    "portal", "cli", "mcp", "github_issue", "github_discussion", "agent"
+]
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
