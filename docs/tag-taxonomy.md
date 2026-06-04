@@ -88,6 +88,12 @@ full fidelity even without parsing the issue body.
 **TFactory** (`handoff:tfactory`, `type:testing`):
 1. Pick up testing children as test-generation targets.
 2. Use the acceptance criteria + `citations` as the test oracle.
+3. **Label differences:** TFactory has no `sev:*` and uses a horizon-based
+   priority scheme (`priority:now|next|later`) rather than `p0–p3`. TFactory maps
+   the PFactory `priority:p*` from the `pfactory:meta` block onto its horizons
+   (`p0→now`, `p1→next`, `p2/p3→later`) or consumes `priority` from the metadata
+   directly. It still needs the new `pfactory`, `handoff:tfactory`, `type:testing`
+   labels created; it reuses its existing `epic`/`task`/`backend`.
 
 ## 7. Example
 
