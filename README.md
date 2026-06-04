@@ -37,6 +37,17 @@ Backstage-compatible templates via a declarative registry. Templates stay curren
 > and the build backlog (Epic + child issues) in the repo's Issues tab.
 > Market positioning: [`docs/market-positioning.md`](docs/market-positioning.md).
 
+## Demo
+
+<p align="center">
+  <img src="docs/static/img/pfactory-walkthrough.gif" alt="PFactory portal walkthrough" width="900"/>
+</p>
+
+Upload a plan → process → **live AWS feasibility** (cost · time · technical access) →
+cited multi-lens review → honoured-document suggestions → board → approve →
+**emit tagged GitHub epics + issues**. Captured from the real portal.
+[Full video + screenshot gallery on the site →](https://pfactory.freundcloud.com/#see-it-in-action)
+
 ## Quickstart (NixOS / flake-based)
 
 ```bash

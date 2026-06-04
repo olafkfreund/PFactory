@@ -89,3 +89,6 @@ apps/web-server/static/index.html
 
 # Planner-smoke test artifact (a generated .pfactory/ workspace under a fixture).
 tests/fixtures/planner_smoke/project_tree/.pfactory/
+
+# demo capture intermediates
+docs/static/recordings/tmp/
