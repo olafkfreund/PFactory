@@ -4,12 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PFactory is an autonomous test generation + execution platform. It receives
-a finished AIFactory feature on a branch, generates pytest tests aligned to
-the acceptance criteria, runs them in a Docker sandbox, evaluates quality
-via a 5-signal verdict pipeline (coverage delta · 3× stability · mutate-and-
-check · flake-lint promotion · LLM semantic relevance), and emits a triage
-report ready to commit + post to the PR.
+**Product identity (DEC-006, 2026-06-04):** PFactory is the **feasibility &
+governance gate between an AI plan and execution, grounded in the customer's live
+cloud.** It ingests a plan (including the output of GitHub Spec-Kit / AWS Kiro /
+BMAD-METHOD), enriches it with read-only live-cloud context, runs pre-code
+feasibility (cost · IAM access · quotas) + architecture/security/best-practice
+review gates, requires one human approval, and emits governed, tagged GitHub epics
++ child issues any execution agent can build. It sits *downstream* of
+spec-authoring tools and *upstream* of any execution agent. See
+`.agent-os/product/mission.md` and `decisions.md` (DEC-006).
+
+The shipped **planning engine** is the product (`plan/`-stage pipeline: ingest →
+enrich → detect → decompose → synthesize → feasibility → review-gates → annotate →
+board → approval → emit).
+
+**Test-generation pipeline (demoted to a feature per DEC-006).** A large part of
+this codebase is still the inherited autonomous test-generation pipeline: it
+receives a finished AIFactory feature on a branch, generates pytest/Jest/Playwright
+tests aligned to the acceptance criteria, runs them in a Docker sandbox, evaluates
+quality via a 5-signal verdict pipeline (coverage delta · 3× stability · mutate-and-
+check · flake-lint promotion · LLM semantic relevance), and emits a triage report.
+This is accurate, real, and documented below — but it is now a *feature* (belongs
+in the test factory), not PFactory's product identity. Most of the architecture
+sections in this file describe that pipeline.
 
 **Status:** v0.2.0 released (2026-05-29) — 16 of 16 v0.2 tasks delivered.
 Modality-based lane spine active: unit / browser / api / integration / mutation
