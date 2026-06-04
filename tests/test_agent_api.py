@@ -51,6 +51,15 @@ def test_ingest_then_process_flow():
     assert any(s["session_id"] == sid for s in listed["sessions"])
 
 
+def test_plan_categories_lists_categories_and_templates():
+    result = agent_api.plan_categories()
+    cats = {c["category"] for c in result["categories"]}
+    assert {"software", "infrastructure", "testing"}.issubset(cats)
+    software = next(c for c in result["categories"] if c["category"] == "software")
+    assert any(pt["name"] == "software-service" for pt in software["plan_types"])
+    assert any(t["name"] == "software-service" for t in software["templates"])
+
+
 def test_ingest_requires_exactly_one_source():
     with pytest.raises(ValueError):
         agent_api.plan_ingest()

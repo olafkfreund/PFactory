@@ -45,27 +45,11 @@ async def templates() -> dict:
 @router.get("/categories")
 async def categories() -> dict:
     """Plan categories for the intake picker (#1): each category with its plan
-    types (+ stage toggles) and any matching templates."""
-    from plan.plan_types import load_descriptors
-    from plan.templates import load_templates
+    types (+ stage toggles) and any matching templates. Shares the single source
+    with the MCP ``plan_categories`` tool so the portal and agents see the same."""
+    from plan.agent_api import plan_categories
 
-    by_category: dict[str, dict] = {}
-    for desc in load_descriptors().values():
-        cat = by_category.setdefault(
-            desc.category, {"category": desc.category, "plan_types": [], "templates": []}
-        )
-        cat["plan_types"].append({
-            "name": desc.name,
-            "title": desc.title,
-            "stages": desc.stages.model_dump(),
-        })
-    for name, tmpl in load_templates().items():
-        cat_name = getattr(tmpl.metadata, "category", "")
-        if cat_name in by_category:
-            by_category[cat_name]["templates"].append(
-                {"name": name, "title": tmpl.metadata.title}
-            )
-    return {"categories": sorted(by_category.values(), key=lambda c: c["category"])}
+    return plan_categories()
 
 
 @router.get("/providers")

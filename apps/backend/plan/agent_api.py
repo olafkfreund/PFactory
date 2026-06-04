@@ -77,6 +77,32 @@ def plan_list() -> dict:
     return {"sessions": SERVICE.list_sessions()}
 
 
+def plan_categories() -> dict:
+    """List intake categories (#1): each with its plan-types + matching templates.
+
+    Lets an agent discover what to pass as ``category``/``template`` on
+    :func:`plan_ingest` before handing a plan over.
+    """
+    from plan.plan_types import load_descriptors
+    from plan.templates import load_templates
+
+    by_category: dict[str, dict] = {}
+    for desc in load_descriptors().values():
+        cat = by_category.setdefault(
+            desc.category, {"category": desc.category, "plan_types": [], "templates": []}
+        )
+        cat["plan_types"].append(
+            {"name": desc.name, "title": desc.title, "stages": desc.stages.model_dump()}
+        )
+    for name, tmpl in load_templates().items():
+        cat_name = getattr(tmpl.metadata, "category", "")
+        if cat_name in by_category:
+            by_category[cat_name]["templates"].append(
+                {"name": name, "title": tmpl.metadata.title}
+            )
+    return {"categories": sorted(by_category.values(), key=lambda c: c["category"])}
+
+
 def plan_approve(session_id: str, *, approver: str, feedback: str | None = None) -> dict:
     """Human approval (the agent passes the approver's identity through)."""
     session = SERVICE.approve(session_id, approver=approver, feedback=feedback)
@@ -108,6 +134,7 @@ def _with_review(session) -> dict:
 __all__ = [
     "PlanServiceError",
     "plan_approve",
+    "plan_categories",
     "plan_get",
     "plan_ingest",
     "plan_list",

@@ -132,6 +132,22 @@ def create_plan_tools() -> list:
     tools.append(plan_list)
 
     @tool(
+        "plan_categories",
+        "List the intake categories (product/software/feature/hosting/"
+        "infrastructure/testing/cicd/…) and the templates in each. Call this to "
+        "discover what to pass as `category`/`template` on plan_ingest. Selecting "
+        "a template enforces its policy (required tags/regions/IAM) at review.",
+        {"type": "object", "properties": {}},
+    )
+    async def plan_categories(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return _ok(agent_api.plan_categories())
+        except Exception as exc:  # noqa: BLE001
+            return _err(str(exc))
+
+    tools.append(plan_categories)
+
+    @tool(
         "plan_approve",
         "Record human approval for a session (requires the AI gates to have "
         "passed). Pass the approver's identity. Unlocks emission.",

@@ -17,6 +17,7 @@ The standalone MCP server (`apps/backend/mcp_server/pfactory_server.py`) publish
 
 | Tool | Purpose |
 |------|---------|
+| `plan_categories` | Discover intake categories + their templates (call first to choose `category`/`template`) |
 | `plan_ingest` | Ingest inline `text` or a file `path` (+ optional `category`/`template`) → `session_id` |
 | `plan_process` | Run enrich · feasibility · review → cited review + cost/effort |
 | `plan_status` | `status` + board column + `gates_passed` |
