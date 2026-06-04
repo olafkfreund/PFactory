@@ -329,12 +329,17 @@ class PlanService:
 
     def emit(self, session_id: str, *, repo: str, dry_run: bool = True) -> PlanSession:
         from plan.emit.github_emitter import emit_to_github
+        from plan.emit.labels import pfactory_meta_block, taxonomy_labels
 
         session = self.get(session_id)
         if session.epic is None:
             raise PlanServiceError("process the plan before emitting")
+        # Apply the taxonomy (#H): pfactory + type/plan-type/priority/sev labels and
+        # the machine-readable pfactory:meta block AIFactory/TFactory parse.
+        labels = taxonomy_labels(session.plan, session.epic, session.review)
+        meta = pfactory_meta_block(session.plan, session.epic, session.review)
         result = emit_to_github(session.epic, repo=repo, review=session.review,
-                                dry_run=dry_run)
+                                dry_run=dry_run, extra_labels=labels, meta_block=meta)
         session.emit_result = result.model_dump()
         if not dry_run and not result.errors:
             session.status = "emitted"

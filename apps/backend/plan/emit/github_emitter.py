@@ -28,6 +28,17 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from plan.review.models import PlanReview
 
 
+def _dedup(labels: list[str]) -> list[str]:
+    """De-duplicate labels, preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for label in labels:
+        if label not in seen:
+            seen.add(label)
+            out.append(label)
+    return out
+
+
 class GhRunner(Protocol):
     """Minimal GitHub runner contract used by :func:`emit_to_github`.
 
@@ -55,7 +66,9 @@ class EmitResult(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
-def _epic_payload(epic: EpicPlan, *, extra_labels: list[str] | None) -> dict[str, Any]:
+def _epic_payload(
+    epic: EpicPlan, *, extra_labels: list[str] | None, meta_block: str = ""
+) -> dict[str, Any]:
     """Build the GitHub issue payload for the epic, with a child checklist."""
     lines = [epic.epic_body.rstrip(), ""] if epic.epic_body.strip() else []
     if epic.children:
@@ -63,7 +76,9 @@ def _epic_payload(epic: EpicPlan, *, extra_labels: list[str] | None) -> dict[str
         for child in epic.children:
             lines.append(f"- [ ] {child.key}: {child.title}")
     body = "\n".join(lines).strip()
-    labels = ["epic", *(extra_labels or [])]
+    if meta_block:
+        body = f"{body}\n\n{meta_block}".strip()
+    labels = _dedup(["epic", *(extra_labels or [])])
     return {"title": epic.epic_title, "body": body, "labels": labels, "kind": "epic"}
 
 
@@ -83,13 +98,17 @@ def _child_payload(
     *,
     epic_number: int | None,
     extra_labels: list[str] | None,
+    meta_block: str = "",
 ) -> dict[str, Any]:
     """Build the GitHub issue payload for one child issue."""
-    labels = [*child.labels, *(extra_labels or [])]
+    labels = _dedup([*child.labels, *(extra_labels or [])])
+    body = _child_body(child, epic_number=epic_number)
+    if meta_block:
+        body = f"{body}\n\n{meta_block}".strip()
     return {
         "key": child.key,
         "title": child.title,
-        "body": _child_body(child, epic_number=epic_number),
+        "body": body,
         "labels": labels,
         "kind": child.kind,
         "depends_on": list(child.depends_on),
@@ -104,6 +123,7 @@ def emit_to_github(
     gh: GhRunner | None = None,
     dry_run: bool = True,
     extra_labels: list[str] | None = None,
+    meta_block: str = "",
 ) -> EmitResult:
     """Emit an :class:`EpicPlan` as a GitHub epic + child issues.
 
@@ -134,12 +154,13 @@ def emit_to_github(
             ],
         )
 
-    epic_pl = _epic_payload(epic, extra_labels=extra_labels)
+    epic_pl = _epic_payload(epic, extra_labels=extra_labels, meta_block=meta_block)
 
     if dry_run:
         planned: list[dict[str, Any]] = [epic_pl]
         planned.extend(
-            _child_payload(c, epic_number=None, extra_labels=extra_labels)
+            _child_payload(c, epic_number=None, extra_labels=extra_labels,
+                           meta_block=meta_block)
             for c in epic.children
         )
         return EmitResult(dry_run=True, planned=planned)
@@ -157,7 +178,8 @@ def emit_to_github(
 
     child_numbers: dict[str, int] = {}
     for child in epic.children:
-        pl = _child_payload(child, epic_number=epic_number, extra_labels=extra_labels)
+        pl = _child_payload(child, epic_number=epic_number, extra_labels=extra_labels,
+                            meta_block=meta_block)
         number = gh.create_issue(pl["title"], pl["body"], list(pl["labels"]))
         child_numbers[child.key] = number
 
