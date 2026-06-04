@@ -8,14 +8,15 @@
  * Tests inject fetchFn for the store (the store is the seam).
  */
 
-import { useState, useRef, useCallback, type DragEvent } from 'react';
+import { useState, useRef, useCallback, useEffect, type DragEvent } from 'react';
 import { Upload, FileText, X, Loader2, Plus } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { cn } from '../../lib/utils';
 import { usePlanStore } from '../../stores/plan-store';
-import type { PlanSession } from '../../shared/types/plan';
+import { getCategories } from '../../lib/planning-api';
+import type { PlanSession, CategoryEntry } from '../../shared/types/plan';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.md'];
 const ACCEPTED_MIME = [
@@ -44,6 +45,9 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
   const [text, setText] = useState('');
   const [title, setTitle] = useState('');
   const [fileError, setFileError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<CategoryEntry[]>([]);
+  const [category, setCategory] = useState('');
+  const [template, setTemplate] = useState('');
 
   const store = usePlanStore();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +58,21 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
   }
 
   const { loading, error } = store;
+
+  // Load the intake categories (#1) for the picker. Best-effort: a fetch failure
+  // just leaves the picker empty — ingest still works (auto-detect).
+  useEffect(() => {
+    let cancelled = false;
+    getCategories({ fetchFn: fetchFn ?? store.fetchFn })
+      .then((r) => { if (!cancelled) setCategories(r.categories); })
+      .catch(() => { /* picker is optional */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchFn]);
+
+  // Templates available for the chosen category.
+  const templatesForCategory =
+    categories.find((c) => c.category === category)?.templates ?? [];
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -95,12 +114,16 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
       let session: PlanSession;
       if (mode === 'file') {
         if (!file) return;
-        session = await store.ingestFilePlan(file, title || undefined);
+        session = await store.ingestFilePlan(
+          file, title || undefined, category || undefined, template || undefined,
+        );
       } else {
         if (!text.trim()) return;
         session = await store.ingestTextPlan({
           text: text.trim(),
           title: title || undefined,
+          category: category || undefined,
+          template: template || undefined,
         });
       }
       onSuccess?.(session);
@@ -158,6 +181,57 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
           aria-label="Plan title"
         />
       </div>
+
+      {/* Category + template picker (#1) */}
+      {categories.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="plan-category" className="text-sm font-medium text-foreground">
+              Category <span className="text-muted-foreground font-normal">(optional)</span>
+            </label>
+            <select
+              id="plan-category"
+              value={category}
+              onChange={(e) => { setCategory(e.target.value); setTemplate(''); }}
+              aria-label="Plan category"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm capitalize
+                         focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Auto-detect</option>
+              {categories.map((c) => (
+                <option key={c.category} value={c.category}>{c.category}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="plan-template" className="text-sm font-medium text-foreground">
+              Template <span className="text-muted-foreground font-normal">(optional)</span>
+            </label>
+            <select
+              id="plan-template"
+              value={template}
+              onChange={(e) => setTemplate(e.target.value)}
+              aria-label="Plan template"
+              disabled={templatesForCategory.length === 0}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm
+                         focus:outline-none focus:ring-2 focus:ring-ring
+                         disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">
+                {templatesForCategory.length === 0 ? 'No templates for category' : 'None — suggest only'}
+              </option>
+              {templatesForCategory.map((t) => (
+                <option key={t.name} value={t.name}>{t.title}</option>
+              ))}
+            </select>
+            {template && (
+              <p className="text-xs text-muted-foreground">
+                Selecting a template enforces its policy during review.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* File input */}
       {mode === 'file' && (

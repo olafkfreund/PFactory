@@ -26,6 +26,7 @@ import type {
   SessionSummary,
   RegistryEntry,
   TemplateEntry,
+  CategoryEntry,
 } from '../shared/types/plan';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE_URL as string | undefined) ?? '/api';
@@ -171,6 +172,8 @@ export interface IngestTextRequest {
   text: string;
   title?: string;
   channel?: string;
+  category?: string;
+  template?: string;
 }
 
 /** POST /api/plan/sessions/ingest-text — ingest plain text. */
@@ -183,6 +186,8 @@ export function ingestText(
 
 export interface IngestFileOptions extends FetchOptions {
   title?: string;
+  category?: string;
+  template?: string;
 }
 
 /** POST /api/plan/sessions/ingest — ingest file (multipart). */
@@ -190,10 +195,12 @@ export function ingestFile(
   file: File,
   options: IngestFileOptions = {},
 ): Promise<PlanSession> {
-  const { title, ...fetchOptions } = options;
+  const { title, category, template, ...fetchOptions } = options;
   const form = new FormData();
   form.append('file', file);
   if (title) form.append('title', title);
+  if (category) form.append('category', category);
+  if (template) form.append('template', template);
   return _postMultipart<PlanSession>(`${PLAN_PREFIX}/sessions/ingest`, form, fetchOptions);
 }
 
@@ -301,6 +308,17 @@ export function getTemplates(
   options: FetchOptions = {},
 ): Promise<TemplatesResponse> {
   return _request<TemplatesResponse>(`${PLAN_PREFIX}/meta/templates`, options);
+}
+
+export interface CategoriesResponse {
+  categories: CategoryEntry[];
+}
+
+/** GET /api/plan/meta/categories — list intake categories (+ plan-types/templates). */
+export function getCategories(
+  options: FetchOptions = {},
+): Promise<CategoriesResponse> {
+  return _request<CategoriesResponse>(`${PLAN_PREFIX}/meta/categories`, options);
 }
 
 export interface ProvidersResponse {

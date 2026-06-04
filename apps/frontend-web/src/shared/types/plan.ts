@@ -211,6 +211,21 @@ export interface RegistryEntry {
 export interface TemplateEntry {
   name: string;
   title: string;
+  category?: string;
+  description?: string;
   tags: string[];
   policy: Record<string, unknown>;
+}
+
+// Intake categories (#1) — each groups its plan-types + matching templates.
+export interface CategoryPlanType {
+  name: string;
+  title: string;
+  stages: Record<string, boolean>;
+}
+
+export interface CategoryEntry {
+  category: string;
+  plan_types: CategoryPlanType[];
+  templates: { name: string; title: string }[];
 }

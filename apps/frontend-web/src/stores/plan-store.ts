@@ -49,7 +49,12 @@ interface PlanState {
   selectSession: (sessionId: string) => Promise<void>;
   clearCurrentSession: () => void;
   ingestTextPlan: (body: IngestTextRequest) => Promise<PlanSession>;
-  ingestFilePlan: (file: File, title?: string) => Promise<PlanSession>;
+  ingestFilePlan: (
+    file: File,
+    title?: string,
+    category?: string,
+    template?: string,
+  ) => Promise<PlanSession>;
   processCurrentSession: () => Promise<void>;
   approveCurrentSession: (body: ApproveRequest) => Promise<void>;
   rejectCurrentSession: (body: RejectRequest) => Promise<void>;
@@ -139,11 +144,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     }
   },
 
-  async ingestFilePlan(file, title) {
+  async ingestFilePlan(file, title, category, template) {
     const { fetchFn } = get();
     set({ loading: true, error: null });
     try {
-      const session = await ingestFile(file, { title, fetchFn });
+      const session = await ingestFile(file, { title, category, template, fetchFn });
       set((state) => ({
         loading: false,
         currentSession: session,
