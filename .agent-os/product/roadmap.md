@@ -1,43 +1,68 @@
 # Product Roadmap
 
-> Last Updated: 2026-05-30
-> Version: 1.0.0
+> Last Updated: 2026-06-04
+> Version: 2.0.0
 > Status: Active
 
-Derived from the 2026-05-30 PM review (internal audit + 15-competitor market
-study) captured in epic [#33](https://github.com/olafkfreund/PFactory/issues/33).
+PFactory is the **feasibility & governance gate** in front of the execution agents
+(see `mission.md`, DEC-006 in `decisions.md`). This roadmap reflects the shipped
+planning engine and the forward bets, scoped against that decision.
 
-## Phase 0: Already Shipped (v0.1.0-mvp → v0.2.0)
+## Phase 0: Already Shipped — the planning engine
 
-- [x] 4-agent pipeline end-to-end — Planner → Gen → Executor → Evaluator → Triager
-- [x] 5-signal verdict (coverage · stability · mutation · flake-lint · semantic)
-- [x] Unit lane: pytest (Python) **and** Jest (TypeScript)
-- [x] Browser lane: Playwright (TypeScript) via `AppRuntime`
-- [x] API + Integration lanes (v0.2)
-- [x] Framework descriptor registry + `.pfactory.yml` + tests-catalog
-- [x] Test evidence capture (screenshots / video / trace / HAR) + portal Evidence tab
-- [x] MCP server + `/handover-to-pfactory`, `/pfactory-init`, `/pfactory-add-test`
-- [x] Dry-run-by-default git commit + PR comment
-- [x] BYO-LLM provider factory (Claude / Codex / Gemini / Ollama / OpenAI-compatible)
+The end-to-end planning pipeline is on `main` (backend + portal, fully tested):
 
-## Horizon 1 — Now: credibility blockers
+- [x] **Ingest / handover** — docx / pdf / markdown upload, MCP control plane, CLI,
+      GitHub issue; consumes Spec-Kit / Kiro / BMAD output and generic AC sources
+      (markdown / Gherkin / EARS)
+- [x] **Enrich** — read-only introspection of running Kubernetes / OpenShift /
+      Azure / AWS / GCP + Terraform + internal wikis & Backstage → cited *AI Context*
+- [x] **Detect / decompose / synthesize** — category detection, epic + child-issue
+      decomposition with dependencies
+- [x] **Feasibility gate** — cost (real AWS Price List / Azure Retail / GCP Catalog
+      APIs + static fallback), technical access (`iam:SimulatePrincipalPolicy`),
+      calibrated effort rollup
+- [x] **Review gates** — architecture / security / best-practice / feasibility
+      lenses (deterministic policy-as-code + LLM), cited + deduped + actionable
+- [x] **Honour-document annotate** — cited, anchored suggestions on the original +
+      an improved draft; the source doc is never overwritten
+- [x] **Board projection** — Plans ready → In Progress → AI Review → Human Review →
+      Done
+- [x] **Human approval + governed emit** — tagged GitHub epic + child issues with a
+      `pfactory:meta` block; dry-run by default
+- [x] **MCP- & API-first handoff** — `mcp__pfactory__plan_*` tools (categories /
+      ingest / process / status / get / list / approve)
+- [x] **Categories + Backstage-compatible templates** with embedded `policy:` blocks
+- [x] **Tag taxonomy contract** published (`docs/tag-taxonomy.md`) + pickup issues
+      filed in AIFactory and TFactory
+- [x] **BYO-LLM egress posture** (LOCAL / SELF_HOSTED / MANAGED_CLOUD) + Credential
+      Broker (vault-backed cloud auth, opt-in egress)
 
-- [x] Reconcile docs ↔ code lane vocabulary (#34 — README/CLAUDE done; docs/ snapshots pending)
-- [x] Fix the version stamp 3.0.2 → 0.2.1 (#35)
-- [x] Green the CI baseline (#46)
-- [ ] This product documentation set (#36)
+## Horizon 1 — Now: prove demand, then position
 
-## Horizon 2 — Next: table-stakes gaps
+The build risk is low; the validation risk is high (see `pricing.md`). These come
+before any new feature work.
 
-- [ ] Flaky-test history — cross-run flip-rate signal (#37) `M`
-- [ ] BYO-LLM / air-gapped as a marketed, verified feature (#38) `S`
+- [x] Align product docs to the governance-gate identity (#36 — this set)
+- [x] Kill the "empty market" claim; honest competitor map (`market-positioning.md`)
+- [ ] **Get 3–5 design partners** — will a platform/compliance team *pay* for a
+      governance gate? `pricing.md` is illustrative until this is tested. `XL`
+- [ ] Validate the metering unit against a real monorepo buyer (#42) `M`
 
-## Horizon 3 — Later: moat & strategy
+## Horizon 2 — Next: deepen the moat (live-infra + audit)
 
-- [x] Decouple from AIFactory — ingest generic AC sources (Gherkin/EARS/markdown) (#40) `L`
-- [ ] Mutation-driven generation across languages (Stryker/PIT) (#41) `L`
-- [x] Define freemium GTM + pricing (#42) `M` — see `pricing.md`
-- [~] Trim inherited AIFactory dead weight (#43) `L` — tranche 1 done; runners/github cut pending a dedicated refactor
+- [ ] Bidirectional handback loop hardening (epic #182) — failing-build → correction
+      → re-plan, bounded cycles `L`
+- [ ] EU-AI-Act audit-pack export (epic + issues + gate scores + approval as a
+      compliance artifact) `M`
+- [ ] Integrate Infracost downstream once IaC exists (don't re-implement IaC cost) `M`
+- [ ] Deepen policy-as-code composition (OPA / Conftest / Checkov) behind the gates `L`
+
+## Horizon 3 — Later: focus the suite
+
+- [ ] Decide the factory portfolio — run one product best-in-class, demote the
+      others to features (the focus bet; see `strategy-review-2026-06.md` §5) `XL`
+- [ ] Port / Cortex / Backstage scorecard integration (orchestrate, don't replace) `L`
 
 ## Effort Scale
 

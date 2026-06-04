@@ -1,95 +1,97 @@
 # GTM & Pricing Model
 
-> Last Updated: 2026-05-30
-> Version: 1.0.0
-> Status: Proposed (decision artifact — no billing is implemented)
+> Last Updated: 2026-06-04
+> Version: 2.0.0
+> Status: Proposed (decision artifact — no billing is implemented; **unvalidated**)
 
-This is a written, reviewable pricing + go-to-market model for PFactory
-(issue #42, epic #33). It is a **decision document**, not an implementation
-spec — billing/metering code is a separate future epic. It is grounded in
-the 2026-05-30 PM market study (Qodo, Keploy, CodeRabbit, Tusk, Diffblue,
-Mabl) and the product decisions in `decisions.md`.
+A written, reviewable pricing + go-to-market model for PFactory as the
+**feasibility & governance gate** (DEC-006). It is a **decision document**, not an
+implementation spec — billing/metering code is a separate future epic. **Every
+dollar figure here is illustrative and needs design-partner validation; we have
+zero design partners today** (see `roadmap.md` Horizon 1, `strategy-review-2026-06.md`
+§4). Do not treat any number below as committed.
 
 ## Positioning recap
 
-> "Autonomous test generation aligned to acceptance criteria — validated by
-> mutation testing and semantic relevance, not just coverage."
+> "The compliance-grade gate between an AI plan and execution, grounded in your
+> live cloud — feasibility (cost · time · access) + governed, audit-trailed emit."
 
-PFactory is an **async agent**, not an IDE seat. That single fact drives the
-metering choice below.
+PFactory is an **async governance service**, not an IDE seat. Value accrues to the
+*org adopting coding agents*, and scales with the plans flowing through the gate and
+the cloud estates they touch — not with headcount.
 
-## Metering unit — per-repo, not per-seat
+## Metering unit — per governed plan + per connected estate
 
 | Unit | Verdict | Why |
 |---|---|---|
-| **Per-repo / per-PR** | ✅ **chosen** | PFactory runs in CI per PR, async, with no human at a keyboard. Value scales with repos under test, not headcount. Matches CodeRabbit / Keploy. |
-| Per-seat | ❌ | Wrong for an agent nobody "sits at" — teams game it by sharing one seat; punishes the PR-native workflow. |
-| Pure usage (per-token) | ⚠️ secondary | Opaque to buyers and unbounded; fine as an enterprise overage lever, bad as the primary unit. |
+| **Per governed plan** (a plan taken through feasibility + gates to an approve/emit decision) | ✅ **chosen (primary)** | The unit of value *is* a governed verdict. Aligns price with the thing the buyer is paying to trust. |
+| **Per connected cloud estate** (an AWS/Azure/GCP account or k8s cluster wired for live enrichment) | ✅ **chosen (secondary)** | The live-infra grounding is the moat and the cost driver (pricing-API + IAM-sim calls). Connecting an estate is where deep value starts. |
+| Per-seat | ❌ | Wrong for a service nobody "sits at"; punishes the async, agent-handoff workflow. |
+| Pure usage (per-token) | ⚠️ enterprise overage lever only | Opaque and unbounded; BYO-LLM runs cost us no inference, so tokens are the wrong primary unit. |
 
-**Primary meter:** an **active repo** (a repo that received ≥1 PFactory run in
-the billing month). **Secondary meter (free tier only):** **test-generation
-runs per repo per month** (a "run" = one Planner→Triager pipeline pass).
-
-> A BYO-LLM run (issue #38, 🔒 Local) costs us no inference — so pricing
-> meters the *orchestration*, not tokens. This is a deliberate differentiator:
-> regulated teams on local models pay for the platform, not per-call.
+> A BYO-LLM run (🔒 Local, DEC-005 / #38) costs us no inference — so pricing meters
+> the *governance + grounding orchestration*, not tokens. Regulated teams on local
+> models pay for the platform and the live-infra checks, not per-call.
 
 ## Tiers
 
-| Tier | Price (starting point — **illustrative, to be validated**) | Meter | For |
+| Tier | Price (**illustrative — unvalidated anchor**) | Meter | For |
 |---|---|---|---|
-| **Free / OSS** | $0 | 1 repo · 50 runs/mo · PR comment | individuals, OSS, evaluation |
-| **Team** | ~$40 / active repo / mo | unlimited runs · all 5 signals · flaky-history · evidence capture | startups & mid-market |
-| **Enterprise** | custom (annual) | on-prem / BYO-LLM / air-gapped · RBAC / SSO · audit · priority support | regulated & large orgs |
+| **Free / OSS** | $0 | 1 connected estate · capped governed plans/mo · dry-run emit | individuals, OSS, evaluation |
+| **Team** | ~$X / connected estate / mo + plan allotment | unlimited estates within reason · full feasibility (cost·time·access) · all review gates · audit trail | platform & architecture teams |
+| **Enterprise** | custom (annual) | on-prem / BYO-LLM / air-gapped · SSO/RBAC · EU-AI-Act audit-pack · priority support | regulated & large orgs |
 
 Notes:
-- Dollar figures are **starting anchors for validation**, not committed prices
-  (Mabl mid-market sits ~$3–6k/mo; CodeRabbit ~$24–48/seat; per-repo at ~$40
-  lands a 10-repo team at ~$400/mo — competitive and value-aligned).
-- The **Free tier must be genuinely useful** (the OSS-adoption flywheel that
-  worked for Qodo / Keploy / CodeRabbit), not a crippled demo.
-- **Enterprise's anchor is BYO-LLM / air-gapped (#38)** — the one thing the
-  managed-cloud competitors can't easily match.
+- Figures are **starting anchors for validation interviews**, not committed prices.
+  The comparable buyers are platform/IDP and compliance budgets, not per-seat dev
+  tools — a different (and less price-sensitive) wallet than the QA-tool market.
+- The **Free tier must be genuinely useful** (the adoption flywheel), not a demo.
+- **Enterprise's anchor is the audit-pack + BYO-LLM / air-gapped** — the EU-AI-Act
+  compliance artifact and no-egress posture the managed-cloud competitors can't match.
 
 ## What gates each tier (maps to shipped features)
 
-- **Free:** unit lane (pytest), 1 repo, capped runs, PR comment.
-- **Team:** all lanes (browser/api/integration/mutation), the full 5-signal
-  verdict + flaky-history (#37), evidence capture, generic AC sources (#40).
-- **Enterprise:** local/air-gapped LLM with verified no-egress (#38), SSO/RBAC
-  (inherited OIDC surface), audit chain, dedicated support, custom frameworks.
+- **Free:** 1 connected estate, capped governed plans, all gates, dry-run emit only.
+- **Team:** unlimited estates, full feasibility (live cost + IAM-sim + quotas),
+  honoured-document suggestions, Backstage-template policy enforcement, governed
+  (non-dry-run) emit, board.
+- **Enterprise:** local/air-gapped LLM with verified no-egress (#38), SSO/RBAC,
+  EU-AI-Act audit-pack export, Credential Broker with vault backends (DEC-005),
+  dedicated support, custom templates/policy packs.
 
 ## Go-to-market motion
 
-**Freemium → PR-native → land-and-expand** (the pattern that wins in this
-category — every successful competitor uses it):
+**Land via an existing spec tool → grounded feasibility → govern → expand by estate.**
 
-1. **Land (warm):** AIFactory users via `/handover-to-pfactory` — zero-friction,
-   tests appear on their PR. The original wedge (DEC-001).
-2. **Land (cold):** any team with acceptance criteria — `pfactory-init` +
-   generic AC ingestion (#40: markdown / Gherkin / EARS). OSS-first free tier
-   drives self-serve adoption.
-3. **Expand inside the org:** Free repo → Team (more repos, advanced signals)
-   → Enterprise (privacy/compliance). The buyer journey rides on *trust*: the
-   5-signal verdict + evidence + flaky-history are the upsell proof points.
-4. **Sell on trust, not coverage:** the differentiator messaging is "tests you
-   can trust" (mutation + semantic + flip-rate), aimed at teams burned by
-   low-value AI tests.
+1. **Land (consume the upstream):** every Spec-Kit / Kiro / BMAD user is a lead, not
+   a competitor — they have a spec and no way to prove it's buildable. PFactory takes
+   their output and grounds it. This is the wedge: *we are the step after the step
+   they already do for free.*
+2. **Land (warm, suite):** AIFactory / TFactory users — PFactory completes
+   plan → build → test, governed end to end.
+3. **Hook on feasibility:** the live cost + IAM-access verdict is the demo that opens
+   the door (a number and a grant/deny nobody else produces pre-code).
+4. **Expand by estate + compliance:** connect more cloud accounts; Enterprise upgrade
+   rides the audit-pack and air-gapped posture (EU-AI-Act tailwind).
 
 ### Target segments (in priority order)
-1. AIFactory teams (warm intro).
-2. Python/TS-heavy startups & mid-market that distrust low-value AI tests.
-3. Regulated industries (finance/health/defence) — led with BYO-LLM/air-gapped.
+1. Regulated orgs adopting coding agents (finance/health/public) — led with the
+   audit trail + live-infra feasibility (the sharpest, least-contested wedge).
+2. Platform / Backstage teams operationalising golden paths for AI plans.
+3. Existing AIFactory / TFactory users (warm, suite completion).
 
 ## Out of scope (explicitly)
 
-- Billing/metering implementation, payment integration, usage-tracking
-  infrastructure — a separate future epic once this model is validated.
-- Final price points — these need design-partner validation interviews.
+- Billing/metering implementation, payment integration, usage-tracking — a separate
+  future epic, *after* this model is validated with design partners.
+- Final price points — these need validation interviews; the `~$X` above is a
+  deliberate placeholder, not a hidden number.
 
 ## Open questions for validation
 
-- Is "active repo" the right primary meter, or per-PR-run for very large
-  monorepos? (A monorepo = 1 repo but 1000s of PRs.)
-- Where does the Free→Team line sit (run cap vs repo cap vs lane gating)?
-- Does Enterprise need a per-run floor for BYO-LLM (no inference cost to us)?
+- Is "per governed plan + per connected estate" the right pair, or does the buyer
+  expect a flat platform fee with unlimited plans?
+- Where does Free→Team sit — plan cap, estate cap, or governed-emit gating?
+- Does Enterprise need a per-estate floor for BYO-LLM (no inference cost to us)?
+- Is the buyer's budget line "platform/governance" or "AI tooling"? (changes the
+  anchor by ~10×.)
