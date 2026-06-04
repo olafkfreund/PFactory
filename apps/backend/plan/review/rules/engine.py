@@ -32,8 +32,21 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?i)\bAKIA[0-9A-Z]{16}\b"),
 )
 
-# Phrasing that indicates a rollback / revert strategy is documented.
-_ROLLBACK_RE = re.compile(r"(?i)\b(roll[\s-]?back|revert|undo|blue[\s-]?green|canary)\b")
+# Phrasing that indicates a rollback / recovery strategy is documented. An
+# infra-change SOW rarely says "rollback" verbatim — it documents the same intent
+# as fail-over, disaster recovery, runbooks, restore and blue/green / canary cuts.
+_ROLLBACK_RE = re.compile(
+    r"(?i)(\broll[\s-]?back\b|\broll[\s-]?forward\b|\brevert\b|\bundo\b|"
+    r"\bblue[\s-]?green\b|\bcanary\b|\bfail[\s-]?over\b|\bdisaster recovery\b|"
+    r"\bdr\b|\brunbook\b|\brestore\b|\brecovery\b)"
+)
+
+# Negation / restriction context that flips a literal "0.0.0.0/0" from a smell into
+# a *statement of the control* ("no SG is open to 0.0.0.0/0 except the ALB").
+_EXPOSURE_NEGATION_RE = re.compile(
+    r"(?i)\b(no|not|never|avoid|prevent|restrict(?:ed)?|deny|denied|without|"
+    r"except|disallow|block(?:ed)?|forbid|must not|should not|ensure no)\b"
+)
 
 
 class Rule(Protocol):
@@ -183,16 +196,23 @@ def _public_exposure(plan: NormalizedPlan, epic: EpicPlan) -> list[Finding]:
     text = " ".join(
         [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
     )
-    if "0.0.0.0/0" in text:
-        return [
-            Finding(
-                title="Plan text specifies world-open exposure (0.0.0.0/0)",
-                detail="The plan opens a resource to 0.0.0.0/0 — restrict the source CIDR.",
-                severity="high",
-                source="public-exposure",
-                blocking=False,
-            )
-        ]
+    needle = "0.0.0.0/0"
+    idx = text.find(needle)
+    while idx != -1:
+        # Look at the ~80 chars leading into this mention: a negation/restriction
+        # there means the plan is *describing the control*, not opening a hole.
+        window = text[max(0, idx - 80) : idx]
+        if not _EXPOSURE_NEGATION_RE.search(window):
+            return [
+                Finding(
+                    title="Plan text specifies world-open exposure (0.0.0.0/0)",
+                    detail="The plan opens a resource to 0.0.0.0/0 — restrict the source CIDR.",
+                    severity="high",
+                    source="public-exposure",
+                    blocking=False,
+                )
+            ]
+        idx = text.find(needle, idx + len(needle))
     return []
 
 

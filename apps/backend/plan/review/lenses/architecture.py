@@ -16,8 +16,10 @@ if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
     from plan.models import NormalizedPlan
 
-# Beyond this many children an epic is likely doing too much.
-_MAX_CHILDREN = 12
+# Beyond this many children an epic is likely doing too much. Kept in step with
+# the planner's own soft warning (15) / hard cap (30): a real enterprise epic of
+# 12-15 children is fine, so only flag once it clearly sprawls past 20.
+_MAX_CHILDREN = 20
 # Titles shorter than this (in words) read as vague placeholders.
 _MIN_TITLE_WORDS = 2
 _VAGUE_TITLES = {"todo", "stuff", "misc", "thing", "things", "wip", "tbd"}
@@ -45,15 +47,15 @@ class ArchitectureLens:
             return LensScore(lens=self.name, score=0.4, findings=findings)
 
         if n > _MAX_CHILDREN:
-            score -= 0.25
+            score -= 0.15
             findings.append(
                 Finding(
                     title="Oversized epic",
                     detail=(
                         f"{n} children exceeds the recommended max of {_MAX_CHILDREN}; "
-                        "split into multiple epics."
+                        "consider splitting into multiple epics."
                     ),
-                    severity="medium",
+                    severity="low",
                     source=self.name,
                 )
             )
