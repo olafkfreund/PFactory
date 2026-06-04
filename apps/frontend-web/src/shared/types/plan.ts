@@ -201,13 +201,22 @@ export interface PlanReview {
 
 // ── EmitResult ──────────────────────────────────────────────────────────
 
+// One planned GitHub issue payload (epic first, then children). Matches the
+// backend EmitResult.planned shape (a flat list of payload dicts).
+export interface EmitPlannedItem {
+  kind: string;            // "epic" | child kind
+  title: string;
+  body: string;            // includes the pfactory:meta block
+  labels: string[];        // the taxonomy labels
+  key?: string;            // child key (absent on the epic)
+  depends_on?: string[];
+}
+
 export interface EmitResult {
   dry_run: boolean;
-  repo: string | null;
-  planned: {
-    epic: string | null;
-    children: string[];
-  };
+  epic_number?: number | null;
+  child_numbers?: Record<string, number>;
+  planned: EmitPlannedItem[];
   errors: string[];
 }
 

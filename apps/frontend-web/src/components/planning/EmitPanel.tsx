@@ -6,17 +6,58 @@
  */
 
 import { useState } from 'react';
-import { Send, Loader2, CheckCircle2, AlertTriangle, GitBranch } from 'lucide-react';
+import { Send, Loader2, CheckCircle2, AlertTriangle, GitBranch, ChevronRight, ChevronDown } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import { usePlanStore } from '../../stores/plan-store';
-import type { PlanSession } from '../../shared/types/plan';
+import type { PlanSession, EmitPlannedItem } from '../../shared/types/plan';
 
 interface Props {
   session: PlanSession;
   onUpdated?: (session: PlanSession) => void;
+}
+
+function labelTone(label: string): string {
+  if (label === 'pfactory') return 'bg-primary/15 text-primary';
+  if (label.startsWith('handoff:')) return 'bg-blue-500/15 text-blue-600';
+  if (label.startsWith('sev:') || label.startsWith('priority:p0')) return 'bg-destructive/15 text-destructive';
+  if (label === 'epic') return 'bg-muted text-muted-foreground';
+  return 'bg-muted text-muted-foreground';
+}
+
+function PlannedItemRow({ item }: { item: EmitPlannedItem }) {
+  const [open, setOpen] = useState(false);
+  const isEpic = item.kind === 'epic';
+  return (
+    <div className="rounded-lg border border-border bg-card/40 px-3 py-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-start gap-2 text-left"
+        aria-expanded={open}
+      >
+        <GitBranch className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', isEpic ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium leading-snug">
+            {isEpic ? 'Epic · ' : item.key ? `${item.key} · ` : ''}{item.title}
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {item.labels.map((l) => (
+              <span key={l} className={cn('rounded px-1.5 py-0.5 text-[10px] font-mono', labelTone(l))}>{l}</span>
+            ))}
+          </div>
+        </div>
+        {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />}
+      </button>
+      {open && item.body && (
+        <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted/40 p-2 text-[11px] leading-relaxed whitespace-pre-wrap">
+          {item.body}
+        </pre>
+      )}
+    </div>
+  );
 }
 
 export function EmitPanel({ session, onUpdated }: Props) {
@@ -124,29 +165,13 @@ export function EmitPanel({ session, onUpdated }: Props) {
             )}
           </div>
 
-          {/* Planned items */}
+          {/* Planned items — epic + children with their taxonomy labels */}
           <div className="flex flex-col gap-2">
-            {emitResult.planned.epic && (
-              <div className="flex items-center gap-2">
-                <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden />
-                <span className="text-xs font-semibold text-foreground">Epic:</span>
-                <span className="text-xs font-mono text-primary">{emitResult.planned.epic}</span>
-              </div>
-            )}
-            {emitResult.planned.children.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <p className="text-xs font-semibold text-foreground mb-0.5">
-                  Children ({emitResult.planned.children.length}):
-                </p>
-                <ul className="space-y-0.5">
-                  {emitResult.planned.children.map((key, i) => (
-                    <li key={i} className="flex items-center gap-2 text-xs text-foreground/80">
-                      <span className="h-1 w-1 rounded-full bg-muted-foreground" aria-hidden />
-                      <span className="font-mono">{key}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {emitResult.planned.map((item, i) => (
+              <PlannedItemRow key={i} item={item} />
+            ))}
+            {emitResult.planned.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nothing planned.</p>
             )}
           </div>
 
