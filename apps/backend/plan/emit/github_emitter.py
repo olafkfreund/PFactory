@@ -64,6 +64,10 @@ class EmitResult(BaseModel):
     child_numbers: dict[str, int] = Field(default_factory=dict)
     planned: list[dict[str, Any]] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    # Non-fatal issues (e.g. best-effort sub-issue linking). Unlike ``errors``,
+    # warnings do NOT block the caller's "emit succeeded" decision — the epic +
+    # children were still created.
+    warnings: list[str] = Field(default_factory=list)
 
 
 def _epic_payload(
@@ -183,17 +187,21 @@ def emit_to_github(
         number = gh.create_issue(pl["title"], pl["body"], list(pl["labels"]))
         child_numbers[child.key] = number
 
+    warnings: list[str] = []
     link = getattr(gh, "link_sub_issue", None)
     if callable(link):
         for number in child_numbers.values():
             try:
                 link(epic_number, number)
             except Exception as exc:  # pragma: no cover - defensive
-                errors.append(f"failed to link sub-issue #{number}: {exc}")
+                # Linking is best-effort: the issues exist regardless, so this is
+                # a warning, not a fatal error that should block the emit.
+                warnings.append(f"failed to link sub-issue #{number}: {exc}")
 
     return EmitResult(
         dry_run=False,
         epic_number=epic_number,
         child_numbers=child_numbers,
         errors=errors,
+        warnings=warnings,
     )
