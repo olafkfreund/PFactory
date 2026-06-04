@@ -46,7 +46,11 @@ class EmitBody(BaseModel):
 
 
 def _session_dict(session) -> dict:
-    return session.model_dump()
+    # board_state() is a derived method, not a serialised field — add it so the
+    # board + detail views always have the kanban column (#5).
+    data = session.model_dump()
+    data["board_state"] = session.board_state()
+    return data
 
 
 @router.get("")

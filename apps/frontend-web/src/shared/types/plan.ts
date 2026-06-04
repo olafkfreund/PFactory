@@ -75,6 +75,40 @@ export interface NormalizedPlan {
   ingested_at: string;
 }
 
+// ── Feasibility (cost · time · access) ──────────────────────────────────
+
+export interface CostLine {
+  resource: string;
+  quantity: number;
+  monthly_usd: number;
+  detail: string;
+}
+
+export interface CostEstimate {
+  monthly_usd: number;
+  currency: string;
+  lines: CostLine[];
+  confidence: 'low' | 'medium' | 'high';
+  source: string;
+}
+
+export interface EffortEstimate {
+  story_points: number;
+  duration_days_low: number;
+  duration_days_high: number;
+  confidence: 'low' | 'medium' | 'high';
+  assumptions: string[];
+}
+
+export interface AccessRequirement {
+  provider: string;
+  action: string;
+  resource: string;
+  region: string;
+  granted: boolean | null;
+  detail: string;
+}
+
 // ── EpicChild ───────────────────────────────────────────────────────────
 
 export interface EpicChild {
@@ -86,6 +120,8 @@ export interface EpicChild {
   depends_on: string[];
   complexity: string | number | null;
   acceptance_criteria: string[];
+  effort_estimate?: EffortEstimate | null;
+  access_requirements?: AccessRequirement[];
 }
 
 // ── EpicPlan ────────────────────────────────────────────────────────────
@@ -96,6 +132,9 @@ export interface EpicPlan {
   epic_body: string;
   children: EpicChild[];
   summary: string;
+  cost_estimate?: CostEstimate | null;
+  effort_estimate?: EffortEstimate | null;
+  access_requirements?: AccessRequirement[];
 }
 
 // ── Artifact ────────────────────────────────────────────────────────────
@@ -110,12 +149,20 @@ export interface PlanArtifact {
 
 // ── Finding ─────────────────────────────────────────────────────────────
 
+export interface FindingCitation {
+  why: string;
+  uri: string;
+  title: string;
+  source: string;
+}
+
 export interface ReviewFinding {
   title: string;
   detail: string;
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   source: string;
   blocking: boolean;
+  citations?: FindingCitation[];
 }
 
 // ── Lens ────────────────────────────────────────────────────────────────
@@ -168,10 +215,39 @@ export interface EmitResult {
 
 export type PlanSessionStatus =
   | 'ingested'
+  | 'processing'
+  | 'reviewing'
   | 'processed'
   | 'approved'
   | 'rejected'
   | 'emitted';
+
+// ── Annotation (honoured document, Phase D) ─────────────────────────────
+
+export interface SuggestedEdit {
+  anchor: string;
+  anchor_line: number;
+  original_excerpt: string;
+  suggestion: string;
+  why: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  source: string;
+  citation: FindingCitation | null;
+}
+
+export interface PlanAnnotation {
+  suggestions: SuggestedEdit[];
+  improved_markdown: string;
+  change_log: Record<string, unknown>[];
+  original_preserved: boolean;
+}
+
+export type BoardColumn =
+  | 'backlog'
+  | 'in_progress'
+  | 'ai_review'
+  | 'human_review'
+  | 'done';
 
 export interface PlanSession {
   session_id: string;
@@ -180,8 +256,14 @@ export interface PlanSession {
   epic: EpicPlan | null;
   artifacts: PlanArtifact[];
   review: PlanReview | null;
+  annotation?: PlanAnnotation | null;
   emit_result: EmitResult | null;
   created_at: string;
+  board_state?: BoardColumn;
+  original_filename?: string;
+  selected_category?: string;
+  selected_template?: string;
+  suggested_template?: string;
 }
 
 // ── SessionSummary ──────────────────────────────────────────────────────

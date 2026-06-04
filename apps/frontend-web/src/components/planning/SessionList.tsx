@@ -16,6 +16,8 @@ import type { SessionSummary, PlanSessionStatus } from '../../shared/types/plan'
 
 const STATUS_COLOR: Record<PlanSessionStatus, string> = {
   ingested: 'bg-muted text-muted-foreground',
+  processing: 'bg-info/10 text-info',
+  reviewing: 'bg-info/10 text-info',
   processed: 'bg-info/10 text-info',
   approved: 'bg-success/10 text-success',
   rejected: 'bg-destructive/10 text-destructive',
