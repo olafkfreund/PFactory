@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
+from plan.annotate import AnnotationResult, annotate_plan
 from plan.decompose.models import EpicPlan
 from plan.decompose.planner import decompose
 from plan.detect.target_classifier import apply as detect_apply
@@ -31,7 +32,38 @@ from plan.synthesize.models import SynthesizedArtifact
 from plan.synthesize.run import synthesize
 from pydantic import BaseModel, Field
 
-SessionStatus = str  # ingested | processed | approved | rejected | emitted
+# Lifecycle status. The first five are persisted stages; `processing`/`reviewing`
+# are transient sub-states set during process() so the board shows live progress.
+SessionStatus = str
+# ingested | processing | reviewing | processed | approved | rejected | emitted
+
+# Task-board column ids (shared with the frontend kanban — see constants/task.ts).
+# "backlog" is rendered as "Plans ready".
+BoardColumn = str  # backlog | in_progress | ai_review | human_review | done
+
+
+def board_state(status: str, review: PlanReview | None) -> BoardColumn:
+    """Project a session's (status, review) onto a kanban column (#5).
+
+    plans-ready (backlog) → in-progress (processing) → AI review (gates running)
+    → human review (AI done: awaiting sign-off, blocked, or needs edit) →
+    done (approved by AI *and* human, or already emitted).
+    """
+    if status in ("approved", "emitted"):
+        return "done"
+    if status == "rejected":
+        return "human_review"  # needs attention / edit
+    if status == "ingested":
+        return "backlog"
+    if status == "processing":
+        return "in_progress"
+    if status == "reviewing":
+        return "ai_review"
+    if status == "processed":
+        # AI review is complete; a human must approve a clean plan or fix a
+        # blocked one — either way it awaits a person.
+        return "human_review"
+    return "backlog"
 
 
 class PlanSession(BaseModel):
@@ -43,14 +75,23 @@ class PlanSession(BaseModel):
     epic: EpicPlan | None = None
     artifacts: list[SynthesizedArtifact] = Field(default_factory=list)
     review: PlanReview | None = None
+    annotation: AnnotationResult | None = None  # honoured doc + suggested edits (#D)
+    original_filename: str = ""  # the uploaded document's name, for rendering
+    selected_category: str = ""   # category the user chose at intake (#E)
+    selected_template: str = ""   # template the user chose — its policy IS enforced (#E)
+    suggested_template: str = ""  # best keyword match — informational only
     emit_result: dict | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def board_state(self) -> BoardColumn:
+        return board_state(self.status, self.review)
 
     def summary(self) -> dict:
         return {
             "session_id": self.session_id,
             "title": self.plan.title,
             "status": self.status,
+            "board_state": self.board_state(),
             "target_kind": self.plan.target_kind,
             "plan_type": self.plan.plan_type,
             "children": len(self.epic.children) if self.epic else 0,
@@ -77,16 +118,25 @@ class PlanService:
         return session
 
     def ingest_text(self, text: str, *, title: str | None = None,
-                    channel: str = "portal") -> PlanSession:
+                    channel: str = "portal", category: str = "",
+                    template: str = "") -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title,
                            seq=self._next_seq())
-        return self._store(plan)
+        session = self._store(plan)
+        session.selected_category = category
+        session.selected_template = template
+        return session
 
     def ingest_bytes(self, data: bytes, *, filename: str, title: str | None = None,
-                     channel: str = "portal") -> PlanSession:
+                     channel: str = "portal", category: str = "",
+                     template: str = "") -> PlanSession:
         plan = ingest_bytes(data, filename=filename, source_channel=channel,
                             title=title, seq=self._next_seq())
-        return self._store(plan)
+        session = self._store(plan)
+        session.original_filename = filename  # preserve for honouring the doc (#D)
+        session.selected_category = category
+        session.selected_template = template
+        return session
 
     def _next_seq(self) -> int:
         return len(self._sessions) + 1
@@ -105,18 +155,72 @@ class PlanService:
     # ── process (the pipeline core) ────────────────────────────────────
 
     def process(self, session_id: str, *, external_runner=None) -> PlanSession:
-        """Detect → plan-type → enrich → decompose → synthesize → review gates."""
+        """Detect → plan-type → enrich → decompose → synthesize → review gates.
+
+        When no ``external_runner`` is supplied, the provider-MCP runner is used by
+        default so live runs get provider best-practice findings + suggest-install
+        advisories (#3). It never raises and adds no score penalty when providers
+        are absent, so the default is safe.
+        """
+        if external_runner is None:
+            from plan.providers.review_runner import provider_runner
+
+            external_runner = provider_runner
         session = self.get(session_id)
+        # Transient sub-states so a background-run session animates on the board:
+        # in-progress while we detect/enrich/decompose/synthesize, AI-review while
+        # the gates run. (Synchronous callers just see the final "processed".)
+        session.status = "processing"
         plan = self._enrich(plan_type_apply(detect_apply(session.plan)))
         descriptor = select_for(plan)
         epic = decompose(plan, descriptor=descriptor)
         artifacts = synthesize(plan, epic, descriptor=descriptor)
-        review = run_gates(plan, epic, external_runner=external_runner)
+
+        # Feasibility (#C): price the proposed shape, estimate effort, verify
+        # access. Estimates are attached to the epic; findings are folded into
+        # the feasibility lens via a composed external runner.
+        from plan.feasibility import assess_feasibility
+
+        feasibility = assess_feasibility(plan, epic)
+        epic.cost_estimate = feasibility.cost
+        epic.effort_estimate = feasibility.effort
+        epic.access_requirements = feasibility.access
+
+        # Template policy (#E). Enforcement is OPT-IN: a template's embedded policy
+        # (required tags / allowed regions / IAM / baselines) gates review only when
+        # the user explicitly selected it at intake — auto-matching is recorded as a
+        # non-gating suggestion (help, never override). Default the category from the
+        # selection, else the detected plan-type's category.
+        from plan.templates import build_context, load_templates, select_template
+
+        template_findings: list = []
+        try:
+            suggested = select_template(plan)
+            session.suggested_template = suggested.metadata.name if suggested else ""
+            if not session.selected_category:
+                session.selected_category = descriptor.category
+            if session.selected_template:
+                tmpl = load_templates().get(session.selected_template)
+                if tmpl is not None:
+                    template_findings = tmpl.check(build_context(plan))
+        except Exception:
+            template_findings = []
+
+        def _composed_runner(p, e):
+            out = list(external_runner(p, e)) if external_runner else []
+            out.extend(feasibility.findings)
+            out.extend(template_findings)
+            return out
+
+        session.status = "reviewing"
+        review = run_gates(plan, epic, external_runner=_composed_runner)
 
         session.plan = plan
         session.epic = epic
         session.artifacts = artifacts
         session.review = review
+        # Honour the document: anchored, cited suggestions + improved draft (#D).
+        session.annotation = annotate_plan(plan, review)
         session.status = "processed"
         return session
 
@@ -225,12 +329,17 @@ class PlanService:
 
     def emit(self, session_id: str, *, repo: str, dry_run: bool = True) -> PlanSession:
         from plan.emit.github_emitter import emit_to_github
+        from plan.emit.labels import pfactory_meta_block, taxonomy_labels
 
         session = self.get(session_id)
         if session.epic is None:
             raise PlanServiceError("process the plan before emitting")
+        # Apply the taxonomy (#H): pfactory + type/plan-type/priority/sev labels and
+        # the machine-readable pfactory:meta block AIFactory/TFactory parse.
+        labels = taxonomy_labels(session.plan, session.epic, session.review)
+        meta = pfactory_meta_block(session.plan, session.epic, session.review)
         result = emit_to_github(session.epic, repo=repo, review=session.review,
-                                dry_run=dry_run)
+                                dry_run=dry_run, extra_labels=labels, meta_block=meta)
         session.emit_result = result.model_dump()
         if not dry_run and not result.errors:
             session.status = "emitted"

@@ -1,0 +1,11 @@
+name: feature
+title: Product feature
+category: feature
+applies_to: [software]
+match_keywords: [feature, user story, acceptance criteria, screen, flow, button, form, page]
+stages:
+  decompose: true
+  synthesize_testing: true
+  synthesize_cicd: true
+  code_gates: true
+  review: true

@@ -1,0 +1,11 @@
+name: cicd
+title: CI/CD pipeline
+category: cicd
+applies_to: [software]
+match_keywords: [ci/cd, pipeline, github actions, workflow, gitlab ci, jenkins, build matrix, release automation, deploy stage]
+stages:
+  decompose: true
+  synthesize_testing: false
+  synthesize_cicd: true
+  code_gates: true
+  review: true

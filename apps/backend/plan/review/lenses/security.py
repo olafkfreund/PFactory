@@ -25,9 +25,15 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?i)-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"(?i)\bAKIA[0-9A-Z]{16}\b"),
 )
+# Anything that constitutes "we thought about access control". Beyond the obvious
+# auth words this includes cloud-native identity primitives an engineering SOW uses
+# instead of a literal "login": IAM, IRSA, mTLS, service accounts, least-privilege,
+# a secrets manager / KMS, SSO/SAML/OIDC/JWT.
 _AUTH_RE = re.compile(
-    r"(?i)\b(auth|authn|authz|authentication|authorization|login|oauth|rbac|"
-    r"permission|access control|token)\b"
+    r"(?i)\b(auth|authn|authz|authentication|authorization|login|oauth|rbac|abac|"
+    r"permission|access control|token|iam|irsa|m[\s-]?tls|mutual tls|"
+    r"service[\s-]?account|least[\s-]?privilege|secrets?[\s-]?manager|kms|"
+    r"sso|saml|oidc|jwt|identity provider|credential)\b"
 )
 # Auth only matters when there's a network surface to protect. A purely local /
 # client-side plan (e.g. a single-screen browser game) needs no auth, so we only

@@ -1,0 +1,30 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: software-service
+  title: Software service
+  category: software
+  description: A backend/frontend service or feature with tests + CI/CD.
+  tags: [software, service, api, microservice, feature]
+spec:
+  type: service
+  parameters:
+    - title: Service
+      required: [name, owner]
+      properties:
+        name: { type: string, title: Service name }
+        owner: { type: string, title: Owning team }
+  steps:
+    - id: scaffold
+      name: Scaffold service
+      action: fetch:template
+policy:
+  required_tags: [owner, cost-center]
+  security_baselines:
+    - authentication-required
+    - secrets-in-secrets-manager
+  rules:
+    - id: svc-tests
+      description: A service should ship with automated tests.
+      severity: medium
+      blocking: false

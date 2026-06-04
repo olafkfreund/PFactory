@@ -1,5 +1,6 @@
 name: data-pipeline
 title: Data pipeline
+category: data
 applies_to: [software]
 match_keywords: [pipeline, etl, airflow, spark, kafka, ingestion, warehouse, dataset, streaming, batch]
 stages:

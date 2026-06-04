@@ -1,7 +1,8 @@
 name: software-service
 title: Software service / feature
+category: software
 applies_to: [software]
-match_keywords: [api, endpoint, service, microservice, backend, frontend, webhook, feature, ui]
+match_keywords: [api, endpoint, service, microservice, backend, frontend, webhook, ui]
 stages:
   decompose: true
   synthesize_testing: true

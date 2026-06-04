@@ -18,7 +18,7 @@ export const TASK_STATUS_COLUMNS = [
 
 // Human-readable status labels
 export const TASK_STATUS_LABELS: Record<string, string> = {
-  backlog: 'Backlog',
+  backlog: 'Plans ready',
   in_progress: 'In Progress',
   ai_review: 'AI Review',
   human_review: 'Human Review',

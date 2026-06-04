@@ -17,10 +17,14 @@ import { ApprovalPanel } from './ApprovalPanel';
 import { EmitPanel } from './EmitPanel';
 import { PlanEditor } from './PlanEditor';
 import { EnrichmentPanel } from './EnrichmentPanel';
+import { FeasibilityPanel } from './FeasibilityPanel';
+import { AnnotationPanel } from './AnnotationPanel';
 import type { PlanSessionStatus } from '../../shared/types/plan';
 
 const STATUS_BADGE: Record<PlanSessionStatus, { variant: 'success' | 'info' | 'warning' | 'destructive' | 'muted'; label: string }> = {
   ingested: { variant: 'muted', label: 'ingested' },
+  processing: { variant: 'info', label: 'processing' },
+  reviewing: { variant: 'info', label: 'AI review' },
   processed: { variant: 'info', label: 'processed' },
   approved: { variant: 'success', label: 'approved' },
   rejected: { variant: 'destructive', label: 'rejected' },
@@ -77,6 +81,14 @@ export function SessionDetail({ sessionId, onBack }: Props) {
       (Array.isArray(enrichment.infra) && enrichment.infra.length > 0) ||
       (Array.isArray(enrichment.knowledge) && enrichment.knowledge.length > 0)
     );
+
+  const epic = session.epic;
+  const hasFeasibility =
+    epic != null &&
+    (epic.cost_estimate != null || epic.effort_estimate != null ||
+      (epic.access_requirements != null && epic.access_requirements.length > 0));
+  const hasAnnotation =
+    session.annotation != null && session.annotation.suggestions.length > 0;
 
   // Default to 'pipeline' if processed; 'editor' if only ingested
   const defaultTab = hasEpic ? 'pipeline' : 'editor';
@@ -146,8 +158,10 @@ export function SessionDetail({ sessionId, onBack }: Props) {
           <TabsList>
             <TabsTrigger value="editor">Edit</TabsTrigger>
             {hasEpic && <TabsTrigger value="pipeline">Pipeline</TabsTrigger>}
+            {hasFeasibility && <TabsTrigger value="feasibility">Feasibility</TabsTrigger>}
             {hasEnrichment && <TabsTrigger value="context">AI Context</TabsTrigger>}
             {hasReview && <TabsTrigger value="review">Review</TabsTrigger>}
+            {hasAnnotation && <TabsTrigger value="suggestions">Suggestions</TabsTrigger>}
             {hasReview && <TabsTrigger value="approval">Approval</TabsTrigger>}
             {isApprovedOrEmitted && <TabsTrigger value="emit">Emit</TabsTrigger>}
           </TabsList>
@@ -165,6 +179,12 @@ export function SessionDetail({ sessionId, onBack }: Props) {
             </TabsContent>
           )}
 
+          {hasFeasibility && (
+            <TabsContent value="feasibility" className="mt-4">
+              <FeasibilityPanel session={session} />
+            </TabsContent>
+          )}
+
           {hasEnrichment && (
             <TabsContent value="context" className="mt-4">
               <EnrichmentPanel session={session} />
@@ -174,6 +194,12 @@ export function SessionDetail({ sessionId, onBack }: Props) {
           {hasReview && (
             <TabsContent value="review" className="mt-4">
               <ReviewPanel review={session.review!} />
+            </TabsContent>
+          )}
+
+          {hasAnnotation && (
+            <TabsContent value="suggestions" className="mt-4">
+              <AnnotationPanel session={session} />
             </TabsContent>
           )}
 

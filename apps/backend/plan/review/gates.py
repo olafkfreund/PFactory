@@ -34,6 +34,9 @@ _SOURCE_TO_LENS: dict[str, str] = {
     "cloud-mcp": "security",
     "infra-change-needs-rollback": "feasibility",
     "k8s-workloads-need-limits": "architecture",
+    "feasibility-cost": "feasibility",
+    "feasibility-effort": "feasibility",
+    "feasibility-access": "feasibility",
 }
 # Lenses that only make sense for software targets.
 _CODE_LENSES = {"architecture", "security"}

@@ -214,8 +214,11 @@ describe('emitCurrentSession', () => {
       status: 'emitted',
       emit_result: {
         dry_run: false,
-        repo: 'github.com/org/repo',
-        planned: { epic: 'EPIC-1', children: ['CHILD-1', 'CHILD-2'] },
+        planned: [
+          { kind: 'epic', title: 'Epic', body: '', labels: ['epic', 'pfactory'] },
+          { kind: 'feature', key: 'C1', title: 'Child 1', body: '', labels: ['pfactory'] },
+          { kind: 'feature', key: 'C2', title: 'Child 2', body: '', labels: ['pfactory'] },
+        ],
         errors: [],
       },
     });
@@ -226,7 +229,7 @@ describe('emitCurrentSession', () => {
     });
     await usePlanStore.getState().emitCurrentSession({ repo: 'github.com/org/repo', dry_run: false });
     expect(usePlanStore.getState().currentSession?.status).toBe('emitted');
-    expect(usePlanStore.getState().currentSession?.emit_result?.planned.children).toHaveLength(2);
+    expect(usePlanStore.getState().currentSession?.emit_result?.planned).toHaveLength(3);
   });
 });
 

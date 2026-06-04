@@ -1,0 +1,11 @@
+name: testing
+title: Testing / QA
+category: testing
+applies_to: [software]
+match_keywords: [test plan, test suite, coverage, e2e, regression, qa strategy, pytest, jest, playwright, fixtures]
+stages:
+  decompose: true
+  synthesize_testing: true
+  synthesize_cicd: false
+  code_gates: true
+  review: true

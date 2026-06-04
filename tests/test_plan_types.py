@@ -37,8 +37,14 @@ def test_all_descriptors_load():
 
 
 def test_software_service_default_for_software():
-    plan = _plan(desc="Add a feature to the app.", kind="software")
+    # Neutral software text (no descriptor keywords) falls back to software-service.
+    plan = _plan(desc="Improve the application for our users.", kind="software")
     assert select_for(plan).name == "software-service"
+
+
+def test_feature_plan_type_selected_by_keyword():
+    plan = _plan(desc="Add a feature: a user story for the checkout flow.", kind="software")
+    assert select_for(plan).name == "feature"
 
 
 def test_data_pipeline_selected_by_keywords():

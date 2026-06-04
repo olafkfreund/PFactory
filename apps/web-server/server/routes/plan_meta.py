@@ -34,10 +34,22 @@ async def templates() -> dict:
         out.append({
             "name": name,
             "title": tmpl.metadata.title,
+            "category": getattr(tmpl.metadata, "category", ""),
+            "description": tmpl.metadata.description,
             "tags": tmpl.metadata.tags,
             "policy": tmpl.policy.model_dump(),
         })
     return {"templates": out}
+
+
+@router.get("/categories")
+async def categories() -> dict:
+    """Plan categories for the intake picker (#1): each category with its plan
+    types (+ stage toggles) and any matching templates. Shares the single source
+    with the MCP ``plan_categories`` tool so the portal and agents see the same."""
+    from plan.agent_api import plan_categories
+
+    return plan_categories()
 
 
 @router.get("/providers")

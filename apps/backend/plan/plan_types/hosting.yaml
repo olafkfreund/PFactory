@@ -1,0 +1,11 @@
+name: hosting
+title: Hosting / deployment
+category: hosting
+applies_to: [software]
+match_keywords: [hosting, domain, dns, cdn, tls, certificate, static site, github pages, cloudfront, route53, deploy target]
+stages:
+  decompose: true
+  synthesize_testing: false
+  synthesize_cicd: true
+  code_gates: true
+  review: true

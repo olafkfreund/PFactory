@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, ShieldCheck, ShieldX, AlertTriangle, Info, AlertCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, ShieldCheck, ShieldX, AlertTriangle, Info, AlertCircle, Link as LinkIcon } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Progress } from '../ui/progress';
 import { cn } from '../../lib/utils';
@@ -83,9 +83,33 @@ function FindingRow({ finding }: { finding: ReviewFinding }) {
         }
       </button>
       {open && (
-        <div className="mt-2 ml-5 space-y-1">
+        <div className="mt-2 ml-5 space-y-1.5">
           {finding.detail && (
             <p className="text-xs leading-relaxed opacity-90">{finding.detail}</p>
+          )}
+          {finding.citations && finding.citations.length > 0 && (
+            <div className="space-y-1 rounded-md bg-background/40 px-2 py-1.5">
+              {finding.citations.map((c, i) => (
+                <div key={i} className="text-[11px] leading-snug">
+                  {c.why && <p className="opacity-80"><span className="font-medium">Why:</span> {c.why}</p>}
+                  {c.uri ? (
+                    <a
+                      href={c.uri}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <LinkIcon className="h-3 w-3" aria-hidden />
+                      {c.title || c.source || c.uri}
+                    </a>
+                  ) : (
+                    (c.title || c.source) && (
+                      <span className="opacity-60">source: {c.title || c.source}</span>
+                    )
+                  )}
+                </div>
+              ))}
+            </div>
           )}
           {finding.source && (
             <p className="text-[11px] opacity-60 font-mono">source: {finding.source}</p>

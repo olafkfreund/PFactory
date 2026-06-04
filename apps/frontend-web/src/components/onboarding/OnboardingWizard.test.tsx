@@ -34,13 +34,14 @@ vi.mock('react-i18next', () => ({
         'welcome.features.memory.description': 'Remembers context',
         'welcome.features.parallel.title': 'Parallel',
         'welcome.features.parallel.description': 'Work in parallel',
-        'authChoice.title': 'Choose Your Authentication Method',
-        'authChoice.subtitle': 'Select how you want to authenticate',
-        'authChoice.oauthTitle': 'Sign in with Anthropic',
-        'authChoice.oauthDesc': 'OAuth authentication',
-        'authChoice.apiKeyTitle': 'Use Custom API Key',
-        'authChoice.apiKeyDesc': 'Enter your own API key',
-        'authChoice.skip': 'Skip for now',
+        'providerChoice.title': 'Choose your AI provider',
+        'providerChoice.subtitle': 'Select how you want to authenticate',
+        'providerChoice.claude.title': 'Anthropic Claude',
+        'providerChoice.claude.description': 'Sign in with Anthropic',
+        'providerChoice.openaiCompat.title': 'OpenAI-compatible',
+        'providerChoice.openaiCompat.description': 'Use a custom API endpoint',
+        'providerChoice.skip.title': 'Skip for now',
+        'providerChoice.skip.description': 'Configure later',
         // Common translations
         'common:actions.close': 'Close'
       };
@@ -74,18 +75,19 @@ vi.mock('../../stores/settings-store', () => ({
 // Mock electronAPI
 const mockSaveSettings = vi.fn().mockResolvedValue({ success: true });
 
-Object.defineProperty(window, 'electronAPI', {
-  value: {
-    saveSettings: mockSaveSettings,
-    onAppUpdateDownloaded: vi.fn(),
-    // OAuth-related methods needed for OAuthStep component
-    onTerminalOAuthToken: vi.fn(() => vi.fn()), // Returns unsubscribe function
-    getOAuthToken: vi.fn().mockResolvedValue(null),
-    startOAuthFlow: vi.fn().mockResolvedValue({ success: true }),
-    loadProfiles: vi.fn().mockResolvedValue([])
-  },
-  writable: true
-});
+const mockApi = {
+  saveSettings: mockSaveSettings,
+  onAppUpdateDownloaded: vi.fn(),
+  // OAuth-related methods needed for OAuthStep component
+  onTerminalOAuthToken: vi.fn(() => vi.fn()), // Returns unsubscribe function
+  getOAuthToken: vi.fn().mockResolvedValue(null),
+  startOAuthFlow: vi.fn().mockResolvedValue({ success: true }),
+  loadProfiles: vi.fn().mockResolvedValue([])
+};
+
+Object.defineProperty(window, 'electronAPI', { value: mockApi, writable: true });
+// The web app calls window.API.saveSettings (migrated from electronAPI).
+Object.defineProperty(window, 'API', { value: mockApi, writable: true });
 
 describe('OnboardingWizard Integration Tests', () => {
   const defaultProps = {
@@ -170,42 +172,29 @@ describe('OnboardingWizard Integration Tests', () => {
       }
     });
 
-    it('should not show OAuth step text on auth-choice screen', async () => {
+    it('shows the provider-choice screen (not OAuth) after Get Started', async () => {
       render(<OnboardingWizard {...defaultProps} />);
 
-      // Navigate to auth-choice
+      // welcome → provider-choice
       fireEvent.click(screen.getByRole('button', { name: /Get Started/ }));
       await waitFor(() => {
-        expect(screen.getByText(/Choose Your Authentication Method/)).toBeInTheDocument();
+        expect(screen.getByTestId('provider-choice-claude')).toBeInTheDocument();
       });
 
-      // When profile is created via API key path, should skip oauth
-      // This is tested via component behavior - the wizard should advance
-      // directly to graphiti step, bypassing oauth
-      const oauthStepText = screen.queryByText(/OAuth Authentication/);
-      // Before API key selection, oauth text from different context shouldn't be visible
-      expect(oauthStepText).toBeNull();
+      // OAuth step content is not shown on the provider-choice screen.
+      expect(screen.queryByText(/OAuth Authentication/)).toBeNull();
     });
   });
 
-  describe('Back Button Behavior After API Key Path', () => {
-    it('should go back to auth-choice (not oauth) when coming from API key path', async () => {
+  describe('Provider-choice navigation', () => {
+    it('reaches provider-choice from welcome with both provider options', async () => {
       render(<OnboardingWizard {...defaultProps} />);
 
-      // This test verifies that when oauth is bypassed (API key path taken),
-      // going back from graphiti returns to auth-choice, not oauth
-
-      // Navigate: welcome → auth-choice
       fireEvent.click(screen.getByText(/Get Started/));
       await waitFor(() => {
-        expect(screen.getByText(/Choose Your Authentication Method/)).toBeInTheDocument();
+        expect(screen.getByTestId('provider-choice-claude')).toBeInTheDocument();
       });
-
-      // The back button behavior is controlled by oauthBypassed state
-      // When API key path is taken, oauthBypassed=true
-      // Going back from graphiti should skip oauth step
-      const authChoiceHeading = screen.getByText(/Choose Your Authentication Method/);
-      expect(authChoiceHeading).toBeInTheDocument();
+      expect(screen.getByTestId('provider-choice-openai-compat')).toBeInTheDocument();
     });
   });
 
@@ -316,18 +305,18 @@ describe('OnboardingWizard Integration Tests', () => {
   });
 
   describe('AC Coverage', () => {
-    it('AC1: First-run screen displays with two auth options', async () => {
+    it('AC1: provider-choice displays the Claude and OpenAI-compatible options', async () => {
       render(<OnboardingWizard {...defaultProps} />);
 
-      // Navigate to auth-choice
+      // Navigate to provider-choice
       fireEvent.click(screen.getByRole('button', { name: /Get Started/ }));
       await waitFor(() => {
-        expect(screen.getByText(/Choose Your Authentication Method/)).toBeInTheDocument();
+        expect(screen.getByTestId('provider-choice-claude')).toBeInTheDocument();
       });
 
-      // Both options should be visible
+      // Both provider options should be visible
+      expect(screen.getByTestId('provider-choice-openai-compat')).toBeInTheDocument();
       expect(screen.getByText(/Sign in with Anthropic/)).toBeInTheDocument();
-      expect(screen.getByText(/Use Custom API Key/)).toBeInTheDocument();
     });
 
     // Skipped: OAuth path test requires full OAuth step mocking
@@ -349,20 +338,19 @@ describe('OnboardingWizard Integration Tests', () => {
       });
     });
 
-    it('AC3: API Key path opens profile management dialog', async () => {
+    it('AC3: choosing the OpenAI-compatible provider advances past provider-choice', async () => {
       render(<OnboardingWizard {...defaultProps} />);
 
       fireEvent.click(screen.getByText(/Get Started/));
       await waitFor(() => {
-        expect(screen.getByText(/Choose Your Authentication Method/)).toBeInTheDocument();
+        expect(screen.getByTestId('provider-choice-openai-compat')).toBeInTheDocument();
       });
 
-      const apiKeyButton = screen.getByTestId('auth-option-apikey');
-      fireEvent.click(apiKeyButton);
+      fireEvent.click(screen.getByTestId('provider-choice-openai-compat'));
 
-      // ProfileEditDialog should open
+      // Advances to the openai-compat setup step → the provider cards are gone.
       await waitFor(() => {
-        expect(screen.getByTestId('profile-edit-dialog')).toBeInTheDocument();
+        expect(screen.queryByTestId('provider-choice-openai-compat')).toBeNull();
       });
     });
 

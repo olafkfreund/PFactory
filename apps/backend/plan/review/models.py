@@ -17,6 +17,23 @@ Severity = Literal["info", "low", "medium", "high", "critical"]
 LensName = Literal["architecture", "security", "best-practices", "feasibility"]
 
 
+class Citation(BaseModel):
+    """A documentation source backing a finding's recommended change.
+
+    PFactory *helps, never overrides*: whenever a lens/rule asks for a change it
+    must say WHY and point at a source the engineer can read — a knowledge ref, a
+    provider/cloud doc, an ADR, or a template policy. ``why`` is the one-line
+    justification; ``uri``/``title`` locate the source; ``source`` names where the
+    citation came from (e.g. ``"knowledge:backstage"``, ``"provider:terraform"``,
+    ``"policy:gcp-project"``, ``"aws-well-architected"``).
+    """
+
+    why: str = ""
+    uri: str = ""
+    title: str = ""
+    source: str = ""
+
+
 class Finding(BaseModel):
     """One observation from a lens or a deterministic policy check."""
 
@@ -25,6 +42,10 @@ class Finding(BaseModel):
     severity: Severity = "info"
     source: str = ""  # lens name, or "checkov"/"opa"/"llm"/"cloud-mcp"
     blocking: bool = False
+    # Doc-source backing when this finding proposes a change (issue #7). A finding
+    # that merely reports (e.g. an info note) may leave this empty; one that asks
+    # the engineer to change something SHOULD carry at least one citation.
+    citations: list[Citation] = Field(default_factory=list)
 
 
 class LensScore(BaseModel):

@@ -26,6 +26,8 @@ class IngestTextBody(BaseModel):
     text: str
     title: str | None = None
     channel: str = "portal"
+    category: str = ""   # intake category (#E)
+    template: str = ""   # selected template — its policy is enforced (#E)
 
 
 class ApproveBody(BaseModel):
@@ -44,7 +46,11 @@ class EmitBody(BaseModel):
 
 
 def _session_dict(session) -> dict:
-    return session.model_dump()
+    # board_state() is a derived method, not a serialised field — add it so the
+    # board + detail views always have the kanban column (#5).
+    data = session.model_dump()
+    data["board_state"] = session.board_state()
+    return data
 
 
 @router.get("")
@@ -55,17 +61,28 @@ async def list_sessions() -> dict:
 @router.post("/ingest-text")
 async def ingest_text(body: IngestTextBody) -> dict:
     try:
-        session = SERVICE.ingest_text(body.text, title=body.title, channel=body.channel)
+        session = SERVICE.ingest_text(
+            body.text, title=body.title, channel=body.channel,
+            category=body.category, template=body.template,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _session_dict(session)
 
 
 @router.post("/ingest")
-async def ingest_upload(file: UploadFile = File(...), title: str | None = Form(None)) -> dict:
+async def ingest_upload(
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+    category: str = Form(""),
+    template: str = Form(""),
+) -> dict:
     data = await file.read()
     try:
-        session = SERVICE.ingest_bytes(data, filename=file.filename or "plan.md", title=title)
+        session = SERVICE.ingest_bytes(
+            data, filename=file.filename or "plan.md", title=title,
+            category=category, template=template,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _session_dict(session)

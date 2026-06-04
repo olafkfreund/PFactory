@@ -1,0 +1,11 @@
+name: product-planning
+title: Product planning
+category: product
+applies_to: [non-software, undetermined]
+match_keywords: [roadmap, prd, vision, persona, gtm, pricing, market, okrs, milestone, strategy]
+stages:
+  decompose: true
+  synthesize_testing: false
+  synthesize_cicd: false
+  code_gates: false
+  review: true

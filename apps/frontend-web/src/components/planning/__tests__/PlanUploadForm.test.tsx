@@ -108,7 +108,9 @@ describe('<PlanUploadForm>', () => {
       expect(fetchFn).toHaveBeenCalled();
     });
 
-    const [url, init] = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    // The component also fetches /meta/categories on mount, so find the ingest call.
+    const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit][];
+    const [url, init] = calls.find(([u]) => u.includes('/ingest-text'))!;
     expect(url).toBe('/api/plan/sessions/ingest-text');
     const body = JSON.parse(init.body as string);
     expect(body.text).toBe('My specification text content');
@@ -155,7 +157,8 @@ describe('<PlanUploadForm>', () => {
       expect(fetchFn).toHaveBeenCalled();
     });
 
-    const [url, init] = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit][];
+    const [url, init] = calls.find(([u]) => u.endsWith('/sessions/ingest'))!;
     expect(url).toBe('/api/plan/sessions/ingest');
     expect(init.body).toBeInstanceOf(FormData);
   });

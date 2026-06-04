@@ -35,8 +35,16 @@ class PlanTypeDescriptor(BaseModel):
     name: str
     title: str
     applies_to: list[TargetKind]
+    # User-facing category for the intake picker (#1): product | software |
+    # feature | hosting | infrastructure | testing | cicd | generic. Defaults to
+    # the descriptor name when a YAML omits it (back-compat for existing types).
+    category: str = ""
     match_keywords: list[str] = Field(default_factory=list)
     stages: Stages = Field(default_factory=Stages)
+
+    def model_post_init(self, _ctx: object) -> None:  # pydantic v2 hook
+        if not self.category:
+            object.__setattr__(self, "category", self.name)
 
 
 @lru_cache(maxsize=1)

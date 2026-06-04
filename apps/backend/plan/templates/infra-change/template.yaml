@@ -1,0 +1,31 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: infra-change
+  title: Infrastructure change
+  category: infrastructure
+  description: A cloud/Kubernetes/Terraform infrastructure change with rollback + least-privilege.
+  tags: [infra, terraform, kubernetes, cluster, network, iam]
+spec:
+  type: infrastructure
+  parameters:
+    - title: Change
+      required: [owner, environment]
+      properties:
+        owner: { type: string, title: Owning team }
+        environment: { type: string, enum: [dev, staging, prod] }
+  steps:
+    - id: plan
+      name: Terraform plan
+      action: fetch:template
+policy:
+  required_tags: [owner, cost-center, environment]
+  security_baselines:
+    - least-privilege-iam
+    - no-public-0.0.0.0/0
+    - rollback-documented
+  rules:
+    - id: infra-rollback
+      description: An infra change must document a rollback / recovery strategy.
+      severity: high
+      blocking: false

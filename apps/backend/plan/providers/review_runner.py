@@ -75,8 +75,16 @@ def build_context(plan: NormalizedPlan, epic: EpicPlan | None = None) -> dict:
 def provider_runner(plan: NormalizedPlan, epic: EpicPlan) -> list[Finding]:
     """External-policy runner: collect findings from all available providers.
 
-    Compatible with ``run_gates(..., external_runner=provider_runner)``. Never
-    raises — :func:`run_all` swallows per-provider errors.
+    Compatible with ``run_gates(..., external_runner=provider_runner)``. Returns
+    real provider findings PLUS advisory suggest-install notes for any provider
+    that's relevant to the plan but not installed (#3). Never raises.
     """
+    from plan.providers.registry import suggest_installs
+
     context = build_context(plan, epic)
-    return run_all(context)
+    findings = run_all(context)
+    try:
+        findings.extend(suggest_installs(context))
+    except Exception:
+        pass
+    return findings
