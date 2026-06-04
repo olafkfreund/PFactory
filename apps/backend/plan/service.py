@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
+from plan.annotate import AnnotationResult, annotate_plan
 from plan.decompose.models import EpicPlan
 from plan.decompose.planner import decompose
 from plan.detect.target_classifier import apply as detect_apply
@@ -74,6 +75,8 @@ class PlanSession(BaseModel):
     epic: EpicPlan | None = None
     artifacts: list[SynthesizedArtifact] = Field(default_factory=list)
     review: PlanReview | None = None
+    annotation: AnnotationResult | None = None  # honoured doc + suggested edits (#D)
+    original_filename: str = ""  # the uploaded document's name, for rendering
     emit_result: dict | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -121,7 +124,9 @@ class PlanService:
                      channel: str = "portal") -> PlanSession:
         plan = ingest_bytes(data, filename=filename, source_channel=channel,
                             title=title, seq=self._next_seq())
-        return self._store(plan)
+        session = self._store(plan)
+        session.original_filename = filename  # preserve for honouring the doc (#D)
+        return session
 
     def _next_seq(self) -> int:
         return len(self._sessions) + 1
@@ -183,6 +188,8 @@ class PlanService:
         session.epic = epic
         session.artifacts = artifacts
         session.review = review
+        # Honour the document: anchored, cited suggestions + improved draft (#D).
+        session.annotation = annotate_plan(plan, review)
         session.status = "processed"
         return session
 
