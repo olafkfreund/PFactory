@@ -33,6 +33,8 @@ nav_order: 1
 
 {% include pipeline-diagram.html %}
 
+> **Part of the [Factory family](https://factory.freundcloud.com/)** — a governed, verified, observable autonomous software factory. **PFactory** plans · [AIFactory](https://aifactory.freundcloud.com/) builds · [TFactory](https://tfactory.freundcloud.com/) verifies · [CFactory](https://github.com/olafkfreund/CFactory) watches over all four. → **[Why Factory](https://factory.freundcloud.com/why/)**
+
 ## See it in action
 
 <video controls preload="metadata" playsinline
