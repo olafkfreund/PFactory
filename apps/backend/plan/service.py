@@ -16,6 +16,7 @@ import os
 from datetime import datetime, timezone
 
 from plan.annotate import AnnotationResult, annotate_plan
+from plan.completion import correlation_key_for, notify_completion
 from plan.decompose.models import EpicPlan
 from plan.decompose.planner import decompose
 from plan.detect.target_classifier import apply as detect_apply
@@ -83,6 +84,14 @@ class PlanSession(BaseModel):
     emit_result: dict | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
+    # PARR correlation chain (#47): pfactory.session_id → issue# → aifactory.task_id.
+    # `correlation_key` is the shared key (the emitted GitHub issue #, with a
+    # synthetic `pf-<session_id>` fallback when no issue exists yet — e.g. a
+    # rejected plan). The two ids below are the upstream/downstream links.
+    correlation_key: str | None = None
+    emitted_issue_number: int | None = None   # upstream link — the emitted epic issue#
+    aifactory_task_id: str | None = None       # downstream link — the handed-off task
+
     def board_state(self) -> BoardColumn:
         return board_state(self.status, self.review)
 
@@ -97,6 +106,9 @@ class PlanSession(BaseModel):
             "children": len(self.epic.children) if self.epic else 0,
             "gates_passed": self.review.gates_passed if self.review else None,
             "created_at": self.created_at,
+            "correlation_key": self.correlation_key,
+            "issue_number": self.emitted_issue_number,
+            "aifactory_task_id": self.aifactory_task_id,
         }
 
 
@@ -323,6 +335,9 @@ class PlanService:
             raise PlanServiceError("process the plan before rejecting")
         reject_review(session.review, session.plan, approver=approver, feedback=feedback)
         session.status = "rejected"
+        # Terminal too: emit the completion event with a synthetic key (no issue#).
+        session.correlation_key = correlation_key_for(session)
+        notify_completion(session)
         return session
 
     # ── emit ───────────────────────────────────────────────────────────
@@ -343,6 +358,11 @@ class PlanService:
         session.emit_result = result.model_dump()
         if not dry_run and not result.errors:
             session.status = "emitted"
+            # Persist the upstream correlation id (the emitted epic issue#) and the
+            # shared key, then emit the terminal completion event (#47).
+            session.emitted_issue_number = result.epic_number
+            session.correlation_key = correlation_key_for(session)
+            notify_completion(session)
         return session
 
     def classify_preview(self, session_id: str) -> dict:
