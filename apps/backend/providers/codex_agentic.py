@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from providers import BaseLLMProvider
+from providers.auth_policy import scrub_api_keys
 from providers.types import AssistantMessage, TextBlock
 
 logger = logging.getLogger(__name__)
@@ -165,8 +166,13 @@ class CodexAgenticProvider(BaseLLMProvider):
         the user's global ``codex login`` state, and leaves that global login
         untouched. With no API key, fall back to the inherited environment so a
         Codex-enabled ChatGPT plan still works.
+
+        The subscription-only policy (default ON; see ``providers.auth_policy``)
+        strips ``OPENAI_API_KEY`` from this subprocess env so Codex runs on the
+        operator's ChatGPT login, never metered API billing. Opt out with
+        ``PFACTORY_ALLOW_API_KEYS=1``.
         """
-        env = dict(os.environ)
+        env = scrub_api_keys(dict(os.environ), "codex")
         api_key = env.get("OPENAI_API_KEY", "").strip()
         if not api_key:
             return env
