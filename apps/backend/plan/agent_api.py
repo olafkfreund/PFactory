@@ -64,6 +64,10 @@ def plan_status(session_id: str) -> dict:
         "board_state": session.board_state(),
         "gates_passed": session.review.gates_passed if session.review else None,
         "needs_human": session.board_state() == "human_review",
+        # PARR correlation chain (#47) — observable once the plan goes terminal.
+        "correlation_key": session.correlation_key,
+        "issue_number": session.emitted_issue_number,
+        "aifactory_task_id": session.aifactory_task_id,
     }
 
 
