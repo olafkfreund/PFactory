@@ -49,8 +49,15 @@ USER root
 #                   deps (libuv etc.) resolve correctly.
 #   ca-certificates — TLS roots
 #   bash          — entrypoint script (will be removed in P0.3)
+#   binutils      — the :latest-dev base bundles binutils 2.46-r1, which carries
+#                   CVE-2026-6846 (HIGH, heap overflow in XCOFF linking; fixed in
+#                   2.46-r2). Force a build-newer rev to clear the P0 Trivy gate
+#                   (test_trivy_no_high_critical). Constraint, not =2.46-r2, so
+#                   the build stays green when Wolfi revs the package further;
+#                   drop this once the base digest ships the fix.
 RUN apk add --no-cache \
         bash \
+        "binutils>2.46-r1" \
         ca-certificates \
         curl \
         git \
