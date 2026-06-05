@@ -40,13 +40,24 @@ class Decomposer(Protocol):
         ...
 
 
-def _llm_complete(llm: object, prompt: str) -> str:
-    """Call an llm object tolerantly, accepting a few common method names."""
+def _llm_call(llm: object, prompt: str) -> tuple[str, object]:
+    """Call an llm object tolerantly, returning ``(text, raw_response)``.
+
+    ``raw_response`` is whatever the call returned (a str, or a richer
+    provider object carrying a ``.usage`` block); callers stringify the text and
+    may extract token usage from the raw response (#60).
+    """
     for attr in ("complete", "generate", "__call__"):
         fn = getattr(llm, attr, None)
         if callable(fn):
-            return str(fn(prompt))
+            raw = fn(prompt)
+            return str(raw), raw
     raise TypeError("llm object has no complete/generate/__call__ method")
+
+
+def _llm_complete(llm: object, prompt: str) -> str:
+    """Back-compat wrapper returning just the completion text."""
+    return _llm_call(llm, prompt)[0]
 
 
 # ── shared helpers ─────────────────────────────────────────────────────────
@@ -256,16 +267,28 @@ def _extract_first_json_object(text: str) -> dict:
 
 
 def decompose_with_llm(
-    plan: NormalizedPlan, descriptor: PlanTypeDescriptor, llm: object
+    plan: NormalizedPlan,
+    descriptor: PlanTypeDescriptor,
+    llm: object,
+    *,
+    usage_sink: list | None = None,
 ) -> EpicPlan:
     """Prompt ``llm`` for an ``EpicPlan`` JSON and parse it.
 
     Falls back to :func:`heuristic_decompose` on any prompt, parse, or
-    validation failure so the stage always yields a usable EpicPlan.
+    validation failure so the stage always yields a usable EpicPlan. When
+    ``usage_sink`` is supplied, the call's token usage (if the response or the
+    llm object exposes any) is appended to it for the run total (#60).
     """
     try:
         prompt = build_decompose_prompt(plan, descriptor)
-        completion = _llm_complete(llm, prompt)
+        completion, raw = _llm_call(llm, prompt)
+        if usage_sink is not None:
+            from plan.usage import usage_from_obj
+
+            recorded = usage_from_obj(raw) or usage_from_obj(llm)
+            if recorded is not None:
+                usage_sink.append(recorded)
         data = _extract_first_json_object(completion)
         data.setdefault("plan_id", plan.plan_id)
         epic = EpicPlan(**data)
@@ -284,15 +307,17 @@ def decompose(
     *,
     descriptor: PlanTypeDescriptor | None = None,
     llm: object | None = None,
+    usage_sink: list | None = None,
 ) -> EpicPlan:
     """Decompose a :class:`NormalizedPlan` into an :class:`EpicPlan`.
 
     Selects the plan-type descriptor when one is not supplied, then routes to the
     LLM seam if an ``llm`` object is given or to the deterministic heuristic
-    otherwise.
+    otherwise. ``usage_sink`` collects the LLM call's token usage when the seam
+    runs (#60); it stays untouched on the deterministic path.
     """
     if descriptor is None:
         descriptor = plan_types.select_for(plan)
     if llm is not None:
-        return decompose_with_llm(plan, descriptor, llm)
+        return decompose_with_llm(plan, descriptor, llm, usage_sink=usage_sink)
     return heuristic_decompose(plan, descriptor)
