@@ -556,3 +556,38 @@ jobs:
       # and uncomment:
       # - name: Lint frontend
       #   run: npm -w apps/frontend-web run lint
+
+  techdocs:
+    name: techdocs (catalog + mkdocs build)
+    runs-on: ubuntu-latest
+    # Guards the Backstage integration: validates catalog-info.yaml +
+    # openapi.yaml + mkdocs nav, then builds the TechDocs site with
+    # --strict. A broken doc must not reach main, where the Backstage
+    # instance (https://p510.tail833f7.ts.net/backstage) builds these
+    # docs on demand from the repo source (techdocs.builder: local).
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install TechDocs toolchain (pinned)
+        # mkdocs-techdocs-core pulls pyyaml + the full mkdocs closure, so
+        # this one venv covers both catalog validation and the build.
+        run: |
+          uv venv .techdocs-venv
+          uv pip install --python .techdocs-venv/bin/python \
+            -r techdocs/requirements.txt
+
+      - name: Validate Backstage catalog
+        run: .techdocs-venv/bin/python scripts/validate-catalog.py
+
+      - name: Build TechDocs (strict)
+        run: .techdocs-venv/bin/mkdocs build --strict
