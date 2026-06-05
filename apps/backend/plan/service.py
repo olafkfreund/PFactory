@@ -31,6 +31,7 @@ from plan.review.gates import run_gates
 from plan.review.models import PlanReview
 from plan.synthesize.models import SynthesizedArtifact
 from plan.synthesize.run import synthesize
+from plan.usage import PlanUsage
 from pydantic import BaseModel, Field
 
 # Lifecycle status. The first five are persisted stages; `processing`/`reviewing`
@@ -91,6 +92,15 @@ class PlanSession(BaseModel):
     correlation_key: str | None = None
     emitted_issue_number: int | None = None   # upstream link — the emitted epic issue#
     aifactory_task_id: str | None = None       # downstream link — the handed-off task
+
+    # Token usage accumulated across the run's LLM seams (#60). Zero by default —
+    # the pipeline is deterministic unless an LLM is supplied — and surfaced as
+    # the additive `usage` block on the completion event (CFactory Tokens page).
+    usage: PlanUsage = Field(default_factory=PlanUsage)
+
+    def record_usage(self, usage: PlanUsage | None) -> None:
+        """Fold an LLM call's usage into the run total (no-op for ``None``)."""
+        self.usage.add(usage)
 
     def board_state(self) -> BoardColumn:
         return board_state(self.status, self.review)
@@ -166,13 +176,18 @@ class PlanService:
 
     # ── process (the pipeline core) ────────────────────────────────────
 
-    def process(self, session_id: str, *, external_runner=None) -> PlanSession:
+    def process(self, session_id: str, *, external_runner=None, llm=None) -> PlanSession:
         """Detect → plan-type → enrich → decompose → synthesize → review gates.
 
         When no ``external_runner`` is supplied, the provider-MCP runner is used by
         default so live runs get provider best-practice findings + suggest-install
         advisories (#3). It never raises and adds no score penalty when providers
         are absent, so the default is safe.
+
+        ``llm`` is the optional decomposer seam: when supplied, decomposition runs
+        through it and its token usage is recorded on the session (#60). Left
+        ``None`` (the default), the pipeline is fully deterministic and usage
+        stays at zero.
         """
         if external_runner is None:
             from plan.providers.review_runner import provider_runner
@@ -185,7 +200,10 @@ class PlanService:
         session.status = "processing"
         plan = self._enrich(plan_type_apply(detect_apply(session.plan)))
         descriptor = select_for(plan)
-        epic = decompose(plan, descriptor=descriptor)
+        usage_sink: list[PlanUsage] = []
+        epic = decompose(plan, descriptor=descriptor, llm=llm, usage_sink=usage_sink)
+        for u in usage_sink:
+            session.record_usage(u)
         artifacts = synthesize(plan, epic, descriptor=descriptor)
 
         # Feasibility (#C): price the proposed shape, estimate effort, verify

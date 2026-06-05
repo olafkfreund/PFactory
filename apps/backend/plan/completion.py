@@ -59,8 +59,14 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
     """The normalized completion-event envelope (Factory#4 RFC).
 
     The six RFC fields, plus a ``correlation`` sub-object carrying the
-    upstream/downstream chain links so a consumer gets the full PARR thread.
+    upstream/downstream chain links so a consumer gets the full PARR thread, plus
+    the additive RFC-0001 v1.1 ``usage`` block (#60) summing the run's LLM token
+    usage + cost — zeros when the pipeline ran deterministically. Additive and
+    optional: consumers that don't know ``usage`` keep working.
     """
+    from plan.usage import PlanUsage
+
+    usage = getattr(session, "usage", None) or PlanUsage()
     return {
         "correlation_key": correlation_key_for(session),
         "service": SERVICE_NAME,
@@ -73,6 +79,7 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
             "issue_number": session.emitted_issue_number,
             "aifactory_task_id": session.aifactory_task_id,
         },
+        "usage": usage.as_event_block(),
     }
 
 
