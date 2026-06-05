@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
 
+from . import env_bootstrap  # noqa: F401  — loads .env into os.environ first
 from .auth import TokenAuthMiddleware
 from .config import get_settings
 from .database.engine import init_db
@@ -27,6 +28,7 @@ from .routes import (
     auth_routes,
     auto_fix,
     capabilities,
+    cloud,
     context,
     email,
     execution,
@@ -38,13 +40,12 @@ from .routes import (
     notifications,
     organizations,
     projects,
-    cloud,
-    visual_inspection,
     provider_runtimes,
     skills,
     tasks,
     terminal,
     test_target_credentials,
+    visual_inspection,
 )
 from .routes import cli_accounts as cli_accounts_routes
 from .routes import llm_endpoints as llm_endpoints_routes
