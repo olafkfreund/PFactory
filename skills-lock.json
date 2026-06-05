@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "app-frontend-system-migration": {
+      "source": "backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "7f2a78375dae9c7ea148cfee343d7ec1a6452f136256458209c2c4e4a9a29938"
+    },
+    "mui-to-bui-migration": {
+      "source": "backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "1d0145b4e56ab15b2466ef057b1b5172b3e2de6838fa48eb3d902e8d6d97e4f7"
+    },
+    "onboard-to-openapi-server": {
+      "source": "backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "6da46d192e96f4c05b674b5421fd8ad6f21fc8632914b11456fbe83c0bac14cc"
+    },
+    "plugin-analytics-instrumentation": {
+      "source": "backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "b40326b59c2e6d59d781d0d619c4cbae85d833208241e2a700f5dc6af29fbff0"
+    },
+    "plugin-full-frontend-system-migration": {
+      "source": "backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "736da168b02ec38123ef7e15d268c8ca1ce513825477041249c59331a54ad83c"
+    },
+    "plugin-new-frontend-system-support": {
+      "source": "backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "334795204db9f7447d085cf413035bf2b3399a3265353c5a2ef456cf755eed5d"
+    }
+  }
+}
