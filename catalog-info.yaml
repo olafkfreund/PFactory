@@ -15,6 +15,8 @@ metadata:
     backstage.io/techdocs-ref: dir:.
     github.com/project-slug: olafkfreund/PFactory
     backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/
+    backstage.io/view-url: https://github.com/olafkfreund/PFactory/blob/main/catalog-info.yaml
+    backstage.io/edit-url: https://github.com/olafkfreund/PFactory/edit/main/catalog-info.yaml
   tags:
     - python
     - fastapi
@@ -22,10 +24,24 @@ metadata:
     - governance
     - mcp
     - ai
+    - feasibility
+    - factory-suite
   links:
     - url: https://pfactory.freundcloud.com/
       title: Website
       icon: web
+    - url: https://pfactory.freundcloud.com/blog
+      title: Blog
+      icon: docs
+    - url: https://pfactory.freundcloud.com/roadmap
+      title: Roadmap
+      icon: docs
+    - url: https://github.com/olafkfreund/PFactory/issues
+      title: Issues
+      icon: github
+    - url: https://github.com/olafkfreund/PFactory/issues/33
+      title: Active epic (#33)
+      icon: github
 spec:
   type: service
   lifecycle: experimental
@@ -46,11 +62,18 @@ metadata:
   annotations:
     github.com/project-slug: olafkfreund/PFactory
     backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/tree/main/apps/frontend-web/
+    backstage.io/techdocs-entity: component:default/pfactory
+    backstage.io/view-url: https://github.com/olafkfreund/PFactory/blob/main/catalog-info.yaml
+    backstage.io/edit-url: https://github.com/olafkfreund/PFactory/edit/main/catalog-info.yaml
   tags:
     - react
     - typescript
     - vite
     - frontend
+  links:
+    - url: https://pfactory.freundcloud.com/
+      title: Website
+      icon: web
 spec:
   type: website
   lifecycle: experimental
@@ -70,7 +93,11 @@ metadata:
     Curated summary of PFactory's REST surface. The live /openapi.json served by
     the FastAPI app is the source of truth.
   annotations:
-    backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/
+    github.com/project-slug: olafkfreund/PFactory
+    backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/blob/main/openapi.yaml
+    backstage.io/techdocs-entity: component:default/pfactory
+    backstage.io/view-url: https://github.com/olafkfreund/PFactory/blob/main/openapi.yaml
+    backstage.io/edit-url: https://github.com/olafkfreund/PFactory/edit/main/openapi.yaml
   tags:
     - rest
     - openapi
@@ -90,7 +117,11 @@ metadata:
     stdio JSON-RPC MCP server (name "pfactory") exposing the pipeline as
     mcp__pfactory__* tools for Claude Code and other agents.
   annotations:
+    github.com/project-slug: olafkfreund/PFactory
     backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/tree/main/apps/backend/mcp_server/
+    backstage.io/techdocs-entity: component:default/pfactory
+    backstage.io/view-url: https://github.com/olafkfreund/PFactory/blob/main/catalog-info.yaml
+    backstage.io/edit-url: https://github.com/olafkfreund/PFactory/edit/main/catalog-info.yaml
   tags:
     - mcp
     - jsonrpc
