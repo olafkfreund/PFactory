@@ -1,0 +1,17 @@
+site_name: PFactory
+site_description: >-
+  Planning & governance incubator for the agentic SDLC — architecture,
+  dependencies, decisions and API.
+
+# docs/ is the public Jekyll site; Backstage TechDocs lives in techdocs/.
+docs_dir: techdocs
+
+plugins:
+  - techdocs-core
+
+nav:
+  - Overview: index.md
+  - Architecture: architecture.md
+  - Dependencies: dependencies.md
+  - Decisions: decisions.md
+  - API & MCP: api.md

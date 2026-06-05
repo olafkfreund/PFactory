@@ -1,0 +1,114 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: pfactory
+  title: PFactory
+  description: >-
+    Planning & governance incubator — enriches plans with live org/cloud context,
+    runs review gates with citations, records human approval, and emits governed
+    GitHub issues. The Prepare/Plan stage of the Factory PARR pipeline.
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: olafkfreund/PFactory
+    backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/
+  tags:
+    - python
+    - fastapi
+    - planning
+    - governance
+    - mcp
+    - ai
+  links:
+    - url: https://pfactory.freundcloud.com/
+      title: Website
+      icon: web
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/factory-maintainers
+  system: factory-suite
+  providesApis:
+    - pfactory-api
+    - pfactory-mcp
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: pfactory-portal
+  title: PFactory Portal
+  description: >-
+    React 19 + Vite browser portal for PFactory — drives the plan-session
+    lifecycle (ingest → process → approve → emit) over the REST/WebSocket API.
+  annotations:
+    github.com/project-slug: olafkfreund/PFactory
+    backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/tree/main/apps/frontend-web/
+  tags:
+    - react
+    - typescript
+    - vite
+    - frontend
+spec:
+  type: website
+  lifecycle: experimental
+  owner: group:default/factory-maintainers
+  system: factory-suite
+  consumesApis:
+    - pfactory-api
+    - pfactory-mcp
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: pfactory-api
+  title: PFactory API
+  description: >-
+    Curated summary of PFactory's REST surface. The live /openapi.json served by
+    the FastAPI app is the source of truth.
+  annotations:
+    backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/
+  tags:
+    - rest
+    - openapi
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:default/factory-maintainers
+  system: factory-suite
+  definition:
+    $text: ./openapi.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: pfactory-mcp
+  title: PFactory MCP Control Plane
+  description: >-
+    stdio JSON-RPC MCP server (name "pfactory") exposing the pipeline as
+    mcp__pfactory__* tools for Claude Code and other agents.
+  annotations:
+    backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/tree/main/apps/backend/mcp_server/
+  tags:
+    - mcp
+    - jsonrpc
+spec:
+  type: mcp
+  lifecycle: experimental
+  owner: group:default/factory-maintainers
+  system: factory-suite
+  definition: |
+    PFactory MCP control plane (Model Context Protocol over stdio JSON-RPC).
+
+    Server name: "pfactory"
+    Launch:      scripts/start-pfactory-mcp.sh  (referenced by repo-root .mcp.json)
+    Entrypoint:  apps/backend/mcp_server/pfactory_server.py
+
+    Environment:
+      PFACTORY_PROJECT_DIR        repo root (set by Claude Code)
+      PFACTORY_SPEC_DIR / --spec-dir   active spec directory (re-read per call)
+      PFACTORY_API_URL            default http://localhost:3114
+      PFACTORY_API_TOKEN_FILE     default ~/.pfactory/.token
+
+    Tools are namespaced mcp__pfactory__* and assembled per session from the
+    subtask, progress, memory and QA tool factories
+    (apps/backend/agents/tools_pkg/registry.py).
