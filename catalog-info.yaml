@@ -1,3 +1,6 @@
+# Backstage software-catalog descriptor for PFactory.
+# Hand-maintained (supersedes the auto-generated stub from the catalog-onboard
+# workflow, #55). Registered at https://p510.tail833f7.ts.net/backstage.
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -26,8 +29,8 @@ metadata:
 spec:
   type: service
   lifecycle: experimental
-  owner: group:default/factory-maintainers
-  system: factory-suite
+  owner: olafkfreund
+  domain: public
   providesApis:
     - pfactory-api
     - pfactory-mcp
@@ -51,8 +54,8 @@ metadata:
 spec:
   type: website
   lifecycle: experimental
-  owner: group:default/factory-maintainers
-  system: factory-suite
+  owner: olafkfreund
+  domain: public
   consumesApis:
     - pfactory-api
     - pfactory-mcp
@@ -73,8 +76,7 @@ metadata:
 spec:
   type: openapi
   lifecycle: experimental
-  owner: group:default/factory-maintainers
-  system: factory-suite
+  owner: olafkfreund
   definition:
     $text: ./openapi.yaml
 ---
@@ -94,8 +96,7 @@ metadata:
 spec:
   type: mcp
   lifecycle: experimental
-  owner: group:default/factory-maintainers
-  system: factory-suite
+  owner: olafkfreund
   definition: |
     PFactory MCP control plane (Model Context Protocol over stdio JSON-RPC).
 
