@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0 — Backstage onboarding + observability instrumentation (2026-06-05)
+
+> Make PFactory a first-class citizen of the platform: register it in the
+> Backstage software catalog with TechDocs, and start emitting the token
+> usage CFactory needs to attribute cost across the Factory family.
+
+- **Completion-event token usage (#60).** PFactory's completion event to
+  CFactory `/api/events` now carries the additive RFC-0001 v1.1 `usage` block
+  (`input_tokens` · `output_tokens` · `total_tokens` · `cost_usd` · `model`),
+  so the cockpit **Tokens & cost** page can attribute spend to PFactory instead
+  of showing it as *"not instrumented yet."* A new zeros-safe `PlanUsage`
+  accumulator (`plan/usage.py`) sums the Plan run's LLM seams; the block is
+  honestly zero on the deterministic path and reports real tokens/cost the
+  moment an LLM seam runs. Additive and optional — no schema break.
+- **Backstage catalog + TechDocs (#55–#59).** PFactory is onboarded to the
+  Backstage software catalog with enriched annotations, a `pfactory-portal`
+  component (`subcomponentOf pfactory`), TechDocs (MkDocs) wired with a
+  strict-build, CI catalog validation, and the Backstage AI skills installed.
+- **Port move (#54).** The portal moves to **3114** (backend) / **3115**
+  (frontend) to avoid local collisions across the Factory suite.
+
 ## 0.5.0 — Bidirectional AIFactory ↔ PFactory integration (2026-06-03)
 
 > Close the loop with AIFactory: when PFactory's tests find problems, hand a
