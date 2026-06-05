@@ -29,6 +29,20 @@ Feasibility + Review-gates → Human-approval → Emit`) is delivered:
 | **P7 — Ship** ✅ | The planning portal UI, Helm chart, Docker images, and MCP server. |
 | **P8 — Providers &amp; templates** ✅ | Cloud / IaC best-practice MCP servers, the declarative registry, Backstage-compatible templates with embedded policy, and the living-template drift watcher. |
 
+## Recently shipped — 0.6.0 (2026-06-05)
+
+Hardening the gate's own platform footprint and observability
+([changelog](https://github.com/olafkfreund/PFactory/blob/main/CHANGELOG.md)):
+
+- **Observability** — completion events now carry the additive RFC-0001 `usage`
+  block (tokens · cost · model), so [CFactory](https://github.com/olafkfreund/CFactory)'s
+  *Tokens & cost* page attributes spend to PFactory
+  ([#60](https://github.com/olafkfreund/PFactory/issues/60)).
+- **Backstage** — PFactory is onboarded to the software catalog with a
+  `pfactory-portal` sub-component, strict-build TechDocs, and CI catalog
+  validation (#55–#59).
+- **Ports** — portal moved to 3114 (backend) / 3115 (frontend) (#54).
+
 ## What's next
 
 With the engine shipped, the focus shifts from *building* to *proving and
