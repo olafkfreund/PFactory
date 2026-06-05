@@ -60,6 +60,10 @@ result-*
 .devenv/
 .devenv.flake.nix
 
+# Backstage TechDocs (mkdocs build output + toolchain venv)
+/site/
+.techdocs-venv/
+
 # Jekyll local builds (Pages builds remotely)
 docs/_site/
 docs/.jekyll-cache/

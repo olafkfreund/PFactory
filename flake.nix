@@ -18,6 +18,10 @@
       mkDevShell = system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          # Python 3.13 with pyyaml on the base interpreter so `catalog-validate`
+          # works straight from the devShell — no venv needed. The backend's own
+          # deps still live in the isolated apps/backend/.venv (uv).
+          pythonWithDocs = pkgs.python313.withPackages (ps: with ps; [ pyyaml ]);
         in
         pkgs.mkShell {
           name = "pfactory-dev";
@@ -27,19 +31,20 @@
           # ────────────────────────────────────────────────────────────
           packages = with pkgs; [
             # Languages
-            python313
+            pythonWithDocs # python3.13 + pyyaml (catalog-validate, scripts)
             nodejs_22
 
-            # Python tooling — uv backs `bootstrap-venv`
+            # Python tooling — uv backs `bootstrap-venv` + `techdocs-build`
             uv
 
             # Core dev tools
             git
-            gh           # GitHub CLI
-            just         # Justfile runner
-            ripgrep      # used by scripts/verify-fork.sh
-            jq           # JSON in shell scripts
-            direnv       # auto-loading via .envrc
+            gh # GitHub CLI
+            just # Justfile runner
+            ripgrep # used by scripts/verify-fork.sh
+            jq # JSON in shell scripts
+            yamllint # lint catalog-info.yaml / openapi.yaml / mkdocs.yml
+            direnv # auto-loading via .envrc
 
             # Container runtime — DockerRunner (Task 4) shells out to `docker`.
             # The daemon must be running on the host; this is the CLI shim.
@@ -133,7 +138,47 @@
               bash scripts/verify-fork.sh "$@"
             }
 
-            export -f bootstrap-venv pfactory-minimal-venv pfactory-test verify-fork
+            # techdocs-venv — create .techdocs-venv with the pinned Backstage
+            # TechDocs toolchain (mkdocs-techdocs-core). Not in nixpkgs, so it
+            # lives in a uv venv like the backend. Idempotent.
+            techdocs-venv() {
+              set -e
+              cd "$PFACTORY_ROOT"
+              if [ ! -x .techdocs-venv/bin/mkdocs ]; then
+                echo "Creating .techdocs-venv (Backstage TechDocs toolchain) …"
+                uv venv .techdocs-venv --python python3.13
+                uv pip install --python .techdocs-venv/bin/python \
+                  -r techdocs/requirements.txt
+              fi
+            }
+
+            # techdocs-build — build the TechDocs site exactly as Backstage does
+            # (techdocs-core plugin, --strict). Output: ./site/.
+            techdocs-build() {
+              techdocs-venv
+              cd "$PFACTORY_ROOT"
+              .techdocs-venv/bin/mkdocs build --strict "$@"
+              echo "TechDocs built → $PFACTORY_ROOT/site/"
+            }
+
+            # techdocs-serve — live preview at http://localhost:8000.
+            techdocs-serve() {
+              techdocs-venv
+              cd "$PFACTORY_ROOT"
+              .techdocs-venv/bin/mkdocs serve "$@"
+            }
+
+            # catalog-validate — parse + sanity-check the Backstage catalog,
+            # OpenAPI spec and mkdocs nav (pure Nix python, no venv needed).
+            catalog-validate() {
+              cd "$PFACTORY_ROOT"
+              yamllint -d relaxed catalog-info.yaml openapi.yaml mkdocs.yml || true
+              python scripts/validate-catalog.py
+            }
+
+            export -f bootstrap-venv pfactory-minimal-venv pfactory-test \
+              verify-fork techdocs-venv techdocs-build techdocs-serve \
+              catalog-validate
 
             echo ""
             echo "  PFactory devshell  ──────────────────────────────"
@@ -144,6 +189,8 @@
             echo "  ───────────────────────────────────────────────────"
             echo "  shell fns:  bootstrap-venv  pfactory-minimal-venv"
             echo "              pfactory-test   verify-fork"
+            echo "  techdocs :  techdocs-build  techdocs-serve"
+            echo "              catalog-validate"
             echo "  ───────────────────────────────────────────────────"
             echo ""
           '';

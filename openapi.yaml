@@ -1,0 +1,383 @@
+openapi: 3.0.3
+info:
+  title: PFactory Web API
+  version: 0.5.0
+  description: >-
+    Curated summary of PFactory's REST surface — the planning & governance gate
+    that ingests a plan, enriches it with live org/cloud context, runs review
+    gates, records human approval, and emits governed GitHub issues.
+
+
+    This document is a **hand-curated subset** intended for the Backstage catalog.
+    The authoritative, always-current contract is the live OpenAPI document the
+    FastAPI app serves at `GET /openapi.json` (Swagger UI at `/docs`, ReDoc at
+    `/redoc` when `APP_DEBUG=true`).
+  license:
+    name: MIT OR GPL-3.0
+  contact:
+    name: DataSeek Team
+    url: https://github.com/olafkfreund/PFactory
+
+servers:
+  - url: http://localhost:3114
+    description: Local development (default APP_PORT)
+  - url: https://pfactory.freundcloud.com
+    description: Hosted portal
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Health
+    description: Liveness / readiness.
+  - name: Plan Pipeline
+    description: >-
+      The core product surface — the plan session lifecycle: ingest → process
+      (enrich · detect · decompose · synthesize · feasibility · review gates ·
+      annotate) → human approve/reject → emit governed GitHub issues.
+  - name: Plan Intake
+    description: Stateless ingestion helpers that normalize a plan into canonical form.
+  - name: Plan Metadata
+    description: Registry of templates, categories, providers and enrichment adapters.
+  - name: Projects
+    description: Project registration and discovery.
+  - name: Tasks
+    description: Task lifecycle over the workspace (read-mostly portal surface).
+  - name: Capabilities
+    description: Runtime capability probe (installed CLIs, providers, MCP).
+  - name: Cloud
+    description: Read-only cloud posture assessment (AWS / Azure / GCP).
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /api/plan/sessions:
+    get:
+      tags: [Plan Pipeline]
+      summary: List plan sessions
+      responses:
+        '200':
+          description: All known plan sessions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PlanSession' }
+
+  /api/plan/sessions/ingest-text:
+    post:
+      tags: [Plan Pipeline]
+      summary: Create a plan session from raw text/markdown
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IngestTextRequest' }
+      responses:
+        '200':
+          description: Session created with a normalized plan.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanSession' }
+
+  /api/plan/sessions/ingest:
+    post:
+      tags: [Plan Pipeline]
+      summary: Create a plan session from an uploaded document (PDF / DOCX / MD)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Session created with a normalized plan.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanSession' }
+
+  /api/plan/sessions/{session_id}:
+    get:
+      tags: [Plan Pipeline]
+      summary: Get a plan session
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: The plan session and its current state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanSession' }
+        '404':
+          description: Session not found.
+
+  /api/plan/sessions/{session_id}/process:
+    post:
+      tags: [Plan Pipeline]
+      summary: Run the planning pipeline for a session
+      description: >-
+        Runs enrich → detect → decompose → synthesize → feasibility → review
+        gates → annotate. Produces decomposed epics + child issues and cited
+        review verdicts. Idempotent per content hash.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Pipeline completed; session advanced to awaiting approval.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanSession' }
+
+  /api/plan/sessions/{session_id}/approve:
+    post:
+      tags: [Plan Pipeline]
+      summary: Record human approval (governance gate)
+      description: The mandatory human approval that unlocks emission.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalRequest' }
+      responses:
+        '200':
+          description: Approval recorded; session ready to emit.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanSession' }
+
+  /api/plan/sessions/{session_id}/reject:
+    post:
+      tags: [Plan Pipeline]
+      summary: Reject the plan (governance gate)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalRequest' }
+      responses:
+        '200':
+          description: Rejection recorded; emission blocked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanSession' }
+
+  /api/plan/sessions/{session_id}/emit:
+    post:
+      tags: [Plan Pipeline]
+      summary: Emit governed GitHub epics + child issues
+      description: >-
+        Requires a prior approval. Creates tagged GitHub epics and child issues
+        and (optionally) triggers AIFactory's create-and-run API.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Issues emitted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmitResult' }
+        '409':
+          description: Session not approved — emission blocked.
+
+  /api/plan/meta/registry:
+    get:
+      tags: [Plan Metadata]
+      summary: Plan framework / pipeline registry
+      responses:
+        '200': { description: Registry document. }
+  /api/plan/meta/templates:
+    get:
+      tags: [Plan Metadata]
+      summary: Available plan templates
+      responses:
+        '200': { description: Template list. }
+  /api/plan/meta/categories:
+    get:
+      tags: [Plan Metadata]
+      summary: Template categories
+      responses:
+        '200': { description: Category list. }
+  /api/plan/meta/providers:
+    get:
+      tags: [Plan Metadata]
+      summary: Configured LLM providers
+      responses:
+        '200': { description: Provider list. }
+  /api/plan/meta/adapters:
+    get:
+      tags: [Plan Metadata]
+      summary: Enrichment adapters (cloud / catalog / knowledge)
+      responses:
+        '200': { description: Adapter list. }
+
+  /api/projects:
+    get:
+      tags: [Projects]
+      summary: List registered projects
+      responses:
+        '200': { description: Project list. }
+    post:
+      tags: [Projects]
+      summary: Register a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path: { type: string }
+                name: { type: string }
+      responses:
+        '200': { description: Project registered. }
+
+  /api/capabilities:
+    get:
+      tags: [Capabilities]
+      summary: Probe runtime capabilities
+      description: Installed CLIs, available providers, MCP availability.
+      responses:
+        '200': { description: Capability map. }
+
+  /api/cloud/assess:
+    post:
+      tags: [Cloud]
+      summary: Run a read-only cloud posture assessment
+      description: >-
+        access gate → discovery → topology → Prowler/CIS scan (OCSF) →
+        accept/flag/reject verdict → remediation plan. Supports AWS, Azure, GCP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum: [aws, azure, gcp]
+      responses:
+        '200': { description: Assessment verdict + remediation plan. }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        Bearer token from `~/.pfactory/.token` (auto-generated on first server
+        start, or fixed via `APP_API_TOKEN`).
+
+  parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema: { type: string }
+      description: Plan session identifier.
+
+  schemas:
+    IngestTextRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: Raw plan content (markdown / Gherkin / EARS / prose).
+        title:
+          type: string
+        source:
+          type: string
+          description: Origin label (e.g. spec-kit, kiro, bmad, manual).
+
+    ApprovalRequest:
+      type: object
+      properties:
+        approver:
+          type: string
+        note:
+          type: string
+
+    NormalizedPlan:
+      type: object
+      description: Canonical plan model produced by ingestion.
+      properties:
+        id: { type: string }
+        title: { type: string }
+        criteria:
+          type: array
+          items: { type: string }
+          description: Acceptance criteria.
+        enrichment:
+          type: object
+          description: Live-context enrichment attached during processing.
+        content_hash:
+          type: string
+          description: Stable hash used for idempotency.
+
+    ReviewVerdict:
+      type: object
+      description: A single cited review-gate verdict.
+      properties:
+        gate:
+          type: string
+          enum: [architecture, security, best-practices, feasibility]
+        verdict:
+          type: string
+          enum: [accept, flag, reject]
+        rationale: { type: string }
+        citations:
+          type: array
+          items: { type: string }
+
+    PlanSession:
+      type: object
+      properties:
+        session_id: { type: string }
+        status:
+          type: string
+          enum: [ingested, processing, awaiting_approval, approved, rejected, emitted, failed]
+        plan: { $ref: '#/components/schemas/NormalizedPlan' }
+        verdicts:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewVerdict' }
+        epics:
+          type: array
+          items: { type: object }
+          description: Decomposed epics + child issues.
+
+    EmitResult:
+      type: object
+      properties:
+        session_id: { type: string }
+        issues:
+          type: array
+          items:
+            type: object
+            properties:
+              number: { type: integer }
+              url: { type: string }
+              kind: { type: string, enum: [epic, child] }
+        aifactory_triggered: { type: boolean }

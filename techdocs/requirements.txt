@@ -1,0 +1,12 @@
+# Backstage TechDocs build toolchain — pinned for reproducibility.
+#
+# mkdocs-techdocs-core is the plugin Backstage's TechDocs uses; it transitively
+# pins its own dependency set (mkdocs, mkdocs-material, pymdown-extensions, …)
+# with exact `==` versions, so this single top-level pin fixes the whole closure.
+#
+# It is NOT in nixpkgs (and pins several deps to versions nixpkgs doesn't carry),
+# so it is installed into a dedicated .techdocs-venv via uv rather than the Nix
+# store. The Nix devShell provides the Python 3.13 interpreter + native libs.
+#
+# Use from the devShell:  techdocs-build   (or techdocs-serve)
+mkdocs-techdocs-core==1.6.2
