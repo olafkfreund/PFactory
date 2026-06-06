@@ -9,6 +9,7 @@ import { cn, formatRelativeTime, sanitizeMarkdownForDisplay, extractTaskNumber, 
 import { PhaseProgressIndicator } from './PhaseProgressIndicator';
 import { CardPhaseStrip } from './pipeline/CardPhaseStrip';
 import { CardStatusSticker } from './pipeline/CardStatusSticker';
+import { CardLogDrawer } from './pipeline/CardLogDrawer';
 import {
   TASK_CATEGORY_LABELS,
   TASK_CATEGORY_COLORS,
@@ -471,6 +472,10 @@ export const TaskCard = memo(function TaskCard({ task, onClick }: TaskCardProps)
 
         {/* Execution phase strip — appended before footer, never crashes on missing data */}
         <CardPhaseStrip task={task} />
+
+        {/* In-card live log drawer — only visible while task is in_progress.
+            Lazy-mounts the subscription; stopPropagation inside prevents DnD. */}
+        <CardLogDrawer task={task} />
 
         {/* Footer */}
         <div className="mt-4 flex items-center justify-between">

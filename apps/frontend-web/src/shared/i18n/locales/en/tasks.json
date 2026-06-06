@@ -195,6 +195,14 @@
     "raceLostDismiss": "OK",
     "headerHint": "Read-only mirror of the agent's terminal. Click Attach to take control."
   },
+  "cardLog": {
+    "showLog": "Show live log",
+    "hideLog": "Hide live log",
+    "live": "live",
+    "loading": "Loading…",
+    "waiting": "Waiting for output…",
+    "logRegionLabel": "Live agent output"
+  },
   "delegation": {
     "enableLabel": "Delegate coding to the project's autonomous agent",
     "enableHelp": "PFactory still plans the spec, then hands the issue to GitHub Copilot Coding Agent (GitHub projects) or GitLab Duo Workflow (GitLab projects) for implementation. Uses your Copilot/Duo seat — no extra Claude tokens spent on coding.",

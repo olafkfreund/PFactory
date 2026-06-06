@@ -162,6 +162,14 @@
     "createdSuccessfully": "criada com sucesso",
     "failed": "Falha ao criar PR"
   },
+  "cardLog": {
+    "showLog": "Mostrar log ao vivo",
+    "hideLog": "Ocultar log ao vivo",
+    "live": "live",
+    "loading": "Carregando…",
+    "waiting": "Aguardando saída…",
+    "logRegionLabel": "Saída do agente em tempo real"
+  },
   "notifications": {
     "profileSwitch": {
       "title": "Perfil do Claude alterado",
