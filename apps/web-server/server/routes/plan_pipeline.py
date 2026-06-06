@@ -17,6 +17,7 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import SERVICE, PlanServiceError  # noqa: E402
 
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
@@ -38,6 +39,12 @@ class ApproveBody(BaseModel):
 class RejectBody(BaseModel):
     approver: str
     feedback: str
+
+
+class WaiveBody(BaseModel):
+    check_ids: list[str]
+    reason: str
+    waived_by: str
 
 
 class EmitBody(BaseModel):
@@ -143,6 +150,22 @@ async def approve(session_id: str, body: ApproveBody) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:  # ApprovalError (gates not passed)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/waive")
+async def waive(session_id: str, body: WaiveBody) -> dict:
+    """Record a human waiver of hard readiness failures (#77).
+
+    The serialized session carries the updated ``review.readiness`` so the portal
+    can reflect that the waived check no longer blocks emission.
+    """
+    try:
+        return _session_dict(SERVICE.waive(
+            session_id, check_ids=body.check_ids, reason=body.reason,
+            waived_by=body.waived_by,
+        ))
+    except (PlanServiceError, WaiverError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{session_id}/reject")

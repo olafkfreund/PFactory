@@ -344,6 +344,23 @@ class PlanService:
         session.status = "approved"
         return session
 
+    def waive(self, session_id: str, *, check_ids: list[str], reason: str,
+              waived_by: str) -> PlanSession:
+        """Record a human waiver of one or more hard readiness failures (#77).
+
+        Mirrors :meth:`approve`'s shape: requires the plan to have been processed
+        (so a readiness report exists). Lets :class:`WaiverError` propagate — the
+        route maps it to 400.
+        """
+        from plan.review.readiness.waiver import waive as waive_review
+
+        session = self.get(session_id)
+        if session.review is None:
+            raise PlanServiceError("process the plan before waiving")
+        waive_review(session.review, session.plan, check_ids=check_ids,
+                     reason=reason, waived_by=waived_by)
+        return session
+
     def reject(self, session_id: str, *, approver: str, feedback: str) -> PlanSession:
         session = self.get(session_id)
         if session.review is None:
