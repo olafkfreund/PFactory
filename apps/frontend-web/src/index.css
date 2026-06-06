@@ -624,3 +624,242 @@ body {
   /* Keep the package visible mid-connector so users know it exists */
   .rail-pkg  { opacity: 0.85; left: 50%; }
 }
+
+/* ============================================
+   Card Phase Strip — per-card execution pipeline chips (issue #78, phase 2)
+   Renders a row of small phase chips at the bottom of a TaskCard.
+   Per-chip accent driven by CSS custom property --cp (set inline per phase).
+   Gruvbox palette. Honours prefers-reduced-motion globally via the block above.
+   ============================================ */
+
+/* ── Strip container ── */
+.cardphase-strip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding-top: 10px;
+  margin-top: 6px;
+  border-top: 1px solid hsl(var(--border));
+  overflow: hidden;
+}
+
+/* Each strip item = chip + optional separator dot */
+.cardphase-strip-item {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Single phase chip ── */
+.cardphase-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px 2px 4px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  transition: color 200ms, background 200ms, border-color 200ms;
+  /* --cp is set inline per chip in CardPhaseStrip.tsx */
+}
+
+/* Dot / icon wrapper */
+.cardphase-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  transition: background 200ms;
+}
+
+/* Tiny check/x icon inside the dot */
+.cardphase-icon {
+  width: 7px;
+  height: 7px;
+}
+
+/* Short text label */
+.cardphase-label {
+  line-height: 1;
+  opacity: 0.9;
+}
+
+/* Separator dot between chips */
+.cardphase-sep {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: hsl(var(--border));
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+/* ── State: pending ── */
+.cardphase-chip--pending {
+  color: hsl(var(--muted-foreground));
+  opacity: 0.55;
+}
+.cardphase-chip--pending .cardphase-dot {
+  background: hsl(var(--border));
+}
+
+/* ── State: done ── */
+.cardphase-chip--done {
+  color: var(--cp, #b8bb26);
+  background: color-mix(in srgb, var(--cp, #b8bb26) 10%, transparent);
+  border-color: color-mix(in srgb, var(--cp, #b8bb26) 25%, transparent);
+}
+.cardphase-chip--done .cardphase-dot {
+  background: color-mix(in srgb, var(--cp, #b8bb26) 30%, transparent);
+  color: var(--cp, #b8bb26);
+}
+
+/* ── State: active — glowing halo pulse ── */
+.cardphase-chip--active {
+  color: var(--cp, #fe8019);
+  background: color-mix(in srgb, var(--cp, #fe8019) 12%, transparent);
+  border-color: color-mix(in srgb, var(--cp, #fe8019) 40%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--cp, #fe8019) 30%, transparent);
+}
+.cardphase-chip--active .cardphase-dot {
+  background: color-mix(in srgb, var(--cp, #fe8019) 25%, transparent);
+  color: var(--cp, #fe8019);
+  animation: cardphase-dot-pulse 1.6s ease-in-out infinite;
+}
+
+/* Glowing halo ring — absolutely positioned behind the chip */
+.cardphase-pulse-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 6px;
+  border: 1.5px solid color-mix(in srgb, var(--cp, #fe8019) 55%, transparent);
+  animation: cardphase-halo-pulse 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── State: failed ── */
+.cardphase-chip--failed {
+  color: #fb4934;
+  background: color-mix(in srgb, #fb4934 10%, transparent);
+  border-color: color-mix(in srgb, #fb4934 30%, transparent);
+}
+.cardphase-chip--failed .cardphase-dot {
+  background: color-mix(in srgb, #fb4934 22%, transparent);
+  color: #fb4934;
+}
+
+/* ── Keyframes ── */
+@keyframes cardphase-dot-pulse {
+  0%, 100% { transform: scale(1);    opacity: 0.85; }
+  50%       { transform: scale(1.25); opacity: 1; }
+}
+@keyframes cardphase-halo-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%       { opacity: 0.9; transform: scale(1.05); }
+}
+
+/* ── prefers-reduced-motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .cardphase-chip--active .cardphase-dot,
+  .cardphase-pulse-ring { animation: none !important; }
+  /* Keep the glow visible even without animation */
+  .cardphase-pulse-ring { opacity: 0.6; }
+}
+
+/* ============================================
+   Card Status Sticker — robot success/failure overlay (issue #78, phase 2)
+   Absolutely positioned in the top-right corner of TaskCard.
+   Success: Bot + ThumbsUp in Gruvbox green, pop-in animation.
+   Failure: Bot + ThumbsDown in Gruvbox red + semi-transparent ✗ stamp.
+   Honours prefers-reduced-motion globally.
+   ============================================ */
+
+/* ── Sticker wrapper — corner overlay ── */
+.cardsticker {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  backdrop-filter: blur(2px);
+  z-index: 5;
+  /* Pop-in on mount */
+  animation: cardsticker-pop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Bot icon */
+.cardsticker-bot {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Thumb icon */
+.cardsticker-thumb {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
+/* Semi-transparent ✗ stamp (failure only) */
+.cardsticker-stamp {
+  position: absolute;
+  bottom: -4px;
+  right: -2px;
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 900;
+  color: #fb4934;
+  opacity: 0.22;
+  pointer-events: none;
+  user-select: none;
+  animation: cardsticker-stamp-in 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Success variant ── */
+.cardsticker--success {
+  color: #b8bb26;
+  background: color-mix(in srgb, #b8bb26 12%, hsl(var(--card)));
+  border-color: color-mix(in srgb, #b8bb26 30%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, #b8bb26 20%, transparent);
+}
+
+/* ── Failure variant ── */
+.cardsticker--failure {
+  color: #fb4934;
+  background: color-mix(in srgb, #fb4934 10%, hsl(var(--card)));
+  border-color: color-mix(in srgb, #fb4934 28%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, #fb4934 18%, transparent);
+}
+
+/* ── Keyframes ── */
+@keyframes cardsticker-pop {
+  0%   { transform: scale(0.4) rotate(-12deg); opacity: 0; }
+  65%  { transform: scale(1.12) rotate(4deg);  opacity: 1; }
+  100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
+}
+@keyframes cardsticker-stamp-in {
+  0%   { transform: scale(2.5) rotate(-20deg); opacity: 0; }
+  100% { transform: scale(1)   rotate(-6deg);  opacity: 0.22; }
+}
+
+/* ── prefers-reduced-motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .cardsticker,
+  .cardsticker-stamp { animation: none !important; }
+}
