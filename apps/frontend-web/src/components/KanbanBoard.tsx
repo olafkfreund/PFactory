@@ -19,7 +19,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
-import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, RefreshCw } from 'lucide-react';
+import { Plus, Inbox, Loader2, Bot, UserCheck, CheckCircle2, Archive, RefreshCw } from 'lucide-react';
 import { toast } from '../hooks/use-toast';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
@@ -104,42 +104,82 @@ function droppableColumnPropsAreEqual(
   return tasksEqual;
 }
 
-// Empty state content for each column
+// Per-stage accent (Gruvbox) + the medallion's stage-specific animation class.
+const STAGE_ACCENT: Record<TaskStatus, string> = {
+  backlog: '#a89984',      // gray  — calm, no animation
+  in_progress: '#fe8019',  // orange — spinning ring (working)
+  ai_review: '#d3869b',    // purple — scanning bot
+  human_review: '#83a598', // blue  — breathing (awaiting you)
+  done: '#b8bb26'          // green — settled ring + glow
+};
+
+const STAGE_ANIM: Record<TaskStatus, string> = {
+  backlog: '',
+  in_progress: 'medallion--spin',
+  ai_review: 'medallion--scan',
+  human_review: 'medallion--pulse',
+  done: 'medallion--done'
+};
+
+/** Animated stage indicator: an accent ring + stage icon conveying the stage. */
+function StageMedallion({ status, icon }: { status: TaskStatus; icon: React.ReactNode }) {
+  return (
+    <div
+      className={cn('stage-medallion', STAGE_ANIM[status])}
+      style={{ ['--mc' as string]: STAGE_ACCENT[status] }}
+      aria-hidden="true"
+    >
+      <svg className="stage-medallion__ring" viewBox="0 0 60 60">
+        <circle className="stage-medallion__track" cx="30" cy="30" r="27" />
+        <circle
+          className="stage-medallion__arc"
+          cx="30"
+          cy="30"
+          r="27"
+          transform="rotate(-90 30 30)"
+        />
+      </svg>
+      <div className="stage-medallion__icon">{icon}</div>
+    </div>
+  );
+}
+
+// Empty state content for each column (icon colour inherits the medallion accent).
 const getEmptyStateContent = (status: TaskStatus, t: (key: string) => string): { icon: React.ReactNode; message: string; subtext?: string } => {
   switch (status) {
     case 'backlog':
       return {
-        icon: <Inbox className="h-6 w-6 text-muted-foreground/50" />,
+        icon: <Inbox />,
         message: t('kanban.emptyBacklog'),
         subtext: t('kanban.emptyBacklogHint')
       };
     case 'in_progress':
       return {
-        icon: <Loader2 className="h-6 w-6 text-muted-foreground/50" />,
+        icon: <Loader2 className="animate-spin" />,
         message: t('kanban.emptyInProgress'),
         subtext: t('kanban.emptyInProgressHint')
       };
     case 'ai_review':
       return {
-        icon: <Eye className="h-6 w-6 text-muted-foreground/50" />,
+        icon: <Bot />,
         message: t('kanban.emptyAiReview'),
         subtext: t('kanban.emptyAiReviewHint')
       };
     case 'human_review':
       return {
-        icon: <Eye className="h-6 w-6 text-muted-foreground/50" />,
+        icon: <UserCheck />,
         message: t('kanban.emptyHumanReview'),
         subtext: t('kanban.emptyHumanReviewHint')
       };
     case 'done':
       return {
-        icon: <CheckCircle2 className="h-6 w-6 text-muted-foreground/50" />,
+        icon: <CheckCircle2 />,
         message: t('kanban.emptyDone'),
         subtext: t('kanban.emptyDoneHint')
       };
     default:
       return {
-        icon: <Inbox className="h-6 w-6 text-muted-foreground/50" />,
+        icon: <Inbox />,
         message: t('kanban.emptyDefault')
       };
   }
@@ -192,24 +232,6 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
     }
   };
 
-  // Colorful header border based on status
-  const getHeaderBorderColor = (): string => {
-    switch (status) {
-      case 'backlog':
-        return 'border-b-gray-500/50';
-      case 'in_progress':
-        return 'border-b-orange-500/50';
-      case 'ai_review':
-        return 'border-b-violet-500/50';
-      case 'human_review':
-        return 'border-b-fuchsia-500/50';
-      case 'done':
-        return 'border-b-emerald-500/50';
-      default:
-        return 'border-b-white/10';
-    }
-  };
-
   const emptyState = getEmptyStateContent(status, t);
 
   return (
@@ -221,14 +243,25 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
         'border-t-2',
         isOver && 'drop-zone-highlight'
       )}
+      style={{ ['--mc' as string]: STAGE_ACCENT[status], borderTopColor: 'var(--mc)' }}
     >
-      {/* Column header - enhanced styling with colorful border */}
-      <div className={cn("flex items-center justify-between p-4 border-b-2", getHeaderBorderColor())}>
+      {/* Column header — accent bottom border + count pill tinted to the stage */}
+      <div
+        className="flex items-center justify-between p-4 border-b-2"
+        style={{ borderBottomColor: 'color-mix(in srgb, var(--mc) 55%, transparent)' }}
+      >
         <div className="flex items-center gap-2.5">
           <h2 className="font-semibold text-sm text-foreground">
             {TASK_STATUS_LABELS[status]}
           </h2>
-          <span className="column-count-badge">
+          <span
+            className="inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums"
+            style={{
+              color: 'var(--mc)',
+              background: 'color-mix(in srgb, var(--mc) 14%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--mc) 30%, transparent)'
+            }}
+          >
             {tasks.length}
           </span>
         </div>
@@ -307,8 +340,8 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
                     </>
                   ) : (
                     <>
-                      {emptyState.icon}
-                      <span className="mt-2 text-sm font-medium text-muted-foreground/70">
+                      <StageMedallion status={status} icon={emptyState.icon} />
+                      <span className="mt-3 text-sm font-medium text-muted-foreground/70">
                         {emptyState.message}
                       </span>
                       {emptyState.subtext && (
