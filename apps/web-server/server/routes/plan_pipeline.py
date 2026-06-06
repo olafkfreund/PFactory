@@ -45,6 +45,36 @@ class EmitBody(BaseModel):
     dry_run: bool = True
 
 
+class EmitContractBody(BaseModel):
+    repo: str | None = None
+    project_id: str | None = None
+    dry_run: bool = True
+
+
+class _UrllibHttp:
+    """Stdlib HttpClient for live contract emit (avoids an httpx dependency)."""
+
+    def post(self, url: str, *, params: dict, json: object) -> object:
+        import json as _json
+        import urllib.parse
+        import urllib.request
+
+        if params:
+            url = f"{url}?{urllib.parse.urlencode(params)}"
+        req = urllib.request.Request(
+            url,
+            data=_json.dumps(json).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            body = resp.read().decode("utf-8")
+        try:
+            return _json.loads(body)
+        except ValueError:
+            return {"raw": body}
+
+
 def _session_dict(session) -> dict:
     # board_state() is a derived method, not a serialised field — add it so the
     # board + detail views always have the kanban column (#5).
@@ -128,5 +158,24 @@ async def reject(session_id: str, body: RejectBody) -> dict:
 async def emit(session_id: str, body: EmitBody) -> dict:
     try:
         return _session_dict(SERVICE.emit(session_id, repo=body.repo, dry_run=body.dry_run))
+    except PlanServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/emit-contract")
+async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
+    """Emit the RFC-0002 signed Task Contract v2 to AIFactory (#65).
+
+    Dry-run by default (returns the assembled+signed contract under
+    ``contract_result``); a live run POSTs it to ``/api/tasks/from-plan``.
+    """
+    try:
+        http = None if body.dry_run else _UrllibHttp()
+        return _session_dict(
+            SERVICE.emit_contract(
+                session_id, repo=body.repo, project_id=body.project_id,
+                http=http, dry_run=body.dry_run,
+            )
+        )
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -40,3 +40,7 @@ tree-sitter-typescript>=0.21.0
 # Document ingestion (PFactory plan factory — PDF / DOCX plan uploads, issue #2)
 pypdf>=5.0.0
 python-docx>=1.1.0
+
+# RFC-0002 Task Contract v2 validation (epic #65). Optional at runtime —
+# plan/emit/task_contract.py falls back to a structural validator when absent.
+jsonschema>=4.18
