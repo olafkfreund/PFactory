@@ -18,6 +18,12 @@ ChildKind = Literal[
 ]
 Complexity = Literal["simple", "standard", "complex"]
 Confidence = Literal["low", "medium", "high"]
+# How an EpicPlan was produced — recorded so the readiness gate can detect a
+# silent fallback from the LLM to the heuristic (gap #6):
+#   heuristic     → the deterministic decomposer ran (no LLM requested).
+#   llm           → the LLM seam produced a valid EpicPlan.
+#   llm_fallback  → the LLM seam was requested but errored; the heuristic ran.
+DecomposeMethod = Literal["heuristic", "llm", "llm_fallback"]
 
 
 class CostLine(BaseModel):
@@ -97,6 +103,9 @@ class EpicPlan(BaseModel):
     cost_estimate: CostEstimate | None = None
     effort_estimate: EffortEstimate | None = None
     access_requirements: list[AccessRequirement] = Field(default_factory=list)
+    # How this epic was produced (gap #6: detect a silent LLM→heuristic fallback).
+    decompose_method: DecomposeMethod = "heuristic"
+    decompose_errors: list[str] = Field(default_factory=list)
 
     def child(self, key: str) -> ChildIssue | None:
         return next((c for c in self.children if c.key == key), None)
@@ -129,7 +138,7 @@ class EpicPlan(BaseModel):
                 if dep not in graph:
                     continue
                 if state.get(dep) == 0:  # back-edge → cycle
-                    in_cycle.update(stack[stack.index(dep):] + [dep])
+                    in_cycle.update(stack[stack.index(dep) :] + [dep])
                 elif dep not in state:
                     visit(dep, stack + [dep])
             state[node] = 1

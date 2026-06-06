@@ -13,6 +13,7 @@ callers in ``run_gates`` populate it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -34,7 +35,9 @@ class ReadinessContext(BaseModel):
     blocking_findings: list[Finding] = Field(default_factory=list)
 
 
-CheckFn = Callable[["NormalizedPlan", "EpicPlan", ReadinessContext], ReadinessCheckResult]
+CheckFn = Callable[
+    ["NormalizedPlan", "EpicPlan", ReadinessContext], ReadinessCheckResult
+]
 
 _REGISTRY: dict[str, CheckFn] = {}
 _ORDER: list[str] = []
@@ -74,8 +77,12 @@ def _children_present(
         severity="info" if ok else "critical",
         hard=True,
         waivable=False,
-        detail="" if ok else "The plan produced no child issues — it cannot be executed.",
-        remediation="" if ok else "Revise the plan so it can be decomposed into work units.",
+        detail=""
+        if ok
+        else "The plan produced no child issues — it cannot be executed.",
+        remediation=""
+        if ok
+        else "Revise the plan so it can be decomposed into work units.",
     )
 
 
@@ -96,8 +103,12 @@ def _criteria_present(
         severity="info" if ok else "high",
         hard=True,
         waivable=True,
-        detail="" if ok else "No explicit acceptance criteria — execution intent is implicit.",
-        remediation="" if ok else "Add an '## Acceptance Criteria' section (or AC#N: lines).",
+        detail=""
+        if ok
+        else "No explicit acceptance criteria — execution intent is implicit.",
+        remediation=""
+        if ok
+        else "Add an '## Acceptance Criteria' section (or AC#N: lines).",
     )
 
 
@@ -162,7 +173,9 @@ def _deps_sound(
         hard=True,
         waivable=not has_cycle,
         detail="" if ok else "; ".join(problems),
-        remediation="" if ok else "Fix depends_on to reference existing child keys; remove cycles.",
+        remediation=""
+        if ok
+        else "Fix depends_on to reference existing child keys; remove cycles.",
         evidence={} if ok else {"problems": problems},
     )
 
@@ -194,7 +207,9 @@ def _access_granted(
         hard=True,
         waivable=True,
         detail="" if ok else f"Denied actions: {', '.join(denied)}.",
-        remediation="" if ok else "Grant the denied IAM action(s) to the principal, or rescope the plan.",
+        remediation=""
+        if ok
+        else "Grant the denied IAM action(s) to the principal, or rescope the plan.",
         evidence={} if ok else {"denied": denied},
     )
 
@@ -281,6 +296,129 @@ def _no_blocking_findings(
         detail="" if ok else "; ".join(f.title for f in blockers),
         remediation="" if ok else "Resolve the blocking security/policy finding.",
         evidence={} if ok else {"blocking": [f.title for f in blockers]},
+    )
+
+
+@check("decompose-trustworthy")
+def _decompose_trustworthy(
+    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+) -> ReadinessCheckResult:
+    """Decomposition must not have silently fallen back from the LLM (gap #6).
+
+    When the LLM seam was requested but errored, ``decompose_with_llm`` records
+    ``decompose_method == "llm_fallback"`` and the error string instead of
+    silently returning the heuristic. A fallback is a hard (but waivable) failure
+    — an operator may have intended the heuristic, but it must be acknowledged.
+    """
+    fell_back = epic.decompose_method == "llm_fallback"
+    return ReadinessCheckResult(
+        check_id="decompose-trustworthy",
+        title="Decomposition did not silently fall back",
+        status="fail" if fell_back else "pass",
+        severity="info" if not fell_back else "medium",
+        hard=True,
+        waivable=True,
+        detail=(
+            ""
+            if not fell_back
+            else "The LLM decomposer errored and fell back to the heuristic."
+        ),
+        remediation=(
+            ""
+            if not fell_back
+            else "Re-run decomposition; inspect the recorded error, or waive to accept the heuristic."
+        ),
+        evidence={}
+        if not fell_back
+        else {"decompose_errors": list(epic.decompose_errors)},
+    )
+
+
+_PLACEHOLDER_RE = re.compile(r"\b(?:todo|tbd)\b|\?\?\?", re.IGNORECASE)
+
+
+def _is_weak_criterion(text: str) -> bool:
+    """A criterion is weak when empty, a placeholder, or too vague to test."""
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if _PLACEHOLDER_RE.search(stripped):
+        return True
+    # Too vague: fewer than three words is rarely a measurable acceptance test.
+    return len(stripped.split()) < 3
+
+
+@check("ac-testable")
+def _ac_testable(
+    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+) -> ReadinessCheckResult:
+    """Each acceptance criterion should be measurable (advisory).
+
+    Heuristic weak-AC detection: empty, a placeholder (TODO/TBD/???), or too
+    vague (< 3 words). Advisory — informs but never blocks emission.
+    """
+    if not plan.criteria:
+        return ReadinessCheckResult(
+            check_id="ac-testable",
+            title="Acceptance criteria are testable",
+            status="not_applicable",
+            detail="Plan has no explicit criteria to assess (see criteria-present).",
+            hard=False,
+            waivable=True,
+        )
+    weak = [c.id for c in plan.criteria if _is_weak_criterion(c.text)]
+    ok = not weak
+    return ReadinessCheckResult(
+        check_id="ac-testable",
+        title="Acceptance criteria are testable",
+        status="pass" if ok else "fail",
+        severity="info" if ok else "low",
+        hard=False,
+        waivable=True,
+        detail="" if ok else f"Vague/placeholder criteria: {', '.join(weak)}.",
+        remediation=""
+        if ok
+        else "Rewrite each weak criterion as a measurable, verb+object statement.",
+        evidence={} if ok else {"weak_acs": weak},
+    )
+
+
+@check("access-verified")
+def _access_verified(
+    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+) -> ReadinessCheckResult:
+    """Flag access requirements that were never verified (advisory).
+
+    ``AccessRequirement.granted is None`` means the IAM/quota simulation could not
+    confirm or deny the capability. Advisory — informs but never blocks; a human
+    may confirm the permission manually.
+    """
+    reqs = list(epic.access_requirements)
+    for child in epic.children:
+        reqs.extend(child.access_requirements)
+    if not reqs:
+        return ReadinessCheckResult(
+            check_id="access-verified",
+            title="Required access is verified",
+            status="not_applicable",
+            detail="No access requirements were derived for this plan.",
+            hard=False,
+            waivable=True,
+        )
+    unverified = [f"{r.provider}:{r.action}" for r in reqs if r.granted is None]
+    ok = not unverified
+    return ReadinessCheckResult(
+        check_id="access-verified",
+        title="Required access is verified",
+        status="pass" if ok else "fail",
+        severity="info" if ok else "low",
+        hard=False,
+        waivable=True,
+        detail="" if ok else f"Unverified actions: {', '.join(unverified)}.",
+        remediation=""
+        if ok
+        else "Confirm the unverified IAM action(s) manually, or re-run the access check.",
+        evidence={} if ok else {"unverified": unverified},
     )
 
 
