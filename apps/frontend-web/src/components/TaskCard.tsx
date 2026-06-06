@@ -7,6 +7,8 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { cn, formatRelativeTime, sanitizeMarkdownForDisplay, extractTaskNumber, formatTaskTitleWithNumber } from '../lib/utils';
 import { PhaseProgressIndicator } from './PhaseProgressIndicator';
+import { CardPhaseStrip } from './pipeline/CardPhaseStrip';
+import { CardStatusSticker } from './pipeline/CardStatusSticker';
 import {
   TASK_CATEGORY_LABELS,
   TASK_CATEGORY_COLORS,
@@ -297,13 +299,16 @@ export const TaskCard = memo(function TaskCard({ task, onClick }: TaskCardProps)
   return (
     <Card
       className={cn(
-        'card-surface task-card-enhanced cursor-pointer',
+        'card-surface task-card-enhanced cursor-pointer relative',
         isRunning && !isStuck && 'ring-2 ring-primary border-primary task-running-pulse',
         isStuck && 'ring-2 ring-warning border-warning task-stuck-pulse',
         isArchived && 'opacity-60 hover:opacity-80'
       )}
       onClick={onClick}
     >
+      {/* Robot success / failure sticker — corner overlay */}
+      <CardStatusSticker task={task} />
+
       <CardContent className="p-4">
         {/* Title - full width, no wrapper */}
         <h3
@@ -463,6 +468,9 @@ export const TaskCard = memo(function TaskCard({ task, onClick }: TaskCardProps)
             />
           </div>
         )}
+
+        {/* Execution phase strip — appended before footer, never crashes on missing data */}
+        <CardPhaseStrip task={task} />
 
         {/* Footer */}
         <div className="mt-4 flex items-center justify-between">
