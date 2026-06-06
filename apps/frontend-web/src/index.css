@@ -362,3 +362,265 @@ body {
   .medallion--done .stage-medallion__icon > svg { animation: none; }
   .medallion--done .stage-medallion__arc { stroke-dasharray: 999; }
 }
+
+/* ============================================
+   Pipeline Rail — cockpit-style stage overview (issue #78, phase 1)
+   Rendered above the kanban board. Gruvbox palette; JetBrains Mono for
+   numbers. Per-ring accent driven by CSS custom property --rc (set inline
+   in PipelineRail.tsx per status). Honours prefers-reduced-motion.
+   ============================================ */
+
+/* ── Outer panel ── */
+.rail-panel {
+  position: relative;
+  margin: 0 0 2px;
+  padding: 14px 20px 16px;
+  background:
+    radial-gradient(120% 160% at 0% 0%,   rgba(184,187,38,  0.05), transparent 55%),
+    radial-gradient(120% 160% at 100% 100%, rgba(254,128, 25, 0.05), transparent 55%),
+    hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+/* Brand sweep hairline along the top edge (mirrors the fsuite section) */
+.rail-panel-sweep {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, #b8bb26, #8ec07c, #83a598, #fabd2f, #fe8019);
+  opacity: 0.8;
+  border-radius: 14px 14px 0 0;
+  pointer-events: none;
+}
+
+/* ── Horizontal flow row ── */
+.rail-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+/* Each flow item = ring + connector (except last ring has no connector) */
+.rail-flow-item {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* ── Individual stage block ── */
+.rail-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  /* --rc is set inline per status in PipelineRail.tsx */
+}
+
+/* ── Ring wrapper — relative container for badge + halo + ring + icon ── */
+.rail-ring-wrap {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  flex-shrink: 0;
+}
+
+/* ── Count badge — top-right of the ring ── */
+.rail-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  z-index: 10;
+  min-width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  transition: color 200ms, background 200ms, border-color 200ms, box-shadow 200ms;
+}
+.rail-count--active {
+  color: var(--rc);
+  background: color-mix(in srgb, var(--rc) 14%, hsl(var(--card)));
+  border-color: color-mix(in srgb, var(--rc) 40%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--rc) 30%, transparent);
+}
+
+/* ── Rotating dashed halo (shown only when the ring is active) ── */
+.rail-halo {
+  position: absolute;
+  inset: -5px;
+  width: calc(100% + 10px);
+  height: calc(100% + 10px);
+  animation: rail-halo-spin 8s linear infinite;
+  pointer-events: none;
+}
+
+/* ── Main ring SVG (track + arc) ── */
+.rail-ring-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+.rail-ring-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--rc) 18%, transparent);
+  stroke-width: 4;
+}
+.rail-ring-arc {
+  fill: none;
+  stroke: color-mix(in srgb, var(--rc) 35%, hsl(var(--border)));
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 70 194;
+  transition: stroke 300ms, filter 300ms;
+}
+.rail-ring-arc--active {
+  stroke: var(--rc);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--rc) 45%, transparent));
+  animation: rail-arc-spin 2.8s linear infinite;
+}
+
+/* ── Icon pill centred inside the ring ── */
+.rail-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rail-icon > div,
+.rail-icon-svg {
+  /* Inner pill */
+}
+/* We render the icon directly, so style the svg wrapper */
+.rail-icon {
+  color: color-mix(in srgb, var(--rc) 55%, hsl(var(--muted-foreground)));
+  transition: color 300ms;
+}
+.rail-icon--active {
+  color: var(--rc);
+}
+.rail-icon-svg {
+  width: 32px;
+  height: 32px;
+  /* background pill */
+  padding: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--rc) 12%, hsl(var(--card)));
+  border: 1px solid color-mix(in srgb, var(--rc) 28%, transparent);
+  box-sizing: content-box;
+  transition: background 300ms, border-color 300ms, box-shadow 300ms;
+}
+.rail-icon--active .rail-icon-svg {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--rc) 35%, transparent);
+}
+
+/* ── Labels beneath the ring ── */
+.rail-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: hsl(var(--foreground));
+  text-align: center;
+  white-space: nowrap;
+}
+.rail-sublabel {
+  margin: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+
+/* ── Connector between rings ── */
+.rail-connector {
+  position: relative;
+  width: 40px;
+  height: 28px;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 28px; /* vertically centres the line with the ring midpoint */
+}
+
+/* Marching-ant dashed line */
+.rail-connector-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, hsl(var(--muted-foreground)) 55%, transparent) 0 5px,
+    transparent 5px 10px
+  );
+  animation: rail-march 0.85s linear infinite;
+}
+
+/* Flying package-box icon */
+.rail-pkg {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
+  margin-left: -10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fabd2f; /* Gruvbox yellow — matches the fsuite travelling package */
+  filter: drop-shadow(0 0 4px rgba(250, 189, 47, 0.55));
+  opacity: 0;
+  animation: rail-fly 3.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+.rail-pkg > svg { width: 16px; height: 16px; }
+
+/* ── Keyframes ── */
+@keyframes rail-arc-spin  { to { stroke-dashoffset: -264; } }
+@keyframes rail-halo-spin { to { transform: rotate(360deg); } }
+@keyframes rail-march     { to { background-position: 10px 0; } }
+@keyframes rail-fly {
+  0%   { left: 0;    opacity: 0;   transform: scale(0.7) rotate(-8deg); }
+  10%  { opacity: 1; transform: scale(1)   rotate(0deg); }
+  44%  { left: 100%; opacity: 1;   transform: scale(1)   rotate(5deg); }
+  50%  { left: 100%; opacity: 0;   transform: scale(0.7) rotate(0deg); }
+  100% { left: 100%; opacity: 0; }
+}
+
+/* ── prefers-reduced-motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .rail-ring-arc--active,
+  .rail-halo,
+  .rail-connector-line,
+  .rail-pkg { animation: none !important; }
+
+  /* Show a static near-full arc instead of animating */
+  .rail-ring-arc--active { stroke-dasharray: 200 64; }
+  /* Park the halo at 0° with reduced opacity */
+  .rail-halo { opacity: 0.3; }
+  /* Keep the package visible mid-connector so users know it exists */
+  .rail-pkg  { opacity: 0.85; left: 50%; }
+}

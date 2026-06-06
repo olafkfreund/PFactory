@@ -20,6 +20,8 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { Plus, Inbox, Loader2, Bot, UserCheck, CheckCircle2, Archive, RefreshCw } from 'lucide-react';
+import { PipelineRail } from './pipeline/PipelineRail';
+import { STAGE_ACCENT as STAGE_ACCENT_SHARED } from './pipeline/stages';
 import { toast } from '../hooks/use-toast';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
@@ -105,13 +107,8 @@ function droppableColumnPropsAreEqual(
 }
 
 // Per-stage accent (Gruvbox) + the medallion's stage-specific animation class.
-const STAGE_ACCENT: Record<TaskStatus, string> = {
-  backlog: '#a89984',      // gray  — calm, no animation
-  in_progress: '#fe8019',  // orange — spinning ring (working)
-  ai_review: '#d3869b',    // purple — scanning bot
-  human_review: '#83a598', // blue  — breathing (awaiting you)
-  done: '#b8bb26'          // green — settled ring + glow
-};
+// Re-exported from pipeline/stages.ts so the rail rings always match the columns.
+const STAGE_ACCENT: Record<TaskStatus, string> = STAGE_ACCENT_SHARED;
 
 const STAGE_ANIM: Record<TaskStatus, string> = {
   backlog: '',
@@ -521,6 +518,11 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
           </Button>
         </div>
       )}
+      {/* Pipeline rail — animated stage ring overview above the columns */}
+      <div className="px-4 pt-2 pb-0">
+        <PipelineRail tasksByStatus={tasksByStatus} />
+      </div>
+
       {/* Kanban columns */}
       <DndContext
         sensors={sensors}
