@@ -64,7 +64,9 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick }: Props) {
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [showNewPlanDialog, setShowNewPlanDialog] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
+  // Default to the animated Board so the ring rail + stage medallions + animated
+  // cards are the first thing you see on Planning (List is one toggle away).
+  const [viewMode, setViewMode] = useState<'list' | 'board'>('board');
 
   // Keep the session list loaded so the board has data even when the list pane
   // isn't mounted (board mode hides the left sidebar).
