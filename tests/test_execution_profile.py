@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from plan.decompose.models import ChildIssue, EpicPlan
 from plan.emit.contract_builder import build_task_contract
-from plan.emit.execution_profile import attach_execution, build_execution, derive_complexity
+from plan.emit.execution_profile import (
+    attach_execution,
+    build_execution,
+    derive_complexity,
+)
 from plan.emit.task_contract import validate_contract
 from plan.models import Criterion, NormalizedPlan
 
