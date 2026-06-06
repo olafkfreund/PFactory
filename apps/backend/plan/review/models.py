@@ -9,9 +9,13 @@ content hash) gates emission — and is invalidated when the plan changes.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from plan.models import NormalizedPlan
+    from plan.review.readiness.models import ReadinessReport
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
 LensName = Literal["architecture", "security", "best-practices", "feasibility"]
@@ -83,6 +87,10 @@ class PlanReview(BaseModel):
     gates_passed: bool = False
     code_gates_applied: bool = True
     human_approval: HumanApproval = Field(default_factory=HumanApproval)
+    # Hard completeness gate, orthogonal to the scored lenses (epic #33). None
+    # until run_gates attaches it; when present, its unwaived hard failures also
+    # block emission. See plan/review/readiness/.
+    readiness: ReadinessReport | None = None
 
     def recompute(self) -> PlanReview:
         """Recompute ``aggregate_score`` and ``gates_passed`` from the lenses.
@@ -106,6 +114,28 @@ class PlanReview(BaseModel):
     def blocking_findings(self) -> list[Finding]:
         return [f for ls in self.lenses for f in ls.findings if f.blocking]
 
-    def ready_to_emit(self) -> bool:
-        """True only when automated gates passed AND human approval is valid."""
-        return self.gates_passed and self.human_approval.approved and self.human_approval.valid
+    def ready_to_emit(self, plan: NormalizedPlan | None = None) -> bool:
+        """True only when gates passed, approval is valid, AND readiness holds.
+
+        ``plan`` is optional for back-compat with existing zero-arg callers; pass
+        it for the strict, edit-aware readiness check (a waiver is only honoured
+        when its hash still matches the plan's current content). When a
+        :class:`ReadinessReport` is attached, any unwaived hard failure blocks
+        emission; with no report attached, behaviour is unchanged.
+        """
+        base = (
+            self.gates_passed
+            and self.human_approval.approved
+            and self.human_approval.valid
+        )
+        if self.readiness is None:
+            return base
+        return base and self.readiness.is_ready(plan)
+
+
+# Resolve the forward-referenced ``readiness`` field. Imported at module end (not
+# top) to break the cycle: readiness.models imports Citation/Severity from here,
+# which are defined above before this runs.
+from plan.review.readiness.models import ReadinessReport  # noqa: E402
+
+PlanReview.model_rebuild()

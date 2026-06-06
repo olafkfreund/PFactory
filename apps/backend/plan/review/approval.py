@@ -61,6 +61,14 @@ def approve(
         raise ApprovalError(
             "cannot approve a plan that failed the automated review gates"
         )
+    if review.readiness is not None:
+        unwaived = review.readiness.unwaived_hard_failures(plan)
+        if unwaived:
+            failing = ", ".join(r.check_id for r in unwaived)
+            raise ApprovalError(
+                "cannot approve: unwaived hard readiness failures "
+                f"({failing}). Fix the plan or record a waiver first."
+            )
     approval = review.human_approval
     approval.approved = True
     approval.approved_by = approver

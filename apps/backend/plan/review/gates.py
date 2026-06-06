@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from plan.review.lenses.base import default_lenses
 from plan.review.models import Finding, LensScore, PlanReview
+from plan.review.readiness.checks import run_readiness
 from plan.review.rules.engine import run_external_policy, run_rules
 
 if TYPE_CHECKING:
@@ -87,7 +88,15 @@ def run_gates(
         threshold=threshold,
         code_gates_applied=is_software,
     )
-    return review.recompute()
+    review.recompute()
+    # Attach the hard readiness/completeness report (epic #33). It is orthogonal
+    # to the lens score: a high aggregate cannot mask a missing-information
+    # blocker. Blocking review findings feed the no-blocking-findings check so the
+    # report is a single audit surface for "why can't this emit".
+    review.readiness = run_readiness(
+        plan, epic, blocking_findings=review.blocking_findings()
+    )
+    return review
 
 
 def _absorb_findings(
