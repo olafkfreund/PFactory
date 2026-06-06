@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_prefix = "APP_"
+        # Ignore non-APP_ keys present in .env / the environment (e.g.
+        # PFACTORY_COMPLETION_WEBHOOK, consumed elsewhere via os.environ).
+        # Without this, pydantic-settings reads the whole .env file and
+        # rejects unknown keys with extra_forbidden at startup.
+        extra = "ignore"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -272,12 +272,15 @@ def create_app() -> FastAPI:
     )
 
     # Plan Factory — intake channels + the planning pipeline (issues #4, #20).
+    from .routes import contract_events as contract_events_routes
     from .routes import plan_intake as plan_intake_routes
     from .routes import plan_meta as plan_meta_routes
     from .routes import plan_pipeline as plan_pipeline_routes
     app.include_router(plan_intake_routes.router)
     app.include_router(plan_pipeline_routes.router)
     app.include_router(plan_meta_routes.router)
+    # Inbound RFC-0001 completion events from AIFactory/TFactory (#65 child 9).
+    app.include_router(contract_events_routes.router)
 
     app.include_router(settings_routes.router, prefix="/api/settings", tags=["Settings"])
     app.include_router(cli_accounts_routes.router, prefix="/api/settings", tags=["CLI Accounts"])
