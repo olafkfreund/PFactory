@@ -177,9 +177,7 @@ def heuristic_decompose(
 # ── LLM-backed decomposer ──────────────────────────────────────────────────
 
 
-def build_decompose_prompt(
-    plan: NormalizedPlan, descriptor: PlanTypeDescriptor
-) -> str:
+def build_decompose_prompt(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) -> str:
     """Build an instruction asking the model for an ``EpicPlan`` as JSON.
 
     The schema described mirrors :class:`EpicPlan` / :class:`ChildIssue` exactly,
@@ -294,9 +292,15 @@ def decompose_with_llm(
         epic = EpicPlan(**data)
         if not epic.children:
             raise ValueError("llm produced an EpicPlan with no children")
+        epic.decompose_method = "llm"
         return epic
-    except Exception:
-        return heuristic_decompose(plan, descriptor)
+    except Exception as exc:
+        # Record the failure instead of silently returning the heuristic, so the
+        # readiness gate (decompose-trustworthy, gap #6) can flag the fallback.
+        epic = heuristic_decompose(plan, descriptor)
+        epic.decompose_method = "llm_fallback"
+        epic.decompose_errors.append(f"{type(exc).__name__}: {exc}")
+        return epic
 
 
 # ── entry point ────────────────────────────────────────────────────────────

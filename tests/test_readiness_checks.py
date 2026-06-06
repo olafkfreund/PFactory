@@ -184,3 +184,100 @@ def test_no_blocking_findings() -> None:
     rep = run_readiness(_plan(), epic, blocking_findings=blockers)
     r = rep.result("no-blocking-findings")
     assert r.status == "fail" and r.hard and not r.waivable
+
+
+# ── decompose-trustworthy ─────────────────────────────────────────────────
+
+
+def test_decompose_trustworthy_pass_and_fail() -> None:
+    # Default method ("heuristic") and explicit "llm" both pass.
+    assert _status(run_readiness(_plan(), _epic()), "decompose-trustworthy") == "pass"
+    llm = _epic(decompose_method="llm")
+    assert _status(run_readiness(_plan(), llm), "decompose-trustworthy") == "pass"
+
+    # A silent fallback fails (hard, waivable) and carries the recorded errors.
+    fallback = _epic(
+        decompose_method="llm_fallback",
+        decompose_errors=["ValueError: llm produced an EpicPlan with no children"],
+    )
+    rep = run_readiness(_plan(), fallback)
+    r = rep.result("decompose-trustworthy")
+    assert r.status == "fail" and r.hard and r.waivable
+    assert r.evidence["decompose_errors"] == [
+        "ValueError: llm produced an EpicPlan with no children"
+    ]
+
+
+# ── ac-testable ───────────────────────────────────────────────────────────
+
+
+def test_ac_testable_pass_fail_na() -> None:
+    # All criteria are measurable → pass (advisory, never hard).
+    good = _plan(
+        criteria=[
+            ("AC#1", "user can log in with email and password"),
+            ("AC#2", "the dashboard shows the latest order count"),
+        ]
+    )
+    r = run_readiness(good, _epic()).result("ac-testable")
+    assert r.status == "pass" and not r.hard and r.waivable
+
+    # Weak criteria: placeholder, too-vague, and empty.
+    weak = _plan(
+        criteria=[
+            ("AC#1", "user can log in with email and password"),
+            ("AC#2", "TODO write this"),
+            ("AC#3", "fast"),
+        ]
+    )
+    rep = run_readiness(weak, _epic())
+    assert _status(rep, "ac-testable") == "fail"
+    assert rep.result("ac-testable").evidence["weak_acs"] == ["AC#2", "AC#3"]
+
+    # No criteria → not applicable.
+    assert _status(run_readiness(_plan(), _epic()), "ac-testable") == "not_applicable"
+
+
+# ── access-verified ───────────────────────────────────────────────────────
+
+
+def test_access_verified_pass_fail_na() -> None:
+    # All requirements verified (True/False) → pass.
+    verified = _epic(
+        access_requirements=[
+            AccessRequirement(provider="aws", action="s3:PutObject", granted=True),
+            AccessRequirement(provider="aws", action="eks:CreateCluster", granted=False),
+        ]
+    )
+    r = run_readiness(_plan(), verified).result("access-verified")
+    assert r.status == "pass" and not r.hard and r.waivable
+
+    # An unverified (granted is None) requirement → fail (advisory).
+    unverified = _epic(
+        access_requirements=[
+            AccessRequirement(provider="aws", action="rds:CreateDBInstance", granted=None)
+        ]
+    )
+    rep = run_readiness(_plan(), unverified)
+    assert _status(rep, "access-verified") == "fail"
+    assert rep.result("access-verified").evidence["unverified"] == [
+        "aws:rds:CreateDBInstance"
+    ]
+
+    # No requirements → not applicable.
+    assert _status(run_readiness(_plan(), _epic()), "access-verified") == "not_applicable"
+
+
+def test_access_verified_scans_child_requirements() -> None:
+    epic = _epic(
+        [
+            ChildIssue(
+                key="C1",
+                title="infra",
+                access_requirements=[
+                    AccessRequirement(provider="gcp", action="compute.instances.create")
+                ],
+            )
+        ]
+    )
+    assert _status(run_readiness(_plan(), epic), "access-verified") == "fail"

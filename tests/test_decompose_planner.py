@@ -152,6 +152,25 @@ def test_decompose_with_llm_falls_back_on_garbage():
     assert epic.children
     assert len([c for c in epic.children if c.kind == "feature"]) == 2
     assert epic.validate_dependencies() == []
+    # The fallback is recorded (gap #6) instead of being silent.
+    assert epic.decompose_method == "llm_fallback"
+    assert epic.decompose_errors  # carries the swallowed error string
+
+
+def test_decompose_records_method_on_each_path():
+    plan = _plan(criteria=["Add an endpoint."])
+
+    # Heuristic path (no llm) → "heuristic".
+    assert decompose(plan).decompose_method == "heuristic"
+
+    # LLM success path → "llm".
+    payload = {
+        "epic_title": "From LLM",
+        "children": [{"key": "C1", "title": "Only child", "kind": "feature"}],
+    }
+    llm_epic = decompose(plan, llm=_FakeLLM(json.dumps(payload)))
+    assert llm_epic.decompose_method == "llm"
+    assert llm_epic.decompose_errors == []
 
 
 def test_decompose_routes_to_llm_when_provided():
