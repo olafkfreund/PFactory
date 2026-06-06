@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from plan.emit.contract_builder import build_task_contract
 from plan.emit.execution_profile import attach_execution
+from plan.emit.handoff_sanitize import attach_constraints
 from plan.emit.review_tier import attach_review_tier
 from plan.emit.signing import attach_signature, key_from_env
 from plan.emit.task_contract import validate_contract
@@ -65,6 +66,8 @@ def assemble_contract(
         attach_review_tier(contract, review)
     attach_verification(contract, plan, epic)
     attach_tfactory(contract, plan, epic)
+    # Carry sanitized live-cloud enrichment as epic_context constraints (#80).
+    attach_constraints(contract, plan)
     return contract
 
 
