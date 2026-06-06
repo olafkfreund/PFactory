@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/olafkfreund/Factory/blob/main/apis/task-contract.schema.json",
+  "title": "Factory Task Contract v2",
+  "description": "Canonical, signed cross-factory task contract (RFC-0002). Superset of AIFactory's implementation_plan.json adding execution + tfactory profiles. PFactory produces it; AIFactory executes it (skip planning); TFactory tests from it.",
+  "type": "object",
+  "required": ["contract_version", "feature", "workflow_type", "phases"],
+  "additionalProperties": true,
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "description": "Contract schema version. '2' enables the execution/tfactory blocks.",
+      "enum": ["1", "2"]
+    },
+    "correlation_key": {
+      "type": "string",
+      "description": "RFC-0001 correlation key: the GitHub issue number as a string, or a synthetic <prefix>-<id>."
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Where the contract came from.",
+      "additionalProperties": true,
+      "properties": {
+        "source": { "type": "string", "description": "Emitting system, e.g. 'pfactory'." },
+        "session_id": { "type": "string" },
+        "issue_number": { "type": "integer" },
+        "repo": { "type": "string", "description": "owner/name of the target repo." }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "description": "HMAC trust envelope (AIFactory trusted_plan). Required for the skip-planning fast-path.",
+      "required": ["approved_by", "approval_timestamp", "plan_contract_version", "signature"],
+      "additionalProperties": true,
+      "properties": {
+        "approved_by": { "type": "string", "description": "Signing authority, e.g. 'pfactory' or 'cfactory'." },
+        "approval_timestamp": { "type": "string", "format": "date-time" },
+        "plan_contract_version": { "type": "string" },
+        "signature": { "type": "string", "description": "HMAC-SHA256 hex over the canonical contract + approval metadata." }
+      }
+    },
+
+    "feature": { "type": "string", "description": "Short feature/task name." },
+    "workflow_type": {
+      "type": "string",
+      "enum": ["feature", "refactor", "investigation", "migration", "simple", "development", "enhancement"]
+    },
+    "services_involved": { "type": "array", "items": { "type": "string" } },
+    "final_acceptance": { "type": "array", "items": { "type": "string" } },
+    "required_commands": {
+      "type": "array",
+      "description": "Global verification command NAMES granted into the security allowlist (uv/pytest/ruff/mypy/...).",
+      "items": { "type": "string" }
+    },
+
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["phase", "name", "subtasks"],
+        "additionalProperties": true,
+        "properties": {
+          "phase": { "type": "integer" },
+          "name": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["setup", "implementation", "investigation", "integration", "cleanup"]
+          },
+          "depends_on": {
+            "type": "array",
+            "description": "Phase numbers, or planner slugs (e.g. 'phase-1-scaffold'), this phase depends on.",
+            "items": { "type": ["integer", "string"] }
+          },
+          "parallel_safe": { "type": "boolean" },
+          "subtasks": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["id", "description"],
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "description": { "type": "string" },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "in_progress", "completed", "blocked", "failed"]
+                },
+                "service": { "type": ["string", "null"] },
+                "depends_on": { "type": "array", "items": { "type": "string" } },
+                "model": { "type": ["string", "null"], "description": "Per-subtask model override (right-sizing)." },
+                "files_to_create": { "type": "array", "items": { "type": "string" } },
+                "files_to_modify": { "type": "array", "items": { "type": "string" } },
+                "patterns_from": { "type": "array", "items": { "type": "string" } },
+                "required_commands": { "type": "array", "items": { "type": "string" } },
+                "verification": {
+                  "type": ["object", "null"],
+                  "additionalProperties": true,
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["command", "api", "browser", "component", "manual", "none", "e2e"]
+                    },
+                    "run": { "type": ["string", "null"] },
+                    "url": { "type": ["string", "null"] },
+                    "method": { "type": ["string", "null"] },
+                    "expect_status": { "type": ["integer", "null"] },
+                    "expect_contains": { "type": ["string", "null"] },
+                    "scenario": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "execution": {
+      "type": "object",
+      "description": "HOW to execute — computed by PFactory, consumed by AIFactory. Absent => AIFactory uses its own defaults/planning.",
+      "additionalProperties": true,
+      "properties": {
+        "complexity": { "type": "string", "enum": ["simple", "standard", "complex"] },
+        "model": { "type": "string", "description": "Default model (full id or shorthand opus/sonnet/haiku)." },
+        "provider": {
+          "type": "string",
+          "description": "Inferred from model via phase_config.infer_provider_from_model.",
+          "enum": ["claude", "codex", "antigravity", "ollama", "copilot", "opencode", "openai-compatible", "gemini"]
+        },
+        "provider_rationale": { "type": "string" },
+        "phase_models": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Per-phase model overrides keyed by spec|planning|coding|qa|qa_fixer."
+        },
+        "phase_thinking": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "enum": ["none", "low", "medium", "high"] }
+        },
+        "parallel": { "type": "boolean" },
+        "workers": { "type": "integer", "minimum": 1 },
+        "review_tier": { "type": "string", "enum": ["auto", "async", "blocking"] },
+        "agents": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "planner": { "type": "boolean" },
+            "coder": { "type": "boolean" },
+            "qa_reviewer": { "type": "boolean" },
+            "qa_fixer": { "type": "boolean" },
+            "subagents": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "category": { "type": "string" }
+            }
+          }
+        },
+        "skip_planning": {
+          "type": "boolean",
+          "description": "When true AND signature+completeness verify, AIFactory goes straight to the wave executor."
+        }
+      }
+    },
+
+    "tfactory": {
+      "type": "object",
+      "description": "VERIFY profile — computed by PFactory, carried by AIFactory, consumed by TFactory. Absent => TFactory infers.",
+      "additionalProperties": true,
+      "properties": {
+        "lanes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["unit", "api", "browser", "integration", "security", "mutation"] }
+        },
+        "frameworks": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Lane -> framework, e.g. {unit: pytest, browser: playwright}."
+        },
+        "endpoints": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "e.g. {api_base_url: http://localhost:8000}."
+        },
+        "docker_compose": { "type": ["string", "null"], "description": "Path to a compose file for integration lanes." },
+        "coverage_target": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "mutation_scope": { "type": "array", "items": { "type": "string" }, "description": "Globs/files to mutate." },
+        "security_scope": { "type": "array", "items": { "type": "string" }, "description": "Rule sets, e.g. owasp:* ; empty => out of scope." },
+        "ac_to_code_map": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "string" } },
+          "description": "Acceptance-criterion id -> files/functions it covers."
+        }
+      }
+    },
+
+    "created_at": { "type": ["string", "null"] },
+    "updated_at": { "type": ["string", "null"] },
+    "spec_file": { "type": ["string", "null"] }
+  }
+}
