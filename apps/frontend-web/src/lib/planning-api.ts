@@ -262,6 +262,21 @@ export function emitSession(
   return _post<PlanSession>(`${PLAN_PREFIX}/sessions/${sessionId}/emit`, body, options);
 }
 
+export interface WaiveChecksRequest {
+  check_ids: string[];
+  reason: string;
+  waived_by: string;
+}
+
+/** POST /api/plan/sessions/{id}/waive — waive one or more hard readiness checks. */
+export function waiveChecks(
+  sessionId: string,
+  body: WaiveChecksRequest,
+  options: FetchOptions = {},
+): Promise<PlanSession> {
+  return _post<PlanSession>(`${PLAN_PREFIX}/sessions/${sessionId}/waive`, body, options);
+}
+
 /** POST /api/plan/sessions/{id}/process — update plan fields then re-process. */
 export interface UpdateAndProcessRequest {
   title?: string;

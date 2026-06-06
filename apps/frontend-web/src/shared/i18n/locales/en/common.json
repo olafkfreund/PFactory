@@ -289,5 +289,62 @@
     "failedLabel": "Failed",
     "starting": "Starting..."
   },
-  "lastChecked": "Last checked"
+  "lastChecked": "Last checked",
+  "readiness": {
+    "notEvaluated": "Readiness gate not yet evaluated — process the plan to run checks.",
+    "summary": {
+      "allClear": "All readiness checks passed",
+      "hardFailures": "Hard readiness failures present",
+      "gatePassed": "Gate passed",
+      "gateFailed": "Gate failed",
+      "hardFailCount": "{{count}} hard failure",
+      "hardFailCount_plural": "{{count}} hard failures",
+      "waivedCount": "{{count}} waived",
+      "waivedCount_plural": "{{count}} waived",
+      "passCount": "{{pass}}/{{total}} passed",
+      "hardCount": "{{count}} hard check",
+      "hardCount_plural": "{{count}} hard checks"
+    },
+    "checks": {
+      "heading": "Checks ({{count}})",
+      "empty": "No readiness checks recorded."
+    },
+    "check": {
+      "toggle": "Toggle check details:",
+      "remediation": "Remediation",
+      "severity": "Severity"
+    },
+    "status": {
+      "pass": "pass",
+      "fail": "fail",
+      "not_applicable": "n/a",
+      "skipped": "skipped"
+    },
+    "badge": {
+      "hard": "HARD",
+      "advisory": "advisory",
+      "waived": "waived"
+    },
+    "waive": {
+      "buttonLabel": "Waive",
+      "formTitle": "Waive this hard failure",
+      "waivedByLabel": "Your name",
+      "waivedByOptional": "optional",
+      "waivedByPlaceholder": "e.g. Jane Smith",
+      "reasonLabel": "Reason",
+      "reasonPlaceholder": "Explain why this failure is acceptable…",
+      "reasonRequired": "A reason is required to waive a check.",
+      "confirmButton": "Confirm waiver",
+      "confirmLabel": "Confirm waiver",
+      "submitting": "Waiving…"
+    },
+    "waiver": {
+      "title": "Waived"
+    },
+    "waivers": {
+      "heading": "Waivers ({{count}})",
+      "checks": "Checks: {{ids}}",
+      "invalidated": "invalidated"
+    }
+  }
 }

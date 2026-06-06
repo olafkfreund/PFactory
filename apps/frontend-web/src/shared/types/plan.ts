@@ -187,6 +187,38 @@ export interface HumanApproval {
   feedback: string[];
 }
 
+// ── ReadinessGate ────────────────────────────────────────────────────────
+
+export type ReadinessStatus = 'pass' | 'fail' | 'not_applicable' | 'skipped';
+
+export interface ReadinessCheck {
+  check_id: string;
+  title: string;
+  status: ReadinessStatus;
+  severity: string;
+  hard: boolean;
+  waivable: boolean;
+  detail: string;
+  remediation: string;
+  evidence: string;
+}
+
+export interface ReadinessWaiver {
+  check_ids: string[];
+  reason: string;
+  waived_by: string;
+  waived_at: string;
+  valid: boolean;
+}
+
+export interface ReadinessGate {
+  plan_id: string;
+  plan_hash: string;
+  generated_at: string;
+  results: ReadinessCheck[];
+  waivers: ReadinessWaiver[];
+}
+
 // ── PlanReview ──────────────────────────────────────────────────────────
 
 export interface PlanReview {
@@ -197,6 +229,7 @@ export interface PlanReview {
   gates_passed: boolean;
   code_gates_applied: boolean;
   human_approval: HumanApproval;
+  readiness: ReadinessGate | null;
 }
 
 // ── EmitResult ──────────────────────────────────────────────────────────

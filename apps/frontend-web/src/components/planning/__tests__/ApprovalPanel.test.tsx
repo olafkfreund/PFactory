@@ -65,6 +65,7 @@ function makeSession(gatesPassed: boolean, status: PlanSession['status'] = 'proc
         review_count: 0,
         feedback: [],
       },
+      readiness: null,
     },
     emit_result: null,
     created_at: '2026-06-01T00:00:00Z',
