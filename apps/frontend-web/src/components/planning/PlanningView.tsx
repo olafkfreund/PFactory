@@ -4,10 +4,15 @@
  * Left pane: session list + "New plan" button.
  * Right pane: session detail OR new-plan form.
  *
+ * Board mode: renders the animated KanbanBoard (task-store) instead of the
+ * read-only PlanBoard of planning sessions (issue #82).  If no project is
+ * selected the board falls back to the existing empty placeholder so the
+ * component never crashes without a projectId.
+ *
  * Mounted from App.tsx via activeView === 'planning'.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Plus, Package, LayoutTemplate, Cpu, List, Columns } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
@@ -19,27 +24,43 @@ import {
 } from '../ui/dialog';
 import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
-import { PlanBoard } from './PlanBoard';
+import { KanbanBoard } from '../KanbanBoard';
 import { cn } from '../../lib/utils';
 import { PlanUploadForm } from './PlanUploadForm';
 import { RegistryPanel } from './RegistryPanel';
 import { TemplatesPanel } from './TemplatesPanel';
 import { ProvidersPanel } from './ProvidersPanel';
 import { usePlanStore } from '../../stores/plan-store';
+import { useTaskStore, loadTasks } from '../../stores/task-store';
+import { useProjectStore } from '../../stores/project-store';
 import type { PlanSession } from '../../shared/types/plan';
+import type { Task } from '../../shared/types';
 
 interface Props {
   /** Test seam: inject fetchFn into the store before render. */
   fetchFn?: typeof fetch;
+  /** Called when user clicks a task card in board mode (open detail modal). */
+  onTaskClick?: (task: Task) => void;
+  /** Called when user clicks "+ Task" in the board's backlog column header. */
+  onNewTaskClick?: () => void;
 }
 
-export function PlanningView({ fetchFn }: Props) {
+export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick }: Props) {
   const store = usePlanStore();
 
   // Wire fetchFn into store if provided (for testing)
   if (fetchFn && store.fetchFn !== fetchFn) {
     store.setFetchFn(fetchFn);
   }
+
+  // Task-store wiring for Board mode (mirrors the old App.tsx 'kanban' branch).
+  const tasks = useTaskStore((state) => state.tasks);
+  const projects = useProjectStore((state) => state.projects);
+  const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
+  const activeProjectId = useProjectStore((state) => state.activeProjectId);
+  const selectedProject = projects.find(
+    (p) => p.id === (activeProjectId || selectedProjectId),
+  );
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [showNewPlanDialog, setShowNewPlanDialog] = useState(false);
@@ -52,6 +73,15 @@ export function PlanningView({ fetchFn }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load tasks whenever the active project changes so the kanban board is
+  // always in sync when the user switches projects and then opens Board mode.
+  useEffect(() => {
+    const projectId = activeProjectId || selectedProjectId;
+    if (projectId) {
+      loadTasks(projectId);
+    }
+  }, [activeProjectId, selectedProjectId]);
+
   const handleSessionSelect = (sessionId: string) => {
     setSelectedSessionId(sessionId);
   };
@@ -60,6 +90,18 @@ export function PlanningView({ fetchFn }: Props) {
     setShowNewPlanDialog(false);
     setSelectedSessionId(session.session_id);
   };
+
+  // Stable callback wrappers so KanbanBoard's memo comparisons stay stable.
+  const handleTaskClick = useCallback(
+    (task: Task) => {
+      onTaskClick?.(task);
+    },
+    [onTaskClick],
+  );
+
+  const handleNewTaskClick = useCallback(() => {
+    onNewTaskClick?.();
+  }, [onNewTaskClick]);
 
   return (
     <div className="flex flex-col h-full" data-testid="planning-view">
@@ -108,22 +150,25 @@ export function PlanningView({ fetchFn }: Props) {
         </div>
       </header>
 
-      {/* Board mode: full-width kanban of sessions by board_state */}
-      {viewMode === 'board' && !selectedSessionId ? (
-        <main className="flex-1 overflow-auto p-6" data-testid="plan-board-view">
-          {store.sessions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
+      {/* Board mode: animated KanbanBoard wired to the task-store.
+          Falls back to a "no project selected" placeholder when there is no
+          active project so the component never crashes. */}
+      {viewMode === 'board' ? (
+        <div className="flex-1 overflow-hidden" data-testid="plan-board-view">
+          {!selectedProject ? (
+            <div className="flex flex-col items-center justify-center h-full py-20 text-muted-foreground gap-3">
               <Columns className="h-8 w-8 opacity-30" aria-hidden />
-              <p className="text-sm font-medium">No plans yet — create one to populate the board.</p>
+              <p className="text-sm font-medium">Select a project to see the task board.</p>
             </div>
           ) : (
-            <PlanBoard
-              sessions={store.sessions}
-              selectedId={selectedSessionId}
-              onSelect={handleSessionSelect}
+            <KanbanBoard
+              tasks={tasks}
+              onTaskClick={handleTaskClick}
+              onNewTaskClick={handleNewTaskClick}
+              isInitialized={!!selectedProject.autoBuildPath}
             />
           )}
-        </main>
+        </div>
       ) : (
       /* Main content: two-pane layout + meta tabs at bottom */
       <div className="flex flex-1 overflow-hidden">
