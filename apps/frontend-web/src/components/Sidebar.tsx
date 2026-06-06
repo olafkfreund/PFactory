@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import {
   Plus,
   Trash2,
-  Columns3,
   FlaskConical,
   Terminal,
   FolderOpen,
@@ -54,7 +53,7 @@ import { GitSetupModal } from './GitSetupModal';
 import { RateLimitIndicator } from './RateLimitIndicator';
 import type { Project, AutoBuildVersionInfo, GitStatus, ProjectEnvConfig } from '../shared/types';
 
-export type SidebarView = 'pfactory' | 'kanban' | 'terminals' | 'editor' | 'context' | 'github-issues' | 'github-prs' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'skills' | 'cloud' | 'visual-reports' | 'planning';
+export type SidebarView = 'pfactory' | 'terminals' | 'editor' | 'context' | 'github-issues' | 'github-prs' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'skills' | 'cloud' | 'visual-reports' | 'planning';
 
 interface SidebarProps {
   onSettingsClick: () => void;
@@ -73,9 +72,10 @@ interface NavItem {
 // Base nav items always shown.
 // PFactory's own job (the planning pipeline) leads; the inherited
 // general-agent IDE surfaces (editor/terminals/worktrees) follow.
+// The old standalone "Tasks/kanban" entry has been merged into Planning
+// (Board mode) per issue #82.
 const baseNavItems: NavItem[] = [
   { id: 'planning', labelKey: 'navigation:items.planning', icon: Map },
-  { id: 'kanban', labelKey: 'navigation:items.kanban', icon: Columns3 },
   { id: 'editor', labelKey: 'navigation:items.editor', icon: FolderOpen },
   { id: 'insights', labelKey: 'navigation:items.chat', icon: Sparkles },
   { id: 'terminals', labelKey: 'navigation:items.terminals', icon: Terminal },
@@ -96,7 +96,7 @@ export function Sidebar({
   onSettingsClick,
   onNewTaskClick,
   onOpenOnboarding,
-  activeView = 'kanban',
+  activeView = 'planning',
   onViewChange
 }: SidebarProps) {
   const { t } = useTranslation(['navigation', 'dialogs', 'common']);

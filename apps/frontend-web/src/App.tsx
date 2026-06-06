@@ -5,7 +5,6 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import { Sidebar, type SidebarView } from './components/Sidebar';
 import { ProjectTabBar } from './components/ProjectTabBar';
-import { KanbanBoard } from './components/KanbanBoard';
 import { TerminalGrid } from './components/TerminalGrid';
 import { Worktrees } from './components/Worktrees';
 import { Context } from './components/context/Context';
@@ -314,9 +313,13 @@ function AuthenticatedApp() {
 
             <main className="flex-1 overflow-hidden">
               {activeView === 'planning' ? (
-                /* Planning Portal — global, project-independent. */
+                /* Planning Portal — project-aware. Board mode renders the
+                   animated KanbanBoard wired to the task-store (issue #82). */
                 <div className="h-full overflow-hidden">
-                  <PlanningView />
+                  <PlanningView
+                    onTaskClick={handleTaskClick}
+                    onNewTaskClick={() => setIsNewTaskDialogOpen(true)}
+                  />
                 </div>
               ) : activeView === 'pfactory' ? (
                 /* PFactory's own surface: the test-generation review queue.
@@ -327,14 +330,6 @@ function AuthenticatedApp() {
                 </div>
               ) : selectedProject ? (
                 <>
-                  {activeView === 'kanban' && (
-                    <KanbanBoard
-                      tasks={tasks}
-                      onTaskClick={handleTaskClick}
-                      onNewTaskClick={() => setIsNewTaskDialogOpen(true)}
-                      isInitialized={!!selectedProject?.autoBuildPath}
-                    />
-                  )}
                   {/* TerminalGrid stays mounted but hidden to preserve xterm instances and PTY connections */}
                   <div className={activeView === 'terminals' ? 'h-full' : 'hidden'}>
                     <TerminalGrid
@@ -357,7 +352,7 @@ function AuthenticatedApp() {
                       onOpenSettings={() => setIsSettingsDialogOpen(true)}
                       onNavigateToTask={(taskId) => {
                         setSelectedTaskId(taskId);
-                        setActiveView('kanban');
+                        setActiveView('planning');
                       }}
                     />
                   )}

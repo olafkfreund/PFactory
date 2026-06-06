@@ -110,7 +110,7 @@ const markdownComponents = {
 
 interface InsightsProps {
   projectId: string;
-  onNavigate?: (view: 'kanban' | 'terminals' | 'editor' | 'context' | 'github-issues' | 'github-prs' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools') => void;
+  onNavigate?: (view: 'planning' | 'terminals' | 'editor' | 'context' | 'github-issues' | 'github-prs' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools') => void;
 }
 
 export function Insights({ projectId, onNavigate }: InsightsProps) {
@@ -249,7 +249,7 @@ export function Insights({ projectId, onNavigate }: InsightsProps) {
       if (task) {
         loadTasks(projectId);
         setShowCreateTaskDialog(false);
-        onNavigate?.('kanban');
+        onNavigate?.('planning');
       }
     } finally {
       setIsCreatingGeneratedTask(false);
