@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 3115,
+      port: 3104,  // PFactory portal — 31xx factory scheme (AI 3100/01, T 3102/03, P 3104/05, C 3110/11)
       host: true, // Listen on all network interfaces for remote access
       // Extra hostnames via VITE_ALLOWED_HOSTS (comma-separated, e.g. "dev.example.com,staging.example.com")
       allowedHosts: env.VITE_ALLOWED_HOSTS
@@ -40,7 +40,7 @@ export default defineConfig(({ mode }) => {
       }),
       proxy: {
         '/api': {
-          target: env.VITE_API_URL || 'http://localhost:3114',
+          target: env.VITE_API_URL || 'http://localhost:3105',
           changeOrigin: true,
           secure: false,
           // ``ws: true`` is required for Epic #44's WS route
@@ -51,7 +51,7 @@ export default defineConfig(({ mode }) => {
           ws: true,
         },
         '/ws': {
-          target: env.VITE_WS_URL || 'ws://localhost:3114',
+          target: env.VITE_WS_URL || 'ws://localhost:3105',
           ws: true,
           secure: false,
         },
