@@ -19,6 +19,7 @@ import { PlanEditor } from './PlanEditor';
 import { EnrichmentPanel } from './EnrichmentPanel';
 import { FeasibilityPanel } from './FeasibilityPanel';
 import { AnnotationPanel } from './AnnotationPanel';
+import { ReadinessPanel } from './ReadinessPanel';
 import type { PlanSessionStatus } from '../../shared/types/plan';
 
 const STATUS_BADGE: Record<PlanSessionStatus, { variant: 'success' | 'info' | 'warning' | 'destructive' | 'muted'; label: string }> = {
@@ -89,6 +90,10 @@ export function SessionDetail({ sessionId, onBack }: Props) {
       (epic.access_requirements != null && epic.access_requirements.length > 0));
   const hasAnnotation =
     session.annotation != null && session.annotation.suggestions.length > 0;
+
+  // Readiness gate: show the tab whenever review is present (even if readiness is null,
+  // the panel shows a "not evaluated" message which is still useful).
+  const hasReadiness = hasReview;
 
   // Default to 'pipeline' if processed; 'editor' if only ingested
   const defaultTab = hasEpic ? 'pipeline' : 'editor';
@@ -161,6 +166,7 @@ export function SessionDetail({ sessionId, onBack }: Props) {
             {hasFeasibility && <TabsTrigger value="feasibility">Feasibility</TabsTrigger>}
             {hasEnrichment && <TabsTrigger value="context">AI Context</TabsTrigger>}
             {hasReview && <TabsTrigger value="review">Review</TabsTrigger>}
+            {hasReadiness && <TabsTrigger value="readiness">Readiness</TabsTrigger>}
             {hasAnnotation && <TabsTrigger value="suggestions">Suggestions</TabsTrigger>}
             {hasReview && <TabsTrigger value="approval">Approval</TabsTrigger>}
             {isApprovedOrEmitted && <TabsTrigger value="emit">Emit</TabsTrigger>}
@@ -194,6 +200,15 @@ export function SessionDetail({ sessionId, onBack }: Props) {
           {hasReview && (
             <TabsContent value="review" className="mt-4">
               <ReviewPanel review={session.review!} />
+            </TabsContent>
+          )}
+
+          {hasReadiness && (
+            <TabsContent value="readiness" className="mt-4">
+              <ReadinessPanel
+                session={session}
+                onUpdated={() => store.refreshCurrentSession()}
+              />
             </TabsContent>
           )}
 

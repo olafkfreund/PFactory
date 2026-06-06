@@ -289,5 +289,62 @@
     "failedLabel": "Échoué",
     "starting": "Démarrage..."
   },
-  "lastChecked": "Dernière vérification"
+  "lastChecked": "Dernière vérification",
+  "readiness": {
+    "notEvaluated": "Portail de préparation pas encore évalué — traitez le plan pour lancer les vérifications.",
+    "summary": {
+      "allClear": "Toutes les vérifications de préparation ont réussi",
+      "hardFailures": "Des échecs bloquants sont présents",
+      "gatePassed": "Portail franchi",
+      "gateFailed": "Portail échoué",
+      "hardFailCount": "{{count}} échec bloquant",
+      "hardFailCount_plural": "{{count}} échecs bloquants",
+      "waivedCount": "{{count}} dispensé",
+      "waivedCount_plural": "{{count}} dispensés",
+      "passCount": "{{pass}}/{{total}} réussis",
+      "hardCount": "{{count}} vérification bloquante",
+      "hardCount_plural": "{{count}} vérifications bloquantes"
+    },
+    "checks": {
+      "heading": "Vérifications ({{count}})",
+      "empty": "Aucune vérification enregistrée."
+    },
+    "check": {
+      "toggle": "Basculer les détails de la vérification :",
+      "remediation": "Remédiation",
+      "severity": "Sévérité"
+    },
+    "status": {
+      "pass": "réussi",
+      "fail": "échoué",
+      "not_applicable": "n/a",
+      "skipped": "ignoré"
+    },
+    "badge": {
+      "hard": "BLOQUANT",
+      "advisory": "conseil",
+      "waived": "dispensé"
+    },
+    "waive": {
+      "buttonLabel": "Dispenser",
+      "formTitle": "Dispenser cet échec bloquant",
+      "waivedByLabel": "Votre nom",
+      "waivedByOptional": "optionnel",
+      "waivedByPlaceholder": "ex. Jane Dupont",
+      "reasonLabel": "Motif",
+      "reasonPlaceholder": "Expliquez pourquoi cet échec est acceptable…",
+      "reasonRequired": "Un motif est requis pour dispenser une vérification.",
+      "confirmButton": "Confirmer la dispense",
+      "confirmLabel": "Confirmer la dispense",
+      "submitting": "Dispense en cours…"
+    },
+    "waiver": {
+      "title": "Dispensé"
+    },
+    "waivers": {
+      "heading": "Dispenses ({{count}})",
+      "checks": "Vérifications : {{ids}}",
+      "invalidated": "invalidée"
+    }
+  }
 }

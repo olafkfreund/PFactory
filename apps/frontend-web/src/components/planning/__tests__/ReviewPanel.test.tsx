@@ -63,6 +63,7 @@ const sampleReview: PlanReview = {
     review_count: 0,
     feedback: [],
   },
+  readiness: null,
 };
 
 // ── Tests ──────────────────────────────────────────────────────────────
