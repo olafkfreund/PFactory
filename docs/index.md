@@ -121,6 +121,12 @@ pull request** — never silent edits.
 PFactory is the third factory in the suite — **plan → build → test**, governed
 end to end:
 
+</div>
+
+{% include factory-suite.html %}
+
+<div class="reveal" markdown="1">
+
 | Factory | Role |
 |---|---|
 | **PFactory** | **Plans &amp; governs** — ingest, enrich, decompose, review, emit issues |

@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from plan.decompose.models import ChildIssue, EpicPlan
+    from plan.models import NormalizedPlan
     from plan.review.models import PlanReview
 
 
@@ -124,6 +125,7 @@ def emit_to_github(
     *,
     repo: str,
     review: PlanReview | None = None,
+    plan: NormalizedPlan | None = None,
     gh: GhRunner | None = None,
     dry_run: bool = True,
     extra_labels: list[str] | None = None,
@@ -149,12 +151,12 @@ def emit_to_github(
         * Live emit creates the epic, then each child, then links the children
           as sub-issues, recording numbers in :attr:`EmitResult.child_numbers`.
     """
-    if not dry_run and review is not None and not review.ready_to_emit():
+    if not dry_run and review is not None and not review.ready_to_emit(plan):
         return EmitResult(
             dry_run=False,
             errors=[
-                "refusing to emit an ungoverned plan: "
-                "review is not ready_to_emit (gates/approval not satisfied)"
+                "refusing to emit an ungoverned plan: review is not ready_to_emit "
+                "(gates/approval/readiness not satisfied)"
             ],
         )
 

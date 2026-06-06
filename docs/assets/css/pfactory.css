@@ -680,6 +680,264 @@ img, svg { max-width: 100%; height: auto; }
   .pipeline__arrow span { animation: none; }
 }
 
+/* ─── Factory suite (animated PFactory → AIFactory → TFactory) ──────── */
+.fsuite {
+  position: relative;
+  margin: 52px 0;
+  padding: 30px 26px 34px;
+  background:
+    radial-gradient(120% 150% at 0% 0%, rgba(184, 187, 38, 0.06), transparent 55%),
+    radial-gradient(120% 150% at 100% 100%, rgba(254, 128, 25, 0.06), transparent 55%),
+    var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.fsuite::before { /* brand sweep hairline along the top, matches .pipeline */
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, #b8bb26, #8ec07c, #83a598, #fabd2f, #fe8019);
+  opacity: 0.85;
+}
+.fsuite__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 30px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fsuite__title { font-size: 19px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.fsuite__caption {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.fsuite__flow {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+/* ── node / box ── */
+.fsuite__node {
+  position: relative;
+  flex: 1 1 170px;
+  min-width: 0;
+  max-width: 220px;
+  padding: 22px 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fc) 9%, var(--bg)) 0%, var(--bg) 70%);
+  text-align: center;
+  transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+}
+.fsuite__node::before { /* per-node accent bar */
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  border-radius: 16px 16px 0 0;
+  background: var(--fc);
+  opacity: 0.9;
+}
+.fsuite__node:hover {
+  transform: translateY(-6px);
+  border-color: var(--fc);
+  box-shadow: 0 16px 32px color-mix(in srgb, var(--fc) 26%, transparent);
+}
+
+/* ── activity ring around the icon ── */
+.fsuite__ring {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 14px;
+}
+.fsuite__ring-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.fsuite__ring-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--fc) 18%, transparent);
+  stroke-width: 4;
+}
+.fsuite__ring-arc {
+  fill: none;
+  stroke: var(--fc);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 70 194;     /* arc + gap ≈ circumference (2πr, r=42) */
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--fc) 45%, transparent));
+  animation: fsuite-spin 2.6s linear infinite;
+}
+.fsuite__node:nth-child(3) .fsuite__ring-arc { animation-duration: 2.1s; animation-direction: reverse; }
+.fsuite__node:nth-child(5) .fsuite__ring-arc { animation-duration: 3.1s; }
+@keyframes fsuite-spin { to { stroke-dashoffset: -264; } }
+
+.fsuite__icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fc);
+}
+.fsuite__icon svg { width: 40px; height: 40px; }
+
+/* ── icon micro-activity ── */
+/* plan: ink lines "write" in, staggered */
+.fsuite__ink { stroke-dasharray: 8; animation: fsuite-write 2.8s ease-in-out infinite; }
+.fsuite__ink--2 { animation-delay: 0.25s; }
+.fsuite__ink--3 { animation-delay: 0.5s; }
+@keyframes fsuite-write {
+  0%, 12% { stroke-dashoffset: 8; opacity: 0.25; }
+  40%, 78% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 8; opacity: 0.25; }
+}
+/* code: robot blinks + antenna pulse */
+.fsuite__bot-eye { transform-box: fill-box; transform-origin: center; animation: fsuite-blink 3.4s ease-in-out infinite; }
+@keyframes fsuite-blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
+.fsuite__bot-antenna { transform-box: fill-box; transform-origin: center; animation: fsuite-pulse 1.8s ease-in-out infinite; }
+@keyframes fsuite-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+/* test: bubbles rise */
+.fsuite__bub { transform-box: fill-box; transform-origin: center; animation: fsuite-bubble 2.4s ease-in-out infinite; }
+.fsuite__bub--2 { animation-delay: 0.6s; }
+.fsuite__bub--3 { animation-delay: 1.1s; }
+@keyframes fsuite-bubble {
+  0% { transform: translateY(2px) scale(0.6); opacity: 0; }
+  30% { opacity: 0.9; }
+  70% { opacity: 0.6; }
+  100% { transform: translateY(-5px) scale(1); opacity: 0; }
+}
+
+.fsuite__name {
+  font-weight: 700;
+  font-size: 15px;
+  margin: 0 0 2px;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.fsuite__role { font-size: 12.5px; color: var(--text-muted); margin: 0 0 10px; }
+.fsuite__chip {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fc);
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--fc) 36%, transparent);
+  background: color-mix(in srgb, var(--fc) 12%, transparent);
+}
+
+/* ── connector + travelling package ── */
+.fsuite__link {
+  position: relative;
+  flex: 0 0 58px;
+  align-self: center;
+  height: 30px;
+}
+.fsuite__line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background: linear-gradient(90deg, #b8bb26, #83a598);
+  background-size: 14px 100%;
+  /* dashed conveyor that flows left → right */
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text-dim) 60%, transparent) 0 6px,
+    transparent 6px 12px
+  );
+  animation: fsuite-flow 0.9s linear infinite;
+}
+.fsuite__link:last-of-type .fsuite__line { background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text-dim) 60%, transparent) 0 6px,
+    transparent 6px 12px
+  ); }
+@keyframes fsuite-flow { to { background-position: 12px 0; } }
+
+.fsuite__pkg {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-yellow);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent-yellow) 55%, transparent));
+  opacity: 0;
+  animation: fsuite-travel 3.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+.fsuite__pkg svg { width: 18px; height: 18px; }
+/* second hop starts after the first delivers — continuous conveyor */
+.fsuite__pkg--2 { animation-delay: 1.7s; }
+@keyframes fsuite-travel {
+  0%      { left: 0;    opacity: 0; transform: scale(0.7) rotate(-8deg); }
+  10%     { opacity: 1; transform: scale(1) rotate(0deg); }
+  44%     { left: 100%; opacity: 1; transform: scale(1) rotate(6deg); }
+  50%     { left: 100%; opacity: 0; transform: scale(0.7) rotate(0deg); }
+  100%    { left: 100%; opacity: 0; }
+}
+
+@media (max-width: 760px) {
+  .fsuite__flow { flex-direction: column; align-items: stretch; }
+  .fsuite__node { max-width: none; }
+  .fsuite__link { flex: 0 0 40px; width: 2px; height: 40px; margin: 0 auto; align-self: center; }
+  .fsuite__line {
+    top: 0; bottom: 0; left: 50%; right: auto; width: 2px; height: auto;
+    transform: translateX(-50%);
+    background-image: repeating-linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--text-dim) 60%, transparent) 0 6px,
+      transparent 6px 12px
+    );
+    animation: fsuite-flow-v 0.9s linear infinite;
+  }
+  @keyframes fsuite-flow-v { to { background-position: 0 12px; } }
+  .fsuite__pkg {
+    left: 50%; top: 0; margin: -11px 0 0 -11px;
+    animation: fsuite-travel-v 3.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+  @keyframes fsuite-travel-v {
+    0%   { top: 0;    opacity: 0; transform: scale(0.7); }
+    10%  { opacity: 1; transform: scale(1); }
+    44%  { top: 100%; opacity: 1; transform: scale(1); }
+    50%  { top: 100%; opacity: 0; transform: scale(0.7); }
+    100% { top: 100%; opacity: 0; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fsuite__ring-arc,
+  .fsuite__ink, .fsuite__bot-eye, .fsuite__bot-antenna, .fsuite__bub,
+  .fsuite__line, .fsuite__pkg { animation: none; }
+  .fsuite__pkg { opacity: 1; left: 50%; }   /* park a package mid-link, static */
+  .fsuite__ring-arc { stroke-dasharray: 200 64; }  /* show a near-full ring */
+}
+
 /* ─── Feature row cards ────────────────────────────────────────────── */
 .feature-row {
   display: grid;

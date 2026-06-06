@@ -266,7 +266,6 @@ class PlanService:
         text = " ".join(
             [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
         )
-        low = text.lower()
         enrichment = plan.enrichment.model_copy(deep=True)
 
         # ── infra adapters (probe AWS / k8s / …) ───────────────────────
@@ -277,15 +276,12 @@ class PlanService:
         ]
         if adapters:
             # Only probe cloud/cluster infra when the plan actually targets it.
+            # Shared heuristic so the readiness `enrichment-integrity` check and
+            # this stage always agree on cloud-relevance.
+            from plan.enrich.relevance import is_cloud_relevant
+
             cloud_adapters = {"aws", "azure", "gcp", "kubernetes", "openshift"}
-            cloud_keywords = (
-                "aws", "eks", "ecs", "lambda", "s3", "rds", "kubernetes", "k8s",
-                "openshift", "azure", "aks", "gcp", "gke", "cloud", "helm",
-                "terraform", "redis", "deploy", "ingress", "microservice",
-            )
-            cloud_relevant = any(k in low for k in cloud_keywords) or (
-                plan.plan_type in ("infra-change", "data-pipeline")
-            )
+            cloud_relevant = is_cloud_relevant(plan)
             adapters = [n for n in adapters if n not in cloud_adapters or cloud_relevant]
         if adapters:
             from plan.enrich.base import get_adapter
@@ -381,8 +377,8 @@ class PlanService:
         labels = taxonomy_labels(session.plan, session.epic, session.review)
         meta = pfactory_meta_block(session.plan, session.epic, session.review)
         result = emit_to_github(session.epic, repo=repo, review=session.review,
-                                dry_run=dry_run, extra_labels=labels, meta_block=meta,
-                                gh=gh)
+                                plan=session.plan, dry_run=dry_run,
+                                extra_labels=labels, meta_block=meta, gh=gh)
         session.emit_result = result.model_dump()
         if not dry_run and not result.errors:
             session.status = "emitted"

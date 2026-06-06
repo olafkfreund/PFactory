@@ -1,0 +1,103 @@
+<!-- Factory-suite flow: PFactory → AIFactory → TFactory, with animated
+     activity rings, flowing connectors, and task "packages" handed down the
+     line. CSS-only motion (see .fsuite in pfactory.css); honours
+     prefers-reduced-motion. Gruvbox palette via the --fc per-node accent. -->
+<section class="fsuite reveal" aria-label="The Factory suite: plan, build, test">
+  <header class="fsuite__header">
+    <h2 class="fsuite__title">One task, three factories</h2>
+    <span class="fsuite__caption">plan&nbsp;→&nbsp;build&nbsp;→&nbsp;test</span>
+  </header>
+
+  <div class="fsuite__flow" role="list">
+
+    <!-- ── PFactory · Plan ─────────────────────────────────────────── -->
+    <article class="fsuite__node" role="listitem" style="--fc:#b8bb26">
+      <div class="fsuite__ring">
+        <svg class="fsuite__ring-svg" viewBox="0 0 96 96" aria-hidden="true">
+          <circle class="fsuite__ring-track" cx="48" cy="48" r="42"/>
+          <circle class="fsuite__ring-arc" cx="48" cy="48" r="42"/>
+        </svg>
+        <span class="fsuite__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 3h7l4 4v13.2a.8.8 0 0 1-.8.8H7.8a.8.8 0 0 1-.8-.8z"/>
+            <path d="M14 3v4h4"/>
+            <path class="fsuite__ink fsuite__ink--1" d="M9.5 11.2h5"/>
+            <path class="fsuite__ink fsuite__ink--2" d="M9.5 14h5"/>
+            <path class="fsuite__ink fsuite__ink--3" d="M9.5 16.8h3"/>
+          </svg>
+        </span>
+      </div>
+      <p class="fsuite__name">PFactory</p>
+      <p class="fsuite__role">Plans &amp; governs</p>
+      <span class="fsuite__chip">plan</span>
+    </article>
+
+    <!-- connector: PFactory → AIFactory -->
+    <div class="fsuite__link" aria-hidden="true">
+      <span class="fsuite__line"></span>
+      <span class="fsuite__pkg fsuite__pkg--1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 8.2 12 3 3 8.2l9 5.2 9-5.2z"/><path d="M3 8.2v7.6l9 5.2 9-5.2V8.2"/><path d="M12 13.4v8"/>
+        </svg>
+      </span>
+    </div>
+
+    <!-- ── AIFactory · Code ────────────────────────────────────────── -->
+    <article class="fsuite__node" role="listitem" style="--fc:#83a598">
+      <div class="fsuite__ring">
+        <svg class="fsuite__ring-svg" viewBox="0 0 96 96" aria-hidden="true">
+          <circle class="fsuite__ring-track" cx="48" cy="48" r="42"/>
+          <circle class="fsuite__ring-arc" cx="48" cy="48" r="42"/>
+        </svg>
+        <span class="fsuite__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2.6v2.2"/>
+            <circle class="fsuite__bot-antenna" cx="12" cy="2.4" r="0.9" fill="currentColor" stroke="none"/>
+            <rect x="4.5" y="6" width="15" height="11.5" rx="3.2"/>
+            <path d="M2.6 10.5v3M21.4 10.5v3"/>
+            <ellipse class="fsuite__bot-eye fsuite__bot-eye--l" cx="9.2" cy="11.4" rx="1.4" ry="1.5" fill="currentColor" stroke="none"/>
+            <ellipse class="fsuite__bot-eye fsuite__bot-eye--r" cx="14.8" cy="11.4" rx="1.4" ry="1.5" fill="currentColor" stroke="none"/>
+            <path d="M9.4 14.6h5.2"/>
+          </svg>
+        </span>
+      </div>
+      <p class="fsuite__name">AIFactory</p>
+      <p class="fsuite__role">Builds the code</p>
+      <span class="fsuite__chip">code</span>
+    </article>
+
+    <!-- connector: AIFactory → TFactory -->
+    <div class="fsuite__link" aria-hidden="true">
+      <span class="fsuite__line"></span>
+      <span class="fsuite__pkg fsuite__pkg--2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 8.2 12 3 3 8.2l9 5.2 9-5.2z"/><path d="M3 8.2v7.6l9 5.2 9-5.2V8.2"/><path d="M12 13.4v8"/>
+        </svg>
+      </span>
+    </div>
+
+    <!-- ── TFactory · Test ─────────────────────────────────────────── -->
+    <article class="fsuite__node" role="listitem" style="--fc:#fe8019">
+      <div class="fsuite__ring">
+        <svg class="fsuite__ring-svg" viewBox="0 0 96 96" aria-hidden="true">
+          <circle class="fsuite__ring-track" cx="48" cy="48" r="42"/>
+          <circle class="fsuite__ring-arc" cx="48" cy="48" r="42"/>
+        </svg>
+        <span class="fsuite__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 3h6"/>
+            <path d="M10 3.2v5.6L5.6 16a2 2 0 0 0 1.7 3h9.4a2 2 0 0 0 1.7-3L14 8.8V3.2"/>
+            <path d="M7.6 14.2h8.8"/>
+            <circle class="fsuite__bub fsuite__bub--1" cx="11" cy="16.4" r="0.7" fill="currentColor" stroke="none"/>
+            <circle class="fsuite__bub fsuite__bub--2" cx="13.3" cy="17.2" r="0.55" fill="currentColor" stroke="none"/>
+            <circle class="fsuite__bub fsuite__bub--3" cx="12" cy="15.4" r="0.5" fill="currentColor" stroke="none"/>
+          </svg>
+        </span>
+      </div>
+      <p class="fsuite__name">TFactory</p>
+      <p class="fsuite__role">Verifies with tests</p>
+      <span class="fsuite__chip">test</span>
+    </article>
+
+  </div>
+</section>
