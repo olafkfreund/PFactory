@@ -144,6 +144,9 @@ def build_phases(epic: EpicPlan) -> list[dict[str, Any]]:
             "name": _phase_name(children),
             "type": _phase_type([c.kind for c in children]),
             "depends_on": sorted(dl + 1 for dl in dep_levels),
+            # Same-level children are independent by construction, so a phase
+            # with >1 subtask can run them as a concurrent wave (#65 child 4).
+            "parallel_safe": len(subtasks) > 1,
             "subtasks": subtasks,
         }
         phases.append(phase)

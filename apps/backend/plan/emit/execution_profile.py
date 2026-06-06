@@ -50,8 +50,29 @@ def derive_complexity(epic: EpicPlan, *, services: int = 0) -> str:
     return complexity
 
 
+# Cap on concurrent coders regardless of how wide a phase is.
+_MAX_WORKERS = 4
+
+
+def derive_parallelism(epic: EpicPlan) -> tuple[bool, int]:
+    """Derive (parallel, workers) from the epic's dependency shape (child 4).
+
+    Subtasks grouped at the same dependency level are independent, so a phase
+    with N>1 such subtasks can run N coders concurrently. ``workers`` is the
+    widest phase, capped at ``_MAX_WORKERS``; ``parallel`` is True when any phase
+    is wider than one.
+    """
+    from .contract_builder import build_phases
+
+    widths = [len(ph.get("subtasks", [])) for ph in build_phases(epic)]
+    widest = max(widths) if widths else 1
+    workers = max(1, min(widest, _MAX_WORKERS))
+    return (widest > 1, workers)
+
+
 def build_execution(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, Any]:
     """Build the contract's ``execution`` block for ``plan``/``epic``."""
+    parallel, workers = derive_parallelism(epic)
     services = len({
         s
         for c in epic.children
@@ -70,6 +91,8 @@ def build_execution(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, Any]:
         "provider_rationale": f"{model!r} → {provider} (inferred from the model id)",
         "phase_models": {"coding": model, "qa": model, "qa_fixer": model},
         "phase_thinking": dict(_THINKING_BY_COMPLEXITY[complexity]),
+        "parallel": parallel,
+        "workers": workers,
         "agents": {
             "planner": False,  # PFactory already planned — skip it
             "coder": True,
