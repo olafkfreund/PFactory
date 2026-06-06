@@ -83,6 +83,7 @@ class PlanSession(BaseModel):
     selected_template: str = ""   # template the user chose — its policy IS enforced (#E)
     suggested_template: str = ""  # best keyword match — informational only
     emit_result: dict | None = None
+    contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     # PARR correlation chain (#47): pfactory.session_id → issue# → aifactory.task_id.
@@ -389,6 +390,43 @@ class PlanService:
             # shared key, then emit the terminal completion event (#47).
             session.emitted_issue_number = result.epic_number
             session.correlation_key = correlation_key_for(session)
+            notify_completion(session)
+        return session
+
+    def emit_contract(self, session_id: str, *, repo: str | None = None,
+                      project_id: str | None = None, dry_run: bool = True,
+                      http=None, base_url: str | None = None,
+                      key: str | None = None) -> PlanSession:
+        """Emit the RFC-0002 signed Task Contract v2 for a session (#65).
+
+        Assembles the full contract (plan + execution + tfactory + verification),
+        validates + signs it, and (unless ``dry_run``) POSTs it to AIFactory's
+        skip-planning ``/api/tasks/from-plan`` endpoint. Dry-run by default; the
+        result is stored on ``session.contract_result``.
+        """
+        from plan.emit.contract_emit import emit_contract as _emit_contract
+
+        session = self.get(session_id)
+        if session.epic is None:
+            raise PlanServiceError("process the plan before emitting a contract")
+        base = base_url or os.environ.get(
+            "PFACTORY_AIFACTORY_API_URL", "http://localhost:3101"
+        )
+        pid = project_id or repo or session.plan.plan_id
+        corr = session.correlation_key or correlation_key_for(session)
+        result = _emit_contract(
+            session.plan, session.epic, session.review,
+            base_url=base, project_id=pid, http=http, key=key,
+            repo=repo, correlation_key=corr, dry_run=dry_run,
+        )
+        session.contract_result = result
+        if result.get("ok") and not dry_run:
+            resp = result.get("response") if isinstance(result.get("response"), dict) else {}
+            task_id = (resp or {}).get("taskId") or (resp or {}).get("task_id")
+            if task_id:
+                session.aifactory_task_id = str(task_id)
+            session.status = "emitted"
+            session.correlation_key = corr
             notify_completion(session)
         return session
 
