@@ -190,6 +190,14 @@
     "raceLostDismiss": "OK",
     "headerHint": "Miroir en lecture seule du terminal de l'agent. Cliquez sur Prendre le contrôle pour intervenir."
   },
+  "cardLog": {
+    "showLog": "Afficher le journal en direct",
+    "hideLog": "Masquer le journal en direct",
+    "live": "live",
+    "loading": "Chargement…",
+    "waiting": "En attente de la sortie…",
+    "logRegionLabel": "Sortie de l'agent en direct"
+  },
   "delegation": {
     "enableLabel": "Déléguer le codage à l'agent autonome du projet",
     "enableHelp": "PFactory rédige toujours le plan, puis transmet le ticket à GitHub Copilot Coding Agent (projets GitHub) ou GitLab Duo Workflow (projets GitLab). Utilise votre siège Copilot/Duo — aucun jeton Claude supplémentaire pour le codage.",
