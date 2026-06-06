@@ -994,7 +994,7 @@ body {
   opacity: 0.65;
   flex-shrink: 0;
   font-size: 8px;
-  tabular-nums;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Content — wraps long lines */
