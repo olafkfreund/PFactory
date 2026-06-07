@@ -58,20 +58,22 @@ export const useAuthStore = create<AuthState>()(
       },
 
       checkAuth: async () => {
+        // Two ways to be authenticated:
+        //  1) a Bearer token in localStorage (API-token / password login), or
+        //  2) the HttpOnly `access_token` cookie set by the OIDC/SSO callback.
+        // The cookie can't be read from JS, so we can't short-circuit on a
+        // missing localStorage token — that bug bounced SSO logins straight
+        // back to /login. Instead, ask the backend: /api/auth/me is the source
+        // of truth. Same-origin fetch sends the cookie; we also attach the
+        // Bearer header when a token is present.
         const token = getAuthToken();
-
-        // No token stored — not authenticated, don't even call the backend
-        if (!token) {
-          set({ isAuthenticated: false, isLoading: false });
-          return false;
-        }
 
         set({ isLoading: true });
 
         try {
-          // Validate token against a protected endpoint (not /api/health which is public)
-          const response = await fetch('/api/settings', {
-            headers: { Authorization: `Bearer ${token}` },
+          const response = await fetch('/api/auth/me', {
+            credentials: 'include',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
 
           if (response.ok) {
@@ -79,12 +81,12 @@ export const useAuthStore = create<AuthState>()(
             return true;
           }
 
-          // Token rejected — clear it
+          // Rejected — clear a stale localStorage token if we had one.
           if (response.status === 401 || response.status === 403) {
-            clearAuthToken();
+            if (token) clearAuthToken();
             set({ isAuthenticated: false, isLoading: false });
           } else {
-            // Server error but token might still be valid - keep it
+            // Server error — don't clear anything, backend might be starting.
             set({ isAuthenticated: false, isLoading: false });
           }
 
