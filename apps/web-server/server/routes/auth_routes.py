@@ -20,6 +20,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth import _try_decode_jwt
 from ..config import get_settings
 from ..database import Organization, OrgMember, User
 from ..database.engine import get_db
@@ -142,6 +143,27 @@ async def get_current_user(
     the full ``User`` ORM object from the database.
     """
     user_data = getattr(request.state, "user", None)
+    if user_data is None:
+        # Routes under /api/auth/* bypass TokenAuthMiddleware (it treats
+        # "/api/auth/" as a PUBLIC_PREFIX), so request.state.user is never
+        # populated for them — including this /api/auth/me. Resolve the token
+        # ourselves: the Authorization: Bearer header, else the access_token
+        # cookie set by the OIDC login callback. Without this, SSO logins set
+        # a valid cookie but /me still 401s, bouncing the SPA back to /login.
+        token = None
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+        if not token:
+            token = request.cookies.get("access_token")
+        if token:
+            payload = _try_decode_jwt(token)
+            if payload is not None:
+                user_data = {
+                    "id": payload.get("sub"),
+                    "email": payload.get("email"),
+                    "role": payload.get("role", "user"),
+                }
     if user_data is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

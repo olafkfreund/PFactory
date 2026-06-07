@@ -123,22 +123,28 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # --- Authenticate API routes ---
+        # Accept the token from the Authorization: Bearer header, OR fall back
+        # to the `access_token` cookie set by the OIDC login callback (HttpOnly
+        # cookie session). Without this, SSO logins set a cookie the middleware
+        # ignored, so the SPA bounced straight back to /login.
         settings = get_settings()
         auth_header = request.headers.get("Authorization")
+        token = None
+        if auth_header:
+            if not auth_header.startswith("Bearer "):
+                return JSONResponse(
+                    {"error": "Invalid Authorization header format"},
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
+            token = auth_header[7:]  # Remove "Bearer " prefix
+        else:
+            token = request.cookies.get("access_token")
 
-        if not auth_header:
+        if not token:
             return JSONResponse(
                 {"error": "Missing Authorization header"},
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
-
-        if not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                {"error": "Invalid Authorization header format"},
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        token = auth_header[7:]  # Remove "Bearer " prefix
 
         # Strategy 1: Try JWT validation
         jwt_payload = _try_decode_jwt(token)
