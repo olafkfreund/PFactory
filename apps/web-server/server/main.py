@@ -374,10 +374,30 @@ def create_app() -> FastAPI:
     async def health_check():
         return {"status": "healthy", "version": app.version}
 
-    # Mount static files for SPA (if build directory exists)
+    # Mount static files for SPA (if build directory exists).
+    #
+    # Cache policy (SSO fix) — the SPA shell (index.html) MUST NOT be
+    # heuristically cached by the browser, or users keep running the previous
+    # build's JS after an upgrade (which is exactly how a fixed auth bug can
+    # look unfixed). Starlette's StaticFiles sends ETag/Last-Modified but no
+    # Cache-Control, which triggers browser heuristic caching of the shell.
+    # So: HTML responses → `no-cache` (store but always revalidate; cheap 304s);
+    # content-hashed assets under /assets/ → long-lived immutable cache.
+    class SPAStaticFiles(StaticFiles):
+        async def get_response(self, path, scope):
+            response = await super().get_response(path, scope)
+            content_type = response.headers.get("content-type", "")
+            if content_type.startswith("text/html"):
+                response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            elif "/assets/" in (scope.get("path") or ""):
+                response.headers["Cache-Control"] = (
+                    "public, max-age=31536000, immutable"
+                )
+            return response
+
     static_dir = Path(__file__).parent.parent / "static"
     if static_dir.exists():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+        app.mount("/", SPAStaticFiles(directory=str(static_dir), html=True), name="static")
     else:
         # Placeholder for development
         @app.get("/")
