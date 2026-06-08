@@ -37,6 +37,7 @@ from .routes import (
     git_credentials,
     github,
     mcp,
+    mcp_rpc,
     notifications,
     organizations,
     projects,
@@ -299,6 +300,12 @@ def create_app() -> FastAPI:
     # Console tab.  The router already declares its own prefix.
     app.include_router(capabilities.router, tags=["Capabilities"])
     app.include_router(mcp.router)
+
+    # PFactory MCP server — planning-context tools over POST /mcp (epic #87 /
+    # #89). JSON-RPC 2.0; Bearer PFACTORY_MCP_SECRET. Lets the Copilot cloud
+    # agent (and AIFactory/TFactory) retrieve epic/requirements/decomposition/
+    # task-contract/review-status during implementation.
+    app.include_router(mcp_rpc.router)
 
     # Remote HTTP+SSE MCP server (Epic #50 / Issue #83) — opt-in via
     # PFACTORY_MCP_REMOTE_ENABLED=true.  Exposes the PFactory task

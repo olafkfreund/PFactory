@@ -1,0 +1,54 @@
+name: Review Copilot Plan-Draft PRs
+
+# Component 4 of the GitHub Agentic Integration (epic #87 / #90).
+# When the Copilot cloud agent opens a plan-draft PR (Component 2 dispatch),
+# run PFactory's governance/review gates on it and post the results. If no
+# PFACTORY_URL secret is configured, fall back to an inline Copilot CLI review.
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  models: read
+
+jobs:
+  pfactory-plan-review:
+    if: github.actor == 'copilot-swe-agent[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run PFactory plan review gates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PFACTORY_URL: ${{ secrets.PFACTORY_URL }}
+          PFACTORY_TOKEN: ${{ secrets.PFACTORY_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PFACTORY_URL:-}" ]; then
+            # Notify PFactory to run its plan review / governance gates on the
+            # Copilot-authored plan-draft PR.
+            jq -n \
+              --arg repo "$REPO" \
+              --argjson pr "$PR_NUMBER" \
+              '{repo: $repo, pr_number: $pr}' \
+            | curl -sf -X POST "$PFACTORY_URL/api/github/prs/$PR_NUMBER/plan-review" \
+                -H "Authorization: Bearer $PFACTORY_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data-binary @-
+          else
+            # Fallback: inline Copilot CLI review of the draft plan.
+            npm install -g @github/copilot 2>/dev/null || true
+            copilot -p "Review this plan-draft PR for feasibility, completeness, and governance: are the requirements, decomposition, and acceptance criteria sound? Post a concise summary review comment." \
+              --allow-all-tools --no-color \
+              --add-dir "${{ github.workspace }}" || \
+              gh pr comment "$PR_NUMBER" \
+                --body "🏭 **PFactory**: set the \`PFACTORY_URL\` secret (or install the Copilot CLI) to run plan-review gates automatically."
+          fi

@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  models: read   # free GitHub Models inference for github-models/* (epic #87 / #88)
 
 jobs:
   backend-lint-test:

@@ -145,3 +145,54 @@ spec:
     Tools are namespaced mcp__pfactory__* and assembled per session from the
     subtask, progress, memory and QA tool factories
     (apps/backend/agents/tools_pkg/registry.py).
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: pfactory-planning-mcp
+  title: PFactory Planning-Context MCP Server
+  description: >-
+    HTTP JSON-RPC MCP server (name "pfactory") exposing planning outputs —
+    epic, requirements, decomposition, Task Contract v2, review status — as
+    pfactory_get_* tools so the GitHub Copilot cloud agent and other factories
+    can retrieve planning context at runtime (epic #87 / #89).
+  annotations:
+    github.com/project-slug: olafkfreund/PFactory
+    backstage.io/source-location: url:https://github.com/olafkfreund/PFactory/tree/main/apps/web-server/server/routes/mcp_rpc.py
+    backstage.io/view-url: https://github.com/olafkfreund/PFactory/blob/main/catalog-info.yaml
+    backstage.io/edit-url: https://github.com/olafkfreund/PFactory/edit/main/catalog-info.yaml
+  tags:
+    - mcp
+    - jsonrpc
+    - http
+    - github-agentic
+spec:
+  type: mcp
+  lifecycle: experimental
+  owner: olafkfreund
+  system: pfactory
+  definition: |
+    PFactory planning-context MCP server (Model Context Protocol over HTTP
+    JSON-RPC 2.0). The runtime bridge for RFC-0002 Task Contract v2.
+
+    Transport:  POST /mcp  (JSON-RPC 2.0; POST-only Streamable HTTP subset)
+    Auth:       Authorization: Bearer ${PFACTORY_MCP_SECRET}  (when set)
+    Entrypoint: apps/web-server/server/routes/mcp_rpc.py
+
+    Tools:
+      pfactory_get_epic            epic decomposition for an issue/session
+      pfactory_get_requirements    normalised requirements + acceptance criteria
+      pfactory_get_decomposition   child-issue dependency graph
+      pfactory_get_task_contract   signed RFC-0002 Task Contract v2 payload
+      pfactory_get_review_status   governance review-gate status
+
+    Lookup key: emitted GitHub epic issue number (PlanSession.emitted_issue_number)
+    or PFactory session_id. Data source: the in-memory plan.service.SERVICE store.
+
+    GitHub repo config (Settings -> Copilot -> MCP servers):
+      {"mcpServers": {"pfactory": {"type": "http",
+        "url": "${COPILOT_MCP_PFACTORY_URL}/mcp",
+        "headers": {"Authorization": "Bearer ${COPILOT_MCP_PFACTORY_TOKEN}"},
+        "tools": ["pfactory_get_epic","pfactory_get_requirements",
+                  "pfactory_get_decomposition","pfactory_get_task_contract",
+                  "pfactory_get_review_status"]}}}

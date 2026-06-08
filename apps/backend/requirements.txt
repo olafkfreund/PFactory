@@ -4,6 +4,11 @@ claude-agent-sdk>=0.1.16
 # CLI framework — used by pfactory.cli (init / migrate commands)
 click>=8.0.0
 
+# HTTP client — used by agents.tools_pkg.http_client (PFactory API calls) and
+# the remote-MCP/handoff seams. Guarded as optional at import, but required for
+# the http-client tests to collect, so declare it explicitly.
+httpx>=0.27.0
+
 # YAML generation for .pfactory.yml scaffolding
 PyYAML>=6.0.0
 # anthropic — pinned explicitly for Message Batches API access (Issue #11).

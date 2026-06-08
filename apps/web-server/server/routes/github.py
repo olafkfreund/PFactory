@@ -77,6 +77,16 @@ class CreateReleaseRequest(BaseModel):
     prerelease: bool = False
 
 
+class CopilotDispatchRequest(BaseModel):
+    repo: str  # owner/name
+    issueNumber: int
+
+
+class PlanReviewPRRequest(BaseModel):
+    repo: str  # owner/name
+    pr_number: int
+
+
 # ============================================
 # GitHub CLI Helpers
 # ============================================
@@ -346,6 +356,210 @@ async def check_github_cli():
         if m:
             version = m.group(1)
     return {"success": True, "data": {"installed": result["success"], "version": version}}
+
+
+@router.get("/models")
+async def list_github_models():
+    """List the GitHub Models catalog (epic #87 / #88).
+
+    Passthrough to ``GET https://models.github.ai/catalog/models`` via the gh
+    CLI (reuses the existing gh auth token). Each entry can be selected in the
+    portal as ``github-models/{publisher}/{name}`` — free OpenAI-compatible
+    inference routed through PFactory's provider factory.
+    """
+    result = run_gh_command(["api", "https://models.github.ai/catalog/models"])
+    if not result["success"]:
+        return JSONResponse(
+            status_code=502,
+            content={"success": False, "error": result["error"], "models": []},
+        )
+    try:
+        catalog = json.loads(result["output"])
+    except json.JSONDecodeError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"success": False, "error": f"bad catalog JSON: {exc}", "models": []},
+        )
+    # Normalise to the github-models/<publisher>/<name> model strings the
+    # provider factory understands.
+    models = []
+    for entry in catalog if isinstance(catalog, list) else []:
+        publisher = entry.get("publisher") or entry.get("owner") or ""
+        name = entry.get("name") or entry.get("id") or ""
+        if not name:
+            continue
+        slug = f"{publisher}/{name}".strip("/")
+        models.append({
+            "id": f"github-models/{slug}",
+            "model": slug,
+            "name": entry.get("friendly_name") or name,
+            "publisher": publisher,
+            "summary": entry.get("summary", ""),
+        })
+    return {"success": True, "data": {"models": models, "count": len(models)}}
+
+
+@router.get("/copilot/config")
+async def get_copilot_dispatch_config():
+    """Report whether Copilot cloud-agent dispatch is enabled (epic #87 / #88)."""
+    from ..services.copilot_dispatch_service import CopilotDispatchService
+
+    return {
+        "success": True,
+        "data": {
+            "enabled": CopilotDispatchService.is_enabled(),
+            "dispatch_label": CopilotDispatchService.DISPATCH_LABEL,
+            "agent_handle": CopilotDispatchService.AGENT_HANDLE,
+        },
+    }
+
+
+@router.post("/copilot/dispatch")
+async def dispatch_to_copilot(request: CopilotDispatchRequest):
+    """Assign a PFactory planning issue to the Copilot cloud agent (#88).
+
+    Opt-in: returns 409 when ``PFACTORY_COPILOT_DISPATCH_ENABLED`` is off so the
+    caller falls back to the normal PFactory flow instead of silently ignoring
+    the label.
+    """
+    from ..services.copilot_dispatch_service import SERVICE, CopilotDispatchService
+
+    if not CopilotDispatchService.is_enabled():
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": (
+                    "Copilot dispatch disabled — set "
+                    "PFACTORY_COPILOT_DISPATCH_ENABLED=1 to enable."
+                ),
+            },
+        )
+    try:
+        meta = SERVICE.dispatch(request.repo, request.issueNumber)
+    except RuntimeError as exc:
+        return JSONResponse(
+            status_code=502, content={"success": False, "error": str(exc)}
+        )
+    return {"success": True, "data": meta}
+
+
+@router.get("/copilot/pr")
+async def find_copilot_pr(
+    repo: str = Query(...), issueNumber: int = Query(...)
+):
+    """Find the Copilot-opened plan-draft PR for an issue, if any (#88)."""
+    from ..services.copilot_dispatch_service import SERVICE
+
+    pr_number = SERVICE.find_copilot_pr(repo, issueNumber)
+    return {"success": True, "data": {"pr_number": pr_number}}
+
+
+def _render_plan_review_comment(repo: str, pr_number: int, session) -> str:
+    """Render a PFactory plan-review summary as a PR-comment markdown body."""
+    review = session.review
+    if review is None:
+        return (
+            f"🏭 **PFactory plan review** for `{repo}` #{pr_number}\n\n"
+            "Plan ingested but no review gates ran."
+        )
+    verdict = "✅ gates passed" if review.gates_passed else "❌ gates failed"
+    lines = [
+        f"🏭 **PFactory plan review** — {verdict}",
+        "",
+        f"- **Aggregate score:** {review.aggregate_score:.2f} "
+        f"(threshold {review.threshold:.2f})",
+        f"- **Children:** {len(session.epic.children) if session.epic else 0}",
+        "",
+        "| Lens | Score | Blocking findings |",
+        "| --- | --- | --- |",
+    ]
+    for ls in review.lenses:
+        blocking = sum(1 for f in ls.findings if f.blocking)
+        lines.append(f"| {ls.lens} | {ls.score:.2f}/{ls.max:.2f} | {blocking} |")
+    blockers = [
+        f.title
+        for ls in review.lenses
+        for f in ls.findings
+        if f.blocking
+    ]
+    if blockers:
+        lines += ["", "**Blocking:**", *[f"- {b}" for b in blockers]]
+    return "\n".join(lines)
+
+
+@router.post("/prs/{pr_number}/plan-review")
+async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
+    """Run PFactory's governance gates on a (Copilot-authored) plan-draft PR.
+
+    Component 4 of the GitHub Agentic Integration (epic #87 / #90). Ingests the
+    PR title+body as a plan, runs the deterministic review pipeline, and renders
+    a gate summary. The PR comment is posted only when
+    ``PFACTORY_PLAN_REVIEW_COMMENT=1`` (no-automatic-pushes policy); otherwise
+    the rendered body is returned for the caller (CI) to post.
+    """
+    import os
+    import sys
+    from pathlib import Path as _Path
+
+    backend_dir = _Path(__file__).resolve().parents[3] / "backend"
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
+
+    # Fetch the PR's title + body via gh.
+    view = run_gh_command([
+        "pr", "view", str(pr_number),
+        "--repo", request.repo,
+        "--json", "title,body",
+    ])
+    if not view["success"]:
+        return JSONResponse(
+            status_code=502,
+            content={"success": False, "error": view["error"]},
+        )
+    try:
+        pr = json.loads(view["output"])
+    except json.JSONDecodeError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"success": False, "error": f"bad PR JSON: {exc}"},
+        )
+
+    from plan.service import SERVICE, PlanServiceError
+
+    try:
+        session = SERVICE.ingest_text(
+            pr.get("body") or "",
+            title=pr.get("title") or f"PR #{pr_number}",
+            channel="github_issue",
+        )
+        SERVICE.process(session.session_id)
+    except (PlanServiceError, ValueError) as exc:
+        return JSONResponse(
+            status_code=400, content={"success": False, "error": str(exc)}
+        )
+
+    comment_body = _render_plan_review_comment(request.repo, pr_number, session)
+
+    comment_posted = False
+    if os.environ.get("PFACTORY_PLAN_REVIEW_COMMENT", "").strip() in {"1", "true", "yes", "on"}:
+        posted = run_gh_command([
+            "pr", "comment", str(pr_number),
+            "--repo", request.repo,
+            "--body", comment_body,
+        ])
+        comment_posted = posted["success"]
+
+    return {
+        "success": True,
+        "data": {
+            "session_id": session.session_id,
+            "gates_passed": session.review.gates_passed if session.review else None,
+            "aggregate_score": session.review.aggregate_score if session.review else None,
+            "comment_body": comment_body,
+            "comment_posted": comment_posted,
+        },
+    }
 
 
 @router.post("/cli/install")
