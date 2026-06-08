@@ -67,7 +67,7 @@ Mounted in `apps/web-server/server/main.py`:
 | `/api/settings` | Settings / CLI Accounts | App settings + CLI accounts |
 | `/api/files` | Files | Read/list files by absolute path |
 | `/api/terminals` | Terminals | PTY sessions |
-| `/api/github` | GitHub | Issues & PR automation |
+| `/api/github` | GitHub | Issues & PR automation; GitHub-agentic surface — `models` catalog, `copilot/{config,dispatch,pr}`, `prs/{pr}/plan-review` (epic #87) |
 | `/api/capabilities` | Capabilities | Runtime capability probe |
 | `/api/git`, `/api/ollama`, `/api/claude-code`, `/api/mcp`, `/api/updates` | Git / tooling | Git ops + tooling status |
 | `/api/memory` | Memory | Graphiti session context |
@@ -107,6 +107,40 @@ Tools are assembled per session from category factories
 `mcp__pfactory__update_subtask_status`). The same `pfactory` name is used both
 in-process (Claude Agent SDK sessions) and by the standalone server — a single
 source of truth post-rebrand.
+
+## HTTP MCP — planning context (GitHub agentic)
+
+Distinct from the stdio control plane above, PFactory also exposes its **planning
+outputs** as an HTTP MCP server so the GitHub Copilot cloud agent (and
+AIFactory / TFactory) can retrieve the plan *at runtime* — the bridge for
+[Task Contract v2](task-contract.md). Part of the GitHub Agentic Integration
+(epic [#87](https://github.com/olafkfreund/PFactory/issues/87)).
+
+- **Transport:** JSON-RPC 2.0 over `POST /mcp` (a POST-only Streamable-HTTP
+  subset). Handles `initialize`, `tools/list`, `tools/call`, `ping`,
+  notifications. Route: `apps/web-server/server/routes/mcp_rpc.py`.
+- **Auth:** `Authorization: Bearer ${PFACTORY_MCP_SECRET}` (constant-time; the
+  endpoint is open when the secret is unset — dev only).
+- **Lookup:** by emitted GitHub epic issue number, or by PFactory `session_id`.
+  Data source: the in-memory `plan.service.SERVICE` store.
+
+| Tool | Returns |
+|---|---|
+| `pfactory_get_epic` | Epic decomposition (title, body, summary, cost/effort) |
+| `pfactory_get_requirements` | Normalised requirements + acceptance criteria |
+| `pfactory_get_decomposition` | Child-issue dependency graph |
+| `pfactory_get_task_contract` | Signed RFC-0002 Task Contract v2 (built on demand) |
+| `pfactory_get_review_status` | Governance review-gate status |
+
+Register it in the repo's **Settings → Copilot → MCP servers** with the JSON
+snippet in [`guides/github-agentic-integration.md`](https://github.com/olafkfreund/PFactory/blob/main/guides/github-agentic-integration.md);
+catalogued as the `pfactory-planning-mcp` API entity in `catalog-info.yaml`.
+
+The same epic adds the **GitHub Models provider**
+(`github-models/<publisher>/<model>` → free `models.github.ai` inference authed by
+`GITHUB_TOKEN`), **Copilot cloud-agent dispatch** (`copilot:delegate` →
+`copilot-swe-agent[bot]`), and two **GitHub Actions** workflows (issue → plan,
+Copilot PR → review gates). All four components are opt-in and additive.
 
 ## CLI
 

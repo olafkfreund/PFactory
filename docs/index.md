@@ -112,6 +112,13 @@ own embedded **policy rules** — a `gcp-project` template scaffolds the project
 best practices change, PFactory watches them and **proposes template updates via
 pull request** — never silent edits.
 
+It also speaks **GitHub's native agentic surface**: free
+[GitHub Models](/blog/2026/06/09/pfactory-speaks-githubs-agentic-language/)
+inference (`github-models/openai/gpt-4.1`), `copilot:delegate` to hand a draft to
+the **Copilot cloud agent**, and an **HTTP MCP server** (`POST /mcp`) that serves
+the epic, requirements, decomposition, signed **Task Contract v2**, and review
+status to whatever agent builds from the plan. All opt-in, all additive.
+
 </div>
 
 ## How it fits
