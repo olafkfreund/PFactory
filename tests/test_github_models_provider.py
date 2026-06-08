@@ -24,7 +24,6 @@ pytest.importorskip("pydantic")
 import phase_config as pc  # noqa: E402
 from providers import factory  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Provider inference
 # ---------------------------------------------------------------------------

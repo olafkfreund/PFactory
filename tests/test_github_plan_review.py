@@ -20,7 +20,6 @@ for p in (str(_ROOT / "apps" / "backend"), str(_ROOT / "apps" / "web-server")):
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-
 from server.routes import github as gh_routes  # noqa: E402
 
 _PR_JSON = (

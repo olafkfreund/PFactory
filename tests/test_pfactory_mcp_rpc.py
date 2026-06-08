@@ -22,7 +22,6 @@ for p in (str(_BACKEND), str(_WEBSERVER)):
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-
 from plan.decompose.models import ChildIssue, EpicPlan  # noqa: E402
 from plan.models import Criterion, NormalizedPlan  # noqa: E402
 from plan.review.models import LensScore, PlanReview  # noqa: E402

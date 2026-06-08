@@ -29,7 +29,7 @@ def _load_module():
 cds = _load_module()
 
 
-def _ok(stdout: str = "") -> "subprocess.CompletedProcess[str]":
+def _ok(stdout: str = "") -> subprocess.CompletedProcess[str]:
     def runner(args):
         return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
     return runner
