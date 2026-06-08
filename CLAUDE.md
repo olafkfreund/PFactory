@@ -43,6 +43,20 @@ distinct from the app-code SAST/DAST above. Launchable from the portal
 cycle: Kubernetes port-forward dispatch (#108), test-target login credentials
 into the lanes (#107), and visual-regression baselines in the portal (#109).
 
+**GitHub Agentic Integration (epic #87, complete):** four opt-in, additive
+components that plug PFactory into GitHub's native agentic surface — (1) a
+**GitHub Models provider** (`github-models/<publisher>/<model>` → free
+`models.github.ai` inference authed by `GITHUB_TOKEN`, routed through the
+openai-compatible backend); (2) **Copilot cloud-agent dispatch**
+(`copilot:delegate` → `copilot-swe-agent[bot]` drafts a plan PR, gated by
+`PFACTORY_COPILOT_DISPATCH_ENABLED`); (3) an **HTTP planning-context MCP server**
+at `POST /mcp` (`apps/web-server/server/routes/mcp_rpc.py`) exposing
+`pfactory_get_{epic,requirements,decomposition,task_contract,review_status}` —
+the runtime bridge for RFC-0002 Task Contract v2, Bearer `PFACTORY_MCP_SECRET`;
+(4) two **GitHub Actions** (`pfactory-task.yml`, `copilot-plan-review.yml`) plus
+the `/api/github/prs/{pr}/plan-review` endpoint (comment opt-in via
+`PFACTORY_PLAN_REVIEW_COMMENT`). See `guides/github-agentic-integration.md`.
+
 **Project:** PFactory
 **Repository:** https://github.com/olafkfreund/PFactory
 **Author:** DataSeek Team
