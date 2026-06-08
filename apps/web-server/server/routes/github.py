@@ -348,6 +348,47 @@ async def check_github_cli():
     return {"success": True, "data": {"installed": result["success"], "version": version}}
 
 
+@router.get("/models")
+async def list_github_models():
+    """List the GitHub Models catalog (epic #87 / #88).
+
+    Passthrough to ``GET https://models.github.ai/catalog/models`` via the gh
+    CLI (reuses the existing gh auth token). Each entry can be selected in the
+    portal as ``github-models/{publisher}/{name}`` — free OpenAI-compatible
+    inference routed through PFactory's provider factory.
+    """
+    result = run_gh_command(["api", "https://models.github.ai/catalog/models"])
+    if not result["success"]:
+        return JSONResponse(
+            status_code=502,
+            content={"success": False, "error": result["error"], "models": []},
+        )
+    try:
+        catalog = json.loads(result["output"])
+    except json.JSONDecodeError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"success": False, "error": f"bad catalog JSON: {exc}", "models": []},
+        )
+    # Normalise to the github-models/<publisher>/<name> model strings the
+    # provider factory understands.
+    models = []
+    for entry in catalog if isinstance(catalog, list) else []:
+        publisher = entry.get("publisher") or entry.get("owner") or ""
+        name = entry.get("name") or entry.get("id") or ""
+        if not name:
+            continue
+        slug = f"{publisher}/{name}".strip("/")
+        models.append({
+            "id": f"github-models/{slug}",
+            "model": slug,
+            "name": entry.get("friendly_name") or name,
+            "publisher": publisher,
+            "summary": entry.get("summary", ""),
+        })
+    return {"success": True, "data": {"models": models, "count": len(models)}}
+
+
 @router.post("/cli/install")
 def install_github_cli():
     """Install GitHub CLI (gh) from the official GitHub repository.

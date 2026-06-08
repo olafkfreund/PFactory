@@ -23,6 +23,20 @@ MODEL_ID_MAP: dict[str, str] = {
     "haiku": "claude-haiku-4-5-20251001",
 }
 
+# GitHub Models catalog shorthands (epic #87 / #88). Kept SEPARATE from
+# MODEL_ID_MAP on purpose: entries in MODEL_ID_MAP are inferred as the Claude
+# provider, whereas these must resolve to the github-models provider. The
+# canonical, unambiguous form is the full "github-models/<publisher>/<model>"
+# string (what infer_provider_from_model + the provider factory understand);
+# these friendly names are surfaced by the portal/CLI and the /api/github/models
+# catalog endpoint.
+GITHUB_MODELS_SHORTHANDS: dict[str, str] = {
+    "gpt-4.1": "github-models/openai/gpt-4.1",
+    "o4-mini": "github-models/openai/o4-mini",
+    "llama-3.3-70b": "github-models/meta/llama-3.3-70b-instruct",
+    "deepseek-r1": "github-models/deepseek/deepseek-r1",
+}
+
 # Model shorthand to required SDK beta headers
 # Maps model shorthands that need special beta flags (e.g., 1M context window)
 MODEL_BETAS_MAP: dict[str, list[str]] = {
@@ -48,7 +62,11 @@ EFFORT_LEVEL_MAP: dict[str, str] = {
 
 # Models that support adaptive thinking via effort level (env var)
 # These models get both max_thinking_tokens AND effort_level
-ADAPTIVE_THINKING_MODELS: set[str] = {"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6"}
+ADAPTIVE_THINKING_MODELS: set[str] = {
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+}
 
 # Spec runner phase-specific thinking levels
 # Heavy phases use max for deep analysis
@@ -331,7 +349,9 @@ def load_task_metadata(spec_dir: Path) -> TaskMetadataConfig | None:
         try:
             with open(requirements_path) as f:
                 requirements = json.load(f)
-                if "metadata" in requirements and isinstance(requirements["metadata"], dict):
+                if "metadata" in requirements and isinstance(
+                    requirements["metadata"], dict
+                ):
                     return requirements["metadata"]
         except (json.JSONDecodeError, OSError):
             pass
@@ -595,6 +615,13 @@ def infer_provider_from_model(model: str) -> str:
     if m.startswith("copilot:"):
         return "copilot"
 
+    # GitHub Models (epic #87 / #88): "github-models/<publisher>/<model>", e.g.
+    # github-models/openai/gpt-4.1. Routes through the openai-compatible backend
+    # with models.github.ai + GITHUB_TOKEN injected by the provider factory.
+    # Must precede the gpt-/codex check — github-models/openai/gpt-4.1 is NOT Codex.
+    if m.startswith("github-models/"):
+        return "github-models"
+
     # Explicit prefix for OpenAI-compatible endpoints (LM Studio, vLLM,
     # OpenRouter, Together, Groq, LocalAI, ...).  Connection details come
     # from env vars OPENAI_COMPATIBLE_BASE_URL / OPENAI_COMPATIBLE_API_KEY
@@ -631,7 +658,7 @@ def strip_provider_prefix(model: str) -> str:
     """
     for prefix in ("openai-compatible:", "openai:", "ollama:", "studio:", "copilot:"):
         if model.lower().startswith(prefix):
-            return model[len(prefix):]
+            return model[len(prefix) :]
     return model
 
 
@@ -641,6 +668,7 @@ _LLM_ENDPOINTS_DB_PATH = Path.home() / ".pfactory" / "data.db"
 def _load_openai_endpoint_by_label(label: str) -> dict | None:
     """Look up an llm_endpoint row by label.  Returns None if not found."""
     import sqlite3
+
     if not _LLM_ENDPOINTS_DB_PATH.exists():
         return None
     try:
@@ -661,6 +689,7 @@ def _load_openai_endpoint_by_label(label: str) -> dict | None:
 def _load_first_openai_endpoint() -> dict | None:
     """Return the oldest configured llm_endpoint — for single-endpoint users."""
     import sqlite3
+
     if not _LLM_ENDPOINTS_DB_PATH.exists():
         return None
     try:
@@ -733,8 +762,9 @@ def get_provider_extra_kwargs(provider_name: str, model: str) -> dict:
     endpoint = _load_first_openai_endpoint()
     if endpoint:
         return {
-            "model": stripped if stripped and stripped != "default"
-                                else endpoint["default_model"],
+            "model": stripped
+            if stripped and stripped != "default"
+            else endpoint["default_model"],
             "base_url": endpoint["base_url"],
             "api_key": endpoint["api_key"],
         }
@@ -758,7 +788,11 @@ def get_provider_extra_kwargs(provider_name: str, model: str) -> dict:
 
 # Provider capabilities: which providers support agentic phases (file ops, code execution)
 PROVIDER_AGENTIC_SUPPORT = {
-    "claude", "codex", "gemini", "ollama", "openai-compatible",
+    "claude",
+    "codex",
+    "gemini",
+    "ollama",
+    "openai-compatible",
 }
 
 
