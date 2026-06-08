@@ -77,6 +77,11 @@ class CreateReleaseRequest(BaseModel):
     prerelease: bool = False
 
 
+class CopilotDispatchRequest(BaseModel):
+    repo: str  # owner/name
+    issueNumber: int
+
+
 # ============================================
 # GitHub CLI Helpers
 # ============================================
@@ -387,6 +392,62 @@ async def list_github_models():
             "summary": entry.get("summary", ""),
         })
     return {"success": True, "data": {"models": models, "count": len(models)}}
+
+
+@router.get("/copilot/config")
+async def get_copilot_dispatch_config():
+    """Report whether Copilot cloud-agent dispatch is enabled (epic #87 / #88)."""
+    from ..services.copilot_dispatch_service import CopilotDispatchService
+
+    return {
+        "success": True,
+        "data": {
+            "enabled": CopilotDispatchService.is_enabled(),
+            "dispatch_label": CopilotDispatchService.DISPATCH_LABEL,
+            "agent_handle": CopilotDispatchService.AGENT_HANDLE,
+        },
+    }
+
+
+@router.post("/copilot/dispatch")
+async def dispatch_to_copilot(request: CopilotDispatchRequest):
+    """Assign a PFactory planning issue to the Copilot cloud agent (#88).
+
+    Opt-in: returns 409 when ``PFACTORY_COPILOT_DISPATCH_ENABLED`` is off so the
+    caller falls back to the normal PFactory flow instead of silently ignoring
+    the label.
+    """
+    from ..services.copilot_dispatch_service import SERVICE, CopilotDispatchService
+
+    if not CopilotDispatchService.is_enabled():
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": (
+                    "Copilot dispatch disabled — set "
+                    "PFACTORY_COPILOT_DISPATCH_ENABLED=1 to enable."
+                ),
+            },
+        )
+    try:
+        meta = SERVICE.dispatch(request.repo, request.issueNumber)
+    except RuntimeError as exc:
+        return JSONResponse(
+            status_code=502, content={"success": False, "error": str(exc)}
+        )
+    return {"success": True, "data": meta}
+
+
+@router.get("/copilot/pr")
+async def find_copilot_pr(
+    repo: str = Query(...), issueNumber: int = Query(...)
+):
+    """Find the Copilot-opened plan-draft PR for an issue, if any (#88)."""
+    from ..services.copilot_dispatch_service import SERVICE
+
+    pr_number = SERVICE.find_copilot_pr(repo, issueNumber)
+    return {"success": True, "data": {"pr_number": pr_number}}
 
 
 @router.post("/cli/install")
