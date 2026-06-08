@@ -1,0 +1,47 @@
+name: PFactory Planning Task
+
+# Component 4 of the GitHub Agentic Integration (epic #87 / #90).
+# A `pfactory:run` label on an issue kicks off a PFactory planning run for it:
+# the issue title + body are ingested as a plan. If no PFACTORY_URL secret is
+# configured, the workflow falls back to a "planning queued" comment so the
+# label is never silently ignored.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+  models: read
+
+jobs:
+  create-task:
+    if: github.event.label.name == 'pfactory:run'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PFactory planning task
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PFACTORY_URL: ${{ secrets.PFACTORY_URL }}
+          PFACTORY_TOKEN: ${{ secrets.PFACTORY_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PFACTORY_URL:-}" ]; then
+            # Ingest the issue as a plan via the PFactory plan-intake API.
+            jq -n \
+              --arg title "$ISSUE_TITLE" \
+              --arg text "$ISSUE_BODY" \
+              '{title: $title, text: $text, channel: "github_issue"}' \
+            | curl -sf -X POST "$PFACTORY_URL/api/plan/sessions/ingest-text" \
+                -H "Authorization: Bearer $PFACTORY_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data-binary @- \
+            && gh issue comment "$ISSUE_NUMBER" \
+                 --body "🏭 **PFactory**: planning run started for this issue."
+          else
+            gh issue comment "$ISSUE_NUMBER" \
+              --body "🏭 **PFactory**: planning queued. Set the \`PFACTORY_URL\` secret to automate ingestion."
+          fi

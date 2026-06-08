@@ -82,6 +82,11 @@ class CopilotDispatchRequest(BaseModel):
     issueNumber: int
 
 
+class PlanReviewPRRequest(BaseModel):
+    repo: str  # owner/name
+    pr_number: int
+
+
 # ============================================
 # GitHub CLI Helpers
 # ============================================
@@ -448,6 +453,113 @@ async def find_copilot_pr(
 
     pr_number = SERVICE.find_copilot_pr(repo, issueNumber)
     return {"success": True, "data": {"pr_number": pr_number}}
+
+
+def _render_plan_review_comment(repo: str, pr_number: int, session) -> str:
+    """Render a PFactory plan-review summary as a PR-comment markdown body."""
+    review = session.review
+    if review is None:
+        return (
+            f"🏭 **PFactory plan review** for `{repo}` #{pr_number}\n\n"
+            "Plan ingested but no review gates ran."
+        )
+    verdict = "✅ gates passed" if review.gates_passed else "❌ gates failed"
+    lines = [
+        f"🏭 **PFactory plan review** — {verdict}",
+        "",
+        f"- **Aggregate score:** {review.aggregate_score:.2f} "
+        f"(threshold {review.threshold:.2f})",
+        f"- **Children:** {len(session.epic.children) if session.epic else 0}",
+        "",
+        "| Lens | Score | Blocking findings |",
+        "| --- | --- | --- |",
+    ]
+    for ls in review.lenses:
+        blocking = sum(1 for f in ls.findings if f.blocking)
+        lines.append(f"| {ls.lens} | {ls.score:.2f}/{ls.max:.2f} | {blocking} |")
+    blockers = [
+        f.title
+        for ls in review.lenses
+        for f in ls.findings
+        if f.blocking
+    ]
+    if blockers:
+        lines += ["", "**Blocking:**", *[f"- {b}" for b in blockers]]
+    return "\n".join(lines)
+
+
+@router.post("/prs/{pr_number}/plan-review")
+async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
+    """Run PFactory's governance gates on a (Copilot-authored) plan-draft PR.
+
+    Component 4 of the GitHub Agentic Integration (epic #87 / #90). Ingests the
+    PR title+body as a plan, runs the deterministic review pipeline, and renders
+    a gate summary. The PR comment is posted only when
+    ``PFACTORY_PLAN_REVIEW_COMMENT=1`` (no-automatic-pushes policy); otherwise
+    the rendered body is returned for the caller (CI) to post.
+    """
+    import os
+    import sys
+    from pathlib import Path as _Path
+
+    backend_dir = _Path(__file__).resolve().parents[3] / "backend"
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
+
+    # Fetch the PR's title + body via gh.
+    view = run_gh_command([
+        "pr", "view", str(pr_number),
+        "--repo", request.repo,
+        "--json", "title,body",
+    ])
+    if not view["success"]:
+        return JSONResponse(
+            status_code=502,
+            content={"success": False, "error": view["error"]},
+        )
+    try:
+        pr = json.loads(view["output"])
+    except json.JSONDecodeError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"success": False, "error": f"bad PR JSON: {exc}"},
+        )
+
+    from plan.service import SERVICE, PlanServiceError
+
+    try:
+        session = SERVICE.ingest_text(
+            pr.get("body") or "",
+            title=pr.get("title") or f"PR #{pr_number}",
+            channel="github_issue",
+        )
+        SERVICE.process(session.session_id)
+    except (PlanServiceError, ValueError) as exc:
+        return JSONResponse(
+            status_code=400, content={"success": False, "error": str(exc)}
+        )
+
+    comment_body = _render_plan_review_comment(request.repo, pr_number, session)
+
+    comment_posted = False
+    if os.environ.get("PFACTORY_PLAN_REVIEW_COMMENT", "").strip() in {"1", "true", "yes", "on"}:
+        posted = run_gh_command([
+            "pr", "comment", str(pr_number),
+            "--repo", request.repo,
+            "--body", comment_body,
+        ])
+        comment_posted = posted["success"]
+
+    return {
+        "success": True,
+        "data": {
+            "session_id": session.session_id,
+            "gates_passed": session.review.gates_passed if session.review else None,
+            "aggregate_score": session.review.aggregate_score if session.review else None,
+            "comment_body": comment_body,
+            "comment_posted": comment_posted,
+        },
+    }
 
 
 @router.post("/cli/install")
