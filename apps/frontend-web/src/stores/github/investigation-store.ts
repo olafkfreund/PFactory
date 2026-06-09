@@ -3,7 +3,7 @@ import type {
   GitHubInvestigationStatus,
   GitHubInvestigationResult
 } from '../../shared/types';
-import { loadTasks } from '../task-store';
+import { ingestText } from '../../lib/planning-api';
 
 interface InvestigationState {
   // Investigation state
@@ -87,10 +87,13 @@ export async function investigateGitHubIssue(
       phase: 'creating_task',
       issueNumber,
       progress: 70,
-      message: 'Creating task...'
+      message: 'Creating plan...'
     });
 
-    // Create a task from the investigation results
+    // Create a PLANNING session from the investigation results.
+    // PFactory is the planning engine: a GitHub issue becomes a plan on the
+    // Planning board (ingest → process → review → emit), NOT an AIFactory
+    // coding/build task (the behaviour inherited from the fork).
     const title = issue.title || `GitHub Issue #${issueNumber}`;
     const description = [
       analysis.summary || issue.body || '',
@@ -102,20 +105,16 @@ export async function investigateGitHubIssue(
       analysis.affected_areas?.length ? `\n**Affected Areas:**\n${analysis.affected_areas.map((a: string) => `- ${a}`).join('\n')}` : '',
     ].filter(Boolean).join('\n');
 
-    const taskResult = await window.API.createTask(projectId, title, description, {
-      sourceType: 'github',
-      githubIssueNumber: issueNumber,
-      complexity: analysis.complexity || undefined,
-      affectedFiles: analysis.affected_areas || undefined,
-      acceptanceCriteria: analysis.suggestions || undefined,
+    const session = await ingestText({
+      title,
+      text: description,
+      channel: 'github',
+      category: 'software',
     });
 
-    const taskId = taskResult.data?.id;
-
-    // Refresh the task store so the new task appears in the UI
-    if (taskId) {
-      await loadTasks(projectId);
-    }
+    // The plan session id is the linked artifact (it lives on the global
+    // Planning board, not the project task store — so no task-store refresh).
+    const taskId = session?.session_id;
 
     const investigationResult: GitHubInvestigationResult = {
       success: true,
@@ -135,7 +134,7 @@ export async function investigateGitHubIssue(
       phase: 'complete',
       issueNumber,
       progress: 100,
-      message: taskId ? 'Task created successfully' : 'Investigation complete'
+      message: taskId ? 'Plan created — see the Planning board' : 'Investigation complete'
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Investigation failed';
