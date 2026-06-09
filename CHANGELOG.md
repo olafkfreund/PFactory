@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.5 — Unified Planning board + trimmed nav (2026-06-09)
+
+> Planning portal fixes: one data source behind List and Board, and a leaner
+> left nav.
+
+- **Planning List & Board show the same data.** Board mode now renders the
+  plan-session kanban (`PlanBoard`, bucketed by `board_state`) over the same
+  global plan-store sessions the List view uses — previously Board showed the
+  project-scoped AIFactory *task* board, which sat empty when sessions existed
+  but no project/tasks were selected. Selecting a board card opens its detail in
+  the List pane.
+- **Trimmed left nav.** Removed the **Worktrees** and **Changelog** items from
+  the sidebar.
+
 ## 0.6.4 — Per-user API tokens + Ollama Cloud provider (2026-06-09)
 
 > Ship the merged #93/#94 work in a deployable image: personal API tokens for

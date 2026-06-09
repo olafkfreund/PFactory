@@ -81,8 +81,6 @@ const baseNavItems: NavItem[] = [
   { id: 'terminals', labelKey: 'navigation:items.terminals', icon: Terminal },
   { id: 'agent-tools', labelKey: 'navigation:items.agentTools', icon: Wrench },
   { id: 'skills', labelKey: 'navigation:items.skills', icon: Lightbulb },
-  { id: 'changelog', labelKey: 'navigation:items.changelog', icon: FileText },
-  { id: 'worktrees', labelKey: 'navigation:items.worktrees', icon: GitBranch },
   { id: 'context', labelKey: 'navigation:items.context', icon: BookOpen }
 ];
 
