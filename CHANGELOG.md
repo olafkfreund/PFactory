@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.4 — Per-user API tokens + Ollama Cloud provider (2026-06-09)
+
+> Ship the merged #93/#94 work in a deployable image: personal API tokens for
+> programmatic access, and Ollama Cloud as a first-class LLM provider.
+
+- **Per-user API tokens on `/api/*` (#93).** `TokenAuthMiddleware` now accepts a
+  personal `acw_` token as a `Bearer` on the REST API, gated on a new `api`
+  scope so MCP-only keys stay scope-isolated. Expired/revoked keys are rejected
+  and `last_used_at` is recorded. The mint UI gains the `api` scope (section
+  relabelled "API Tokens"). Lets MCP / `/handover` clients authenticate with an
+  attributable, revocable per-user token instead of the shared `APP_API_TOKEN`.
+  See `guides/api-tokens.md`.
+- **Ollama Cloud provider (#94).** Hosted OpenAI-compatible inference at
+  `https://ollama.com`, authed by `OLLAMA_API_KEY`, mirroring the GitHub Models
+  wiring — routes through the openai-compatible backend. Models route to it via
+  a `:cloud`/`-cloud` suffix (e.g. `glm-5:cloud`) or an explicit `ollama-cloud:`
+  prefix (e.g. `ollama-cloud:gpt-oss:120b`). Config via `OLLAMA_CLOUD_BASE_URL`
+  (default `https://ollama.com`) + `OLLAMA_API_KEY`. See `guides/ollama-cloud.md`.
+
 ## 0.6.0 — Backstage onboarding + observability instrumentation (2026-06-05)
 
 > Make PFactory a first-class citizen of the platform: register it in the
