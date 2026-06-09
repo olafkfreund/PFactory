@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.6 — Plans survive restarts (disk persistence) (2026-06-09)
+
+> The PlanService store was in-memory only, so every pod restart/redeploy wiped
+> all plans. Add opt-in disk persistence so they survive.
+
+- **Persistent plan sessions.** With `PFACTORY_PLAN_PERSIST=1`, every plan
+  mutation is mirrored to `<store_dir>/<id>.json` (atomic temp+rename) and the
+  set is reloaded on startup. Store dir defaults under `~/.pfactory` (the
+  deployment's PVC), override via `PFACTORY_PLAN_STORE_DIR`. Off by default so
+  unit tests stay hermetic; load/save are best-effort (missing dir → empty,
+  corrupt file skipped, disk hiccup never breaks a request).
+
 ## 0.6.5 — Unified Planning board + trimmed nav (2026-06-09)
 
 > Planning portal fixes: one data source behind List and Board, and a leaner
