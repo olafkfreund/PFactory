@@ -44,9 +44,15 @@ interface Props {
   onTaskClick?: (task: Task) => void;
   /** Called when user clicks "+ Task" in the board's backlog column header. */
   onNewTaskClick?: () => void;
+  /**
+   * Plan session to open on arrival (deep-link). Used when navigating here from
+   * elsewhere — e.g. "View Plan" on a GitHub issue whose plan was just created.
+   * When set, the matching session's detail opens in the List pane.
+   */
+  focusSessionId?: string | null;
 }
 
-export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick }: Props) {
+export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessionId }: Props) {
   const store = usePlanStore();
 
   // Wire fetchFn into store if provided (for testing)
@@ -84,6 +90,17 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick }: Props) {
       loadTasks(projectId);
     }
   }, [activeProjectId, selectedProjectId]);
+
+  // Deep-link: when arriving with a focusSessionId (e.g. "View Plan" from a
+  // GitHub issue), open that session's detail in the List pane. Guarded on the
+  // id actually being a loaded plan session so a stale/foreign id is ignored,
+  // and it waits for the session list to load before focusing.
+  useEffect(() => {
+    if (focusSessionId && store.sessions.some((s) => s.session_id === focusSessionId)) {
+      setSelectedSessionId(focusSessionId);
+      setViewMode('list');
+    }
+  }, [focusSessionId, store.sessions]);
 
   const handleSessionSelect = (sessionId: string) => {
     setSelectedSessionId(sessionId);

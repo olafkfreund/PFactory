@@ -117,13 +117,13 @@ export function IssueDetail({
           {hasLinkedTask ? (
             <Button onClick={handleViewTask} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white">
               <Eye className="h-4 w-4 mr-2" />
-              View Task
+              View Plan
             </Button>
           ) : (
             <>
               <Button onClick={onInvestigate} className="flex-1">
                 <Sparkles className="h-4 w-4 mr-2" />
-                Create Task
+                Create Plan
               </Button>
               {projectId && autoFixConfig?.enabled && (
                 <AutoFixButton
@@ -148,13 +148,13 @@ export function IssueDetail({
           )}
         </div>
 
-        {/* Task Linked Info */}
+        {/* Plan Linked Info */}
         {hasLinkedTask && (
           <Card className="bg-success/5 border-success/30">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4" />
-                Task Linked
+                Plan Linked
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm space-y-2">
@@ -166,14 +166,14 @@ export function IssueDetail({
                       {investigationResult.analysis.estimatedComplexity}
                     </Badge>
                     <span className="text-xs text-muted-foreground">
-                      Task ID: {taskId}
+                      Plan ID: {taskId}
                     </span>
                   </div>
                 </>
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">
-                    Task ID: {taskId}
+                    Plan ID: {taskId}
                   </span>
                 </div>
               )}

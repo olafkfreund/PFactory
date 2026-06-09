@@ -319,6 +319,7 @@ function AuthenticatedApp() {
                   <PlanningView
                     onTaskClick={handleTaskClick}
                     onNewTaskClick={() => setIsNewTaskDialogOpen(true)}
+                    focusSessionId={selectedTaskId}
                   />
                 </div>
               ) : activeView === 'pfactory' ? (
