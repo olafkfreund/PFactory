@@ -17,6 +17,15 @@ name: Release
 on:
   push:
     branches: [main]
+  # Manual re-release of an existing version — e.g. when a prior run cut the
+  # tag/release but the image build failed for a transient/infra reason. Builds
+  # the given version regardless of the package.json-bump auto-detection.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to (re)release, e.g. 0.6.4. Defaults to package.json."
+        required: false
+        default: ""
 
 concurrency:
   group: release-${{ github.ref }}
@@ -41,6 +50,17 @@ jobs:
       - name: Detect version bump
         id: detect
         run: |
+          # Manual dispatch: (re)release the requested version unconditionally.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NEW="${{ github.event.inputs.version }}"
+            [ -z "$NEW" ] && NEW=$(jq -r '.version' package.json)
+            echo "new=$NEW" >> "$GITHUB_OUTPUT"
+            echo "old=manual" >> "$GITHUB_OUTPUT"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch — (re)releasing $NEW"
+            exit 0
+          fi
+
           NEW=$(jq -r '.version' package.json)
           OLD=$(git show HEAD~1:package.json 2>/dev/null | jq -r '.version' 2>/dev/null || echo "")
 
@@ -134,7 +154,7 @@ jobs:
         if: steps.detect.outputs.should_release == 'true'
         uses: docker/setup-qemu-action@v3
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
 
       - name: Set up Docker Buildx
         if: steps.detect.outputs.should_release == 'true'
@@ -155,7 +175,11 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # amd64-only: the cluster + all current consumers are amd64, and the
+          # arm64 leg fails on the upstream npm rollup optional-dep bug
+          # (npm/cli#4828) under QEMU. Matches the dev/demo image below. Restore
+          # linux/arm64 once the frontend build resolves arm64 rollup natively.
+          platforms: linux/amd64
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/pfactory:v${{ steps.detect.outputs.new }}
