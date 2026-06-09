@@ -35,8 +35,9 @@ import type {
 
 const ORG_STORAGE_KEY = 'pfactory.apiKeys.orgId';
 
-// Scopes shipped in PR #162 (mcp_stdio proxy).
+// Scopes shipped in PR #162 (mcp_stdio proxy); `api` added in Issue #93.
 const AVAILABLE_SCOPES: Array<{ id: string; description: string }> = [
+  { id: 'api', description: 'Full REST API access (GET/POST /api/* — like a GitHub PAT)' },
   { id: 'mcp:read', description: 'List + status + logs (read-only tools)' },
   { id: 'project:write', description: 'Create new projects' },
   { id: 'task:write', description: 'Start / stop / recover / approve tasks' },
@@ -195,10 +196,10 @@ export function McpApiKeysSettings() {
 
   return (
     <SettingsSection
-      title={t('sections.apiKeys.title', 'API Keys')}
+      title={t('sections.apiKeys.title', 'API Tokens')}
       description={t(
         'sections.apiKeys.description',
-        'Scoped acw_ keys for the stdio MCP control plane. Replaces the host-wide admin token for enterprise deployments.',
+        'Personal acw_ tokens for programmatic access — use the api scope for the REST API (/api/*) and /handover, or the mcp:* scopes for the MCP control plane. Replaces the shared admin token.',
       )}
     >
       <div className="space-y-4">

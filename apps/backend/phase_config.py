@@ -606,6 +606,14 @@ def infer_provider_from_model(model: str) -> str:
     if m.startswith("studio:"):
         return "openai-compatible"
 
+    # Ollama Cloud (issue #94): explicit "ollama-cloud:<model>" prefix, or any
+    # model whose name carries a cloud suffix (":cloud" or "-cloud", e.g.
+    # glm-5:cloud, qwen3-coder:480b-cloud). Must precede the "ollama:" and
+    # gpt-/codex checks below — "ollama-cloud:gpt-oss:120b" is Ollama Cloud,
+    # not local Ollama or Codex.
+    if m.startswith("ollama-cloud:") or m.endswith((":cloud", "-cloud")):
+        return "ollama-cloud"
+
     # Explicit prefix: "ollama:model-name"
     if m.startswith("ollama:"):
         return "ollama"
@@ -656,7 +664,14 @@ def strip_provider_prefix(model: str) -> str:
     The factory and providers expect a bare model name.  When a user picks
     ``openai-compatible:gpt-4o-mini``, the provider only needs ``gpt-4o-mini``.
     """
-    for prefix in ("openai-compatible:", "openai:", "ollama:", "studio:", "copilot:"):
+    for prefix in (
+        "openai-compatible:",
+        "openai:",
+        "ollama-cloud:",
+        "ollama:",
+        "studio:",
+        "copilot:",
+    ):
         if model.lower().startswith(prefix):
             return model[len(prefix) :]
     return model

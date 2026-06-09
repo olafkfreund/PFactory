@@ -8,11 +8,14 @@ Supports dual authentication:
 Public paths (no auth required): /api/auth/*, /api/health, static assets, etc.
 """
 
+import hashlib
 import logging
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -22,6 +25,90 @@ logger = logging.getLogger(__name__)
 
 # Bearer token security scheme for OpenAPI docs
 bearer_scheme = HTTPBearer(auto_error=False)
+
+# ---------------------------------------------------------------------------
+# Per-user API keys (acw_) for programmatic /api/* access (Issue #93)
+# ---------------------------------------------------------------------------
+
+# Prefix on every minted personal API token (see routes/api_keys.py).
+API_KEY_PREFIX = "acw_"
+
+# Scope that grants a key general access to the REST API surface (/api/*).
+# Keeping this behind an explicit scope preserves the deliberate isolation of
+# narrow MCP-only keys (mcp:read, task:write, …) — a key minted purely for the
+# MCP control plane must NOT also unlock the full REST API unless its owner
+# explicitly granted it the ``api`` scope. A single token may carry both
+# ``api`` and ``mcp:*`` scopes to serve both surfaces.
+API_SCOPE = "api"
+
+
+def _hash_api_key(raw_key: str) -> str:
+    """SHA-256 hex digest of a raw ``acw_`` key.
+
+    Matches ``routes/api_keys.py::_hash_key``. Re-implemented here (rather than
+    imported) to avoid an import cycle during middleware construction.
+    """
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
+async def _try_authenticate_api_key(token: str) -> dict | None:
+    """Validate a personal ``acw_`` API key against the database.
+
+    Returns a ``request.state.user`` dict (``{id, email, role}``) when the key
+    exists, is unexpired, and carries the :data:`API_SCOPE`. Returns ``None``
+    for anything else (unknown key, expired, or lacking the ``api`` scope) so
+    the caller can fall through to the next strategy / reject.
+
+    Side effect: bumps the key's ``last_used_at`` so the Settings UI can show
+    when a token was last seen.
+    """
+    if not token.startswith(API_KEY_PREFIX):
+        return None
+
+    # Imported lazily: the database package pulls in SQLAlchemy models that
+    # must not be imported at module-load time (circular-import risk during
+    # app startup, mirroring mcp_remote/auth.py).
+    from .database import ApiKey, User
+    from .database.engine import get_db
+
+    digest = _hash_api_key(token)
+    # Stored form is ``<8-char-preview>$<sha256-hex>`` — match the part after $.
+    async for session in get_db():
+        result = await session.execute(
+            select(ApiKey).where(ApiKey.key_hash.like(f"%${digest}"))
+        )
+        api_key = result.scalar_one_or_none()
+        if api_key is None:
+            return None
+
+        # Reject expired keys.
+        if api_key.expires_at is not None:
+            expires_at = api_key.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                return None
+
+        # Require the general ``api`` scope for REST access.
+        scopes = {s.strip() for s in (api_key.scopes or "").split(",") if s.strip()}
+        if API_SCOPE not in scopes:
+            return None
+
+        # Record last-used (best-effort — never block auth on a write failure).
+        try:
+            api_key.last_used_at = datetime.now(timezone.utc)
+            await session.commit()
+        except Exception:  # noqa: BLE001 — last_used is non-critical telemetry
+            await session.rollback()
+
+        owner = await session.execute(select(User).where(User.id == api_key.user_id))
+        user = owner.scalar_one_or_none()
+        if user is None or not user.is_active:
+            return None
+
+        return {"id": user.id, "email": user.email, "role": user.role}
+
+    return None
 
 
 def _try_decode_jwt(token: str) -> dict | None:
@@ -51,9 +138,13 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     Authentication strategy (tried in order):
     1. If the token is a valid JWT access token, populate
        ``request.state.user`` with the decoded claims and allow the request.
-    2. If the token matches the legacy ``settings.API_TOKEN``, set
-       ``request.state.user = None`` (backward compatible) and allow.
-    3. Otherwise reject with 401.
+    2. If the token is a personal ``acw_`` API key carrying the ``api`` scope
+       (Issue #93), resolve its owner, populate ``request.state.user``, and
+       allow. Keys without the ``api`` scope (e.g. MCP-only keys) are rejected
+       here so the REST surface stays scope-isolated.
+    3. If the token matches the legacy ``settings.API_TOKEN``, set
+       ``request.state.user`` to the default user (backward compatible) and allow.
+    4. Otherwise reject with 401.
     """
 
     # Paths that don't require authentication
@@ -157,7 +248,21 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             }
             return await call_next(request)
 
-        # Strategy 2: Fall back to legacy bearer token
+        # Strategy 2: Personal API key (acw_) with the ``api`` scope (Issue #93).
+        # Lets a logged-in user mint a GitHub-PAT-style token from Settings and
+        # use it as ``Authorization: Bearer acw_…`` against /api/* (and the MCP
+        # server + /handover), retiring the shared APP_API_TOKEN stopgap.
+        if token.startswith(API_KEY_PREFIX):
+            api_user = await _try_authenticate_api_key(token)
+            if api_user is not None:
+                request.state.user = api_user
+                return await call_next(request)
+            return JSONResponse(
+                {"error": "Invalid or insufficiently scoped API key"},
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Strategy 3: Fall back to legacy bearer token
         if token == settings.API_TOKEN:
             # Legacy token — populate a default user so notifications still work
             request.state.user = {
