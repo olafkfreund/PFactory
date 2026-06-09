@@ -9,6 +9,8 @@ import { useMemo } from 'react';
 import { cn } from '../../lib/utils';
 import { TASK_STATUS_LABELS } from '../../shared/constants/task';
 import type { SessionSummary, BoardColumn } from '../../shared/types/plan';
+import { PipelineRail } from '../pipeline/PipelineRail';
+import type { TaskStatus } from '../../shared/types';
 
 const COLUMNS: BoardColumn[] = ['backlog', 'in_progress', 'ai_review', 'human_review', 'done'];
 
@@ -51,8 +53,16 @@ export function PlanBoard({ sessions, selectedId, onSelect }: Props) {
   }, [sessions]);
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5" data-testid="plan-board">
-      {COLUMNS.map((col) => (
+    <div className="flex flex-col gap-4" data-testid="plan-board">
+      {/* Animated stage rail — ring medallions + marching-ant connectors,
+          driven by the SAME plan sessions shown in the columns below (counts
+          per board_state). Restores the pipeline overview removed in v0.6.5. */}
+      <PipelineRail
+        tasksByStatus={buckets as unknown as Record<TaskStatus, { length: number }>}
+      />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {COLUMNS.map((col) => (
         <section key={col} className="flex flex-col gap-2">
           <header
             className={cn(
@@ -95,7 +105,8 @@ export function PlanBoard({ sessions, selectedId, onSelect }: Props) {
             )}
           </div>
         </section>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
