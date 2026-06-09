@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.10 — "View Plan" opens the plan from a GitHub issue (2026-06-10)
+
+- **"View Plan" on a GitHub issue opens the created plan on the Planning board.**
+  Follow-up to 0.6.9: the action navigated to Planning but didn't open the plan.
+  `PlanningView` now takes a `focusSessionId` (guarded on it being a loaded plan
+  session) and opens that session's detail; the issue-detail action is relabelled
+  Task → Plan.
+
 ## 0.6.9 — GitHub issue → plan, not coding task (2026-06-10)
 
 - **Creating a task from a GitHub issue now creates a PLAN.** Inherited from the
