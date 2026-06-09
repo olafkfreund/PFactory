@@ -12,8 +12,10 @@ Flow:  ingest → process (detect → plan-type → decompose → synthesize →
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from plan.annotate import AnnotationResult, annotate_plan
 from plan.completion import correlation_key_for, notify_completion
@@ -79,20 +81,22 @@ class PlanSession(BaseModel):
     review: PlanReview | None = None
     annotation: AnnotationResult | None = None  # honoured doc + suggested edits (#D)
     original_filename: str = ""  # the uploaded document's name, for rendering
-    selected_category: str = ""   # category the user chose at intake (#E)
-    selected_template: str = ""   # template the user chose — its policy IS enforced (#E)
+    selected_category: str = ""  # category the user chose at intake (#E)
+    selected_template: str = ""  # template the user chose — its policy IS enforced (#E)
     suggested_template: str = ""  # best keyword match — informational only
     emit_result: dict | None = None
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     # PARR correlation chain (#47): pfactory.session_id → issue# → aifactory.task_id.
     # `correlation_key` is the shared key (the emitted GitHub issue #, with a
     # synthetic `pf-<session_id>` fallback when no issue exists yet — e.g. a
     # rejected plan). The two ids below are the upstream/downstream links.
     correlation_key: str | None = None
-    emitted_issue_number: int | None = None   # upstream link — the emitted epic issue#
-    aifactory_task_id: str | None = None       # downstream link — the handed-off task
+    emitted_issue_number: int | None = None  # upstream link — the emitted epic issue#
+    aifactory_task_id: str | None = None  # downstream link — the handed-off task
 
     # Token usage accumulated across the run's LLM seams (#60). Zero by default —
     # the pipeline is deterministic unless an LLM is supplied — and surfaced as
@@ -127,38 +131,147 @@ class PlanServiceError(RuntimeError):
     """Raised for invalid session ids or out-of-order stage calls."""
 
 
-class PlanService:
-    """In-memory orchestrator for plan sessions."""
+logger = logging.getLogger(__name__)
 
-    def __init__(self) -> None:
+
+def _persist_enabled() -> bool:
+    """Whether plan sessions are persisted to disk.
+
+    Opt-in via ``PFACTORY_PLAN_PERSIST`` so unit tests (which construct bare
+    ``PlanService()`` instances) stay hermetic by default — no disk reads/writes,
+    identical to the historical in-memory behaviour. Production deployments set
+    it to survive pod restarts (the in-memory store was wiped on every restart).
+    """
+    return os.environ.get("PFACTORY_PLAN_PERSIST", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _default_store_dir() -> Path:
+    """Directory that holds one ``<session_id>.json`` per plan session.
+
+    Defaults under ``~/.pfactory`` — which the deployment mounts on a
+    PersistentVolumeClaim, so sessions survive restarts. Override with
+    ``PFACTORY_PLAN_STORE_DIR``.
+    """
+    override = os.environ.get("PFACTORY_PLAN_STORE_DIR", "").strip()
+    if override:
+        return Path(override)
+    return Path.home() / ".pfactory" / "plan-sessions"
+
+
+class PlanService:
+    """Orchestrator for plan sessions, with optional disk-backed persistence.
+
+    The store is in-memory for speed/testability; when ``PFACTORY_PLAN_PERSIST``
+    is set, every mutation is mirrored to a JSON file under the store dir and the
+    set is reloaded on startup, so plans survive pod restarts.
+    """
+
+    def __init__(
+        self, *, store_dir: Path | None = None, persist: bool | None = None
+    ) -> None:
         self._sessions: dict[str, PlanSession] = {}
+        self._persist = _persist_enabled() if persist is None else persist
+        self._store_dir = store_dir or _default_store_dir()
+        if self._persist:
+            self._load_all()
+
+    # ── persistence (opt-in via PFACTORY_PLAN_PERSIST) ──────────────────
+
+    def _load_all(self) -> None:
+        """Repopulate ``_sessions`` from ``<store_dir>/*.json`` on startup.
+
+        Best-effort: a missing dir yields an empty store; an unreadable or
+        schema-incompatible file is skipped (logged), never fatal.
+        """
+        try:
+            self._store_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:  # noqa: BLE001 — disk unavailable → stay in-memory
+            logger.warning("plan store dir unavailable (%s); running in-memory", exc)
+            self._persist = False
+            return
+        for path in sorted(self._store_dir.glob("*.json")):
+            try:
+                session = PlanSession.model_validate_json(path.read_text())
+                self._sessions[session.session_id] = session
+            except Exception as exc:  # noqa: BLE001 — skip corrupt/old payloads
+                logger.warning(
+                    "skipping unreadable plan session %s: %s", path.name, exc
+                )
+        if self._sessions:
+            logger.info("loaded %d persisted plan session(s)", len(self._sessions))
+
+    def _save(self, session: PlanSession) -> None:
+        """Mirror one session to disk atomically (temp file + rename).
+
+        Never raises — persistence is best-effort telemetry of state, not part
+        of the request's success contract.
+        """
+        if not self._persist:
+            return
+        try:
+            self._store_dir.mkdir(parents=True, exist_ok=True)
+            dest = self._store_dir / f"{session.session_id}.json"
+            tmp = dest.with_suffix(".json.tmp")
+            tmp.write_text(session.model_dump_json())
+            tmp.replace(dest)
+        except Exception as exc:  # noqa: BLE001 — disk hiccup must not break a run
+            logger.warning(
+                "failed to persist plan session %s: %s", session.session_id, exc
+            )
 
     # ── ingest ─────────────────────────────────────────────────────────
 
     def _store(self, plan: NormalizedPlan) -> PlanSession:
         session = PlanSession(session_id=plan.plan_id, plan=plan)
         self._sessions[session.session_id] = session
+        self._save(session)
         return session
 
-    def ingest_text(self, text: str, *, title: str | None = None,
-                    channel: str = "portal", category: str = "",
-                    template: str = "") -> PlanSession:
-        plan = ingest_text(text, source_channel=channel, title=title,
-                           seq=self._next_seq())
+    def ingest_text(
+        self,
+        text: str,
+        *,
+        title: str | None = None,
+        channel: str = "portal",
+        category: str = "",
+        template: str = "",
+    ) -> PlanSession:
+        plan = ingest_text(
+            text, source_channel=channel, title=title, seq=self._next_seq()
+        )
         session = self._store(plan)
         session.selected_category = category
         session.selected_template = template
+        self._save(session)
         return session
 
-    def ingest_bytes(self, data: bytes, *, filename: str, title: str | None = None,
-                     channel: str = "portal", category: str = "",
-                     template: str = "") -> PlanSession:
-        plan = ingest_bytes(data, filename=filename, source_channel=channel,
-                            title=title, seq=self._next_seq())
+    def ingest_bytes(
+        self,
+        data: bytes,
+        *,
+        filename: str,
+        title: str | None = None,
+        channel: str = "portal",
+        category: str = "",
+        template: str = "",
+    ) -> PlanSession:
+        plan = ingest_bytes(
+            data,
+            filename=filename,
+            source_channel=channel,
+            title=title,
+            seq=self._next_seq(),
+        )
         session = self._store(plan)
         session.original_filename = filename  # preserve for honouring the doc (#D)
         session.selected_category = category
         session.selected_template = template
+        self._save(session)
         return session
 
     def _next_seq(self) -> int:
@@ -177,7 +290,9 @@ class PlanService:
 
     # ── process (the pipeline core) ────────────────────────────────────
 
-    def process(self, session_id: str, *, external_runner=None, llm=None) -> PlanSession:
+    def process(
+        self, session_id: str, *, external_runner=None, llm=None
+    ) -> PlanSession:
         """Detect → plan-type → enrich → decompose → synthesize → review gates.
 
         When no ``external_runner`` is supplied, the provider-MCP runner is used by
@@ -253,6 +368,7 @@ class PlanService:
         # Honour the document: anchored, cited suggestions + improved draft (#D).
         session.annotation = annotate_plan(plan, review)
         session.status = "processed"
+        self._save(session)
         return session
 
     def _enrich(self, plan: NormalizedPlan) -> NormalizedPlan:
@@ -264,7 +380,12 @@ class PlanService:
         an ``available: false`` finding.
         """
         text = " ".join(
-            [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
+            [
+                plan.title,
+                plan.description,
+                *(c.text for c in plan.criteria),
+                plan.raw_text or "",
+            ]
         )
         enrichment = plan.enrichment.model_copy(deep=True)
 
@@ -282,7 +403,9 @@ class PlanService:
 
             cloud_adapters = {"aws", "azure", "gcp", "kubernetes", "openshift"}
             cloud_relevant = is_cloud_relevant(plan)
-            adapters = [n for n in adapters if n not in cloud_adapters or cloud_relevant]
+            adapters = [
+                n for n in adapters if n not in cloud_adapters or cloud_relevant
+            ]
         if adapters:
             from plan.enrich.base import get_adapter
 
@@ -293,14 +416,17 @@ class PlanService:
                     pass
             # Replace prior snapshots so a re-process doesn't multiply findings.
             infra = [
-                e for e in enrichment.infra
+                e
+                for e in enrichment.infra
                 if not (isinstance(e, dict) and e.get("adapter") in adapters)
             ]
             for name in adapters:
                 try:
                     infra.append(get_adapter(name).to_enrichment())
                 except Exception as exc:
-                    infra.append({"adapter": name, "available": False, "error": str(exc)})
+                    infra.append(
+                        {"adapter": name, "available": False, "error": str(exc)}
+                    )
             enrichment = enrichment.model_copy(update={"infra": infra})
 
         # ── knowledge connectors (review wiki / search best practices) ──
@@ -312,21 +438,34 @@ class PlanService:
         if connectors:
             from plan.enrich.knowledge.base import get_connector
 
-            for mod in ("git_markdown", "backstage", "confluence", "gitbook",
-                        "notion", "best_practices"):
+            for mod in (
+                "git_markdown",
+                "backstage",
+                "confluence",
+                "gitbook",
+                "notion",
+                "best_practices",
+            ):
                 try:
                     __import__(f"plan.enrich.knowledge.{mod}")
                 except Exception:
                     pass
             wiki_root = os.environ.get("PFACTORY_WIKI_ROOT")
             knowledge = [
-                k for k in enrichment.knowledge
+                k
+                for k in enrichment.knowledge
                 if not (isinstance(k, dict) and k.get("connector") in connectors)
             ]
             for name in connectors:
                 try:
-                    kw = {"root": wiki_root} if (name == "git-markdown" and wiki_root) else {}
-                    knowledge.extend(get_connector(name, **kw).to_enrichment(text, limit=8))
+                    kw = (
+                        {"root": wiki_root}
+                        if (name == "git-markdown" and wiki_root)
+                        else {}
+                    )
+                    knowledge.extend(
+                        get_connector(name, **kw).to_enrichment(text, limit=8)
+                    )
                 except Exception:
                     continue
             enrichment = enrichment.model_copy(update={"knowledge": knowledge})
@@ -335,17 +474,22 @@ class PlanService:
 
     # ── approval ───────────────────────────────────────────────────────
 
-    def approve(self, session_id: str, *, approver: str,
-                feedback: str | None = None) -> PlanSession:
+    def approve(
+        self, session_id: str, *, approver: str, feedback: str | None = None
+    ) -> PlanSession:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before approving")
-        approve_review(session.review, session.plan, approver=approver, feedback=feedback)
+        approve_review(
+            session.review, session.plan, approver=approver, feedback=feedback
+        )
         session.status = "approved"
+        self._save(session)
         return session
 
-    def waive(self, session_id: str, *, check_ids: list[str], reason: str,
-              waived_by: str) -> PlanSession:
+    def waive(
+        self, session_id: str, *, check_ids: list[str], reason: str, waived_by: str
+    ) -> PlanSession:
         """Record a human waiver of one or more hard readiness failures (#77).
 
         Mirrors :meth:`approve`'s shape: requires the plan to have been processed
@@ -357,25 +501,35 @@ class PlanService:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before waiving")
-        waive_review(session.review, session.plan, check_ids=check_ids,
-                     reason=reason, waived_by=waived_by)
+        waive_review(
+            session.review,
+            session.plan,
+            check_ids=check_ids,
+            reason=reason,
+            waived_by=waived_by,
+        )
+        self._save(session)
         return session
 
     def reject(self, session_id: str, *, approver: str, feedback: str) -> PlanSession:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before rejecting")
-        reject_review(session.review, session.plan, approver=approver, feedback=feedback)
+        reject_review(
+            session.review, session.plan, approver=approver, feedback=feedback
+        )
         session.status = "rejected"
         # Terminal too: emit the completion event with a synthetic key (no issue#).
         session.correlation_key = correlation_key_for(session)
         notify_completion(session)
+        self._save(session)
         return session
 
     # ── emit ───────────────────────────────────────────────────────────
 
-    def emit(self, session_id: str, *, repo: str, dry_run: bool = True,
-             gh=None) -> PlanSession:
+    def emit(
+        self, session_id: str, *, repo: str, dry_run: bool = True, gh=None
+    ) -> PlanSession:
         from plan.emit.github_emitter import emit_to_github
         from plan.emit.labels import pfactory_meta_block, taxonomy_labels
 
@@ -393,9 +547,16 @@ class PlanService:
         # the machine-readable pfactory:meta block AIFactory/TFactory parse.
         labels = taxonomy_labels(session.plan, session.epic, session.review)
         meta = pfactory_meta_block(session.plan, session.epic, session.review)
-        result = emit_to_github(session.epic, repo=repo, review=session.review,
-                                plan=session.plan, dry_run=dry_run,
-                                extra_labels=labels, meta_block=meta, gh=gh)
+        result = emit_to_github(
+            session.epic,
+            repo=repo,
+            review=session.review,
+            plan=session.plan,
+            dry_run=dry_run,
+            extra_labels=labels,
+            meta_block=meta,
+            gh=gh,
+        )
         session.emit_result = result.model_dump()
         if not dry_run and not result.errors:
             session.status = "emitted"
@@ -404,12 +565,20 @@ class PlanService:
             session.emitted_issue_number = result.epic_number
             session.correlation_key = correlation_key_for(session)
             notify_completion(session)
+        self._save(session)
         return session
 
-    def emit_contract(self, session_id: str, *, repo: str | None = None,
-                      project_id: str | None = None, dry_run: bool = True,
-                      http=None, base_url: str | None = None,
-                      key: str | None = None) -> PlanSession:
+    def emit_contract(
+        self,
+        session_id: str,
+        *,
+        repo: str | None = None,
+        project_id: str | None = None,
+        dry_run: bool = True,
+        http=None,
+        base_url: str | None = None,
+        key: str | None = None,
+    ) -> PlanSession:
         """Emit the RFC-0002 signed Task Contract v2 for a session (#65).
 
         Assembles the full contract (plan + execution + tfactory + verification),
@@ -428,19 +597,31 @@ class PlanService:
         pid = project_id or repo or session.plan.plan_id
         corr = session.correlation_key or correlation_key_for(session)
         result = _emit_contract(
-            session.plan, session.epic, session.review,
-            base_url=base, project_id=pid, http=http, key=key,
-            repo=repo, correlation_key=corr, dry_run=dry_run,
+            session.plan,
+            session.epic,
+            session.review,
+            base_url=base,
+            project_id=pid,
+            http=http,
+            key=key,
+            repo=repo,
+            correlation_key=corr,
+            dry_run=dry_run,
         )
         session.contract_result = result
         if result.get("ok") and not dry_run:
-            resp = result.get("response") if isinstance(result.get("response"), dict) else {}
+            resp = (
+                result.get("response")
+                if isinstance(result.get("response"), dict)
+                else {}
+            )
             task_id = (resp or {}).get("taskId") or (resp or {}).get("task_id")
             if task_id:
                 session.aifactory_task_id = str(task_id)
             session.status = "emitted"
             session.correlation_key = corr
             notify_completion(session)
+        self._save(session)
         return session
 
     def classify_preview(self, session_id: str) -> dict:
