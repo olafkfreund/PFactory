@@ -1,6 +1,6 @@
 {
   "name": "pfactory",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "description": "PFactory (Plan Factory) - AI planning & governance incubator: ingests project plans, enriches with live org/cloud context, runs review gates, emits governed epics + child issues for AIFactory to execute.",
   "license": "MIT OR GPL-3.0-only",
   "author": "DataSeek Team",
