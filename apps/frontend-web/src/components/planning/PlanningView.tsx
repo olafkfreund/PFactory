@@ -25,6 +25,7 @@ import {
 import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
 import { KanbanBoard } from '../KanbanBoard';
+import { PlanBoard } from './PlanBoard';
 import { cn } from '../../lib/utils';
 import { PlanUploadForm } from './PlanUploadForm';
 import { RegistryPanel } from './RegistryPanel';
@@ -152,24 +153,20 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick }: Props) {
         </div>
       </header>
 
-      {/* Board mode: animated KanbanBoard wired to the task-store.
-          Falls back to a "no project selected" placeholder when there is no
-          active project so the component never crashes. */}
+      {/* Board mode: kanban of the SAME planning sessions the List view shows
+          (global plan-store, bucketed by board_state). List and Board are two
+          layouts over one data source — selecting a card opens its detail in
+          the List pane. */}
       {viewMode === 'board' ? (
-        <div className="flex-1 overflow-hidden" data-testid="plan-board-view">
-          {!selectedProject ? (
-            <div className="flex flex-col items-center justify-center h-full py-20 text-muted-foreground gap-3">
-              <Columns className="h-8 w-8 opacity-30" aria-hidden />
-              <p className="text-sm font-medium">Select a project to see the task board.</p>
-            </div>
-          ) : (
-            <KanbanBoard
-              tasks={tasks}
-              onTaskClick={handleTaskClick}
-              onNewTaskClick={handleNewTaskClick}
-              isInitialized={!!selectedProject.autoBuildPath}
-            />
-          )}
+        <div className="flex-1 overflow-y-auto p-4" data-testid="plan-board-view">
+          <PlanBoard
+            sessions={store.sessions}
+            selectedId={selectedSessionId}
+            onSelect={(id) => {
+              setSelectedSessionId(id);
+              setViewMode('list');
+            }}
+          />
         </div>
       ) : (
       /* Main content: two-pane layout + meta tabs at bottom */
