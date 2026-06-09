@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.8 — bash sandbox toggle for k3d (2026-06-10)
+
+- **Agent bash no longer breaks under the OS sandbox on k3d (AIFactory #363).** Mirrors AIFactory v3.6.9: bwrap can't mount `/proc` on k3d (the node is a container), so the SDK's bash sandbox broke every agent command. Gated `sandbox.enabled` behind `AIFACTORY_BASH_SANDBOX` (default on); set `false` on the cluster — bash works, isolation via the K8s pod boundary + command allowlist until gVisor lands. Also includes the agent-sandbox apt deps (#98) + GHCR_PAT push fix shipped earlier on main.
 ## 0.6.7 — Restore the animated Planning rail (2026-06-09)
 
 > Bring back the animated ring-medallion pipeline rail on the Planning Board —
