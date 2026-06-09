@@ -584,9 +584,12 @@ def create_client(
     if fast_mode:
         try:
             from core.fast_mode import ensure_fast_mode_in_user_settings
+
             ensure_fast_mode_in_user_settings()
         except ImportError:
-            logger.warning("Fast mode requested but core.fast_mode module not available")
+            logger.warning(
+                "Fast mode requested but core.fast_mode module not available"
+            )
         logger.info("[Fast Mode] ACTIVE — will enable user setting source for fastMode")
         print(
             "[Fast Mode] ACTIVE — enabling user settings source for CLI to read fastMode"
@@ -680,8 +683,16 @@ def create_client(
                     )
             break
 
+    # OS-level bash sandbox (bubblewrap) can't run on k3d/Kind (node is a
+    # container — bwrap can't mount /proc even with CAP_SYS_ADMIN), where it
+    # breaks every agent bash command. Gate behind AIFACTORY_BASH_SANDBOX
+    # (default on) so such clusters disable it; real fix is gVisor (AIFactory #363).
+    bash_sandbox_enabled = os.environ.get(
+        "AIFACTORY_BASH_SANDBOX", "true"
+    ).strip().lower() not in ("0", "false", "no", "off")
+
     security_settings = {
-        "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True},
+        "sandbox": {"enabled": bash_sandbox_enabled, "autoAllowBashIfSandboxed": True},
         "enabledPlugins": {},  # Explicitly disable ALL plugins to prevent hook errors
         "permissions": {
             "defaultMode": "bypassPermissions",  # Bypass all permission prompts for headless operation
@@ -743,7 +754,13 @@ def create_client(
         json.dump(security_settings, f, indent=2)
 
     print(f"Security settings: {settings_file}")
-    print("   - Sandbox enabled (OS-level bash isolation)")
+    if bash_sandbox_enabled:
+        print("   - Sandbox enabled (OS-level bash isolation)")
+    else:
+        print(
+            "   - Bash sandbox disabled via AIFACTORY_BASH_SANDBOX "
+            "(runtime can't host bwrap; isolation via pod boundary + allowlist)"
+        )
     print(f"   - Filesystem restricted to: {project_dir.resolve()}")
     if original_project_permissions:
         print("   - Worktree permissions: granted for original project directories")
@@ -800,8 +817,10 @@ def create_client(
             "args": [
                 "@playwright/mcp@latest",
                 "--headless",
-                "--browser", "chromium",
-                "--viewport-size", "1280x720",
+                "--browser",
+                "chromium",
+                "--viewport-size",
+                "1280x720",
             ],
         }
 
@@ -958,8 +977,10 @@ def create_client(
     from phase_config import interleaved_thinking_betas_for, thinking_config_for
 
     _level = thinking_level or (
-        "high" if (max_thinking_tokens or 0) >= 16384
-        else "medium" if max_thinking_tokens
+        "high"
+        if (max_thinking_tokens or 0) >= 16384
+        else "medium"
+        if max_thinking_tokens
         else "none"
     )
     _thinking_param = thinking_config_for(
