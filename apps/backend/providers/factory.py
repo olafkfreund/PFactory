@@ -67,6 +67,14 @@ _AGENTIC_REGISTRY: dict[str, tuple[str, str]] = {
         "providers.openai_compatible_agentic",
         "OpenAICompatibleAgenticProvider",
     ),
+    # Ollama Cloud (issue #94) — hosted OpenAI-compatible inference at
+    # https://ollama.com/v1, authed by OLLAMA_API_KEY. Reachable from the
+    # cluster (unlike host-local Ollama). Routes through the openai-compatible
+    # backend; defaults injected in get_provider().
+    "ollama-cloud": (
+        "providers.openai_compatible_agentic",
+        "OpenAICompatibleAgenticProvider",
+    ),
 }
 
 _TEXT_REGISTRY: dict[str, tuple[str, str]] = {
@@ -76,6 +84,7 @@ _TEXT_REGISTRY: dict[str, tuple[str, str]] = {
     "ollama": ("providers.ollama", "OllamaProvider"),
     "openai-compatible": ("providers.openai_compatible", "OpenAICompatibleProvider"),
     "github-models": ("providers.openai_compatible", "OpenAICompatibleProvider"),
+    "ollama-cloud": ("providers.openai_compatible", "OpenAICompatibleProvider"),
 }
 
 # Phases that need agentic capability (file ops, code execution)
@@ -122,6 +131,13 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "github-models": "github-models",
     "gh-models": "github-models",
     "githubmodels": "github-models",
+    # Ollama Cloud (issue #94). NOTE: deliberately separate from bare "ollama"
+    # (host-local, unauthenticated) — cloud REQUIRES OLLAMA_API_KEY and routes
+    # to https://ollama.com, not localhost:11434.
+    "ollama-cloud": "ollama-cloud",
+    "ollama_cloud": "ollama-cloud",
+    "ollamacloud": "ollama-cloud",
+    "ollama.com": "ollama-cloud",
 }
 
 
@@ -140,6 +156,27 @@ def _apply_github_models_defaults(kwargs: dict[str, Any]) -> None:
     raw_model = kwargs.get("model", "openai/gpt-4.1")
     if raw_model.startswith("github-models/"):
         kwargs["model"] = raw_model[len("github-models/") :]
+
+
+def _apply_ollama_cloud_defaults(kwargs: dict[str, Any]) -> None:
+    """Pre-configure Ollama Cloud routing onto the openai-compatible backend.
+
+    Injects the ``https://ollama.com`` endpoint + ``OLLAMA_API_KEY`` auth and
+    strips a leading ``ollama-cloud:`` prefix from the model string, mutating
+    ``kwargs`` in place. Caller then instantiates the openai-compatible
+    provider class, which appends ``/v1/chat/completions`` itself — so the
+    base URL is stored WITHOUT the ``/v1`` suffix (``OLLAMA_CLOUD_BASE_URL``
+    may include or omit it; we normalise).
+    """
+    base_url = os.environ.get("OLLAMA_CLOUD_BASE_URL", "https://ollama.com").strip()
+    # The provider appends /v1/chat/completions, so strip a trailing /v1.
+    if base_url.endswith("/v1"):
+        base_url = base_url[: -len("/v1")]
+    kwargs.setdefault("base_url", base_url.rstrip("/"))
+    kwargs.setdefault("api_key", os.environ.get("OLLAMA_API_KEY", ""))
+    raw_model = kwargs.get("model", "")
+    if raw_model.startswith("ollama-cloud:"):
+        kwargs["model"] = raw_model[len("ollama-cloud:") :]
 
 
 def _resolve_canonical(provider_name: str) -> str:
@@ -201,6 +238,10 @@ def get_provider(provider_name: str, phase: str, **kwargs: Any) -> BaseLLMProvid
     # GitHub-specific defaults pre-injected (epic #87 / #88).
     if canonical == "github-models":
         _apply_github_models_defaults(kwargs)
+    # Ollama Cloud likewise routes through openai-compatible with its hosted
+    # endpoint + OLLAMA_API_KEY pre-injected (issue #94).
+    elif canonical == "ollama-cloud":
+        _apply_ollama_cloud_defaults(kwargs)
 
     if phase in _AGENTIC_PHASES:
         registry = _AGENTIC_REGISTRY
@@ -257,6 +298,8 @@ def get_qa_llm_provider(provider_name: str, **kwargs: Any) -> BaseLLMProvider:
 
     if canonical == "github-models":
         _apply_github_models_defaults(kwargs)
+    elif canonical == "ollama-cloud":
+        _apply_ollama_cloud_defaults(kwargs)
 
     module_path, class_name = _TEXT_REGISTRY[canonical]
 
