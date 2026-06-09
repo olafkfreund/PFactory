@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.9 — GitHub issue → plan, not coding task (2026-06-10)
+
+- **Creating a task from a GitHub issue now creates a PLAN.** Inherited from the
+  AIFactory fork, both issue → task entry points created an AIFactory coding/build
+  spec (`POST /api/projects/{id}/tasks`) instead of a planning session. They now
+  ingest the issue into the planning pipeline (`POST /api/plan/sessions/ingest-text`)
+  so it lands in **Plans ready** on the Planning board (ingest → process → review
+  → emit) — matching PFactory's product identity. Affects the single-issue
+  investigate flow (`investigation-store.ts`) and the batch-approve flow
+  (`useAnalyzePreview.ts`).
+
 ## 0.6.8 — bash sandbox toggle for k3d (2026-06-10)
 
 - **Agent bash no longer breaks under the OS sandbox on k3d (AIFactory #363).** Mirrors AIFactory v3.6.9: bwrap can't mount `/proc` on k3d (the node is a container), so the SDK's bash sandbox broke every agent command. Gated `sandbox.enabled` behind `AIFACTORY_BASH_SANDBOX` (default on); set `false` on the cluster — bash works, isolation via the K8s pod boundary + command allowlist until gVisor lands. Also includes the agent-sandbox apt deps (#98) + GHCR_PAT push fix shipped earlier on main.
