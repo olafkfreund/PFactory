@@ -55,9 +55,18 @@ USER root
 #                   (test_trivy_no_high_critical). Constraint, not =2.46-r2, so
 #                   the build stays green when Wolfi revs the package further;
 #                   drop this once the base digest ships the fix.
+#   bubblewrap    — OS-level bash sandbox for agent commands. Without it the
+#                   Claude Agent SDK logs "Sandbox disabled: ... bubblewrap
+#                   (bwrap) not installed" and runs commands with NO filesystem
+#                   /network enforcement — unacceptable for enterprise use. The
+#                   cluster node allows unprivileged user namespaces, so bwrap
+#                   can create the sandbox.
+#   socat         — required alongside bwrap by the SDK sandbox network-proxy
+#                   path; its absence triggers the same warning.
 RUN apk add --no-cache \
         bash \
         "binutils>2.46-r1" \
+        bubblewrap \
         ca-certificates \
         curl \
         git \
@@ -65,6 +74,7 @@ RUN apk add --no-cache \
         gnupg \
         nodejs \
         npm \
+        socat \
         wget
 
 # Epic #44 R3 — optionally bundle the rmux binary.
