@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.7 — Restore the animated Planning rail (2026-06-09)
+
+> Bring back the animated ring-medallion pipeline rail on the Planning Board —
+> this time correctly driven by plan sessions.
+
+- **Animated PipelineRail restored.** v0.6.5 swapped the task `KanbanBoard`
+  (which rendered the rail) for the static `PlanBoard` and lost it. `PlanBoard`
+  now renders `PipelineRail` at the top, fed by the same plan sessions the
+  columns show (grouped by `board_state`) — ring medallions, count badges,
+  animated arcs/halos, and marching-ant connectors are back.
+
 ## 0.6.6 — Plans survive restarts (disk persistence) (2026-06-09)
 
 > The PlanService store was in-memory only, so every pod restart/redeploy wiped
