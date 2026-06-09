@@ -166,7 +166,10 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # The pfactory GHCR package is not linked to this repo, so the default
+          # GITHUB_TOKEN can't push it (403 Forbidden). Prefer GHCR_PAT (a PAT
+          # with write:packages); fall back to GITHUB_TOKEN. Mirrors TFactory.
+          password: "${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}"
 
       - name: Build + push bank-pilot image (WITH_RMUX=false, multi-arch)
         if: steps.detect.outputs.should_release == 'true'
