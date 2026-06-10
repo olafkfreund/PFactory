@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.14 — Plan → documentation emit (gated, off by default) (2026-06-10)
+
+- **Plans can now be exported as documentation.** An approved plan renders to
+  Markdown/TechDocs and is published to the repo by default, plus optionally to
+  Backstage and/or Confluence — indexed in a `registry.json` keyed by the plan's
+  `correlation_key`, so the doc sits next to the epic it came from.
+- **New "Documentation Targets" Settings section** to manage Backstage /
+  Confluence connections (API token encrypted at rest, reachability Test,
+  enable-by-default), backed by `/api/docs-targets` and a per-user
+  `docs_target_connections` table (migration `d4a7c1e6b9f2`, additive).
+- **Cross-factory memory read:** new `pfactory_resolve_plan_doc` tool on the
+  `/mcp` JSON-RPC surface resolves a plan's doc + dependencies by
+  `correlation_key` (the durable complement to the live `pfactory_get_*` tools).
+- **Plan-agnostic `emit_bundle` core** factored out so TFactory can publish
+  test-result docs through the same targets/registry (tracked in TFactory#341).
+- **Entirely gated behind `PFACTORY_DOCS_EMIT` (off).** With the flag unset this
+  release is behaviorally inert: it only adds the new (empty) table + dark code
+  paths. No change to the running pipeline. Verified end-to-end in CI (docker
+  image build, Postgres 15/16 migration, frontend typecheck, backend pytest).
+
 ## 0.6.13 — authenticate + correctly shape the AIFactory from-plan handoff (2026-06-10)
 
 - **Fix the trusted-plan handoff so AIFactory takes the skip-planning fast path (#517).** PFactory posted the bare contract to `/api/tasks/from-plan`; AIFactory's `FromPlanRequest` expects the signed contract under a `plan` body field plus `title`/`description` query params → it 422'd and PFactory silently fell back to `create-and-run` (AIFactory re-planned, the Task Contract incl. the TFactory test plan discarded). Now posts `{plan: contract}` with title/description. Paired with the shared `AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY` (now set) and AIFactory making file footprints optional.
