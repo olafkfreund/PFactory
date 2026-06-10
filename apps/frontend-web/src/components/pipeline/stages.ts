@@ -14,7 +14,7 @@ export type { TaskStatus };
 
 /** Gruvbox hex accent per status (matches STAGE_ACCENT in KanbanBoard). */
 export const STAGE_ACCENT: Record<TaskStatus, string> = {
-  backlog:      '#a89984',  // fg4  — calm / queued
+  backlog:      '#fabd2f',  // yellow — queued / ready (vivid, cockpit brand)
   in_progress:  '#fe8019',  // orange — active work
   ai_review:    '#d3869b',  // purple — scanning
   human_review: '#83a598',  // blue   — awaiting you

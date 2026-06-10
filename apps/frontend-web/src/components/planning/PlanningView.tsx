@@ -82,6 +82,21 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-refresh: keep the board/list converged with server state without a
+  // manual reload (a plan ingested/processed/approved elsewhere shows up on its
+  // own). Quiet refresh — no spinner flicker — and skipped while the tab is
+  // hidden so we don't fetch pointlessly in the background. WS reconnect and
+  // tab-visible self-heal are wired separately in api-adapter.ts.
+  useEffect(() => {
+    const POLL_MS = 20000;
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      store.refreshSessions();
+    }, POLL_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load tasks whenever the active project changes so the kanban board is
   // always in sync when the user switches projects and then opens Board mode.
   useEffect(() => {

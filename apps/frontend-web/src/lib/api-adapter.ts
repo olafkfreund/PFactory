@@ -986,6 +986,27 @@ function setupEventBroadcast(): void {
         log.debug(`[WS Broadcast] ${event.type}`);
       }
       emitEvent(event.type, event.payload);
+
+      // #113 — auto-surface a task started *outside* this tab (API, cross-service
+      // handoff). The `task:*` handlers only UPDATE existing cards, so a brand-new
+      // task never appears until a reload. When an event references a task we
+      // don't know about that belongs to the selected project (id is
+      // `${projectId}:${specId}`), refetch that project's tasks once so the card
+      // shows live. Fires only for genuinely-unknown tasks → no over-fetching.
+      if (event.type.startsWith('task:')) {
+        const taskId = (event.payload as { taskId?: string })?.taskId;
+        if (taskId) {
+          void Promise.all([
+            import('../stores/project-store'),
+            import('../stores/task-store'),
+          ]).then(([projectMod, taskMod]) => {
+            const projectId = projectMod.useProjectStore.getState().selectedProjectId;
+            if (!projectId || !taskId.startsWith(`${projectId}:`)) return;
+            const known = taskMod.useTaskStore.getState().tasks.some((x) => x.id === taskId);
+            if (!known) void taskMod.loadTasks(projectId);
+          }).catch(() => { /* best-effort live surfacing */ });
+        }
+      }
     }
   });
 
@@ -997,7 +1018,7 @@ function setupEventBroadcast(): void {
   let initialConnect = true;
   wsManager.onConnect('/ws/events', () => {
     if (initialConnect) { initialConnect = false; return; }
-    log.debug('[WS] /ws/events reconnected — refetching tasks');
+    log.debug('[WS] /ws/events reconnected — refetching tasks + plans');
     void Promise.all([
       import('../stores/project-store'),
       import('../stores/task-store'),
@@ -1009,6 +1030,10 @@ function setupEventBroadcast(): void {
     }).catch((err) => {
       log.error('[WS reconnect] Failed to refetch tasks:', err);
     });
+    // Planning board self-heals too — converge plan sessions after the gap.
+    void import('../stores/plan-store')
+      .then(({ usePlanStore }) => usePlanStore.getState().refreshSessions())
+      .catch(() => { /* best-effort */ });
   });
 
   // Belt-and-braces: when the tab becomes visible again, also refetch. Some
@@ -1024,12 +1049,15 @@ function setupEventBroadcast(): void {
       ]).then(([projectMod, taskMod]) => {
         const projectId = projectMod.useProjectStore.getState().selectedProjectId;
         if (projectId) {
-          log.debug('[WS] tab visible — refetching tasks');
+          log.debug('[WS] tab visible — refetching tasks + plans');
           void taskMod.loadTasks(projectId);
         }
       }).catch((err) => {
         log.error('[visibilitychange] Failed to refetch tasks:', err);
       });
+      void import('../stores/plan-store')
+        .then(({ usePlanStore }) => usePlanStore.getState().refreshSessions())
+        .catch(() => { /* best-effort */ });
     });
   }
 }
