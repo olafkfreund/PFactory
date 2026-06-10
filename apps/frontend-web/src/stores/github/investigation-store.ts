@@ -108,7 +108,7 @@ export async function investigateGitHubIssue(
     const session = await ingestText({
       title,
       text: description,
-      channel: 'github',
+      channel: 'github_issue',
       category: 'software',
     });
 
