@@ -118,7 +118,9 @@ def assemble_contract(
     correlation_key: str | None = None,
 ) -> dict[str, Any]:
     """Compose the complete (unsigned) Task Contract from all #65 blocks."""
-    contract = build_task_contract(plan, epic, repo=repo, correlation_key=correlation_key)
+    contract = build_task_contract(
+        plan, epic, repo=repo, correlation_key=correlation_key
+    )
     attach_execution(contract, plan, epic)
     if review is not None:
         attach_review_tier(contract, review)
@@ -147,11 +149,16 @@ def _post_with_readback(
     succeeded) and is returned as ``ok: False`` with ``mismatches``.
     """
     correlation: dict[str, Any] = {
-        "spec_id": spec_id, "task_id": None, "project_id": project_id,
+        "spec_id": spec_id,
+        "task_id": None,
+        "project_id": project_id,
     }
     base_result = {
-        "ok": True, "dry_run": False, "signed": signed,
-        "endpoint": url, "fallback": False,
+        "ok": True,
+        "dry_run": False,
+        "signed": signed,
+        "endpoint": url,
+        "fallback": False,
     }
 
     get = getattr(http, "get", None)
@@ -160,7 +167,17 @@ def _post_with_readback(
     last_mismatches: list[str] = []
     attempts = max(1, max_retries + 1)
     for attempt in range(attempts):
-        resp = http.post(url, params={"project_id": project_id}, json=contract)
+        # AIFactory's /api/tasks/from-plan takes project_id/title/description as
+        # query params and the signed contract under a ``plan`` body field
+        # (FromPlanRequest). Posting the bare contract 422s ("body.plan
+        # required") → silent create-and-run fallback. (#517 PARR)
+        _title = str(contract.get("feature") or spec_id or "task")[:120]
+        _desc = "; ".join(contract.get("final_acceptance") or [])[:500] or _title
+        resp = http.post(
+            url,
+            params={"project_id": project_id, "title": _title, "description": _desc},
+            json={"plan": contract},
+        )
         body = _response_body(resp)
         task_id = _extract_task_id(body)
         correlation["task_id"] = task_id
@@ -168,8 +185,11 @@ def _post_with_readback(
         if not readback_on:
             # Degrade gracefully: the create is confirmed, just not verified.
             return {
-                **base_result, "response": body, "correlation": dict(correlation),
-                "verified": False, "warnings": ["read-back unavailable"],
+                **base_result,
+                "response": body,
+                "correlation": dict(correlation),
+                "verified": False,
+                "warnings": ["read-back unavailable"],
             }
 
         if task_id is None:
@@ -180,15 +200,21 @@ def _post_with_readback(
         mismatches = _verify_readback(contract, task)
         if not mismatches:
             return {
-                **base_result, "response": body, "correlation": dict(correlation),
-                "verified": True, "attempts": attempt + 1,
+                **base_result,
+                "response": body,
+                "correlation": dict(correlation),
+                "verified": True,
+                "attempts": attempt + 1,
             }
         last_mismatches = mismatches
 
     # Exhausted retries with the create succeeding but read-back never matching.
     return {
-        **base_result, "ok": False, "verified": False,
-        "correlation": dict(correlation), "mismatches": last_mismatches,
+        **base_result,
+        "ok": False,
+        "verified": False,
+        "correlation": dict(correlation),
+        "mismatches": last_mismatches,
         "attempts": attempts,
     }
 
@@ -237,13 +263,21 @@ def emit_contract(
     signed = False
     if signing_key:
         attach_signature(
-            contract, key=signing_key, approval_timestamp=approval_timestamp or _utcnow_iso()
+            contract,
+            key=signing_key,
+            approval_timestamp=approval_timestamp or _utcnow_iso(),
         )
         signed = True
 
     url = _from_plan_url(base_url)
     if dry_run:
-        return {"ok": True, "dry_run": True, "signed": signed, "endpoint": url, "contract": contract}
+        return {
+            "ok": True,
+            "dry_run": True,
+            "signed": signed,
+            "endpoint": url,
+            "contract": contract,
+        }
 
     if http is None:
         raise ValueError("live emit_contract requires an injected `http` client")
@@ -252,8 +286,13 @@ def emit_contract(
 
     try:
         return _post_with_readback(
-            contract, http=http, url=url, base_url=base_url,
-            project_id=project_id, spec_id=spec_id, signed=signed,
+            contract,
+            http=http,
+            url=url,
+            base_url=base_url,
+            project_id=project_id,
+            spec_id=spec_id,
+            signed=signed,
             max_retries=max_retries,
         )
     except Exception as exc:
@@ -263,12 +302,20 @@ def emit_contract(
 
         if not epic.children:
             return {
-                "ok": False, "dry_run": False,
+                "ok": False,
+                "dry_run": False,
                 "errors": [f"from-plan failed ({exc}); no children for fallback"],
             }
         payload = build_requirements(epic.children[0], plan=plan)
-        fb = trigger_api(payload, base_url=base_url, project_id=project_id, http=http, dry_run=False)
+        fb = trigger_api(
+            payload, base_url=base_url, project_id=project_id, http=http, dry_run=False
+        )
         return {
-            "ok": True, "dry_run": False, "signed": signed, "endpoint": url,
-            "fallback": True, "fallback_reason": str(exc), "fallback_response": fb,
+            "ok": True,
+            "dry_run": False,
+            "signed": signed,
+            "endpoint": url,
+            "fallback": True,
+            "fallback_reason": str(exc),
+            "fallback_response": fb,
         }

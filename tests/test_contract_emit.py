@@ -85,7 +85,7 @@ def test_live_posts_to_from_plan() -> None:
                            approval_timestamp="2026-06-06T00:00:00Z", dry_run=False)
     assert result["ok"] and not result["dry_run"] and not result["fallback"]
     assert http.calls[0]["url"].endswith("/api/tasks/from-plan")
-    assert http.calls[0]["json"]["approval"]["signature"]
+    assert http.calls[0]["json"]["plan"]["approval"]["signature"]
 
 
 def test_falls_back_to_create_and_run() -> None:
