@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.13 — authenticate + correctly shape the AIFactory from-plan handoff (2026-06-10)
+
+- **Fix the trusted-plan handoff so AIFactory takes the skip-planning fast path (#517).** PFactory posted the bare contract to `/api/tasks/from-plan`; AIFactory's `FromPlanRequest` expects the signed contract under a `plan` body field plus `title`/`description` query params → it 422'd and PFactory silently fell back to `create-and-run` (AIFactory re-planned, the Task Contract incl. the TFactory test plan discarded). Now posts `{plan: contract}` with title/description. Paired with the shared `AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY` (now set) and AIFactory making file footprints optional.
 ## 0.6.12 — Fix issue→plan ingest channel (2026-06-10)
 
 - **Creating a plan from a GitHub issue now actually works.** v0.6.9 ingested
