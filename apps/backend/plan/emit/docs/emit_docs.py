@@ -67,6 +67,41 @@ def _resolve_targets(
     return out
 
 
+def connections_to_targets(
+    connections: list[dict[str, Any]],
+    *,
+    repo: str | None = None,
+    git_write: bool = False,
+    selected: list[str] | None = None,
+) -> list[DocsTarget]:
+    """Build remote targets from Settings connection dicts (design §6d/§6e seam).
+
+    The web-server passes user/org ``DocsTargetConnection`` rows here so target
+    selection is Settings-driven (and per-plan, via ``selected``) instead of env.
+    The repo/GitHub default is added by the orchestrator, not here.
+
+    Each connection: ``{kind, base_url, api_token, space?, enabled_by_default?}``.
+    A connection is used when ``selected`` lists its kind, else when
+    ``enabled_by_default`` is set.
+    """
+    out: list[DocsTarget] = []
+    for conn in connections:
+        kind = (conn.get("kind") or "").lower()
+        use = kind in selected if selected is not None else bool(conn.get("enabled_by_default"))
+        if not use:
+            continue
+        if kind == "backstage":
+            out.append(BackstageTarget(
+                base_url=conn.get("base_url"), repo=repo, git_write=git_write,
+            ))
+        elif kind == "confluence":
+            out.append(ConfluenceTarget(
+                base_url=conn.get("base_url"), token=conn.get("api_token"),
+                space=conn.get("space"),
+            ))
+    return out
+
+
 def emit_docs(
     session: PlanSession,
     *,
