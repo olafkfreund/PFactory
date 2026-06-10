@@ -35,16 +35,23 @@ def is_enabled() -> bool:
     return _truthy("PFACTORY_DOCS_EMIT")
 
 
-def _default_root() -> Path:
-    """Directory the repo target writes into.
+def docs_root() -> Path:
+    """Directory the repo target writes into (and the resolver reads from).
 
     ``PFACTORY_DOCS_DIR`` wins; else ``~/.pfactory/plan-docs`` (alongside the
-    persisted plan sessions, so it survives restarts on the PVC).
+    persisted plan sessions, so it survives restarts on the PVC). Public so the
+    cross-factory ``resolve_plan_doc`` read surface points at the same registry
+    the emit writes.
     """
     override = os.environ.get("PFACTORY_DOCS_DIR", "").strip()
     if override:
         return Path(override)
     return Path.home() / ".pfactory" / "plan-docs"
+
+
+# Back-compat private alias (kept so existing internal call-sites read cleanly).
+def _default_root() -> Path:
+    return docs_root()
 
 
 def _resolve_targets(

@@ -10,7 +10,7 @@ Design: ``docs/plans/2026-06-10-plan-docs-emit-design.md``.
 """
 
 from .bundle import DocBundle, TargetResult
-from .emit_docs import connections_to_targets, emit_docs, is_enabled
+from .emit_docs import connections_to_targets, docs_root, emit_docs, is_enabled
 from .render import render_plan_docs
 from .resolve import PlanDocsResolver
 
@@ -19,6 +19,7 @@ __all__ = [
     "PlanDocsResolver",
     "TargetResult",
     "connections_to_targets",
+    "docs_root",
     "emit_docs",
     "is_enabled",
     "render_plan_docs",
