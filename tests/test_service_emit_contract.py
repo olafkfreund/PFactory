@@ -83,4 +83,4 @@ def test_emit_contract_live_sets_correlation() -> None:
     assert out.aifactory_task_id == "t-9"
     assert http.calls[0]["url"].endswith("/api/tasks/from-plan")
     # signed
-    assert http.calls[0]["json"]["approval"]["signature"]
+    assert http.calls[0]["json"]["plan"]["approval"]["signature"]
