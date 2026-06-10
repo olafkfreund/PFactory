@@ -264,6 +264,14 @@ above are only the cluster-wide default/fallback.** Settings overrides env.
   endpoints (mocked); enrichment connectors skip `generated` docs.
 - **P3 — Confluence.** REST upsert (reuse client). *Tests:* create-vs-update by
   title (mocked client); labels applied; idempotent on unchanged hash.
+
+> **Status:** P1 ✅ (renderer + RepoDocsTarget + gated emit + registry) and
+> P2/P3 ✅ (`BackstageTarget` via the GitHub Contents API + catalog/techdocs
+> sync; `ConfluenceTarget` REST upsert; orchestrator adds them when configured) —
+> all behind `PFACTORY_DOCS_EMIT` (off) + `PFACTORY_DOCS_GIT_WRITE` (off), fully
+> unit-tested with fakes (no network). **P4 (Settings UI + per-plan selection +
+> cross-factory `resolve_plan`) and TFactory adoption remain.** Held on
+> `feat/plan-docs-emit-p1` (draft PR #114), not merged/deployed.
 - **P4 — Settings connections + cross-factory read.** `DocsTargetConnection`
   model + `routes/docs_targets.py` + `DocsTargetsSettings.tsx` (Backstage +
   Confluence, with Test buttons, enable-by-default) wired into the precedence in

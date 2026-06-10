@@ -1,9 +1,10 @@
 """Documentation emit (P1) — render a plan into durable docs.
 
 A third emission alongside GitHub epics + the Task Contract: turn an approved
-plan into Markdown and fan it out to documentation targets. P1 ships the pure
-renderer + the always-available repo/directory target + the gated orchestrator.
-Backstage/Confluence targets + Settings connections land in later phases.
+plan into Markdown and fan it out to documentation targets. The pure renderer
+feeds a target set resolved by config — repo/GitHub always, Backstage and
+Confluence when configured (default off, opt-in). Per-plan/Settings selection
+(design §6d/§6e) lands in P4.
 
 Design: ``docs/plans/2026-06-10-plan-docs-emit-design.md``.
 """

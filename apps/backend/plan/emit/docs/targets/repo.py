@@ -1,28 +1,20 @@
 """RepoDocsTarget — the always-available sink: write the bundle to a directory.
 
-Writes ``<root>/<slug>.md`` plus two maintained files:
-- ``registry.json`` — the machine index (correlation_key -> entry), the
-  cross-factory memory record;
-- ``index.md`` — a human "Plans" index regenerated from the registry.
-
-This is a pure directory writer (no git): the root is a checkout's
-``techdocs/plans`` dir, or a runtime/workspace dir, or a tmp dir in tests.
-Committing/PRing that dir (dry-run-first) + pushing to Backstage/Confluence are
-later phases. ``publish`` never raises.
+Writes ``<root>/<slug>.md`` plus two maintained files: ``registry.json`` (the
+machine memory index) and ``index.md`` (the human index). A pure local-directory
+writer (no git): the root is a checkout's ``techdocs/plans`` dir, a runtime dir,
+or a tmp dir in tests. ``publish`` never raises.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
 from ..bundle import DocBundle, TargetResult
+from . import registry as reg
 
 logger = logging.getLogger(__name__)
-
-REGISTRY_FILE = "registry.json"
-INDEX_FILE = "index.md"
 
 
 class RepoDocsTarget:
@@ -35,51 +27,6 @@ class RepoDocsTarget:
     def available(self) -> bool:
         return True  # the substrate is always available
 
-    # ── registry helpers ────────────────────────────────────────────────
-
-    def _registry_path(self) -> Path:
-        return self._root / REGISTRY_FILE
-
-    def _load_registry(self) -> dict[str, dict]:
-        path = self._registry_path()
-        if not path.exists():
-            return {}
-        try:
-            data = json.loads(path.read_text())
-            return data.get("plans", {}) if isinstance(data, dict) else {}
-        except Exception as exc:  # noqa: BLE001 — corrupt index must not be fatal
-            logger.warning("plan docs registry unreadable (%s); starting fresh", exc)
-            return {}
-
-    def _write_registry(self, plans: dict[str, dict]) -> None:
-        payload = {"version": 1, "plans": plans}
-        tmp = self._registry_path().with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        tmp.replace(self._registry_path())
-
-    def _render_index(self, plans: dict[str, dict]) -> str:
-        lines = ["# Plans\n", "\nGoverned plans emitted by PFactory.\n\n"]
-        if not plans:
-            lines.append("_No plans emitted yet._\n")
-            return "".join(lines)
-        lines.append("| Plan | Type | Epic | Key |\n")
-        lines.append("|---|---|---|---|\n")
-        for ck in sorted(plans):
-            e = plans[ck]
-            doc = e.get("doc_file", "")
-            link = (
-                f"[{e.get('title', e.get('plan_id'))}]({doc})"
-                if doc
-                else e.get("title", "")
-            )
-            epic = f"#{e['epic']}" if e.get("epic") else "—"
-            lines.append(
-                f"| {link} | {e.get('plan_type') or '—'} | {epic} | `{ck}` |\n"
-            )
-        return "".join(lines)
-
-    # ── publish ─────────────────────────────────────────────────────────
-
     def publish(self, bundle: DocBundle) -> TargetResult:
         try:
             self._root.mkdir(parents=True, exist_ok=True)
@@ -89,22 +36,26 @@ class RepoDocsTarget:
             page.write_text(bundle.markdown)
 
             # 2) upsert the registry (keyed by correlation_key)
-            plans = self._load_registry()
-            entry = dict(bundle.registry_entry)
-            if self._updated_at:
-                entry["updated_at"] = self._updated_at
-            plans[bundle.correlation_key] = entry
-            self._write_registry(plans)
+            reg_path = self._root / reg.REGISTRY_FILE
+            existing = reg.parse_registry(
+                reg_path.read_text() if reg_path.exists() else None
+            )
+            plans = reg.upsert(
+                existing, bundle.registry_entry, updated_at=self._updated_at
+            )
+            tmp = reg_path.with_suffix(".json.tmp")
+            tmp.write_text(reg.dump_registry(plans))
+            tmp.replace(reg_path)
 
             # 3) regenerate the human index
-            (self._root / INDEX_FILE).write_text(self._render_index(plans))
+            (self._root / reg.INDEX_FILE).write_text(reg.render_index(plans))
 
             return TargetResult(
                 target=self.name,
                 status="written",
                 detail={
                     "page": str(page),
-                    "registry": str(self._registry_path()),
+                    "registry": str(reg_path),
                     "plans": len(plans),
                 },
             )

@@ -572,7 +572,7 @@ class PlanService:
                 from plan.emit.docs import emit_docs, is_enabled
 
                 if is_enabled():
-                    session.docs_result = emit_docs(session)
+                    session.docs_result = emit_docs(session, repo=repo)
             except Exception:  # noqa: BLE001 — docs must never break emit
                 logger.warning("plan docs emit failed", exc_info=True)
         self._save(session)

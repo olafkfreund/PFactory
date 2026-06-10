@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .render import render_plan_docs
+from .targets.backstage import BackstageTarget
 from .targets.base import DocsTarget
+from .targets.confluence import ConfluenceTarget
 from .targets.repo import RepoDocsTarget
 
 if TYPE_CHECKING:
@@ -24,14 +26,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def is_enabled() -> bool:
     """Master switch — the docs emit only runs when explicitly turned on."""
-    return os.environ.get("PFACTORY_DOCS_EMIT", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    return _truthy("PFACTORY_DOCS_EMIT")
 
 
 def _default_root() -> Path:
@@ -46,14 +47,30 @@ def _default_root() -> Path:
     return Path.home() / ".pfactory" / "plan-docs"
 
 
-def _resolve_targets(root: Path | None, updated_at: str) -> list[DocsTarget]:
-    """The effective target set. P1: repo only (always included)."""
-    return [RepoDocsTarget(root or _default_root(), updated_at=updated_at)]
+def _resolve_targets(
+    root: Path | None, updated_at: str, *, repo: str | None
+) -> list[DocsTarget]:
+    """The effective target set: repo always; Backstage/Confluence when configured.
+
+    Per-plan/Settings selection (design §6d/§6e) lands in P4; for now a target is
+    added when its env config is present and its ``available()`` returns True.
+    The repo/GitHub doc is the default and is always included.
+    """
+    out: list[DocsTarget] = [
+        RepoDocsTarget(root or _default_root(), updated_at=updated_at)
+    ]
+    git_write = _truthy("PFACTORY_DOCS_GIT_WRITE")
+    if _truthy("PFACTORY_DOCS_BACKSTAGE") or os.environ.get("BACKSTAGE_BASE_URL"):
+        out.append(BackstageTarget(repo=repo, git_write=git_write))
+    if _truthy("PFACTORY_DOCS_CONFLUENCE") or os.environ.get("CONFLUENCE_BASE_URL"):
+        out.append(ConfluenceTarget())
+    return out
 
 
 def emit_docs(
     session: PlanSession,
     *,
+    repo: str | None = None,
     root: Path | None = None,
     targets: list[DocsTarget] | None = None,
 ) -> list[dict[str, Any]]:
@@ -68,7 +85,11 @@ def emit_docs(
         logger.warning("plan docs render failed for %s: %s", session.session_id, exc)
         return [{"target": "render", "status": "error", "detail": {"error": str(exc)}}]
 
-    effective = targets if targets is not None else _resolve_targets(root, updated_at)
+    effective = (
+        targets
+        if targets is not None
+        else _resolve_targets(root, updated_at, repo=repo)
+    )
     results: list[dict[str, Any]] = []
     for target in effective:
         try:
