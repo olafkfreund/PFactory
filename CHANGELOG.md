@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.9 — authenticate PFactory→AIFactory handoff (2026-06-10)
+
+- **Fix the PARR handoff 401 (#363).** The live contract emit POSTed to AIFactory's `/api/tasks/from-plan` (and the `create-and-run` fallback) with no `Authorization` header, so AIFactory's auth middleware rejected it (401) and the whole `emit-contract` failed with a 500. The handoff client now attaches `Authorization: Bearer` from the shared in-cluster token (`APP_API_TOKEN`/`PFACTORY_MCP_SECRET`).
 ## 0.6.10 — "View Plan" opens the plan from a GitHub issue (2026-06-10)
 
 - **"View Plan" on a GitHub issue opens the created plan on the Planning board.**
