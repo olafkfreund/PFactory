@@ -90,6 +90,27 @@ MCP_TOOLS: list[dict[str, Any]] = [
         "description": "Get the governance review-gate status (aggregate score, per-lens scores, blocking findings, human approval) for a planning session.",
         "inputSchema": _ISSUE_OR_SESSION,
     },
+    {
+        "name": "pfactory_resolve_plan_doc",
+        "description": (
+            "Resolve a plan's documentation entry by correlation_key — the durable "
+            "cross-factory memory read. Returns the doc file, dependencies, epic, "
+            "plan_id and content_hash from the plan-docs registry. Pass a "
+            "correlation_key directly (from the pfactory:meta block), or an "
+            "issue_number / session_id to derive it from a live session."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "correlation_key": {
+                    "type": "string",
+                    "description": "The plan's correlation key (shared across factories).",
+                },
+                "issue_number": {"type": "integer", "description": "Emitted GitHub epic issue number"},
+                "session_id": {"type": "string", "description": "PFactory plan session id"},
+            },
+        },
+    },
 ]
 
 _TOOL_NAMES = {t["name"] for t in MCP_TOOLS}
@@ -234,12 +255,43 @@ def _tool_get_review_status(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _tool_resolve_plan_doc(args: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a plan's docs-registry entry by correlation_key.
+
+    The durable complement to the live ``pfactory_get_*`` tools: it reads the
+    ``registry.json`` the docs emit writes, so a sibling factory can ask "what's
+    the plan + dependencies behind this epic?" even after the session is gone.
+    """
+    from plan.emit.docs import PlanDocsResolver, docs_root
+
+    key = (args.get("correlation_key") or "").strip()
+    if not key:
+        # No key given — derive it from a live/persisted session.
+        sess = _resolve_session(args)
+        key = (getattr(sess, "correlation_key", None) or "").strip()
+        if not key:
+            from plan.completion import correlation_key_for
+
+            key = correlation_key_for(sess)
+    if not key:
+        raise _ToolError("provide 'correlation_key', or an issue_number/session_id")
+
+    entry = PlanDocsResolver.from_dir(docs_root()).resolve(key)
+    if entry is None:
+        raise _ToolError(
+            f"no plan doc registered for correlation_key {key!r} "
+            "(was the plan emitted with PFACTORY_DOCS_EMIT enabled?)"
+        )
+    return {"correlation_key": key, **entry}
+
+
 _TOOL_HANDLERS = {
     "pfactory_get_epic": _tool_get_epic,
     "pfactory_get_requirements": _tool_get_requirements,
     "pfactory_get_decomposition": _tool_get_decomposition,
     "pfactory_get_task_contract": _tool_get_task_contract,
     "pfactory_get_review_status": _tool_get_review_status,
+    "pfactory_resolve_plan_doc": _tool_resolve_plan_doc,
 }
 
 

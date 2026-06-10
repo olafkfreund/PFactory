@@ -71,10 +71,39 @@ planning context at runtime — the bridge for RFC-0002 Task Contract v2.
 | `pfactory_get_decomposition` | child-issue dependency graph |
 | `pfactory_get_task_contract` | signed Task Contract v2 (built on demand) |
 | `pfactory_get_review_status` | governance review-gate status |
+| `pfactory_resolve_plan_doc` | durable docs-registry entry: doc file + **dependencies** + epic + content hash |
 
 - Lookup: by emitted GitHub epic **issue number** or PFactory **session_id**.
+  `pfactory_resolve_plan_doc` additionally accepts a **`correlation_key`**
+  directly (read from the epic's `pfactory:meta` block), so it resolves even
+  after the live session is gone.
 - Auth: `Authorization: Bearer ${PFACTORY_MCP_SECRET}` (open when unset — dev only).
-- Data source: the in-memory `plan.service.SERVICE` store.
+- Data source: the `pfactory_get_*` tools read the in-memory
+  `plan.service.SERVICE` store; `pfactory_resolve_plan_doc` reads the durable
+  `registry.json` written by the plan→docs emit (`PFACTORY_DOCS_DIR`, default
+  `~/.pfactory/plan-docs` on the PVC). Two surfaces, one `correlation_key` — the
+  live planning context and the persistent cross-factory memory. The registry is
+  only populated when a plan is emitted with `PFACTORY_DOCS_EMIT` enabled; see
+  [plan→docs design](../docs/plans/2026-06-10-plan-docs-emit-design.md).
+
+Cross-factory memory read (resolve a plan + its dependencies by key):
+
+```bash
+curl -s "$PFACTORY_URL/mcp" -H "Authorization: Bearer $PFACTORY_MCP_SECRET" \
+  -H 'Content-Type: application/json' -d '{
+    "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+    "params": {"name": "pfactory_resolve_plan_doc",
+               "arguments": {"correlation_key": "pfactory:plan:add-sso"}}
+  }'
+# → result.content[0].text (JSON):
+#   {"correlation_key": "...", "plan_id": "...", "epic": 42,
+#    "doc_file": "add-sso.md", "dependencies": ["api:auth", "infra:oidc"],
+#    "content_hash": "…", "generated_by": "pfactory"}
+```
+
+A sibling factory (AIFactory/TFactory/CFactory) reads `dependencies` to discover
+what a plan touches, and `doc_file` to fetch the full TechDocs/Markdown from the
+repo or Backstage — the durable trail behind `plan → code → verify`.
 
 Configure in the GitHub repo (**Settings → Copilot → MCP servers**):
 
@@ -90,7 +119,8 @@ Configure in the GitHub repo (**Settings → Copilot → MCP servers**):
         "pfactory_get_requirements",
         "pfactory_get_decomposition",
         "pfactory_get_task_contract",
-        "pfactory_get_review_status"
+        "pfactory_get_review_status",
+        "pfactory_resolve_plan_doc"
       ]
     }
   }

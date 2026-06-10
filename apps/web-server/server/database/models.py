@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -577,6 +578,51 @@ class LLMEndpoint(Base):
         return (
             f"<LLMEndpoint id={self.id!r} label={self.label!r} "
             f"base_url={self.base_url!r}>"
+        )
+
+
+class DocsTargetConnection(Base):
+    """User's Backstage / Confluence connection for the plan→docs emit (P4b).
+
+    Mirrors :class:`LLMEndpoint`: user-scoped, the API token encrypted at rest,
+    unique ``(user_id, label)``. ``enabled_by_default`` makes this target part of
+    the default emit set; a per-plan selection can still override it.
+    """
+
+    __tablename__ = "docs_target_connections"
+    __table_args__ = (
+        UniqueConstraint("user_id", "label", name="uq_docs_target_user_label"),
+        Index("ix_docs_target_connections_user_id", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=_generate_uuid
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(50), nullable=False)  # backstage | confluence
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    api_token: Mapped[str | None] = mapped_column(_EncryptedString(), nullable=True)
+    space: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Confluence
+    enabled_by_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
+
+    def __repr__(self) -> str:
+        return (
+            f"<DocsTargetConnection id={self.id!r} kind={self.kind!r} "
+            f"label={self.label!r}>"
         )
 
 

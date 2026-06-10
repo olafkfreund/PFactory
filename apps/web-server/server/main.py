@@ -30,6 +30,7 @@ from .routes import (
     capabilities,
     cloud,
     context,
+    docs_targets,
     email,
     execution,
     files,
@@ -286,6 +287,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_routes.router, prefix="/api/settings", tags=["Settings"])
     app.include_router(cli_accounts_routes.router, prefix="/api/settings", tags=["CLI Accounts"])
     app.include_router(llm_endpoints_routes.router)
+    app.include_router(docs_targets.router)
     app.include_router(files.router, prefix="/api/files", tags=["Files"])
     app.include_router(terminal.router, prefix="/api/terminals", tags=["Terminals"])
 
