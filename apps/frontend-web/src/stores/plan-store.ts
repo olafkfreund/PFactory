@@ -46,6 +46,7 @@ interface PlanState {
   // Actions
   setFetchFn: (fn: typeof fetch) => void;
   loadSessions: () => Promise<void>;
+  refreshSessions: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   clearCurrentSession: () => void;
   ingestTextPlan: (body: IngestTextRequest) => Promise<PlanSession>;
@@ -92,6 +93,19 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         loading: false,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+  },
+
+  // Quiet background refresh — does NOT toggle `loading` (so the auto-refresh
+  // poll + WS reconnect/visibility self-heal never flash a spinner) and keeps
+  // the last-good list on a transient error rather than blanking the board.
+  async refreshSessions() {
+    const opts: FetchOptions = { fetchFn: get().fetchFn };
+    try {
+      const result = await listSessions(opts);
+      set({ sessions: result.sessions });
+    } catch {
+      // Swallow: a momentary blip shouldn't clear what the user is looking at.
     }
   },
 

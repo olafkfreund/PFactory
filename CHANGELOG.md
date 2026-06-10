@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.15 — 3-stage TFactory-style planning rail + live auto-refresh (2026-06-10)
+
+- **Planning board is now three stages, on the shared factory-cockpit brand
+  language.** The transient *In Progress* / *AI Review* columns are gone — a plan
+  only flashes through those sub-states during `process()`, so they now fold into
+  **Plans ready**. Board + rail read **Plans ready → Human Review → Done**. The
+  shared `PipelineRail` gained an optional `stages` prop, so the AIFactory task
+  board keeps its five stages untouched.
+- **Rail restyled to match the TFactory pipeline:** larger ring medallions,
+  larger accent-coloured stage labels, bigger icons and count badges, wider
+  connectors. "Plans ready" goes vivid yellow.
+- **Keep-alive.** The WebSocket manager now pings `/ws/events` every 25s so the
+  live board stays warm through idle-timeout proxies (cloudflared / load
+  balancers) — the backend already replies `pong`.
+- **Auto-refresh.** The planning board converges on its own: a quiet 20s poll
+  (no spinner flicker, paused while the tab is hidden) plus plan-session refetch
+  on WS reconnect and tab-visible, mirroring the existing task self-heal.
+- **Auto-surface new tasks (#113).** A task started *outside* the current tab
+  (API, cross-service handoff) now appears on the board live — an unknown
+  `task:*` event for the selected project triggers a single `loadTasks`. Mirrors
+  AIFactory PR #516.
+
 ## 0.6.14 — Plan → documentation emit (gated, off by default) (2026-06-10)
 
 - **Plans can now be exported as documentation.** An approved plan renders to

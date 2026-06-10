@@ -1,8 +1,14 @@
 /**
  * PlanBoard — kanban of planning sessions across the workflow columns
- * (Plans ready → In Progress → AI Review → Human Review → Done), bucketed by the
- * session's board_state. Read-only: a plan moves columns automatically as it is
- * processed / reviewed / approved — you open a card to act on it, you don't drag.
+ * (Plans ready → Human Review → Done), bucketed by the session's board_state.
+ * Read-only: a plan moves columns automatically as it is processed / reviewed /
+ * approved — you open a card to act on it, you don't drag.
+ *
+ * The transient "In Progress" / "AI Review" stages are intentionally not shown
+ * as columns — a plan only passes through them momentarily during process(), so
+ * they fold into "Plans ready" until the plan lands in Human Review. This keeps
+ * the Planning board on the same three-stage brand language as the other
+ * factory cockpits.
  */
 
 import { useMemo } from 'react';
@@ -12,29 +18,31 @@ import type { SessionSummary, BoardColumn } from '../../shared/types/plan';
 import { PipelineRail } from '../pipeline/PipelineRail';
 import type { TaskStatus } from '../../shared/types';
 
-const COLUMNS: BoardColumn[] = ['backlog', 'in_progress', 'ai_review', 'human_review', 'done'];
+// Visible board columns / rail stages (transient in_progress + ai_review folded
+// into backlog — see file header).
+type VisibleColumn = 'backlog' | 'human_review' | 'done';
+const COLUMNS: VisibleColumn[] = ['backlog', 'human_review', 'done'];
 
-const COLUMN_ACCENT: Record<BoardColumn, string> = {
+const COLUMN_ACCENT: Record<VisibleColumn, string> = {
   backlog: 'border-t-muted-foreground/40',
-  in_progress: 'border-t-amber-500',
-  ai_review: 'border-t-violet-500',
   human_review: 'border-t-fuchsia-500',
   done: 'border-t-emerald-500',
 };
 
-// Fallback when board_state is absent (older payloads): derive from status.
-function columnFor(s: SessionSummary): BoardColumn {
-  if (s.board_state) return s.board_state;
-  switch (s.status) {
-    case 'ingested': return 'backlog';
-    case 'processing': return 'in_progress';
-    case 'reviewing': return 'ai_review';
-    case 'approved':
-    case 'emitted': return 'done';
-    case 'rejected':
-    case 'processed': return 'human_review';
-    default: return 'backlog';
-  }
+// Project a session onto one of the three visible columns. board_state (or, for
+// older payloads, status) is collapsed so the transient processing/reviewing
+// states show under "Plans ready" rather than vanishing.
+function columnFor(s: SessionSummary): VisibleColumn {
+  const raw: BoardColumn =
+    s.board_state ??
+    (s.status === 'approved' || s.status === 'emitted'
+      ? 'done'
+      : s.status === 'rejected' || s.status === 'processed'
+        ? 'human_review'
+        : 'backlog');
+  if (raw === 'done') return 'done';
+  if (raw === 'human_review') return 'human_review';
+  return 'backlog'; // backlog + transient in_progress / ai_review
 }
 
 interface Props {
@@ -45,8 +53,8 @@ interface Props {
 
 export function PlanBoard({ sessions, selectedId, onSelect }: Props) {
   const buckets = useMemo(() => {
-    const map: Record<BoardColumn, SessionSummary[]> = {
-      backlog: [], in_progress: [], ai_review: [], human_review: [], done: [],
+    const map: Record<VisibleColumn, SessionSummary[]> = {
+      backlog: [], human_review: [], done: [],
     };
     for (const s of sessions) map[columnFor(s)].push(s);
     return map;
@@ -59,9 +67,10 @@ export function PlanBoard({ sessions, selectedId, onSelect }: Props) {
           per board_state). Restores the pipeline overview removed in v0.6.5. */}
       <PipelineRail
         tasksByStatus={buckets as unknown as Record<TaskStatus, { length: number }>}
+        stages={COLUMNS as unknown as readonly TaskStatus[]}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {COLUMNS.map((col) => (
         <section key={col} className="flex flex-col gap-2">
           <header

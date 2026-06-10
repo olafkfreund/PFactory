@@ -13,6 +13,7 @@ interface WebSocketConnection {
   handlers: Set<MessageHandler>;
   reconnectAttempts: number;
   reconnectTimeout?: ReturnType<typeof setTimeout>;
+  heartbeat?: ReturnType<typeof setInterval>;
 }
 
 class WebSocketManager {
@@ -21,6 +22,11 @@ class WebSocketManager {
   private onDisconnectHandlers: Map<string, Set<ConnectionHandler>> = new Map();
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  // Client → server keep-alive. The backend /ws/events loop replies "pong" to a
+  // "ping" and otherwise times out its receive after 30s; sending a ping every
+  // 25s keeps the socket warm through idle-timeout proxies (cloudflared, LBs)
+  // so the board's live updates don't silently stop.
+  private heartbeatMs = 25000;
 
   /**
    * Connect to a WebSocket endpoint
@@ -43,6 +49,11 @@ class WebSocketManager {
     ws.onopen = () => {
       console.log(`[WebSocket] Connected: ${endpoint}`);
       connection.reconnectAttempts = 0;
+      // Start the keep-alive ping loop for this connection.
+      if (connection.heartbeat) clearInterval(connection.heartbeat);
+      connection.heartbeat = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.send('ping');
+      }, this.heartbeatMs);
       this.onConnectHandlers.get(endpoint)?.forEach((h) => h());
     };
 
@@ -58,6 +69,10 @@ class WebSocketManager {
 
     ws.onclose = (event) => {
       console.log(`[WebSocket] Disconnected: ${endpoint}`, event.code, event.reason);
+      if (connection.heartbeat) {
+        clearInterval(connection.heartbeat);
+        connection.heartbeat = undefined;
+      }
       this.onDisconnectHandlers.get(endpoint)?.forEach((h) => h());
 
       // Attempt reconnect for non-normal closures
@@ -123,6 +138,9 @@ class WebSocketManager {
     if (connection) {
       if (connection.reconnectTimeout) {
         clearTimeout(connection.reconnectTimeout);
+      }
+      if (connection.heartbeat) {
+        clearInterval(connection.heartbeat);
       }
       connection.ws.close(1000, 'Client disconnect');
       this.connections.delete(endpoint);

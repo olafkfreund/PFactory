@@ -374,7 +374,7 @@ body {
 .rail-panel {
   position: relative;
   margin: 0 0 2px;
-  padding: 14px 20px 16px;
+  padding: 22px 24px 24px;
   background:
     radial-gradient(120% 160% at 0% 0%,   rgba(184,187,38,  0.05), transparent 55%),
     radial-gradient(120% 160% at 100% 100%, rgba(254,128, 25, 0.05), transparent 55%),
@@ -417,7 +417,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   flex-shrink: 0;
   /* --rc is set inline per status in PipelineRail.tsx */
 }
@@ -425,8 +425,8 @@ body {
 /* ── Ring wrapper — relative container for badge + halo + ring + icon ── */
 .rail-ring-wrap {
   position: relative;
-  width: 84px;
-  height: 84px;
+  width: 104px;
+  height: 104px;
   flex-shrink: 0;
 }
 
@@ -436,15 +436,15 @@ body {
   top: -4px;
   right: -4px;
   z-index: 10;
-  min-width: 20px;
-  height: 20px;
+  min-width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 4px;
+  padding: 0 5px;
   border-radius: 999px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   color: hsl(var(--muted-foreground));
@@ -518,10 +518,10 @@ body {
   color: var(--rc);
 }
 .rail-icon-svg {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   /* background pill */
-  padding: 7px;
+  padding: 9px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--rc) 12%, hsl(var(--card)));
   border: 1px solid color-mix(in srgb, var(--rc) 28%, transparent);
@@ -534,32 +534,34 @@ body {
 
 /* ── Labels beneath the ring ── */
 .rail-label {
-  margin: 0;
-  font-size: 12px;
+  margin: 2px 0 0;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: hsl(var(--foreground));
+  /* Stage-accent colour — the signature factory-cockpit look (matches the
+     count badge + icon for that stage). */
+  color: var(--rc);
   text-align: center;
   white-space: nowrap;
 }
 .rail-sublabel {
   margin: 0;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: 11px;
   color: hsl(var(--muted-foreground));
   text-align: center;
   white-space: nowrap;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 /* ── Connector between rings ── */
 .rail-connector {
   position: relative;
-  width: 40px;
+  width: 64px;
   height: 28px;
   flex-shrink: 0;
   align-self: flex-start;
-  margin-top: 28px; /* vertically centres the line with the ring midpoint */
+  margin-top: 38px; /* vertically centres the line with the 104px ring midpoint */
 }
 
 /* Marching-ant dashed line */

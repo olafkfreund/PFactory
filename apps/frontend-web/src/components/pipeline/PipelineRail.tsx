@@ -34,6 +34,13 @@ import { cn } from '../../lib/utils';
 
 interface PipelineRailProps {
   tasksByStatus: Record<TaskStatus, { length: number }>;
+  /**
+   * Ordered subset of stages to render. Defaults to the full pipeline
+   * (PIPELINE_STAGES). The Planning board passes a trimmed list so it can show
+   * fewer rings (e.g. Plans ready → Human Review → Done) without changing the
+   * shared task board.
+   */
+  stages?: readonly TaskStatus[];
   className?: string;
 }
 
@@ -171,19 +178,23 @@ function Connector({
 
 // ─── PipelineRail ─────────────────────────────────────────────────────────────
 
-export function PipelineRail({ tasksByStatus, className }: PipelineRailProps) {
+export function PipelineRail({
+  tasksByStatus,
+  stages = PIPELINE_STAGES,
+  className,
+}: PipelineRailProps) {
   /**
    * The "active" stage is the rightmost stage that has at least one task.
    * If nothing is in flight we fall back to no active stage (all idle).
    */
   const activeStatus = useMemo<TaskStatus | null>(() => {
-    for (let i = PIPELINE_STAGES.length - 1; i >= 0; i--) {
-      if (tasksByStatus[PIPELINE_STAGES[i]].length > 0) {
-        return PIPELINE_STAGES[i];
+    for (let i = stages.length - 1; i >= 0; i--) {
+      if (tasksByStatus[stages[i]].length > 0) {
+        return stages[i];
       }
     }
     return null;
-  }, [tasksByStatus]);
+  }, [tasksByStatus, stages]);
 
   return (
     <section
@@ -194,7 +205,7 @@ export function PipelineRail({ tasksByStatus, className }: PipelineRailProps) {
       <div className="rail-panel-sweep" aria-hidden="true" />
 
       <div className="rail-flow" role="list">
-        {PIPELINE_STAGES.map((status, idx) => {
+        {stages.map((status, idx) => {
           const count = tasksByStatus[status].length;
           const isActive = count > 0;
 
@@ -206,7 +217,7 @@ export function PipelineRail({ tasksByStatus, className }: PipelineRailProps) {
                 isActive={isActive}
               />
               {/* Connector after every ring except the last */}
-              {idx < PIPELINE_STAGES.length - 1 && (
+              {idx < stages.length - 1 && (
                 <Connector
                   sourceActive={isActive}
                   connectorIndex={idx}
@@ -222,7 +233,7 @@ export function PipelineRail({ tasksByStatus, className }: PipelineRailProps) {
         {activeStatus
           ? `Active stage: ${STAGE_LABEL[activeStatus]}. `
           : 'No active stages. '}
-        {PIPELINE_STAGES.map(
+        {stages.map(
           (s) => `${STAGE_LABEL[s]}: ${tasksByStatus[s].length} tasks`
         ).join(', ')}
       </p>
