@@ -273,19 +273,22 @@ above are only the cluster-wide default/fallback.** Settings overrides env.
 > `d4a7c1e6b9f2`; `/api/docs-targets` CRUD + `/test`; `emit_docs(connections=,
 > selected=)` + `service.emit(docs_connections=, docs_selected=)` threaded
 > through the emit route best-effort; `DocsTargetsSettings.tsx` Settings section
-> + en/fr i18n) — all behind `PFACTORY_DOCS_EMIT` (off) + `PFACTORY_DOCS_GIT_WRITE`
-> (off), fully unit-tested with fakes (no network): 30 backend docs + 9 route +
-> 2 emit tests, plus 70 plan/emit regression tests green. **Cross-factory
-> `resolve_plan` connector exposure and TFactory adoption remain.** Held on
-> `feat/plan-docs-emit-p1` (draft PR #114), not merged/deployed.
+> + en/fr i18n) + the cross-factory read exposed as the
+> `pfactory_resolve_plan_doc` MCP tool on `/mcp` — all behind `PFACTORY_DOCS_EMIT`
+> (off) + `PFACTORY_DOCS_GIT_WRITE` (off), fully unit-tested with fakes (no
+> network): 30 backend docs + 9 route + 18 mcp_rpc tests, plus 70 plan/emit
+> regression tests green. **Only TFactory adoption (and an optional Graphiti
+> node) remain.** Held on `feat/plan-docs-emit-p1` (draft PR #114), not
+> merged/deployed.
 - **P4 — Settings connections + cross-factory read.** ✅ `DocsTargetConnection`
   model + `routes/docs_targets.py` + `DocsTargetsSettings.tsx` (Backstage +
   Confluence, with Test buttons, enable-by-default) wired into the precedence in
   §6d (the emit route loads the caller's connections best-effort; `None` →
-  unchanged env behaviour so the running factory is untouched). *Remaining:*
-  `BackstageConnector.resolve_plan(correlation_key)` connector exposure (the
-  `PlanDocsResolver` core already exists from P4a) + a doc for
-  AIFactory/TFactory/CFactory; optional Graphiti node.
+  unchanged env behaviour so the running factory is untouched). ✅ Cross-factory
+  read exposed as the **`pfactory_resolve_plan_doc`** tool on the existing
+  `/mcp` JSON-RPC surface (same `correlation_key`, two surfaces — live planning
+  context + durable registry); documented in
+  `guides/github-agentic-integration.md`. *Remaining:* optional Graphiti node.
 
 ### 10.5 TFactory adoption (test results → docs)
 Once this ships in PFactory, factor the generic core — the `DocsTarget`
