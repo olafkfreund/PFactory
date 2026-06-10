@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.12 — Fix issue→plan ingest channel (2026-06-10)
+
+- **Creating a plan from a GitHub issue now actually works.** v0.6.9 ingested
+  with `channel: 'github'`, but the plan's `source_channel` is a literal that
+  only accepts `portal|cli|mcp|github_issue|github_discussion|agent` — so Create
+  Plan returned HTTP 400. Use `github_issue`. Verified end-to-end on the live
+  cluster (ingest → board_state backlog → GET by id → present in the board list).
+
 ## 0.6.11 — authenticate PFactory→AIFactory handoff (2026-06-10)
 
 - **Fix the PARR handoff 401 (#363).** The live contract emit POSTed to AIFactory's `/api/tasks/from-plan` (and the `create-and-run` fallback) with no `Authorization` header, so AIFactory's auth middleware rejected it (401) and the whole `emit-contract` failed with a 500. The handoff client now attaches `Authorization: Bearer` from the shared in-cluster token (`APP_API_TOKEN`/`PFACTORY_MCP_SECRET`).
