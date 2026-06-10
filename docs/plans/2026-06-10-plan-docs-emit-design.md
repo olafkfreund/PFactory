@@ -274,11 +274,14 @@ above are only the cluster-wide default/fallback.** Settings overrides env.
 > selected=)` + `service.emit(docs_connections=, docs_selected=)` threaded
 > through the emit route best-effort; `DocsTargetsSettings.tsx` Settings section
 > + en/fr i18n) + the cross-factory read exposed as the
-> `pfactory_resolve_plan_doc` MCP tool on `/mcp` — all behind `PFACTORY_DOCS_EMIT`
-> (off) + `PFACTORY_DOCS_GIT_WRITE` (off), fully unit-tested with fakes (no
-> network): 30 backend docs + 9 route + 18 mcp_rpc tests, plus 70 plan/emit
-> regression tests green. **Only TFactory adoption (and an optional Graphiti
-> node) remain.** Held on `feat/plan-docs-emit-p1` (draft PR #114), not
+> `pfactory_resolve_plan_doc` MCP tool on `/mcp`. The plan-agnostic core is
+> factored (`emit_bundle`) and the **TFactory adoption is tracked**
+> ([`TFactory#341`](https://github.com/olafkfreund/TFactory/issues/341), §10.5) —
+> all behind `PFACTORY_DOCS_EMIT` (off) + `PFACTORY_DOCS_GIT_WRITE` (off), fully
+> unit-tested with fakes (no network): 31 backend docs + 9 route + 18 mcp_rpc
+> tests, plus 70 plan/emit regression tests green. **Only the TFactory-side
+> implementation (its repo) and an optional Graphiti node remain.** Held on
+> `feat/plan-docs-emit-p1` (draft PR #114), not
 > merged/deployed.
 - **P4 — Settings connections + cross-factory read.** ✅ `DocsTargetConnection`
   model + `routes/docs_targets.py` + `DocsTargetsSettings.tsx` (Backstage +
@@ -291,18 +294,35 @@ above are only the cluster-wide default/fallback.** Settings overrides env.
   `guides/github-agentic-integration.md`. *Remaining:* optional Graphiti node.
 
 ### 10.5 TFactory adoption (test results → docs)
-Once this ships in PFactory, factor the generic core — the `DocsTarget`
-protocol, the three targets (`repo`/`backstage`/`confluence`), the
-`registry.json` index, and the selection/Settings machinery — so it is **not**
-plan-specific. TFactory then provides only its own `render_test_results(...)`
+✅ **The generic core is now factored.** Everything except the plan renderer is
+plan-agnostic and operates on a `DocBundle`, not a `PlanSession`:
+
+| Reusable as-is (copy/vendor unchanged) | Module |
+|----------------------------------------|--------|
+| Bundle + per-target result value objects | `plan/emit/docs/bundle.py` (`DocBundle`, `TargetResult`) |
+| Target protocol | `plan/emit/docs/targets/base.py` (`DocsTarget`) |
+| The three targets | `targets/{repo,backstage,confluence}.py` (+ `github_writer.py`) |
+| Registry index + parse/dump/upsert/render | `targets/registry.py` |
+| **The publish loop** | `emit_docs.emit_bundle(bundle, *, targets=…)` |
+| Cross-factory read | `resolve.PlanDocsResolver` + the `pfactory_resolve_plan_doc` MCP tool |
+| Settings model + CRUD + UI | `DocsTargetConnection`, `routes/docs_targets.py`, `DocsTargetsSettings.tsx`, `connections_to_targets` |
+
+TFactory provides **only** its own `render_test_results(triage) -> DocBundle`
 (triage report → Markdown: lanes, verdicts, coverage delta, mutation/stability,
-flaky history) and reuses the same targets, the same `DocsTargetsSettings`, and
-the same `correlation_key` so a test-result doc sits next to the plan + epic it
-verifies (closing the PARR doc trail: plan → code → **verify**). Tracked by a
-TFactory issue filed at delivery (mirrors `TFactory#326`).
-- *Shared-core option:* lift `plan/emit/docs/` into a small reusable module the
-  factories vendor, or duplicate-then-converge (TFactory is a fork, so a copy is
-  low-friction first). Decide at P4.
+flaky history; `registry_entry.generated_by="tfactory"`) and calls
+`emit_bundle(bundle, targets=…)`. It reuses the same targets, the same
+`DocsTargetsSettings`, and — crucially — the **same `correlation_key`** as the
+plan it verifies, so the test-result doc sits next to the plan + epic in the
+registry (closing the PARR doc trail: plan → code → **verify**). A non-plan
+bundle round-trip is proven in `tests/test_plan_docs_p4.py`
+(`test_emit_bundle_publishes_a_non_plan_bundle`).
+
+- *Shared-core decision:* **duplicate-then-converge** — TFactory is a fork, so it
+  copies `plan/emit/docs/{bundle,targets/,registry,resolve,emit_docs.emit_bundle}`
+  (renamed to a neutral `emit/docs/`) and adds only `render_test_results`. If the
+  two copies drift, lift the core into a small shared package both vendor. Tracked
+  by [`TFactory#341`](https://github.com/olafkfreund/TFactory/issues/341)
+  (mirrors `TFactory#326`).
 
 ## 11. Risks / open questions
 

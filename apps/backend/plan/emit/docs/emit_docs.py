@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .bundle import DocBundle
 from .render import render_plan_docs
 from .targets.backstage import BackstageTarget
 from .targets.base import DocsTarget
@@ -150,8 +151,24 @@ def emit_docs(
         )
     else:
         effective = _resolve_targets(root, updated_at, repo=repo)
+    return emit_bundle(bundle, targets=effective)
+
+
+def emit_bundle(
+    bundle: DocBundle, *, targets: list[DocsTarget]
+) -> list[dict[str, Any]]:
+    """Publish an already-rendered :class:`DocBundle` to each available target.
+
+    The plan-agnostic core of the docs emit: it knows nothing about plans — only
+    about ``DocBundle`` + the ``DocsTarget`` protocol. Any producer (the plan
+    renderer here, TFactory's ``render_test_results`` there) renders a bundle and
+    hands it to this loop, so the repo/Backstage/Confluence targets, the
+    ``registry.json`` index and the ``correlation_key`` trail are shared, not
+    re-implemented per factory (design §10.5). Returns per-target result dicts;
+    never raises (each target's failure is isolated).
+    """
     results: list[dict[str, Any]] = []
-    for target in effective:
+    for target in targets:
         try:
             if not target.available():
                 results.append(

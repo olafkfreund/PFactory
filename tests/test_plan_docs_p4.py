@@ -20,8 +20,10 @@ pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
 from plan.emit.docs import (  # noqa: E402
+    DocBundle,
     PlanDocsResolver,
     connections_to_targets,
+    emit_bundle,
     emit_docs,
     render_plan_docs,
 )
@@ -130,3 +132,40 @@ def test_emit_docs_empty_connections_writes_repo_only(tmp_path):
     results = emit_docs(s, repo="o/r", root=tmp_path, connections=[])
     assert [r["target"] for r in results] == ["repo"]
     assert results[0]["status"] == "written"
+
+
+# ── emit_bundle — the plan-agnostic core (TFactory reuse seam, §10.5) ────────
+
+
+def test_emit_bundle_publishes_a_non_plan_bundle(tmp_path):
+    """Any producer can hand a hand-built DocBundle to the shared publish loop.
+
+    Models TFactory's render_test_results → emit_bundle path: no PlanSession, no
+    plan renderer — just a bundle + a target. The registry trail + resolver work
+    identically, so a test-result doc resolves by the same correlation_key.
+    """
+    bundle = DocBundle(
+        plan_id="tfactory-task-42",
+        slug="2026-06-10-refund-api-tests",
+        title="Refund API — test results",
+        correlation_key="pfactory:plan:refund-api",
+        content_hash="deadbeef",
+        markdown="# Refund API — test results\n\n3 lanes · 12 passed\n",
+        registry_entry={
+            "plan_id": "tfactory-task-42",
+            "correlation_key": "pfactory:plan:refund-api",
+            "doc_file": "2026-06-10-refund-api-tests.md",
+            "dependencies": ["api:auth"],
+            "generated_by": "tfactory",
+        },
+    )
+    results = emit_bundle(bundle, targets=[RepoDocsTarget(tmp_path)])
+    assert results == [{"target": "repo", "status": "written", "detail": results[0]["detail"]}]
+    assert (tmp_path / "2026-06-10-refund-api-tests.md").exists()
+
+    # Same correlation_key resolves the test-result doc — the shared memory trail.
+    r = PlanDocsResolver.from_dir(tmp_path)
+    entry = r.resolve("pfactory:plan:refund-api")
+    assert entry is not None
+    assert entry["generated_by"] == "tfactory"
+    assert r.dependencies("pfactory:plan:refund-api") == ["api:auth"]
