@@ -118,6 +118,10 @@
       "save": "Enregistrer l'identifiant",
       "saving": "Enregistrement…"
     },
+    "docsTargets": {
+      "title": "Cibles de documentation",
+      "description": "Destinations Backstage / Confluence pour les exports de plan"
+    },
     "cloudAssessment": {
       "title": "Évaluation du cloud",
       "description": "Anomalies de configuration cloud + topologie"
@@ -665,6 +669,32 @@
     "modelsFound": "{{count}} modèles",
     "modelsHint": "{{count}} modèles détectés — cliquez sur le champ ou commencez à taper pour en choisir un.",
     "unprobed": "Pas encore testé"
+  },
+  "docsTargets": {
+    "title": "Cibles de documentation",
+    "description": "Destinations Backstage / Confluence facultatives pour l'export plan→docs. Les plans sont toujours écrits dans le dépôt en Markdown/TechDocs ; une connexion ici ajoute une cible distante.",
+    "add": "Ajouter une cible",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "save": "Enregistrer",
+    "create": "Créer",
+    "cancel": "Annuler",
+    "test": "Tester",
+    "kind": "Type",
+    "label": "Libellé",
+    "baseUrl": "URL de base",
+    "space": "Clé d'espace",
+    "apiToken": "Jeton API",
+    "apiTokenOptional": "(facultatif)",
+    "apiTokenRequired": "(requis)",
+    "apiTokenEditPlaceholder": "Laisser vide pour conserver le jeton existant",
+    "enabledByDefault": "Utiliser par défaut pour les nouveaux plans",
+    "default": "par défaut",
+    "loading": "Chargement des cibles de documentation…",
+    "empty": "Aucune cible pour l'instant. Les plans sont exportés vers le dépôt par défaut ; ajoutez Backstage ou Confluence pour aussi y publier.",
+    "confirmDelete": "Supprimer cette cible de documentation ?",
+    "testSuccess": "Accessible",
+    "testFailed": "Échec de la connexion"
   },
   "gitProviders": {
     "enableGitIntegration": "Activer l'intégration Git",

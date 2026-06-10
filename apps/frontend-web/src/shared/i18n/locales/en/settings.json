@@ -118,6 +118,10 @@
       "save": "Save credential",
       "saving": "Saving…"
     },
+    "docsTargets": {
+      "title": "Documentation Targets",
+      "description": "Backstage / Confluence sinks for plan exports"
+    },
     "cloudAssessment": {
       "title": "Cloud Assessment",
       "description": "Cloud misconfiguration findings + topology"
@@ -665,6 +669,32 @@
     "modelsFound": "{{count}} models",
     "modelsHint": "{{count}} models discovered — click the field or start typing to pick one.",
     "unprobed": "Not tested yet"
+  },
+  "docsTargets": {
+    "title": "Documentation Targets",
+    "description": "Optional Backstage / Confluence sinks for the plan→docs export. Plans are always written to the repo as Markdown/TechDocs; a connection here adds a remote target.",
+    "add": "Add target",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "create": "Create",
+    "cancel": "Cancel",
+    "test": "Test",
+    "kind": "Type",
+    "label": "Label",
+    "baseUrl": "Base URL",
+    "space": "Space key",
+    "apiToken": "API token",
+    "apiTokenOptional": "(optional)",
+    "apiTokenRequired": "(required)",
+    "apiTokenEditPlaceholder": "Leave blank to keep existing token",
+    "enabledByDefault": "Use by default for new plans",
+    "default": "default",
+    "loading": "Loading docs targets…",
+    "empty": "No docs targets yet. Plans export to the repo by default; add Backstage or Confluence to also publish there.",
+    "confirmDelete": "Delete this docs target?",
+    "testSuccess": "Reachable",
+    "testFailed": "Connection failed"
   },
   "gitProviders": {
     "enableGitIntegration": "Enable Git Integration",
