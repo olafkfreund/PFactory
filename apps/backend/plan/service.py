@@ -85,6 +85,7 @@ class PlanSession(BaseModel):
     selected_template: str = ""  # template the user chose — its policy IS enforced (#E)
     suggested_template: str = ""  # best keyword match — informational only
     emit_result: dict | None = None
+    docs_result: list[dict] | None = None  # docs emit per-target results (P1)
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -565,6 +566,15 @@ class PlanService:
             session.emitted_issue_number = result.epic_number
             session.correlation_key = correlation_key_for(session)
             notify_completion(session)
+            # Documentation emit (P1) — gated + best-effort. Default OFF, never
+            # raises, so it cannot affect the GitHub emit / completion above.
+            try:
+                from plan.emit.docs import emit_docs, is_enabled
+
+                if is_enabled():
+                    session.docs_result = emit_docs(session)
+            except Exception:  # noqa: BLE001 — docs must never break emit
+                logger.warning("plan docs emit failed", exc_info=True)
         self._save(session)
         return session
 
