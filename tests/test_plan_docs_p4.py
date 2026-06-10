@@ -22,6 +22,7 @@ pytest.importorskip("yaml")
 from plan.emit.docs import (  # noqa: E402
     PlanDocsResolver,
     connections_to_targets,
+    emit_docs,
     render_plan_docs,
 )
 from plan.emit.docs.targets.repo import RepoDocsTarget  # noqa: E402
@@ -103,3 +104,29 @@ def test_connections_builds_configured_targets_available():
     targets = connections_to_targets(conns, repo="o/r")
     assert {t.name for t in targets} == {"backstage", "confluence"}
     assert all(t.available() for t in targets)  # configured => available
+
+
+# ── emit_docs(connections=...) — the orchestrator always adds the repo doc ──
+
+
+def test_emit_docs_connections_path_always_writes_repo(tmp_path):
+    """With Settings connections, the repo doc is written plus the selected sink."""
+    s = _session()
+    conns = [
+        {"kind": "backstage", "base_url": "https://bs", "enabled_by_default": True},
+    ]
+    results = emit_docs(s, repo="o/r", root=tmp_path, connections=conns)
+    by_target = {r["target"]: r["status"] for r in results}
+    # repo always written; backstage attempted (publish or skipped, never absent)
+    assert by_target.get("repo") == "written"
+    assert "backstage" in by_target
+    # the registry/markdown actually landed on disk
+    assert (tmp_path / "registry.json").exists()
+
+
+def test_emit_docs_empty_connections_writes_repo_only(tmp_path):
+    """An empty connection set still yields the default repo doc, nothing remote."""
+    s = _session()
+    results = emit_docs(s, repo="o/r", root=tmp_path, connections=[])
+    assert [r["target"] for r in results] == ["repo"]
+    assert results[0]["status"] == "written"

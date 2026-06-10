@@ -10,8 +10,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..database import DocsTargetConnection
+from ..database.engine import get_db
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -50,6 +55,10 @@ class WaiveBody(BaseModel):
 class EmitBody(BaseModel):
     repo: str
     dry_run: bool = True
+    # Per-plan selection of docs sinks by kind (e.g. ["backstage"]). When None,
+    # the caller's enabled-by-default connections decide. The repo/GitHub doc is
+    # always written by the orchestrator. Only honoured when PFACTORY_DOCS_EMIT.
+    docs_targets: list[str] | None = None
 
 
 class EmitContractBody(BaseModel):
@@ -190,10 +199,59 @@ async def reject(session_id: str, body: RejectBody) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/{session_id}/emit")
-async def emit(session_id: str, body: EmitBody) -> dict:
+async def _load_docs_connections(
+    request: Request, db: AsyncSession
+) -> list[dict] | None:
+    """Best-effort load of the caller's docs-target connections (P4b).
+
+    Returns ``None`` when no user resolves (shared-token/MCP calls) or the user
+    has no connections — so the emit falls back to env-based docs resolution and
+    nothing changes for the running factory. Never raises.
+    """
     try:
-        return _session_dict(SERVICE.emit(session_id, repo=body.repo, dry_run=body.dry_run))
+        from .auth_routes import get_current_user
+
+        user = await get_current_user(request, db)
+        result = await db.execute(
+            select(DocsTargetConnection).where(
+                DocsTargetConnection.user_id == user.id
+            )
+        )
+        conns = result.scalars().all()
+    except Exception:  # noqa: BLE001 — docs wiring must never break emit
+        return None
+    if not conns:
+        return None
+    return [
+        {
+            "kind": c.kind,
+            "base_url": c.base_url,
+            "api_token": c.api_token,
+            "space": c.space,
+            "enabled_by_default": c.enabled_by_default,
+        }
+        for c in conns
+    ]
+
+
+@router.post("/{session_id}/emit")
+async def emit(
+    session_id: str,
+    body: EmitBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    docs_connections = await _load_docs_connections(request, db)
+    try:
+        return _session_dict(
+            SERVICE.emit(
+                session_id,
+                repo=body.repo,
+                dry_run=body.dry_run,
+                docs_connections=docs_connections,
+                docs_selected=body.docs_targets,
+            )
+        )
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

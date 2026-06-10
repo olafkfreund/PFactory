@@ -529,7 +529,14 @@ class PlanService:
     # ── emit ───────────────────────────────────────────────────────────
 
     def emit(
-        self, session_id: str, *, repo: str, dry_run: bool = True, gh=None
+        self,
+        session_id: str,
+        *,
+        repo: str,
+        dry_run: bool = True,
+        gh=None,
+        docs_connections: list[dict] | None = None,
+        docs_selected: list[str] | None = None,
     ) -> PlanSession:
         from plan.emit.github_emitter import emit_to_github
         from plan.emit.labels import pfactory_meta_block, taxonomy_labels
@@ -572,7 +579,12 @@ class PlanService:
                 from plan.emit.docs import emit_docs, is_enabled
 
                 if is_enabled():
-                    session.docs_result = emit_docs(session, repo=repo)
+                    session.docs_result = emit_docs(
+                        session,
+                        repo=repo,
+                        connections=docs_connections,
+                        selected=docs_selected,
+                    )
             except Exception:  # noqa: BLE001 — docs must never break emit
                 logger.warning("plan docs emit failed", exc_info=True)
         self._save(session)

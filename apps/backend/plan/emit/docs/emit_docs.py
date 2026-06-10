@@ -108,8 +108,19 @@ def emit_docs(
     repo: str | None = None,
     root: Path | None = None,
     targets: list[DocsTarget] | None = None,
+    connections: list[dict[str, Any]] | None = None,
+    selected: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Render the plan and publish to each available target.
+
+    Target resolution precedence:
+
+    * ``targets`` given → exactly those (test/explicit injection).
+    * ``connections`` given → the repo/GitHub default **plus** the Settings
+      connections selected for this plan (design §6d/§6e). This is the path the
+      web-server uses: it passes the user's ``DocsTargetConnection`` rows.
+    * neither → env-resolved set (repo always + Backstage/Confluence when
+      env-configured).
 
     Returns a list of per-target result dicts. Never raises.
     """
@@ -120,11 +131,18 @@ def emit_docs(
         logger.warning("plan docs render failed for %s: %s", session.session_id, exc)
         return [{"target": "render", "status": "error", "detail": {"error": str(exc)}}]
 
-    effective = (
-        targets
-        if targets is not None
-        else _resolve_targets(root, updated_at, repo=repo)
-    )
+    if targets is not None:
+        effective = targets
+    elif connections is not None:
+        effective = [RepoDocsTarget(root or _default_root(), updated_at=updated_at)]
+        effective += connections_to_targets(
+            connections,
+            repo=repo,
+            git_write=_truthy("PFACTORY_DOCS_GIT_WRITE"),
+            selected=selected,
+        )
+    else:
+        effective = _resolve_targets(root, updated_at, repo=repo)
     results: list[dict[str, Any]] = []
     for target in effective:
         try:

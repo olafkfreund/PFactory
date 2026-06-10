@@ -10,6 +10,7 @@ from .models import (
     ApiKey,
     AuditLog,
     Base,
+    DocsTargetConnection,
     EmailAccount,
     GitCredential,
     LLMEndpoint,
@@ -38,4 +39,5 @@ __all__ = [
     "GitCredential",
     "TestTargetCredential",
     "LLMEndpoint",
+    "DocsTargetConnection",
 ]
