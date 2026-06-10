@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.11 — Fix issue→plan ingest channel (2026-06-10)
+
+- **Creating a plan from a GitHub issue now actually works.** v0.6.9 ingested
+  with `channel: 'github'`, but the plan's `source_channel` is a literal that
+  only accepts `portal|cli|mcp|github_issue|github_discussion|agent` — so Create
+  Plan returned HTTP 400. Use `github_issue`. Verified end-to-end on the live
+  cluster (ingest → board_state backlog → GET by id → present in the board list).
+
 ## 0.6.10 — "View Plan" opens the plan from a GitHub issue (2026-06-10)
 
 - **"View Plan" on a GitHub issue opens the created plan on the Planning board.**
