@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.16 — pin the build model via PFACTORY_EXECUTION_MODEL (Gemini selection) (2026-06-11)
+
+- **`PFACTORY_EXECUTION_MODEL` env override for the contract's execution model (#71 Phase 3).** `build_execution` hardcoded the model per complexity (`simple→haiku`, `standard→sonnet`, `complex→opus`), all of which infer the `claude` provider — so a signed contract could never tell AIFactory to build on Gemini. Now, when `PFACTORY_EXECUTION_MODEL` is set (e.g. `gemini-2.5-pro`), it overrides the per-complexity default; the provider is still inferred from the final model id (`gemini-*` → antigravity). Unset → unchanged behavior. This lets a PARR run target Gemini end-to-end through the trusted-plan fast path.
+
 ## 0.6.15 — 3-stage TFactory-style planning rail + live auto-refresh (2026-06-10)
 
 - **Planning board is now three stages, on the shared factory-cockpit brand

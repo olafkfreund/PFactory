@@ -13,6 +13,7 @@ goes straight to the wave executor because PFactory already planned).
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any
 
 from phase_config import infer_provider_from_model
@@ -81,7 +82,13 @@ def build_execution(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, Any]:
         if label.startswith(prefix) and (s := label[len(prefix):])
     })
     complexity = derive_complexity(epic, services=services)
-    model = _MODEL_BY_COMPLEXITY[complexity]
+    # Operators can pin the build model via PFACTORY_EXECUTION_MODEL
+    # (e.g. "gemini-2.5-pro" → antigravity, "opus" → claude); unset falls back to
+    # the per-complexity default. The model string stays the single source of
+    # truth — the provider is always inferred from the final id.
+    model = os.environ.get("PFACTORY_EXECUTION_MODEL", "").strip() or _MODEL_BY_COMPLEXITY[
+        complexity
+    ]
     provider = infer_provider_from_model(model)
 
     return {
