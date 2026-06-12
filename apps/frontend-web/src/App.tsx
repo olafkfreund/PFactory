@@ -12,6 +12,7 @@ import { GitHubIssues } from './components/GitHubIssues';
 import { GitHubPRs } from './components/github-prs/GitHubPRs';
 import { Changelog } from './components/changelog/Changelog';
 import { Insights } from './components/Insights';
+import { ChatLauncher } from './components/ChatLauncher';
 import { AgentTools } from './components/AgentTools';
 import { SkillsPage } from './components/SkillsPage';
 import { CloudAssessmentPage } from './components/settings/sections/CloudAssessmentPage';
@@ -392,6 +393,13 @@ function AuthenticatedApp() {
               )}
             </main>
           </div>
+
+          {/* Floating chat assistant (CFactory/TFactory-style popup) — replaces
+              the old "Chat" sidebar item. Self-hides when no project selected. */}
+          <ChatLauncher
+            projectId={selectedProject?.id || ''}
+            onNavigate={setActiveView}
+          />
 
           {/* Project Switch Loading Modal */}
           <ProjectSwitchLoadingModal

@@ -332,19 +332,24 @@ body {
 
 /* ── Horizontal flow row ── */
 .rail-flow {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: space-around;
   gap: 0;
   flex-wrap: nowrap;
-  overflow-x: auto;
 }
 
-/* Each flow item = ring + connector (except last ring has no connector) */
+/* Each flow item = one ring; sits ABOVE the connector line + flying documents
+   (which are absolutely positioned at z-index 0) so a document slips behind the
+   circle as it travels the rail. */
 .rail-flow-item {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: center;
-  flex-shrink: 0;
+  justify-content: center;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 /* ── Individual stage block ── */
@@ -363,6 +368,15 @@ body {
   width: 104px;
   height: 104px;
   flex-shrink: 0;
+}
+/* Opaque card-coloured disc filling the ring interior — occludes the flying
+   document while it passes behind the circle (it reappears in the gaps). */
+.rail-ring-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: hsl(var(--card));
 }
 
 /* ── Count badge — top-right of the ring ── */
@@ -489,77 +503,79 @@ body {
   letter-spacing: 0.06em;
 }
 
-/* ── Connector between rings ── */
-.rail-connector {
-  position: relative;
-  width: 64px;
-  height: 28px;
-  flex-shrink: 0;
-  align-self: flex-start;
-  margin-top: 38px; /* vertically centres the line with the 104px ring midpoint */
-}
-
-/* Marching-ant dashed line */
-.rail-connector-line {
+/* ── Continuous connector line — runs BEHIND the rings (z-index 0) across the
+   whole rail, at the 104px ring's vertical midpoint (52px). ── */
+.rail-track {
   position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
+  top: 52px;
+  left: 9%;
+  right: 9%;
   height: 2px;
-  transform: translateY(-50%);
+  transform: translateY(-1px);
+  z-index: 0;
   border-radius: 2px;
   background-image: repeating-linear-gradient(
     90deg,
-    color-mix(in srgb, hsl(var(--muted-foreground)) 55%, transparent) 0 5px,
-    transparent 5px 10px
+    color-mix(in srgb, hsl(var(--muted-foreground)) 50%, transparent) 0 6px,
+    transparent 6px 14px
   );
-  animation: rail-march 0.85s linear infinite;
+  animation: rail-march 0.9s linear infinite;
+  pointer-events: none;
 }
 
-/* Flying package-box icon */
-.rail-pkg {
+/* ── Flying plan document — travels the full rail along the track, slipping
+   behind each ring (the document is passed from one lane to the next). Two
+   staggered instances keep the pipeline feeling alive even when idle. ── */
+.rail-doc {
   position: absolute;
-  top: 50%;
-  left: 0;
-  width: 20px;
-  height: 20px;
-  margin-top: -10px;
-  margin-left: -10px;
+  top: 52px;
+  z-index: 0;
+  width: 24px;
+  height: 24px;
+  margin-top: -12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fabd2f; /* Gruvbox yellow — matches the fsuite travelling package */
-  filter: drop-shadow(0 0 4px rgba(250, 189, 47, 0.55));
+  color: #fabd2f; /* Gruvbox yellow */
+  filter: drop-shadow(0 0 6px rgba(250, 189, 47, 0.5));
   opacity: 0;
-  animation: rail-fly 3.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  pointer-events: none;
+  animation: rail-doc-fly 5.5s cubic-bezier(0.55, 0, 0.45, 1) infinite;
 }
-.rail-pkg > svg { width: 16px; height: 16px; }
+.rail-doc > svg { width: 18px; height: 18px; }
+.rail-doc--2 {
+  color: #83a598; /* Gruvbox blue */
+  filter: drop-shadow(0 0 6px rgba(131, 165, 152, 0.5));
+  animation-delay: 2.75s;
+}
 
 /* ── Keyframes ── */
 @keyframes rail-arc-spin  { to { stroke-dashoffset: -264; } }
 @keyframes rail-halo-spin { to { transform: rotate(360deg); } }
 @keyframes rail-march     { to { background-position: 10px 0; } }
-@keyframes rail-fly {
-  0%   { left: 0;    opacity: 0;   transform: scale(0.7) rotate(-8deg); }
-  10%  { opacity: 1; transform: scale(1)   rotate(0deg); }
-  44%  { left: 100%; opacity: 1;   transform: scale(1)   rotate(5deg); }
-  50%  { left: 100%; opacity: 0;   transform: scale(0.7) rotate(0deg); }
-  100% { left: 100%; opacity: 0; }
+/* Document travels the full rail (left edge → right edge of the track),
+   slipping behind each ring on the way. */
+@keyframes rail-doc-fly {
+  0%   { left: 9%;  opacity: 0;   transform: scale(0.7); }
+  6%   { opacity: 1; transform: scale(1); }
+  92%  { left: 91%; opacity: 1;   transform: scale(1); }
+  100% { left: 91%; opacity: 0;   transform: scale(0.7); }
 }
 
 /* ── prefers-reduced-motion ── */
 @media (prefers-reduced-motion: reduce) {
   .rail-ring-arc--active,
   .rail-halo,
-  .rail-connector-line,
-  .rail-pkg { animation: none !important; }
+  .rail-track,
+  .rail-doc { animation: none !important; }
 
   /* Show a static near-full arc instead of animating */
   .rail-ring-arc--active { stroke-dasharray: 200 64; }
   /* Park the halo at 0° with reduced opacity */
   .rail-halo { opacity: 0.3; }
-  /* Keep the package visible mid-connector so users know it exists */
-  .rail-pkg  { opacity: 0.85; left: 50%; }
+  /* Park one document mid-rail so users know it exists */
+  .rail-doc--1 { opacity: 0.85; left: 50%; }
+  .rail-doc--2 { display: none; }
 }
 
 /* ============================================
@@ -990,4 +1006,104 @@ body {
 /* ── prefers-reduced-motion — disable the live dot pulse ── */
 @media (prefers-reduced-motion: reduce) {
   .card-log-live-dot--motion { animation: none !important; }
+}
+
+/* ============================================
+   Floating chat assistant (FAB → popup)
+   Mirrors CFactory/TFactory's Copilot popup so the Factory portals share one
+   chat UX. z-50 (not higher) so Radix overlays opened inside it (model picker,
+   Custom modal) — which portal to the end of <body> — render above the popup.
+   ============================================ */
+.chat-fab {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 50;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  box-shadow: 0 8px 24px color-mix(in srgb, hsl(var(--primary)) 38%, transparent),
+              0 2px 8px rgba(0, 0, 0, 0.45);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+.chat-fab:hover { transform: translateY(-2px) scale(1.05); }
+.chat-fab:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+.chat-fab--open {
+  background: hsl(var(--card));
+  color: hsl(var(--primary));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.chat-pop {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 5.6rem;
+  z-index: 50;
+  width: 400px;
+  max-width: calc(100vw - 3rem);
+  height: 70vh;
+  max-height: 660px;
+  display: flex;
+  flex-direction: column;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: chat-pop-in 0.18s ease;
+}
+@keyframes chat-pop-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+.chat-pop__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--secondary));
+}
+.chat-pop__title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(var(--primary));
+  font-family: var(--font-mono);
+}
+.chat-pop__x {
+  background: none;
+  border: none;
+  color: hsl(var(--muted-foreground));
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.15rem;
+  display: flex;
+}
+.chat-pop__x:hover { color: hsl(var(--foreground)); }
+.chat-pop__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+}
+.chat-pop__body > * { flex: 1; min-width: 0; }
+
+@media (max-width: 520px) {
+  .chat-pop { right: 1rem; left: 1rem; width: auto; bottom: 5rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-pop { animation: none; }
+  .chat-fab:hover { transform: none; }
 }

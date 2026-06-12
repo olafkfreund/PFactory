@@ -19,7 +19,7 @@
  */
 
 import { useMemo } from 'react';
-import { Package } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import type { TaskStatus } from '../../shared/types';
 import {
   PIPELINE_STAGES,
@@ -144,38 +144,6 @@ function StageRing({
   );
 }
 
-// ─── Connector ────────────────────────────────────────────────────────────────
-
-/**
- * Dashed marching-ant connector between two consecutive rings.
- * Renders a flying package-box when the source ring is active.
- */
-function Connector({
-  sourceActive,
-  connectorIndex,
-}: {
-  sourceActive: boolean;
-  connectorIndex: number;
-}) {
-  // Stagger the fly animation so each connector starts at a different phase.
-  // We use animation-delay to offset each connector uniquely.
-  const flyDelay = `${connectorIndex * 1.1}s`;
-
-  return (
-    <div className="rail-connector" aria-hidden="true">
-      <span className="rail-connector-line" />
-      {sourceActive && (
-        <span
-          className="rail-pkg"
-          style={{ animationDelay: flyDelay }}
-        >
-          <Package strokeWidth={1.7} />
-        </span>
-      )}
-    </div>
-  );
-}
-
 // ─── PipelineRail ─────────────────────────────────────────────────────────────
 
 export function PipelineRail({
@@ -205,10 +173,18 @@ export function PipelineRail({
       <div className="rail-panel-sweep" aria-hidden="true" />
 
       <div className="rail-flow" role="list">
-        {stages.map((status, idx) => {
+        {/* Continuous connector line that runs BEHIND the rings, with plan
+            documents flying along it from one lane to the next (always on, for
+            the cockpit "in flight" feel). Both sit at z-index 0; the rings sit
+            above (z-index 1) so a document slips behind each circle as it
+            passes. */}
+        <div className="rail-track" aria-hidden="true" />
+        <span className="rail-doc rail-doc--1" aria-hidden="true"><FileText strokeWidth={1.7} /></span>
+        <span className="rail-doc rail-doc--2" aria-hidden="true"><FileText strokeWidth={1.7} /></span>
+
+        {stages.map((status) => {
           const count = tasksByStatus[status].length;
           const isActive = count > 0;
-
           return (
             <div key={status} className="rail-flow-item" role="listitem">
               <StageRing
@@ -216,13 +192,6 @@ export function PipelineRail({
                 count={count}
                 isActive={isActive}
               />
-              {/* Connector after every ring except the last */}
-              {idx < stages.length - 1 && (
-                <Connector
-                  sourceActive={isActive}
-                  connectorIndex={idx}
-                />
-              )}
             </div>
           );
         })}

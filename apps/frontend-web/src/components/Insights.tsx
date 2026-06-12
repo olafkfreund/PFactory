@@ -111,9 +111,12 @@ const markdownComponents = {
 interface InsightsProps {
   projectId: string;
   onNavigate?: (view: 'planning' | 'terminals' | 'editor' | 'context' | 'github-issues' | 'github-prs' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools') => void;
+  /** Compact mode for the floating chat popup (CFactory/TFactory-style): single
+   *  column, session-history sidebar hidden by default. */
+  compact?: boolean;
 }
 
-export function Insights({ projectId, onNavigate }: InsightsProps) {
+export function Insights({ projectId, onNavigate, compact = false }: InsightsProps) {
   const session = useInsightsStore((state) => state.session);
   const sessions = useInsightsStore((state) => state.sessions);
   const status = useInsightsStore((state) => state.status);
@@ -127,7 +130,7 @@ export function Insights({ projectId, onNavigate }: InsightsProps) {
   const [inputValue, setInputValue] = useState('');
   const [creatingTask, setCreatingTask] = useState<string | null>(null);
   const [taskCreated, setTaskCreated] = useState<Set<string>>(new Set());
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(!compact);
 
   // Create Task from Chat state
   const [showCreateTaskDialog, setShowCreateTaskDialog] = useState(false);
@@ -275,9 +278,11 @@ export function Insights({ projectId, onNavigate }: InsightsProps) {
       )}
 
       {/* Main Chat Area */}
-      <div className="flex flex-1 flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+      <div className="flex flex-1 flex-col min-w-0">
+        {/* Header — in compact (popup) mode the avatar/title + sidebar toggle are
+            dropped so the model selector + actions fit a narrow column. */}
+        <div className={`flex items-center justify-between gap-2 border-b border-border py-4 ${compact ? 'px-3 flex-wrap' : 'px-6'}`}>
+          {!compact && (
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
@@ -302,7 +307,8 @@ export function Insights({ projectId, onNavigate }: InsightsProps) {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          )}
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <InsightsModelSelector
               projectId={projectId}
               currentConfig={session?.modelConfig}
@@ -331,7 +337,7 @@ export function Insights({ projectId, onNavigate }: InsightsProps) {
         </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 px-6 py-4">
+      <ScrollArea className={`flex-1 py-4 ${compact ? 'px-3' : 'px-6'}`}>
         {messages.length === 0 && !streamingContent ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
@@ -340,7 +346,7 @@ export function Insights({ projectId, onNavigate }: InsightsProps) {
             <h3 className="mb-2 text-lg font-medium text-foreground">
               Start a Conversation
             </h3>
-            <p className="max-w-md text-sm text-muted-foreground">
+            <p className={`text-sm text-muted-foreground ${compact ? 'max-w-full' : 'max-w-md'}`}>
               Ask questions about your codebase, get suggestions for improvements,
               or discuss features you'd like to implement.
             </p>
@@ -461,7 +467,7 @@ export function Insights({ projectId, onNavigate }: InsightsProps) {
       </ScrollArea>
 
       {/* Input */}
-      <div className="border-t border-border p-4">
+      <div className={`border-t border-border ${compact ? 'p-3' : 'p-4'}`}>
         <div className="flex gap-2">
           <Textarea
             ref={textareaRef}
