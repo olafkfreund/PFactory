@@ -4,7 +4,6 @@ import {
   Plus,
   Trash2,
   FlaskConical,
-  Terminal,
   FolderOpen,
   BookOpen,
   AlertCircle,
@@ -14,7 +13,6 @@ import {
   GitPullRequest,
   Gitlab,
   FileText,
-  Sparkles,
   GitBranch,
   Wrench,
   Lightbulb,
@@ -77,18 +75,14 @@ interface NavItem {
 const baseNavItems: NavItem[] = [
   { id: 'planning', labelKey: 'navigation:items.planning', icon: Map },
   { id: 'editor', labelKey: 'navigation:items.editor', icon: FolderOpen },
-  { id: 'insights', labelKey: 'navigation:items.chat', icon: Sparkles },
-  { id: 'terminals', labelKey: 'navigation:items.terminals', icon: Terminal },
+  // Chat moved to a floating popup (CFactory/TFactory-style) — see ChatLauncher
+  // in App.tsx. Terminal is an inherited general-agent IDE surface with no role
+  // in the planning flow; hidden from the nav (PTY/component code retained).
   { id: 'agent-tools', labelKey: 'navigation:items.agentTools', icon: Wrench },
   { id: 'skills', labelKey: 'navigation:items.skills', icon: Lightbulb },
   { id: 'context', labelKey: 'navigation:items.context', icon: BookOpen }
 ];
 
-// GitHub nav items shown when GitHub is enabled
-const githubNavItems: NavItem[] = [
-  { id: 'github-issues', labelKey: 'navigation:items.githubIssues', icon: Github },
-  { id: 'github-prs', labelKey: 'navigation:items.githubPRs', icon: GitPullRequest }
-];
 
 export function Sidebar({
   onSettingsClick,
@@ -173,18 +167,18 @@ export function Sidebar({
     if (provider) {
       if (provider === 'gitlab') {
         items.push(
-          { id: 'github-issues', labelKey: 'navigation:items.gitlabIssues', icon: Gitlab },
+          { id: 'github-issues', labelKey: 'navigation:items.plans', icon: Gitlab },
           { id: 'github-prs', labelKey: 'navigation:items.gitlabMRs', icon: GitPullRequest }
         );
       } else if (provider === 'azure_devops' || provider === 'ado') {
         items.push(
-          { id: 'github-issues', labelKey: 'navigation:items.adoIssues', icon: AlertCircle },
+          { id: 'github-issues', labelKey: 'navigation:items.plans', icon: AlertCircle },
           { id: 'github-prs', labelKey: 'navigation:items.adoPRs', icon: GitPullRequest }
         );
       } else {
         // Default / GitHub
         items.push(
-          { id: 'github-issues', labelKey: 'navigation:items.githubIssues', icon: Github },
+          { id: 'github-issues', labelKey: 'navigation:items.plans', icon: Github },
           { id: 'github-prs', labelKey: 'navigation:items.githubPRs', icon: GitPullRequest }
         );
       }
