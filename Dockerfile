@@ -35,9 +35,16 @@ RUN mkdir -p apps/web-server/static \
 # Stage 2: Runtime (Chainguard Python, dev variant for now — minimal split
 # happens in P0.5 once we know what the runtime *actually* needs)
 # ---------------------------------------------------------------------------
-FROM cgr.dev/chainguard/python:latest-dev@sha256:c1d503ebc5088bd0143673af0d02f2db31e53acc506ba5a8f4756c337a989d3f AS runtime
+FROM cgr.dev/chainguard/python:latest-dev@sha256:d45c16a1807036a402f2101a1e82863468c923d85a2ed4817b2b12b2f0ee54dd AS runtime
 
 USER root
+
+# Pull all available Wolfi security patches at build time. The base is pinned by
+# digest for reproducibility, but a pinned digest lags behind freshly-disclosed
+# CVEs. `apk upgrade` clears fixable HIGH/CRITICAL findings between digest bumps;
+# when the snapshot itself lags, bump the digest above to a Chainguard rebuild
+# that ships the fix (what cleared CVE-2026-45447, libcrypto3/libssl3 → 3.6.3-r1).
+RUN apk upgrade --no-cache
 
 # System packages from Wolfi APK index. Build tools come bundled in :latest-dev.
 #   git           — worktree operations
