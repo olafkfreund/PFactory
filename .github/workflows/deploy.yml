@@ -1,0 +1,83 @@
+name: Deploy (CD → ArgoCD)
+
+# On push to main: build+push an immutable sha image to GHCR, then bump the tag
+# in factory-gitops so ArgoCD redeploys. One-time: set GITOPS_PAT (Contents:write
+# on olafkfreund/factory-gitops):
+#   gh secret set GITOPS_PAT --repo olafkfreund/PFactory
+# Coexists with release.yml (semver releases). Mirrors the TFactory/AIFactory CD.
+#
+# NOTE: block style + quoted ${{ }} expressions throughout — the flow-style form
+# (e.g. `concurrency: { group: deploy-${{ github.ref }} }`) is invalid YAML
+# (`${{` opens a nested flow mapping) and GitHub rejects the whole file.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch: {}
+
+concurrency:
+  group: "deploy-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: "ghcr.io/${{ github.repository_owner }}/pfactory"
+  GITOPS_REPO: olafkfreund/factory-gitops
+  GITOPS_PATH: apps/pfactory/manifests
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Hoist the PAT to job env: the `secrets` context is NOT allowed in a
+    # step-level `if:` (only env/with/run), so gate the gitops bump on
+    # `env.GITOPS_PAT` instead.
+    env:
+      GITOPS_PAT: "${{ secrets.GITOPS_PAT }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: tags
+        run: echo "sha=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Prefer a write:packages PAT (secret GHCR_PAT), falling back to
+      # GITHUB_TOKEN once the GHCR package is linked to this repo.
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: "${{ github.repository_owner }}"
+          password: "${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Bump factory-gitops (if GITOPS_PAT set)
+        if: "${{ env.GITOPS_PAT != '' }}"
+        run: |
+          set -e
+          git clone --depth 1 "https://x:${GITOPS_PAT}@github.com/${GITOPS_REPO}.git" gitops
+          cd "gitops/${GITOPS_PATH}"
+          curl -sSL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz | tar xz
+          ./kustomize edit set image "${IMAGE}=${IMAGE}:${{ steps.tags.outputs.sha }}"
+          rm -f kustomize
+          cd "$GITHUB_WORKSPACE/gitops"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "cd(pfactory): ${{ steps.tags.outputs.sha }} [skip ci]" || exit 0
+          git push
