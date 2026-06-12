@@ -9,13 +9,7 @@ export const COLOR_THEMES: ColorThemeDefinition[] = [
   {
     id: 'gruvbox',
     name: 'Gruvbox',
-    description: 'Warm retro-groove — Gruvbox light & dark',
-    previewColors: { bg: '#fbf1c7', accent: '#b8bb26', darkBg: '#282828' }
-  },
-  {
-    id: 'shadcn',
-    name: 'Mira (shadcn)',
-    description: 'Clean neutral base with a yellow accent — shadcn/ui',
-    previewColors: { bg: '#ffffff', accent: '#ffc800', darkBg: '#0a0a0a', darkAccent: '#f0b500' }
+    description: 'Warm retro-groove — Gruvbox light & dark · PFactory purple accent',
+    previewColors: { bg: '#fbf1c7', accent: '#d3869b', darkBg: '#282828' }
   },
 ];
