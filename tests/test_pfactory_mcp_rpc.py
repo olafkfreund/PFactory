@@ -71,7 +71,11 @@ def seeded_session():
 
 @pytest.fixture()
 def client(monkeypatch):
+    # /mcp fails closed when no secret is set (issue #128). These tests exercise
+    # the JSON-RPC tool surface, not the auth gate (covered by the test_auth_*
+    # cases below), so run the endpoint in explicit dev mode.
     monkeypatch.delenv("PFACTORY_MCP_SECRET", raising=False)
+    monkeypatch.setenv("PFACTORY_MCP_DEV", "true")
     app = FastAPI()
     app.include_router(mcp_rpc.router)
     return TestClient(app)
