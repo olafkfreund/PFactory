@@ -49,3 +49,9 @@ python-docx>=1.1.0
 # RFC-0002 Task Contract v2 validation (epic #65). Optional at runtime —
 # plan/emit/task_contract.py falls back to a structural validator when absent.
 jsonschema>=4.18
+
+# bashlex — real shell-grammar parser for the security command allowlist
+# (security/parser.py). Surfaces commands nested in $(...) / backticks / <(...)
+# so the pre-tool-use hook validates them against the allowlist instead of
+# silently allowing them (issue #129). Pure Python, no native deps.
+bashlex>=0.18
