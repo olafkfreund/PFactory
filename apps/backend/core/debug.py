@@ -3,7 +3,7 @@
 Debug Logging Utility
 =====================
 
-Centralized debug logging for the Magestic AI framework.
+Centralized debug logging for the PFactory framework.
 Controlled via environment variables:
   - DEBUG=true          Enable debug mode
   - DEBUG_LEVEL=1|2|3   Log verbosity (1=basic, 2=detailed, 3=verbose)

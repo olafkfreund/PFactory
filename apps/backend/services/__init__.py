@@ -2,7 +2,7 @@
 Services Module
 ===============
 
-Background services and orchestration for Magestic AI.
+Background services and orchestration for PFactory.
 """
 
 from .context import ServiceContext

@@ -1,5 +1,5 @@
 """
-Magestic AI Web Server - FastAPI Application.
+PFactory Web Server - FastAPI Application.
 
 Main entry point for the web server that provides:
 - REST API for project/task management
@@ -128,7 +128,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
-    logger.info("Shutting down Magestic AI Web Server...")
+    logger.info("Shutting down PFactory Web Server...")
 
 
 def _read_app_version() -> str:

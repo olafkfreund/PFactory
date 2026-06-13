@@ -1052,7 +1052,7 @@ async def create_task(task: TaskCreate):
 
 ## Notes
 
-Created via Magestic AI Web UI
+Created via PFactory Web UI
 """
     (spec_dir / "spec.md").write_text(spec_content)
 

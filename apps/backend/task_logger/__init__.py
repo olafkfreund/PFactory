@@ -2,7 +2,7 @@
 Task Logger Package
 ===================
 
-Persistent logging system for Magestic AI tasks.
+Persistent logging system for PFactory tasks.
 Logs are organized by phase (planning, coding, validation) and stored in the spec directory.
 
 Key features:

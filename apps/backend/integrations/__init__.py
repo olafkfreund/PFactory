@@ -2,7 +2,7 @@
 Integrations Module
 ===================
 
-External service integrations for Magestic AI.
+External service integrations for PFactory.
 """
 
 __all__ = [

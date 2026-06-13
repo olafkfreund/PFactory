@@ -1,5 +1,5 @@
 """
-Magestic AI Backend - Autonomous Coding Framework
+PFactory Backend - Autonomous Coding Framework
 ==================================================
 
 Multi-agent autonomous coding framework that builds software through
@@ -20,4 +20,4 @@ See README.md for full documentation.
 """
 
 __version__ = "0.6.16"
-__author__ = "Magestic AI Team"
+__author__ = "PFactory Team"

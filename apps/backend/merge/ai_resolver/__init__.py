@@ -2,7 +2,7 @@
 AI Resolver Module
 ==================
 
-AI-based conflict resolution for the Magestic AI merge system.
+AI-based conflict resolution for the PFactory merge system.
 
 This module provides intelligent conflict resolution using AI with
 minimal context to reduce token usage and cost.

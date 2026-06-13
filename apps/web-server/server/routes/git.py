@@ -824,7 +824,7 @@ updates_router = APIRouter()
 
 @updates_router.get("/source/check")
 async def check_source_update():
-    """Check for Magestic AI source updates."""
+    """Check for PFactory source updates."""
     return {
         "success": True,
         "data": {
@@ -838,9 +838,9 @@ async def check_source_update():
 @updates_router.post("/source/download")
 async def download_source_update():
     """
-    Download Magestic AI source update via git pull.
+    Download PFactory source update via git pull.
 
-    This endpoint updates the Magestic AI application source code by performing
+    This endpoint updates the PFactory application source code by performing
     a git pull from the configured remote repository.
 
     Returns:
@@ -854,7 +854,7 @@ async def download_source_update():
         - No remote configured
     """
     try:
-        # Get Magestic AI source directory (project root)
+        # Get PFactory source directory (project root)
         # From git.py: __file__.parent = routes/, .parent.parent = server/,
         # .parent.parent.parent = web-server/, .parent.parent.parent.parent = apps/,
         # .parent.parent.parent.parent.parent = PFactory/ (project root)
@@ -866,7 +866,7 @@ async def download_source_update():
         if not git_dir.exists():
             return {
                 "success": False,
-                "error": "Magestic AI source directory is not a git repository"
+                "error": "PFactory source directory is not a git repository"
             }
 
         # Check for uncommitted changes
@@ -927,7 +927,7 @@ async def download_source_update():
         if not updates_available:
             return {
                 "success": True,
-                "message": "Magestic AI is already up to date",
+                "message": "PFactory is already up to date",
                 "data": {
                     "updated": False,
                     "currentBranch": current_branch,
@@ -962,7 +962,7 @@ async def download_source_update():
 
         return {
             "success": True,
-            "message": f"Magestic AI updated successfully to commit {new_commit}",
+            "message": f"PFactory updated successfully to commit {new_commit}",
             "data": {
                 "updated": True,
                 "currentBranch": current_branch,
@@ -975,13 +975,13 @@ async def download_source_update():
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to update Magestic AI source: {str(e)}"
+            "error": f"Failed to update PFactory source: {str(e)}"
         }
 
 
 @updates_router.get("/source/version")
 async def get_source_version():
-    """Get current Magestic AI source version."""
+    """Get current PFactory source version."""
     return {"success": True, "data": {"version": "1.0.0"}}
 
 

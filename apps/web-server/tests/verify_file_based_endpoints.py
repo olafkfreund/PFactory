@@ -288,9 +288,9 @@ class EndpointVerifier:
         print("=" * 80)
 
         self.verify_endpoint("projects.py", "scan_for_projects", "13.1",
-                           "Scan filesystem for Magestic AI projects")
+                           "Scan filesystem for PFactory projects")
         self.verify_endpoint("settings.py", "update_source_env", "13.2",
-                           "Update Magestic AI source environment config")
+                           "Update PFactory source environment config")
 
     def print_summary(self):
         """Print verification summary."""

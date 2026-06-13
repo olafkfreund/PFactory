@@ -53,9 +53,17 @@ def check_task_state(spec_dir: Path) -> tuple[bool, list[str]]:
     status = plan.get("status", "")
     valid_statuses = [
         # Current frontend statuses
-        "backlog", "in_progress", "ai_review", "human_review", "done",
+        "backlog",
+        "in_progress",
+        "ai_review",
+        "human_review",
+        "done",
         # Legacy values (may exist in older spec files)
-        "pending", "qa_failed", "completed", "cancelled", "review",
+        "pending",
+        "qa_failed",
+        "completed",
+        "cancelled",
+        "review",
     ]
 
     if status not in valid_statuses:
@@ -84,7 +92,9 @@ def check_task_state(spec_dir: Path) -> tuple[bool, list[str]]:
                 break
 
         if has_progress:
-            issues.append("Status is 'backlog' but task has progress (should be 'in_progress' or 'human_review')")
+            issues.append(
+                "Status is 'backlog' but task has progress (should be 'in_progress' or 'human_review')"
+            )
 
     return (len(issues) > 0, issues)
 
@@ -126,9 +136,9 @@ def fix_task(spec_dir: Path, dry_run: bool = False) -> bool:
                     "approved_at": "",
                     "feedback": [],
                     "spec_hash": "",
-                    "review_count": 0
+                    "review_count": 0,
                 }
-                with open(review_state_file, 'w') as f:
+                with open(review_state_file, "w") as f:
                     json.dump(review_state, f, indent=2)
 
             fixed = True
@@ -161,18 +171,28 @@ def fix_task(spec_dir: Path, dry_run: bool = False) -> bool:
 
             if not dry_run:
                 plan["status"] = new_status
-                with open(plan_file, 'w') as f:
+                with open(plan_file, "w") as f:
                     json.dump(plan, f, indent=2)
 
             fixed = True
 
-    elif status not in ["backlog", "in_progress", "ai_review", "human_review", "done",
-                         "pending", "qa_failed", "completed", "cancelled", "review"]:
+    elif status not in [
+        "backlog",
+        "in_progress",
+        "ai_review",
+        "human_review",
+        "done",
+        "pending",
+        "qa_failed",
+        "completed",
+        "cancelled",
+        "review",
+    ]:
         print(f"  → Correcting invalid status: '{status}' → 'in_progress'")
 
         if not dry_run:
             plan["status"] = "in_progress"
-            with open(plan_file, 'w') as f:
+            with open(plan_file, "w") as f:
                 json.dump(plan, f, indent=2)
 
         fixed = True
@@ -181,18 +201,12 @@ def fix_task(spec_dir: Path, dry_run: bool = False) -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Fix stuck tasks in Magestic AI projects"
-    )
-    parser.add_argument(
-        "project_path",
-        type=Path,
-        help="Path to the project directory"
-    )
+    parser = argparse.ArgumentParser(description="Fix stuck tasks in PFactory projects")
+    parser.add_argument("project_path", type=Path, help="Path to the project directory")
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would be fixed without making changes"
+        help="Show what would be fixed without making changes",
     )
 
     args = parser.parse_args()

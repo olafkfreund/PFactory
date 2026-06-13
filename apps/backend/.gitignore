@@ -62,5 +62,5 @@ Thumbs.db
 # Tests (development only)
 tests/
 
-# Magestic AI data directory
+# PFactory data directory
 .magestic-ai/

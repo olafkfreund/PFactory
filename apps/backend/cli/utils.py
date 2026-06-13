@@ -2,7 +2,7 @@
 CLI Utilities
 ==============
 
-Shared utility functions for the Magestic AI CLI.
+Shared utility functions for the PFactory CLI.
 """
 
 import os
@@ -118,7 +118,7 @@ def validate_environment(spec_dir: Path) -> bool:
     # Check for OAuth token (API keys are not supported)
     if not get_auth_token():
         print("Error: No OAuth token found")
-        print("\nMagestic AI requires Claude Code OAuth authentication.")
+        print("\nPFactory requires Claude Code OAuth authentication.")
         print("Direct API keys (ANTHROPIC_API_KEY) are not supported.")
         print("\nTo authenticate, run:")
         print("  claude setup-token")

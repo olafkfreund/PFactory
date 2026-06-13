@@ -1,5 +1,5 @@
 """
-End-to-End Workflow Tests for Magestic AI API
+End-to-End Workflow Tests for PFactory API
 
 This test suite validates complete user workflows that span multiple endpoints.
 Unlike unit tests that validate individual endpoints, these tests verify realistic
@@ -525,7 +525,7 @@ class TestSettingsConfigurationWorkflow:
 
     def test_initial_setup_workflow(self, temp_dir: Path, mock_settings_dir: Path):
         """
-        Test initial Magestic AI setup workflow:
+        Test initial PFactory setup workflow:
         1. Update source environment (.env for backend)
         2. Set Anthropic API key
         3. Create API profile

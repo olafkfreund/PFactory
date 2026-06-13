@@ -1,8 +1,8 @@
 """
-Magestic AI CLI - Main Entry Point
+PFactory CLI - Main Entry Point
 ===================================
 
-Command-line interface for the Magestic AI autonomous coding framework.
+Command-line interface for the PFactory autonomous coding framework.
 """
 
 import argparse
@@ -48,7 +48,7 @@ from .workspace_commands import (
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Magestic AI Framework - Autonomous multi-session coding agent",
+        description="PFactory Framework - Autonomous multi-session coding agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -199,7 +199,7 @@ Environment Variables:
             "session appears in claude.ai/code's session list under this "
             "name so the user can drive the same conversation from any "
             "device. Requires a full-scope claude auth login on the host "
-            "(see CLAUDE.md \"Remote Control\" section)."
+            '(see CLAUDE.md "Remote Control" section).'
         ),
     )
 
@@ -315,9 +315,7 @@ def main() -> None:
         # skips per-project marker resolution (otherwise it'd scan the CWD,
         # which is rarely what an operator running mcp-doctor wants — they
         # want to see "what would work on this machine" first).
-        explicit_project = (
-            project_dir if args.project_dir is not None else None
-        )
+        explicit_project = project_dir if args.project_dir is not None else None
         rc = handle_mcp_doctor_command(explicit_project)
         sys.exit(rc)
 

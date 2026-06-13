@@ -1,5 +1,5 @@
 """
-Magestic AI project initialization utilities.
+PFactory project initialization utilities.
 
 Handles first-time setup of .pfactory directory and ensures proper gitignore configuration.
 """
@@ -45,7 +45,7 @@ def ensure_gitignore_entry(project_dir: Path, entry: str = ".pfactory/") -> bool
             content += "\n"
 
         # If our comment section already exists, append right after it
-        comment = "# Magestic AI data directory"
+        comment = "# PFactory data directory"
         if comment in content:
             content += entry + "\n"
         else:
@@ -55,7 +55,7 @@ def ensure_gitignore_entry(project_dir: Path, entry: str = ".pfactory/") -> bool
         return True
     else:
         # Create new .gitignore with the entry
-        content = "# Magestic AI data directory\n"
+        content = "# PFactory data directory\n"
         content += entry + "\n"
 
         gitignore_path.write_text(content)

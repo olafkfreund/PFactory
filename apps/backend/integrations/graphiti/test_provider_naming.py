@@ -2,7 +2,7 @@
 """
 Quick test to demonstrate provider-specific database naming.
 
-Shows how Magestic AI automatically generates provider-specific database names
+Shows how PFactory automatically generates provider-specific database names
 to prevent embedding dimension mismatches.
 """
 
