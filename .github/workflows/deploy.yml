@@ -81,3 +81,35 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "cd(pfactory): ${{ steps.tags.outputs.sha }} [skip ci]" || exit 0
           git push
+
+  # Post-deploy PARR seam smoke check (Factory#44). Steps-based on purpose: a
+  # cross-repo reusable-workflow `uses:` call fails the deploy at startup, so we
+  # check out the Factory harness and run it directly. Soft gate — continue-on-error
+  # plus `|| true` mean a probe failure can never break or roll back the deploy;
+  # self-skips when FACTORY_TOKEN is unset. TODO: tighten to a required gate once stable.
+  seam-check:
+    needs: deploy
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout Factory seam harness
+        uses: actions/checkout@v4
+        with:
+          repository: olafkfreund/Factory
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: PARR seam smoke regression
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          PFACTORY_API: ${{ vars.PFACTORY_API }}
+          AIFACTORY_API: ${{ vars.AIFACTORY_API }}
+          TFACTORY_API: ${{ vars.TFACTORY_API }}
+          CFACTORY_API: ${{ vars.CFACTORY_API }}
+        run: |
+          if [ -z "${FACTORY_TOKEN}" ]; then
+            echo "FACTORY_TOKEN not set — skipping seam smoke gate."
+            exit 0
+          fi
+          python3 scripts/parr_regression.py --smoke || true
