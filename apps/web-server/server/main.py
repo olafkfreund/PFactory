@@ -185,10 +185,22 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.DEBUG else None,
     )
 
-    # Add CORS middleware
+    # Add CORS middleware.
+    # CORS guard (issue #128): a wildcard origin ("*") combined with
+    # allow_credentials=True is forbidden by the CORS spec and is a credential-
+    # leak footgun — browsers ignore the combination, but a permissive server
+    # config should never advertise it. Strip any wildcard from the configured
+    # origins before enabling credentialed CORS.
+    cors_origins = [o for o in settings.CORS_ORIGINS if o != "*"]
+    if cors_origins != list(settings.CORS_ORIGINS):
+        logger.warning(
+            "Stripped wildcard ('*') CORS origin: it is incompatible with "
+            "allow_credentials=True (issue #128). Configure explicit origins "
+            "via APP_CORS_ORIGINS."
+        )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

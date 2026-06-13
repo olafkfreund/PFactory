@@ -125,6 +125,33 @@ class Settings(BaseSettings):
         if self.SSL_ENABLED:
             self._setup_ssl()
 
+        # Refuse to boot unauthenticated on a non-loopback host (issue #128).
+        # DISABLE_AUTH injects a default admin and skips ALL auth (including the
+        # WebSocket terminal, an RCE surface). That is only ever safe bound to
+        # loopback. Binding 0.0.0.0/a routable address with auth disabled would
+        # expose an unauthenticated admin + terminal to the network.
+        self._validate_disable_auth_host()
+
+    # Hostnames/addresses that are safe to bind when auth is disabled.
+    _LOOPBACK_HOSTS = frozenset(
+        {"127.0.0.1", "localhost", "::1", "[::1]", "0:0:0:0:0:0:0:1"}
+    )
+
+    def _validate_disable_auth_host(self) -> None:
+        """Block startup when auth is disabled on a non-loopback host."""
+        if not self.DISABLE_AUTH:
+            return
+        host = (self.HOST or "").strip().lower()
+        if host not in self._LOOPBACK_HOSTS:
+            raise ValueError(
+                "DISABLE_AUTH=true is only permitted on a loopback host "
+                f"(got HOST={self.HOST!r}). Disabling auth injects a default "
+                "admin and skips all authentication (including the WebSocket "
+                "terminal) — binding a non-loopback address would expose it to "
+                "the network. Set APP_HOST to 127.0.0.1/localhost/::1, or "
+                "enable authentication (issue #128)."
+            )
+
     def _get_or_generate_token(self) -> str:
         """Get existing token or generate a new one."""
         token_file = get_data_file(".token")
