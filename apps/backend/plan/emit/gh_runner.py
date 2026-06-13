@@ -80,7 +80,35 @@ class GhCliRunner:
         self._cwd = repo_dir or Path.cwd()
         self._run = runner_fn or _default_runner_fn
 
+    def _ensure_labels(self, labels: list[str]) -> None:
+        """Best-effort: create any labels that don't exist yet so a later
+        ``gh issue create --label X`` does not hard-fail with
+        ``could not add label: 'X' not found``.
+
+        PFactory's label taxonomy is open-ended and partly dynamic — fixed
+        families (``type:``/``plan-type:``/``priority:``/``sev:``) plus
+        per-component ``area:``/``service:`` labels derived from the plan's
+        children — so a target repo will rarely have them all pre-seeded.
+        ``gh label create --force`` is idempotent (creates if absent, updates
+        the colour if present). Never raises: a failed label bootstrap leaves
+        ``gh issue create`` to report it exactly as before — this only removes
+        the common "missing label aborts the whole emit" failure mode.
+        """
+        for label in labels:
+            try:
+                self._run(
+                    ["gh", "label", "create", label, "-R", self._repo,
+                     "--color", "ededed", "--force"],
+                    cwd=self._cwd, stdin=None,
+                )
+            except Exception:  # noqa: BLE001 — label bootstrap is best-effort
+                pass
+
     def create_issue(self, title: str, body: str, labels: list[str]) -> int:
+        # Self-bootstrap the label set so emit doesn't 500 on a repo that is
+        # missing one of the taxonomy labels (see _ensure_labels).
+        if labels:
+            self._ensure_labels(labels)
         argv = ["gh", "issue", "create", "-R", self._repo,
                 "--title", title, "--body-file", "-"]
         for label in labels:

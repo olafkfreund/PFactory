@@ -66,17 +66,40 @@ def test_parse_issue_number_rejects_non_numeric():
 
 
 def test_create_issue_builds_argv_and_parses_number():
-    run = _FakeRun([_ok(stdout="https://github.com/acme/widget/issues/101\n")])
+    # create_issue first bootstraps each label (gh label create --force), then
+    # creates the issue — so feed a result per label-create plus the create.
+    run = _FakeRun([
+        _ok(), _ok(),  # two label bootstraps
+        _ok(stdout="https://github.com/acme/widget/issues/101\n"),
+    ])
     gh = GhCliRunner("acme/widget", repo_dir=Path("/tmp"), runner_fn=run)
 
     number = gh.create_issue("My epic", "the body", ["pfactory", "type:epic"])
     assert number == 101
 
-    argv = run.calls[0]["argv"]
+    create = next(c for c in run.calls if c["argv"][:3] == ["gh", "issue", "create"])
+    argv = create["argv"]
     assert argv[:5] == ["gh", "issue", "create", "-R", "acme/widget"]
     assert "--title" in argv and "My epic" in argv
     assert argv.count("--label") == 2          # one per label
-    assert run.calls[0]["stdin"] == "the body"  # body piped via stdin
+    assert create["stdin"] == "the body"        # body piped via stdin
+
+
+def test_create_issue_bootstraps_missing_labels_first():
+    # Each label is ensured via `gh label create --force` BEFORE the issue is
+    # created, so a repo missing a taxonomy label no longer 500s the emit.
+    run = _FakeRun([
+        _ok(), _ok(),
+        _ok(stdout="https://github.com/acme/widget/issues/7\n"),
+    ])
+    gh = GhCliRunner("acme/widget", repo_dir=Path("/tmp"), runner_fn=run)
+    gh.create_issue("t", "b", ["priority:p2", "area:testing"])
+
+    label_calls = [c for c in run.calls if c["argv"][:3] == ["gh", "label", "create"]]
+    assert {c["argv"][3] for c in label_calls} == {"priority:p2", "area:testing"}
+    assert all("--force" in c["argv"] for c in label_calls)
+    # label bootstraps come before the issue create
+    assert run.calls[-1]["argv"][:3] == ["gh", "issue", "create"]
 
 
 def test_create_issue_raises_on_failure():
