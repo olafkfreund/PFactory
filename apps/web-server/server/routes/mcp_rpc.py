@@ -121,15 +121,37 @@ _TOOL_NAMES = {t["name"] for t in MCP_TOOLS}
 # ---------------------------------------------------------------------------
 
 
+def _is_truthy_env(name: str) -> bool:
+    """True when an env flag is set to an explicit truthy value."""
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _check_auth(request: Request) -> bool:
     """Return True when the request is authorised.
 
-    When ``PFACTORY_MCP_SECRET`` is unset, the endpoint is open (dev default).
-    When set, a constant-time-compared Bearer token is required.
+    Fail-closed (issue #128): the ``/mcp`` endpoint is mounted at top level so
+    the global ``TokenAuthMiddleware`` (which only guards ``/api``) never sees
+    it — ``PFACTORY_MCP_SECRET`` is its only protection. Previously an unset
+    secret left the endpoint fully open by default, exposing plan / epic /
+    requirements / decomposition / signed-contract / review-status to any
+    caller.
+
+    Now, when ``PFACTORY_MCP_SECRET`` is unset we DENY by default. Opening the
+    endpoint without a secret requires an explicit dev opt-in
+    (``PFACTORY_MCP_DEV=true`` or ``APP_DISABLE_AUTH=true``) — never the
+    production default. When the secret is set, a constant-time-compared Bearer
+    token is required.
     """
     expected = os.environ.get("PFACTORY_MCP_SECRET", "").strip()
     if not expected:
-        return True
+        # No secret configured: only allow when an explicit dev flag is set.
+        if _is_truthy_env("PFACTORY_MCP_DEV") or _is_truthy_env("APP_DISABLE_AUTH"):
+            return True
+        logger.warning(
+            "MCP request denied: PFACTORY_MCP_SECRET is unset and no dev flag "
+            "(PFACTORY_MCP_DEV) is set — failing closed (issue #128)."
+        )
+        return False
     header = request.headers.get("Authorization", "")
     token = header[7:].strip() if header.startswith("Bearer ") else header.strip()
     return bool(token) and secrets.compare_digest(token, expected)

@@ -16,7 +16,15 @@ permissions:
 
 jobs:
   pfactory-plan-review:
-    if: github.actor == 'copilot-swe-agent[bot]'
+    # Identity/membership gate (issue #127): the Copilot cloud agent commits as
+    # the actor that triggered its dispatch, so a [bot]-suffix actor check is a
+    # string-suffix authorization bypass (CVE-2025-66032 anti-pattern). Trust the
+    # PR only when it originates from a trusted association — the repo owner, an
+    # org member, or an invited collaborator. Forks / drive-by external PRs do
+    # not satisfy this and are skipped.
+    if: >-
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+               github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +38,10 @@ jobs:
           PFACTORY_TOKEN: ${{ secrets.PFACTORY_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          # Bind every event field used below into env so no untrusted
+          # ${{ github.event.* }} value is interpolated directly into the shell
+          # (script-injection hardening, issue #127).
+          WORKSPACE: ${{ github.workspace }}
         run: |
           set -euo pipefail
           if [ -n "${PFACTORY_URL:-}" ]; then
@@ -45,10 +57,15 @@ jobs:
                 --data-binary @-
           else
             # Fallback: inline Copilot CLI review of the draft plan.
+            # Scoped to the minimum required tools — NOT --allow-all-tools.
+            # An all-tools agent reasoning/executing over attacker-controllable
+            # PR diffs is indirect prompt injection on the execution layer; the
+            # runner holds factory tokens (issue #127). We only need the GitHub
+            # MCP surface to post a review comment, with no shell/file execution.
             npm install -g @github/copilot 2>/dev/null || true
             copilot -p "Review this plan-draft PR for feasibility, completeness, and governance: are the requirements, decomposition, and acceptance criteria sound? Post a concise summary review comment." \
-              --allow-all-tools --no-color \
-              --add-dir "${{ github.workspace }}" || \
+              --allow-tool github --no-color \
+              --add-dir "$WORKSPACE" || \
               gh pr comment "$PR_NUMBER" \
-                --body "🏭 **PFactory**: set the \`PFACTORY_URL\` secret (or install the Copilot CLI) to run plan-review gates automatically."
+                --body "PFactory: set the \`PFACTORY_URL\` secret (or install the Copilot CLI) to run plan-review gates automatically."
           fi
