@@ -1,5 +1,5 @@
 """
-Magestic AI MCP Tools
+PFactory MCP Tools
 =====================
 
 Individual tool implementations organized by functionality.

@@ -1,7 +1,7 @@
 """
 Debug module facade.
 
-Provides debug logging utilities for the Magestic AI framework.
+Provides debug logging utilities for the PFactory framework.
 Re-exports from core.debug for clean imports.
 """
 

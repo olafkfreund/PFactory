@@ -1,4 +1,4 @@
-# Magestic AI Web Server Dependencies
+# PFactory Web Server Dependencies
 
 # Web Framework
 fastapi>=0.109.0

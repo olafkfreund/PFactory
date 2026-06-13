@@ -2,7 +2,7 @@
 Core Framework Module
 =====================
 
-Core components for the Magestic AI autonomous coding framework.
+Core components for the PFactory autonomous coding framework.
 """
 
 # Note: We use lazy imports here because the full agent module has many dependencies

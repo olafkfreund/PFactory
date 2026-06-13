@@ -2,7 +2,7 @@
 Task Logger
 ============
 
-Persistent logging system for Magestic AI tasks.
+Persistent logging system for PFactory tasks.
 
 This module serves as the main entry point for task logging functionality.
 The implementation has been refactored into a modular package structure:

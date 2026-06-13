@@ -10,7 +10,7 @@ the Claude Agent SDK client. Tool lists are organized by category:
 - Base tools: Core file operations (Read, Write, Edit, etc.)
 - Web tools: Documentation and research (WebFetch, WebSearch)
 - MCP tools: External integrations (Context7, Graphiti, etc.)
-- Magestic AI tools: Custom build management tools
+- PFactory tools: Custom build management tools
 """
 
 import os
@@ -28,10 +28,10 @@ BASE_WRITE_TOOLS = ["Write", "Edit", "Bash"]
 WEB_TOOLS = ["WebFetch", "WebSearch"]
 
 # =============================================================================
-# Magestic AI MCP Tools (Custom build management)
+# PFactory MCP Tools (Custom build management)
 # =============================================================================
 
-# Magestic AI MCP tool names (prefixed with mcp__pfactory__)
+# PFactory MCP tool names (prefixed with mcp__pfactory__)
 TOOL_UPDATE_SUBTASK_STATUS = "mcp__pfactory__update_subtask_status"
 TOOL_GET_BUILD_PROGRESS = "mcp__pfactory__get_build_progress"
 TOOL_RECORD_DISCOVERY = "mcp__pfactory__record_discovery"

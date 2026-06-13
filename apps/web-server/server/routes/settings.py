@@ -156,9 +156,9 @@ class AppSettings(BaseModel):
     # Paths
     autoBuildPath: str | None = Field(
         None,
-        description="Path to Magestic AI backend (apps/backend directory)",
+        description="Path to PFactory backend (apps/backend directory)",
     )
-    autoUpdateAutoBuild: bool = Field(True, description="Auto-update Magestic AI source")
+    autoUpdateAutoBuild: bool = Field(True, description="Auto-update PFactory source")
 
     # Global API keys
     globalClaudeOAuthToken: str | None = Field(None, description="Global Claude OAuth token")
@@ -2106,7 +2106,7 @@ async def discover_api_models(request: TestConnectionRequest):
 # --------------------------------------------------------------------------
 
 class SourceEnvUpdate(BaseModel):
-    """Model for updating Magestic AI source environment configuration."""
+    """Model for updating PFactory source environment configuration."""
     claudeToken: str | None = Field(None, description="Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN)")
     anthropicBaseUrl: str | None = Field(None, description="Custom Anthropic API endpoint (ANTHROPIC_BASE_URL)")
     graphitiEnabled: bool | None = Field(None, description="Enable Graphiti memory system (GRAPHITI_ENABLED)")
@@ -2124,7 +2124,7 @@ async def get_source_env():
 @router.patch("/source-env")
 async def update_source_env(config: SourceEnvUpdate):
     """
-    Update Magestic AI source environment configuration.
+    Update PFactory source environment configuration.
 
     Updates the apps/backend/.env file with environment variables for:
     - Claude authentication (CLAUDE_CODE_OAUTH_TOKEN)
@@ -2224,8 +2224,8 @@ async def update_source_env(config: SourceEnvUpdate):
         env_lines = []
 
         # Add header comment
-        env_lines.append("# Magestic AI Environment Configuration")
-        env_lines.append("# Updated via Magestic AI web interface")
+        env_lines.append("# PFactory Environment Configuration")
+        env_lines.append("# Updated via PFactory web interface")
         env_lines.append("")
 
         # Write all environment variables

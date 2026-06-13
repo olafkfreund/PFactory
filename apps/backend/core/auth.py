@@ -14,7 +14,7 @@ from pathlib import Path
 
 # Priority order for auth token resolution
 # NOTE: We intentionally do NOT fall back to ANTHROPIC_API_KEY.
-# Magestic AI is designed to use Claude Code OAuth tokens only.
+# PFactory is designed to use Claude Code OAuth tokens only.
 # This prevents silent billing to user's API credits when OAuth fails.
 AUTH_TOKEN_ENV_VARS = [
     "CLAUDE_CODE_OAUTH_TOKEN",  # OAuth token from Claude Code CLI

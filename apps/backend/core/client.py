@@ -736,7 +736,7 @@ def create_client(
                     else []
                 ),
                 *[f"{tool}(*)" for tool in browser_tools_permissions],
-                # Magestic AI MCP tools for build management
+                # PFactory MCP tools for build management
                 *(
                     [f"{tool}(*)" for tool in AI_FACTORY_TOOLS]
                     if "pfactory" in required_servers

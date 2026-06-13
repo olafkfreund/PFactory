@@ -1,7 +1,7 @@
 """
 Project management routes.
 
-Handles CRUD operations for projects (git repositories that Magestic AI manages).
+Handles CRUD operations for projects (git repositories that PFactory manages).
 """
 
 import json
@@ -199,7 +199,7 @@ def save_projects(projects: dict[str, dict]) -> None:
 
 
 def analyze_project(path: str) -> dict:
-    """Analyze a project directory for git and Magestic AI status."""
+    """Analyze a project directory for git and PFactory status."""
     project_path = Path(path)
 
     # Check if it's a git repository
@@ -330,14 +330,14 @@ class ScanProjectsRequest(BaseModel):
 @router.post("/scan")
 async def scan_for_projects(request: ScanProjectsRequest):
     """
-    Scan filesystem for Magestic AI projects.
+    Scan filesystem for PFactory projects.
 
     Recursively scans a directory tree to find potential project directories.
     Identifies projects by looking for indicators like:
     - .git directory (version control)
     - package.json (Node.js projects)
     - requirements.txt or pyproject.toml (Python projects)
-    - .pfactory directory (Magestic AI initialized projects)
+    - .pfactory directory (PFactory initialized projects)
     - CLAUDE.md file (Claude project documentation)
 
     Args:
@@ -593,7 +593,7 @@ async def remove_project(project_id: str):
 
 @router.post("/{project_id}/initialize")
 async def initialize_project(project_id: str):
-    """Initialize Magestic AI in a project (create .pfactory directory).
+    """Initialize PFactory in a project (create .pfactory directory).
 
     Returns InitializationResult format expected by frontend.
     """
@@ -626,7 +626,7 @@ async def initialize_project(project_id: str):
 
 @router.get("/{project_id}/version")
 async def check_project_version(project_id: str):
-    """Check Magestic AI version info for a project."""
+    """Check PFactory version info for a project."""
     projects = load_projects()
     if project_id not in projects:
         raise HTTPException(
@@ -1044,7 +1044,7 @@ async def create_project_task(project_id: str, task_data: TaskCreateRequest):
 
 ## Notes
 
-Created via Magestic AI Web UI
+Created via PFactory Web UI
 """
     (spec_dir / "spec.md").write_text(spec_content)
 

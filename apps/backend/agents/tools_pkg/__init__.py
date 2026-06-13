@@ -1,5 +1,5 @@
 """
-Custom MCP Tools for Magestic AI Agents
+Custom MCP Tools for PFactory Agents
 ========================================
 
 This module provides custom MCP tools that agents can use for reliable
@@ -40,7 +40,7 @@ from .models import (
     CONTEXT7_TOOLS,
     GRAPHITI_MCP_TOOLS,
     PLAYWRIGHT_TOOLS,
-    # Magestic AI tool names
+    # PFactory tool names
     TOOL_GET_BUILD_PROGRESS,
     TOOL_GET_SESSION_CONTEXT,
     TOOL_RECORD_DISCOVERY,
@@ -76,7 +76,7 @@ __all__ = [
     "CONTEXT7_TOOLS",
     "GRAPHITI_MCP_TOOLS",
     "PLAYWRIGHT_TOOLS",
-    # Magestic AI tool name constants
+    # PFactory tool name constants
     "TOOL_UPDATE_SUBTASK_STATUS",
     "TOOL_GET_BUILD_PROGRESS",
     "TOOL_RECORD_DISCOVERY",
