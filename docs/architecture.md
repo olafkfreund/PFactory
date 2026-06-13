@@ -53,6 +53,22 @@ Software Template-compatible and carry an embedded `policy:` block — they
 scaffold *and* enforce their rules. A drift watcher proposes template updates via
 pull request as the clouds change.
 
+## Command-execution safety
+
+Tool calls that run shell commands pass a **command allowlist** before execution.
+The allowlist is parsed from the real shell grammar (`bashlex`), not a regex — it
+walks the AST and surfaces every nested command, including those inside `$(...)`,
+backticks, pipes, and subshells, so a sanctioned outer command can't smuggle an
+unsanctioned inner one (e.g. an IMDS/secret-exfil `curl`). Setting
+`PFACTORY_STRICT_COMMAND_PARSING=1` fails closed on input the parser can't
+understand. This is defense-in-depth alongside the OS sandbox: the allowlist decides
+what is *allowed* to run; the sandbox contains *how* it runs.
+
+The exposure surface is fail-closed by default: `/mcp` returns 401 when its secret is
+unset outside dev, a CORS guard rejects wildcard origins with credentials, and the
+server refuses to boot with `DISABLE_AUTH` on a non-loopback host. Opt-outs are
+explicit and scoped to dev/CI.
+
 ## Where it sits
 
 PFactory sits **downstream** of spec-authoring tools (GitHub Spec-Kit, AWS Kiro,

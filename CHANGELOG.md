@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.17 — security hardening: shell-AST allowlist, fail-closed MCP/boot guard, named-CVE CI fix (2026-06-13)
+
+- **Replace the regex command allowlist with a real shell-grammar parser (#133, issue #129).** `security/parser.py` extracted commands with a regex, which never looked inside `$(...)`, backticks, or pipes — so `echo $(curl http://169.254.169.254/...)` was seen as just `echo` and the nested `curl` ran unchecked (an IMDS/secret-exfil path). The new `bashlex` AST walker surfaces every nested command to the allowlist; `PFACTORY_STRICT_COMMAND_PARSING=1` fails closed on unparseable input. 113 security tests pass. Defense-in-depth alongside the OS-sandbox work (Factory#42 / AIFactory#363).
+- **Harden `copilot-plan-review.yml` against the CVE-2025-66032 authorization-bypass pattern (#131).** Replaced the `github.actor == 'copilot-swe-agent[bot]'` suffix-trust check with an identity/membership gate (a `[bot]` suffix is a label, not an identity); removed `--allow-all-tools` over untrusted PR content; moved untrusted `github.event.*` fields into `env:` bindings to defang script injection.
+- **Fail closed on the exposure surface (#131).** `/mcp` now returns 401 when `PFACTORY_MCP_SECRET` is unset outside dev (was open by default); a CORS guard rejects wildcard origins when credentials are present; and the server refuses to boot when `DISABLE_AUTH` is true on a non-loopback host. Opt-outs are explicit and documented for dev/CI.
+- **Keep the suite green after the boot guard (#132).** The pytest harness legitimately boots `DISABLE_AUTH` on an isolated runner, so the boot guard exempts the test harness specifically while staying live everywhere else.
+- **Finish the Magestic AI → PFactory rebrand (#134, issue #130).** User-facing strings only — identifiers and paths left untouched. Also published a reviewed list of inherited skeleton routers as prune candidates.
+
 ## 0.6.16 — pin the build model via PFACTORY_EXECUTION_MODEL (Gemini selection) (2026-06-11)
 
 - **`PFACTORY_EXECUTION_MODEL` env override for the contract's execution model (#71 Phase 3).** `build_execution` hardcoded the model per complexity (`simple→haiku`, `standard→sonnet`, `complex→opus`), all of which infer the `claude` provider — so a signed contract could never tell AIFactory to build on Gemini. Now, when `PFACTORY_EXECUTION_MODEL` is set (e.g. `gemini-2.5-pro`), it overrides the per-complexity default; the provider is still inferred from the final model id (`gemini-*` → antigravity). Unset → unchanged behavior. This lets a PARR run target Gemini end-to-end through the trusted-plan fast path.
