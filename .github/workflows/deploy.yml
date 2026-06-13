@@ -81,3 +81,19 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "cd(pfactory): ${{ steps.tags.outputs.sha }} [skip ci]" || exit 0
           git push
+
+  # Post-deploy PARR cross-service seam regression (Factory#44, reusable wf #46).
+  # Runs the fast read-only smoke probe across the four factory boundaries AFTER a
+  # deploy lands. Soft gate today: it `needs: deploy`, so the deploy has already
+  # completed before this runs and NOTHING depends on seam-check — a probe failure
+  # can never break or roll back the deploy. FACTORY_TOKEN flows in via
+  # `secrets: inherit`; the reusable workflow self-skips cleanly when that secret
+  # is unset. (`continue-on-error` is not allowed on a `uses:` job, so the soft
+  # gate is structural rather than a flag.)
+  # TODO: flip to required once stable (add seam-check to branch protection).
+  seam-check:
+    needs: deploy
+    uses: olafkfreund/Factory/.github/workflows/parr-regression.yml@main
+    with:
+      mode: smoke
+    secrets: inherit
