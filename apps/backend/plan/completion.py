@@ -67,12 +67,31 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
     from plan.usage import PlanUsage
 
     usage = getattr(session, "usage", None) or PlanUsage()
-    return {
+
+    # RFC-0001a evidence gate: a plan may only claim the success status
+    # ("emitted") if the emit actually created issues. An "emitted" with no epic
+    # issue produced nothing — downgrade it to "failed" so no consumer renders a
+    # plan that created no governed work item as green. The epic number is the
+    # minimal proof (a single-issue plan may legitimately have no children);
+    # child_count rides along as evidence either way.
+    status = session.status
+    evidence: dict | None = None
+    halt_reason: str | None = None
+    if status == "emitted":
+        emit_result = getattr(session, "emit_result", None) or {}
+        epic = session.emitted_issue_number
+        child_count = len(emit_result.get("child_numbers") or {})
+        evidence = {"proof_kind": "issues", "epic_issue": epic, "child_count": child_count}
+        if epic is None:
+            status = "failed"
+            halt_reason = "no_evidence: emit created no issues"
+
+    event = {
         "correlation_key": correlation_key_for(session),
         "service": SERVICE_NAME,
         "task_id": session.session_id,
-        "status": session.status,
-        "phase": _PHASE_BY_STATUS.get(session.status, session.status),
+        "status": status,
+        "phase": _PHASE_BY_STATUS.get(status, status),
         "updated_at": now or _now_iso(),
         "correlation": {
             "session_id": session.session_id,
@@ -81,6 +100,11 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
         },
         "usage": usage.as_event_block(),
     }
+    if evidence is not None:
+        event["evidence"] = evidence
+    if halt_reason is not None:
+        event["halt_reason"] = halt_reason
+    return event
 
 
 def _write_sentinel(event: dict) -> None:
