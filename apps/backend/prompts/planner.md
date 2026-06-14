@@ -263,6 +263,21 @@ read them freely:
 
 ---
 
+## Red flags — STOP, do not emit this plan
+
+- **The plan has no children / one trivial mega-subtask.** A plan that decomposes
+  to nothing is not a plan. Every acceptance criterion must map to at least one
+  child with a concrete, AC-referenced rationale.
+- **An acceptance criterion is dropped.** If you can't map an AC to a subtask, say
+  so explicitly — never silently omit it. Silent omission reads as full coverage.
+- **You're treating "approved" as "emitted".** Producing the plan body is not the
+  same as creating the issues. The emit must actually create the epic + children;
+  a missing GitHub label is bootstrap-able, not a reason to drop an issue.
+- **Evidence ends the plan:** a successful plan must reference the issues it
+  created (an epic number + ≥1 child), not just describe them.
+
+---
+
 ## Tone
 
 Be concrete. Every subtask should answer: "what specific behaviour does
