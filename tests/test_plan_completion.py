@@ -239,3 +239,35 @@ def test_plan_status_surfaces_the_correlation_chain(monkeypatch):
     assert status["correlation_key"] == "55"
     assert status["issue_number"] == 55
     assert "aifactory_task_id" in status
+
+
+# ── RFC-0001a evidence gate: emit with no issues is not a pass ────────────────
+
+
+def test_emit_with_no_epic_is_downgraded_to_failed(monkeypatch):
+    # An "emitted" success that created no epic issue produced no governed work
+    # item — the evidence gate downgrades it to failed.
+    svc = PlanService()
+    session = _processed_session(svc)
+    monkeypatch.setattr(
+        github_emitter, "emit_to_github",
+        lambda *a, **k: EmitResult(dry_run=False, epic_number=None, errors=[]),
+    )
+    out = svc.emit(session.session_id, repo="acme/widget", dry_run=False)
+    event = build_completion_event(out)
+    assert event["status"] == "failed"
+    assert "no_evidence" in (event.get("halt_reason") or "")
+    assert event["evidence"]["proof_kind"] == "issues"
+
+
+def test_real_emit_passes_and_carries_issue_evidence(monkeypatch):
+    svc = PlanService()
+    session = _processed_session(svc)
+    monkeypatch.setattr(
+        github_emitter, "emit_to_github",
+        lambda *a, **k: EmitResult(dry_run=False, epic_number=101, errors=[]),
+    )
+    out = svc.emit(session.session_id, repo="acme/widget", dry_run=False)
+    event = build_completion_event(out)
+    assert event["status"] == "emitted"
+    assert event["evidence"]["epic_issue"] == 101
