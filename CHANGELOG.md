@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.18 — RFC-0001a evidence gate on plan completion (2026-06-14)
+
+- **A completion event may only claim success if the emit produced evidence (#141, RFC-0001a).** `build_completion_event` (`plan/completion.py`) now inspects the terminal `emitted` status: a plan is only reported as `emitted` if the emit actually created the epic GitHub issue. An `emitted` session with no epic issue number produced no governed work item, so it is downgraded to `failed` with `halt_reason: "no_evidence: emit created no issues"` — no downstream consumer (CFactory observability, AIFactory) renders a plan that created nothing as green. The epic issue number is the minimal proof; the event carries an additive `evidence` block `{proof_kind: "issues", epic_issue, child_count}` on every `emitted` path (a single-issue plan may legitimately have no children). Additive and optional — consumers that don't read `evidence` keep working. Pairs with the planner prompt change (#140) that asks the LLM to surface evidence and red-flags during decomposition.
+
 ## 0.6.17 — security hardening: shell-AST allowlist, fail-closed MCP/boot guard, named-CVE CI fix (2026-06-13)
 
 - **Replace the regex command allowlist with a real shell-grammar parser (#133, issue #129).** `security/parser.py` extracted commands with a regex, which never looked inside `$(...)`, backticks, or pipes — so `echo $(curl http://169.254.169.254/...)` was seen as just `echo` and the nested `curl` ran unchecked (an IMDS/secret-exfil path). The new `bashlex` AST walker surfaces every nested command to the allowlist; `PFACTORY_STRICT_COMMAND_PARSING=1` fails closed on unparseable input. 113 security tests pass. Defense-in-depth alongside the OS-sandbox work (Factory#42 / AIFactory#363).
