@@ -1,7 +1,12 @@
 # PFactory Web Server Dependencies
 
 # Web Framework
-fastapi>=0.109.0
+# Pin fastapi/starlette: 0.137.0 broke route introspection — prometheus-fastapi-
+# instrumentator's get_route_name() hits an `_IncludedRouter` with no `.path`,
+# 500-ing every /api route (and failing the route tests). Same pin TFactory and
+# AIFactory shipped after the unpinned `>=` pulled 0.137.0 on rebuild.
+fastapi==0.136.3
+starlette==1.3.1
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
 
