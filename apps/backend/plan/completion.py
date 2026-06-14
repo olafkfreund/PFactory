@@ -81,10 +81,24 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
         emit_result = getattr(session, "emit_result", None) or {}
         epic = session.emitted_issue_number
         child_count = len(emit_result.get("child_numbers") or {})
-        evidence = {"proof_kind": "issues", "epic_issue": epic, "child_count": child_count}
-        if epic is None:
-            status = "failed"
-            halt_reason = "no_evidence: emit created no issues"
+        aif_task = getattr(session, "aifactory_task_id", None)
+        if epic is None and aif_task:
+            # Trusted-plan / contract-sync path: emit-contract signs the Task
+            # Contract straight to AIFactory and starts the build — by design it
+            # creates no GitHub issues. The accepted build (aifactory_task_id) IS
+            # the evidence, so a successful contract hand-off must not be
+            # downgraded to "failed" (which surfaced as false plan-stage
+            # failures in the cockpit for issue-less runs).
+            evidence = {"proof_kind": "contract", "aifactory_task_id": aif_task}
+        else:
+            evidence = {
+                "proof_kind": "issues",
+                "epic_issue": epic,
+                "child_count": child_count,
+            }
+            if epic is None:
+                status = "failed"
+                halt_reason = "no_evidence: emit created no issues"
 
     event = {
         "correlation_key": correlation_key_for(session),

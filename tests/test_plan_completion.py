@@ -271,3 +271,24 @@ def test_real_emit_passes_and_carries_issue_evidence(monkeypatch):
     event = build_completion_event(out)
     assert event["status"] == "emitted"
     assert event["evidence"]["epic_issue"] == 101
+
+
+def test_contract_handoff_with_no_epic_stays_emitted(monkeypatch):
+    # Trusted-plan / contract path: emit-contract signs the contract straight to
+    # AIFactory and starts the build, creating NO GitHub issues. The started
+    # build (aifactory_task_id) is valid evidence, so the gate must not downgrade
+    # it to failed — that was surfacing as false plan-stage failures in the
+    # cockpit for issue-less runs.
+    svc = PlanService()
+    session = _processed_session(svc)
+    monkeypatch.setattr(
+        github_emitter, "emit_to_github",
+        lambda *a, **k: EmitResult(dry_run=False, epic_number=None, errors=[]),
+    )
+    out = svc.emit(session.session_id, repo="acme/widget", dry_run=False)
+    out.aifactory_task_id = "9d2ce435:031-python-hello-world-greeting-li"
+    event = build_completion_event(out)
+    assert event["status"] == "emitted"
+    assert "halt_reason" not in event
+    assert event["evidence"]["proof_kind"] == "contract"
+    assert event["evidence"]["aifactory_task_id"] == "9d2ce435:031-python-hello-world-greeting-li"
