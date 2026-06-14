@@ -30,7 +30,7 @@ Feasibility + Review-gates → Human-approval → Emit`
 | 5 | **Synthesize** | For software: generate a Testing Strategy and a CI/CD pipeline definition, each as a doc plus a dedicated child issue. |
 | 6 | **Feasibility + Review-gates** | **Feasibility:** price the proposed resource shape through the real cloud pricing APIs (AWS Price List · Azure Retail · GCP Catalog, static fallback), run `iam:SimulatePrincipalPolicy` for the actions the plan implies (grant/deny per action), and roll up a calibrated effort band — *before any code exists*. **Gates:** architecture / security / best-practice / feasibility lenses, a hybrid of deterministic policy-as-code (Checkov · OPA · cloud-native policy via MCP) and LLM reviewers, scored against a threshold. An over-budget or access-denied plan routes to a human — it never silently blocks. |
 | 7 | **Human-approval** | A single human approval gate. Gates must pass first; any edit to the plan invalidates the approval (content-hash check). |
-| 8 | **Emit** | Create the GitHub epic + child issues (the durable source of truth) and hand off to AIFactory — by writing a `requirements.json`, triggering its API, or via a labelled issue. |
+| 8 | **Emit** | Create the GitHub epic + child issues (the durable source of truth) and hand off to AIFactory — by writing a `requirements.json`, triggering its API, or via a labelled issue. A completion event is emitted on every terminal session, gated on evidence (see below). |
 
 ## Data contracts
 
@@ -43,6 +43,28 @@ Feasibility + Review-gates → Human-approval → Emit`
 - **AIFactory handoff** — `{ title, description, metadata }` written to
   `.aifactory/specs/{id}/requirements.json` (preferred), POSTed to
   `/api/tasks/create-and-run`, or attached to a labelled GitHub issue.
+- **Completion event** — the normalized terminal envelope
+  (`{ correlation_key, service, task_id, status, phase, updated_at, correlation, usage }`)
+  emitted when a session lands on a terminal status, for CFactory observability and
+  AIFactory correlation. It is **evidence-gated (RFC-0001a):** a session is only
+  reported `emitted` if the emit actually created the epic GitHub issue; an
+  `emitted` session with no epic issue produced no governed work item and is
+  downgraded to `failed` with `halt_reason: "no_evidence: emit created no issues"`,
+  so nothing renders a plan that created nothing as green. An additive `evidence`
+  block `{ proof_kind: "issues", epic_issue, child_count }` rides along as proof.
+
+## Session API and the plan DAG
+
+`GET /api/plan/sessions/{id}` returns the full session via the Pydantic
+`model_dump()`, which includes the decomposed `epic` (`EpicPlan`) and its
+`children`. Each child (`ChildIssue`) carries a stable `key`, `title`, `kind`
+(`feature` / `task` / `testing` / `cicd` / `docs` / `infra` / `research` /
+`chore`), and `depends_on` — a list of sibling keys forming the dependency graph.
+This makes the plan a directed acyclic graph (validated for dangling deps,
+self-deps, and cycles before emission) that is **public on the session API**.
+[CFactory](https://github.com/olafkfreund/CFactory) consumes it to render the plan
+stage of its live execution diagram as a dependency graph, without any
+PFactory-side change for the diagram — the data was already exposed.
 
 ## Extensibility
 
