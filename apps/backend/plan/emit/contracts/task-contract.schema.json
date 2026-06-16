@@ -204,6 +204,50 @@
 
     "created_at": { "type": ["string", "null"] },
     "updated_at": { "type": ["string", "null"] },
-    "spec_file": { "type": ["string", "null"] }
+    "spec_file": { "type": ["string", "null"] },
+
+    "access": { "$ref": "#/$defs/access" }
+  },
+  "$defs": {
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "RFC-0007 access requirements discovered at planning time. Absent => the task needs no external/authenticated resource. The curation gate sets curated/human_approval; TFactory consumes credential_ref; the VAL gate (RFC-0006) treats an un-curated requirement as a VAL-3 not_run. Secrets are NEVER stored here — only broker refs.",
+      "required": ["requirements"],
+      "properties": {
+        "requirements": {
+          "type": "array",
+          "description": "One entry per external/authenticated resource the task's tests must reach.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["resource", "auth_class", "bootstrap"],
+            "properties": {
+              "resource": { "type": "string", "description": "What is being reached, e.g. 'staging-api', 'sandbox-aws', 'keycloak-realm'." },
+              "auth_class": {
+                "type": "string",
+                "enum": ["A-machine-native", "B-bootstrap-once", "C-ephemeral-target", "D-un-automatable"],
+                "description": "A: OIDC federation / service account / scoped token (no MFA in path). B: device-code / refresh token / TOTP-seed-as-secret / captured session (human clears MFA once). C: disposable target the pipeline owns (no prod cred). D: interactive MFA (push / hardware key / SMS) — refused or assisted, never faked."
+              },
+              "credential_ref": { "type": ["string", "null"], "description": "Existing broker ref the test will use: env:NAME | vault:path#field | store:<id>. Never an inline secret." },
+              "env_required": { "type": "array", "items": { "type": "string" }, "description": "Env var names the auth needs at runtime." },
+              "bootstrap": { "type": "string", "enum": ["none", "human"], "description": "human => a one-time human-verified login/seed/approval is required before this is usable." },
+              "curated": { "type": "boolean", "description": "Set true ONLY by the curation gate once the credential/target is provisioned and a liveness check passes. VAL-3 stays not_run until true." },
+              "human_approval": {
+                "type": ["object", "null"],
+                "additionalProperties": false,
+                "description": "Audit trail of the human bootstrap (RFC-0001a chain).",
+                "properties": {
+                  "approved_by": { "type": "string" },
+                  "approved_at": { "type": "string" },
+                  "scope": { "type": "string", "description": "What was granted, e.g. 'sandbox account, read+deploy, auto-teardown'." }
+                }
+              },
+              "mvp_note": { "type": ["string", "null"], "description": "For auth_class D: the honest reason testing cannot pass this gate autonomously." }
+            }
+          }
+        }
+      }
+    }
   }
 }
