@@ -88,6 +88,11 @@ class PlanSession(BaseModel):
     emit_result: dict | None = None
     docs_result: list[dict] | None = None  # docs emit per-target results (P1)
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
+    # RFC-0007 (#86): human-verified access curation. `access_approvals` maps a
+    # resource -> approval record (applied at the next emit); `access_audit` is the
+    # append-only RFC-0001a curation trail (refs only, never secrets).
+    access_approvals: dict = Field(default_factory=dict)
+    access_audit: list = Field(default_factory=list)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -687,6 +692,70 @@ class PlanService:
             notify_completion(session)
         self._save(session)
         return session
+
+    def approve_access(
+        self,
+        session_id: str,
+        resource: str,
+        *,
+        approved_by: str,
+        scope: str,
+        approved_at: str | None = None,
+        ref_exists=None,
+    ) -> dict:
+        """Record a human-verified access approval for one resource (RFC-0007 #86).
+
+        The resource must appear in the last emitted contract's ``access`` block
+        (run ``emit_contract`` dry-run first to discover requirements). Runs the
+        curation gate: a non-D requirement whose credential is present (probed,
+        never resolved into the open) is curated, the approval is stored for the
+        next emit to apply, and an RFC-0001a audit record is appended. Returns
+        ``{ok, resource, state?, audit?, reason?}``. Never stores/logs a secret.
+        """
+        from pfactory_secrets.probe import probe_ref_exists
+        from plan.access_discovery import curate_requirement
+
+        session = self.get(session_id)
+        block = ((session.contract_result or {}).get("contract") or {}).get(
+            "access"
+        ) or {}
+        req = next(
+            (
+                r
+                for r in (block.get("requirements") or [])
+                if r.get("resource") == resource
+            ),
+            None,
+        )
+        if req is None:
+            raise PlanServiceError(
+                f"resource '{resource}' not in the contract access block; emit a "
+                "dry-run contract first to discover access requirements"
+            )
+        approval = {
+            "approved_by": approved_by,
+            "scope": scope,
+            "approved_at": approved_at or datetime.now(timezone.utc).isoformat(),
+        }
+        probe = ref_exists or probe_ref_exists
+
+        def liveness(r) -> bool:  # credential must be present to curate at approval
+            return probe(r.get("credential_ref")) is True
+
+        _curated, audit = curate_requirement(
+            req, approval=approval, liveness_check=liveness
+        )
+        if audit is None:
+            return {
+                "ok": False,
+                "resource": resource,
+                "reason": "cannot curate now: class D (un-automatable), or the "
+                "credential is not present/verifiable at approval time",
+            }
+        session.access_approvals[resource] = approval
+        session.access_audit.append(audit)
+        self._save(session)
+        return {"ok": True, "resource": resource, "state": "curated", "audit": audit}
 
     def classify_preview(self, session_id: str) -> dict:
         """Lightweight classification preview (no full pipeline run)."""
