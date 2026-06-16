@@ -119,12 +119,15 @@ def assemble_contract(
     correlation_key: str | None = None,
     config: Any | None = None,
     spec_text: str = "",
+    approvals: dict | None = None,
 ) -> dict[str, Any]:
     """Compose the complete (unsigned) Task Contract from all #65 blocks.
 
     When ``config`` (a parsed ``.pfactory.yml``) is provided, an RFC-0007
-    ``access`` block is discovered from its targets and attached. Omitted when
-    ``config`` is None or has no targets, so existing callers are unaffected.
+    ``access`` block is discovered from its targets and attached; ``approvals``
+    (from ``PlanService.access_approvals``) applies recorded human-verified
+    curation so ``curated: true`` lands on the contract (#86). Both optional, so
+    existing callers are unaffected.
     """
     contract = build_task_contract(
         plan, epic, repo=repo, correlation_key=correlation_key
@@ -136,8 +139,9 @@ def assemble_contract(
     attach_tfactory(contract, plan, epic)
     # Carry sanitized live-cloud enrichment as epic_context constraints (#80).
     attach_constraints(contract, plan)
-    # RFC-0007 (#84): access requirements discovered from .pfactory.yml targets.
-    attach_access(contract, config, spec_text)
+    # RFC-0007: access requirements discovered from .pfactory.yml (#84) + recorded
+    # human-verified curation applied (#86).
+    attach_access(contract, config, spec_text, approvals=approvals)
     return contract
 
 
@@ -244,13 +248,15 @@ def emit_contract(
     spec_id: str | None = None,
     config: Any | None = None,
     spec_text: str = "",
+    approvals: dict | None = None,
     max_retries: int = 2,
     dry_run: bool = True,
 ) -> dict[str, Any]:
     """Assemble, validate, sign, and (unless dry-run) emit the contract.
 
     ``config`` (a parsed ``.pfactory.yml``) + ``spec_text`` enable the RFC-0007
-    ``access`` block (#84); both optional and no-op when absent.
+    ``access`` block (#84); ``approvals`` applies recorded human-verified curation
+    (#86). All optional and no-op when absent.
 
     Returns a result dict: ``{ok, dry_run, signed, endpoint, contract, ...}``.
     On a validation failure ``ok`` is False and ``errors`` lists the problems —
@@ -275,6 +281,7 @@ def emit_contract(
         correlation_key=correlation_key,
         config=config,
         spec_text=spec_text,
+        approvals=approvals,
     )
     errors = validate_contract(contract)
     if errors:

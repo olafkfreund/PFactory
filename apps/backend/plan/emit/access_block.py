@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plan.access_discovery import discover_access, validate_access
+from plan.access_discovery import curate_access, discover_access, validate_access
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +37,35 @@ def _targets_as_dicts(config: Any) -> list[dict]:
     return out
 
 
-def attach_access(contract: dict, config: Any | None, spec_text: str = "") -> dict:
+def attach_access(
+    contract: dict,
+    config: Any | None,
+    spec_text: str = "",
+    *,
+    approvals: dict | None = None,
+) -> dict:
     """Set ``contract['access']`` from ``.pfactory.yml`` targets (RFC-0007).
 
-    No-op (block omitted) when ``config`` is None or has no targets. Mutates and
-    returns ``contract``.
+    No-op (block omitted) when ``config`` is None or has no targets. When
+    ``approvals`` (``{resource: approval}``, from ``PlanService.access_approvals``)
+    is given, the recorded human-verified curation is applied so ``curated: true``
+    + ``human_approval`` land on the contract. Liveness is NOT re-probed here — the
+    decision was made and the credential verified at approval time (#86 PR-d), and
+    the planner's env differs from TFactory's runtime, so re-checking would wrongly
+    un-curate. Mutates and returns ``contract``.
     """
     if config is None:
         return contract
     block = discover_access(_targets_as_dicts(config), spec_text or "")
     if block is not None:
+        if approvals:
+            # Trust the recorded approval/liveness; apply it deterministically.
+            result = curate_access(
+                block["requirements"],
+                approvals=approvals,
+                liveness_check=lambda _r: True,
+            )
+            block["requirements"] = result["requirements"]
         contract["access"] = block
         # Surface structural (env-independent) readiness gaps at plan time. Env
         # presence is NOT checked here — credentials are injected in TFactory's

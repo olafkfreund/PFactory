@@ -87,3 +87,28 @@ def test_accepts_plain_dict_targets():
     c = {}
     attach_access(c, cfg)
     assert c["access"]["requirements"][0]["auth_class"] == "C-ephemeral-target"
+
+
+def test_recorded_approval_lands_curated_on_the_contract():
+    # PR-e: a stored approval flips curated:true at emit (liveness trusted, not
+    # re-probed — the decision was made + audited at approve time).
+    cfg = _Config(
+        [{"name": "web", "type": "http", "auth": {"type": "ref", "ref": "store:tc_1"}}]
+    )
+    c = {}
+    approvals = {
+        "web": {"approved_by": "olaf", "approved_at": "2026-06-16", "scope": "staging"}
+    }
+    attach_access(c, cfg, spec_text="plain login", approvals=approvals)
+    req = c["access"]["requirements"][0]
+    assert req["curated"] is True
+    assert req["human_approval"]["approved_by"] == "olaf"
+
+
+def test_no_approval_leaves_requirement_uncurated():
+    cfg = _Config(
+        [{"name": "web", "type": "http", "auth": {"type": "ref", "ref": "store:tc_1"}}]
+    )
+    c = {}
+    attach_access(c, cfg, spec_text="plain login")  # no approvals
+    assert c["access"]["requirements"][0].get("curated") is not True
