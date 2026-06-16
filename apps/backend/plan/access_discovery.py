@@ -129,3 +129,70 @@ def discover_access(targets: list[dict] | None, spec_text: str = "") -> dict | N
         return None
     mfa = bool(detect_interactive_mfa(spec_text))
     return {"requirements": [classify_target(t, interactive_mfa=mfa) for t in targets]}
+
+
+def validate_access(
+    requirements: list[dict] | None,
+    *,
+    env_present=None,
+) -> dict:
+    """Readiness check over discovered access requirements (pure, #84).
+
+    Turns discovery into validation the planner / curation gate (#86) can surface:
+    can each requirement actually be authenticated *now*?
+
+    Args:
+        requirements: the ``access.requirements`` list (or None / []).
+        env_present: ``(env_name) -> bool`` — whether an env var is set. Defaults
+            to ``os.environ`` membership. Injectable for tests.
+
+    Returns ``{ready: bool, issues: [{resource, kind, detail}]}`` where ``kind`` is:
+      - ``un_automatable``   — class D; cannot authenticate non-interactively.
+      - ``missing_credential`` — an ``env:`` ref whose variable is unset.
+      - ``needs_bootstrap``  — bootstrap=human and not yet curated (a one-time
+                               human-verified login/seed/approval is required).
+    A curated requirement raises no issue. ``ready`` is True only when there are
+    no issues at all. ``store:``/``vault:`` refs are not probed here — their
+    existence is the curation gate's job (#86).
+    """
+    if env_present is None:
+        import os
+
+        def env_present(name: str) -> bool:  # noqa: ANN001
+            return bool(os.environ.get(name))
+
+    issues: list[dict] = []
+    for req in requirements or []:
+        resource = req.get("resource", "unknown")
+        if req.get("curated"):
+            continue  # the curation gate already provisioned + verified this
+        if req.get("auth_class") == "D-un-automatable":
+            issues.append(
+                {
+                    "resource": resource,
+                    "kind": "un_automatable",
+                    "detail": req.get("mvp_note") or "interactive MFA; human-driven",
+                }
+            )
+            continue
+        ref = req.get("credential_ref")
+        if isinstance(ref, str) and ref.startswith("env:"):
+            var = ref.split(":", 1)[1]
+            if not env_present(var):
+                issues.append(
+                    {
+                        "resource": resource,
+                        "kind": "missing_credential",
+                        "detail": f"env var {var} is not set",
+                    }
+                )
+                continue
+        if req.get("bootstrap") == "human":
+            issues.append(
+                {
+                    "resource": resource,
+                    "kind": "needs_bootstrap",
+                    "detail": "requires a one-time human-verified bootstrap",
+                }
+            )
+    return {"ready": not issues, "issues": issues}

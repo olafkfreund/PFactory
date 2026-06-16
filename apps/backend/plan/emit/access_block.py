@@ -10,9 +10,12 @@ no external/authenticated resource).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from plan.access_discovery import discover_access
+from plan.access_discovery import discover_access, validate_access
+
+logger = logging.getLogger(__name__)
 
 
 def _targets_as_dicts(config: Any) -> list[dict]:
@@ -45,4 +48,14 @@ def attach_access(contract: dict, config: Any | None, spec_text: str = "") -> di
     block = discover_access(_targets_as_dicts(config), spec_text or "")
     if block is not None:
         contract["access"] = block
+        # Surface structural (env-independent) readiness gaps at plan time. Env
+        # presence is NOT checked here — credentials are injected in TFactory's
+        # runtime, not the planner's, so probing env now would false-positive;
+        # the full check (incl. missing_credential) is the curation gate's (#86).
+        verdict = validate_access(block["requirements"], env_present=lambda _name: True)
+        if not verdict["ready"]:
+            gaps = ", ".join(f"{i['resource']}:{i['kind']}" for i in verdict["issues"])
+            logger.warning(
+                "[access] task declares access not testable as-planned: %s", gaps
+            )
     return contract
