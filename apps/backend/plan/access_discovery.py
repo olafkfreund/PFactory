@@ -241,3 +241,90 @@ def curation_status(requirements: list[dict] | None, *, ref_exists=None) -> dict
     ]
     ready = all(s["state"] in ("ready", "curated") for s in out)
     return {"ready": ready, "requirements": out}
+
+
+# --------------------------------------------------------------------------- #
+# Curation gate (#86 PR-b) — placement-agnostic. WHERE a human approves
+# (CFactory action / PFactory API / plan-review) is the caller's concern; this is
+# the gate everyone calls. It flips `curated: true` only when the rules below hold
+# and emits an RFC-0001a audit record (never any secret value).
+
+
+def curate_requirement(
+    req: dict,
+    *,
+    approval: dict | None = None,
+    liveness_check=None,
+) -> tuple[dict, dict | None]:
+    """Apply the curation gate to one requirement. Returns ``(req_out, audit)``.
+
+    Curates (sets ``curated: true``) ONLY when ALL hold:
+      - the requirement is not class D (D-un-automatable is never curated — it is
+        refused, honestly, never faked);
+      - if ``bootstrap == 'human'``, an ``approval`` record with ``approved_by`` +
+        ``scope`` is supplied (the human-verified bootstrap);
+      - ``liveness_check(req) -> bool`` is supplied and returns truthy (we never
+        mark curated without confirming the credential/target actually works).
+
+    On success ``req_out`` is a copy with ``curated: true`` (+ ``human_approval``
+    when human-bootstrapped) and ``audit`` is an access-curation record for the
+    RFC-0001a chain. On refusal ``req_out`` is unchanged and ``audit`` is None.
+    Idempotent: an already-curated requirement is returned unchanged with no audit.
+    Never returns or logs a secret value.
+    """
+    if req.get("curated"):
+        return req, None
+    if req.get("auth_class") == "D-un-automatable":
+        return req, None  # un-automatable is refused, never curated
+    if req.get("bootstrap") == "human":
+        if not (approval and approval.get("approved_by") and approval.get("scope")):
+            return req, None  # needs a human-verified approval record first
+    if liveness_check is None or not liveness_check(req):
+        return req, None  # only curate after a passing liveness check
+
+    out = dict(req)
+    out["curated"] = True
+    if approval:
+        out["human_approval"] = {
+            "approved_by": approval["approved_by"],
+            "approved_at": approval.get("approved_at", ""),
+            "scope": approval["scope"],
+        }
+    audit = {
+        "kind": "access_curated",
+        "resource": out.get("resource", "unknown"),
+        "auth_class": out.get("auth_class"),
+        "credential_ref": out.get("credential_ref"),  # a ref, never the secret
+        "liveness": "passed",
+        "approved_by": (approval or {}).get("approved_by"),
+        "approved_at": (approval or {}).get("approved_at", ""),
+        "scope": (approval or {}).get("scope"),
+    }
+    return out, audit
+
+
+def curate_access(
+    requirements: list[dict] | None,
+    *,
+    approvals: dict | None = None,
+    liveness_check=None,
+) -> dict:
+    """Run the curation gate over all requirements. Pure; callers inject approvals
+    (``{resource: approval}``) + ``liveness_check``. Returns
+    ``{requirements: [...], audit: [...], all_curated: bool}`` — requirements with
+    the curated/refused outcome applied, the audit records to append to the
+    RFC-0001a chain, and whether every requirement is now curated.
+    """
+    approvals = approvals or {}
+    out_reqs: list[dict] = []
+    audit: list[dict] = []
+    for req in requirements or []:
+        res = req.get("resource")
+        new_req, rec = curate_requirement(
+            req, approval=approvals.get(res), liveness_check=liveness_check
+        )
+        out_reqs.append(new_req)
+        if rec is not None:
+            audit.append(rec)
+    all_curated = bool(out_reqs) and all(r.get("curated") for r in out_reqs)
+    return {"requirements": out_reqs, "audit": audit, "all_curated": all_curated}
