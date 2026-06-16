@@ -675,6 +675,7 @@ class PlanService:
             correlation_key=corr,
             config=access_config,
             spec_text=access_spec_text,
+            approvals=session.access_approvals or None,
             dry_run=dry_run,
         )
         session.contract_result = result
