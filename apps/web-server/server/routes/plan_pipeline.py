@@ -32,8 +32,8 @@ class IngestTextBody(BaseModel):
     text: str
     title: str | None = None
     channel: str = "portal"
-    category: str = ""   # intake category (#E)
-    template: str = ""   # selected template — its policy is enforced (#E)
+    category: str = ""  # intake category (#E)
+    template: str = ""  # selected template — its policy is enforced (#E)
 
 
 class ApproveBody(BaseModel):
@@ -50,6 +50,13 @@ class WaiveBody(BaseModel):
     check_ids: list[str]
     reason: str
     waived_by: str
+
+
+class ApproveAccessBody(BaseModel):
+    resource: str
+    approved_by: str
+    scope: str
+    approved_at: str | None = None
 
 
 class EmitBody(BaseModel):
@@ -121,8 +128,11 @@ async def list_sessions() -> dict:
 async def ingest_text(body: IngestTextBody) -> dict:
     try:
         session = SERVICE.ingest_text(
-            body.text, title=body.title, channel=body.channel,
-            category=body.category, template=body.template,
+            body.text,
+            title=body.title,
+            channel=body.channel,
+            category=body.category,
+            template=body.template,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -139,8 +149,11 @@ async def ingest_upload(
     data = await file.read()
     try:
         session = SERVICE.ingest_bytes(
-            data, filename=file.filename or "plan.md", title=title,
-            category=category, template=template,
+            data,
+            filename=file.filename or "plan.md",
+            title=title,
+            category=category,
+            template=template,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -166,12 +179,34 @@ async def process(session_id: str) -> dict:
 @router.post("/{session_id}/approve")
 async def approve(session_id: str, body: ApproveBody) -> dict:
     try:
-        return _session_dict(SERVICE.approve(session_id, approver=body.approver,
-                                             feedback=body.feedback))
+        return _session_dict(
+            SERVICE.approve(session_id, approver=body.approver, feedback=body.feedback)
+        )
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:  # ApprovalError (gates not passed)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/access/approve")
+async def approve_access(session_id: str, body: ApproveAccessBody) -> dict:
+    """Record a human-verified access approval for one resource (RFC-0007 #86).
+
+    Run emit-contract (dry-run) first to discover the ``access`` requirements; this
+    curates the named resource (only when its credential is present and it is not
+    class D / un-automatable), stores the approval for the next emit, and appends an
+    RFC-0001a audit record. Returns the curation outcome ``{ok, resource, ...}``.
+    """
+    try:
+        return SERVICE.approve_access(
+            session_id,
+            body.resource,
+            approved_by=body.approved_by,
+            scope=body.scope,
+            approved_at=body.approved_at,
+        )
+    except PlanServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{session_id}/waive")
@@ -182,10 +217,14 @@ async def waive(session_id: str, body: WaiveBody) -> dict:
     can reflect that the waived check no longer blocks emission.
     """
     try:
-        return _session_dict(SERVICE.waive(
-            session_id, check_ids=body.check_ids, reason=body.reason,
-            waived_by=body.waived_by,
-        ))
+        return _session_dict(
+            SERVICE.waive(
+                session_id,
+                check_ids=body.check_ids,
+                reason=body.reason,
+                waived_by=body.waived_by,
+            )
+        )
     except (PlanServiceError, WaiverError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -193,8 +232,9 @@ async def waive(session_id: str, body: WaiveBody) -> dict:
 @router.post("/{session_id}/reject")
 async def reject(session_id: str, body: RejectBody) -> dict:
     try:
-        return _session_dict(SERVICE.reject(session_id, approver=body.approver,
-                                            feedback=body.feedback))
+        return _session_dict(
+            SERVICE.reject(session_id, approver=body.approver, feedback=body.feedback)
+        )
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -213,9 +253,7 @@ async def _load_docs_connections(
 
         user = await get_current_user(request, db)
         result = await db.execute(
-            select(DocsTargetConnection).where(
-                DocsTargetConnection.user_id == user.id
-            )
+            select(DocsTargetConnection).where(DocsTargetConnection.user_id == user.id)
         )
         conns = result.scalars().all()
     except Exception:  # noqa: BLE001 — docs wiring must never break emit
@@ -267,8 +305,11 @@ async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
         http = None if body.dry_run else _UrllibHttp()
         return _session_dict(
             SERVICE.emit_contract(
-                session_id, repo=body.repo, project_id=body.project_id,
-                http=http, dry_run=body.dry_run,
+                session_id,
+                repo=body.repo,
+                project_id=body.project_id,
+                http=http,
+                dry_run=body.dry_run,
             )
         )
     except PlanServiceError as exc:
