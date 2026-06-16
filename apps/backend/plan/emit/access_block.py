@@ -16,8 +16,15 @@ from plan.access_discovery import discover_access
 
 
 def _targets_as_dicts(config: Any) -> list[dict]:
-    """Normalize a config's targets to plain dicts for the pure classifier."""
-    targets = getattr(config, "targets", None) or []
+    """Normalize a config's targets to plain dicts for the pure classifier.
+
+    Accepts a ``PFactoryConfig``-like object (``.targets``) or a plain dict (the
+    snapshotted ``context/pfactory_yml.json``, ``{"targets": [...]}``).
+    """
+    if isinstance(config, dict):
+        targets = config.get("targets") or []
+    else:
+        targets = getattr(config, "targets", None) or []
     out: list[dict] = []
     for t in targets:
         if hasattr(t, "model_dump"):

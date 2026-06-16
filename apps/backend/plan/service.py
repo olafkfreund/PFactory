@@ -12,6 +12,7 @@ Flow:  ingest → process (detect → plan-type → decompose → synthesize →
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -162,6 +163,41 @@ def _default_store_dir() -> Path:
     if override:
         return Path(override)
     return Path.home() / ".pfactory" / "plan-sessions"
+
+
+def _workspaces_dir() -> Path:
+    """Base of the per-spec workspace context snapshots (RFC-0007 / #84).
+
+    ``<base>/workspaces/{project_id}/specs/{spec_id}/context/`` holds the
+    snapshotted ``pfactory_yml.json`` + ``aifactory_spec.md`` (see
+    ``workspaces.snapshotter``). Override the base with ``PFACTORY_WORKSPACES_DIR``.
+    """
+    override = os.environ.get("PFACTORY_WORKSPACES_DIR", "").strip()
+    base = Path(override) if override else Path.home() / ".pfactory" / "workspaces"
+    return base
+
+
+def _load_access_inputs(project_id: str, spec_id: str) -> tuple[dict | None, str]:
+    """Best-effort: load the snapshotted .pfactory.yml + spec for access discovery.
+
+    Returns ``(config_dict_or_None, spec_text)``. Never raises: a missing snapshot
+    (the common case for plans with no declared targets) yields ``(None, "")`` so
+    the contract simply omits the RFC-0007 ``access`` block.
+    """
+    try:
+        ctx = _workspaces_dir() / str(project_id) / "specs" / str(spec_id) / "context"
+        config: dict | None = None
+        pj = ctx / "pfactory_yml.json"
+        if pj.is_file():
+            loaded = json.loads(pj.read_text(encoding="utf-8"))
+            config = loaded if isinstance(loaded, dict) else None
+        spec_text = ""
+        sm = ctx / "aifactory_spec.md"
+        if sm.is_file():
+            spec_text = sm.read_text(encoding="utf-8", errors="replace")
+        return config, spec_text
+    except Exception:  # noqa: BLE001 - access discovery must never break emit
+        return None, ""
 
 
 class PlanService:
@@ -618,6 +654,10 @@ class PlanService:
         )
         pid = project_id or repo or session.plan.plan_id
         corr = session.correlation_key or correlation_key_for(session)
+        # RFC-0007 (#84): discover the access block from the snapshotted
+        # .pfactory.yml for this spec. Best-effort — when no snapshot exists the
+        # block is simply omitted (the task declares no external resource).
+        access_config, access_spec_text = _load_access_inputs(pid, session.plan.plan_id)
         result = _emit_contract(
             session.plan,
             session.epic,
@@ -628,6 +668,8 @@ class PlanService:
             key=key,
             repo=repo,
             correlation_key=corr,
+            config=access_config,
+            spec_text=access_spec_text,
             dry_run=dry_run,
         )
         session.contract_result = result
