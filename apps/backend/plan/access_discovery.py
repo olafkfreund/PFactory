@@ -196,3 +196,48 @@ def validate_access(
                 }
             )
     return {"ready": not issues, "issues": issues}
+
+
+def _requirement_state(req: dict, ref_exists) -> str:
+    """Per-requirement curation state. ``ref_exists(ref) -> True|False|None``."""
+    if req.get("curated"):
+        return "curated"
+    if req.get("auth_class") == "D-un-automatable":
+        return "un_automatable"
+    ref = req.get("credential_ref")
+    if ref:
+        present = ref_exists(ref)
+        if present is True:
+            return "ready"  # credential present -> usable (bootstrap done)
+        if present is False:
+            return "missing_credential"
+        return "unverified"  # None -> can't probe here; curation confirms
+    # No credential ref: class A with a mounted identity (serviceaccount/mtls/none)
+    # is ready; anything still flagged human-bootstrap is pending.
+    return "needs_bootstrap" if req.get("bootstrap") == "human" else "ready"
+
+
+def curation_status(requirements: list[dict] | None, *, ref_exists=None) -> dict:
+    """Per-requirement curation state combining structure + credential presence (#86).
+
+    ``ref_exists(ref) -> True|False|None`` probes credential presence WITHOUT
+    returning the value. It is injected (PFactory wires ``pfactory_secrets.probe``);
+    the default treats every ref as unverifiable (None) so this module stays pure
+    and vendorable. States: ``curated`` · ``ready`` · ``needs_bootstrap`` ·
+    ``missing_credential`` · ``un_automatable`` · ``unverified``. ``ready`` overall
+    is True only when every requirement is ``ready``/``curated``.
+    """
+    if ref_exists is None:
+
+        def ref_exists(_ref):  # noqa: ANN001 - default: undeterminable
+            return None
+
+    out = [
+        {
+            "resource": r.get("resource", "unknown"),
+            "state": _requirement_state(r, ref_exists),
+        }
+        for r in requirements or []
+    ]
+    ready = all(s["state"] in ("ready", "curated") for s in out)
+    return {"ready": ready, "requirements": out}
