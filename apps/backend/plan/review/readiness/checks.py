@@ -34,6 +34,12 @@ class ReadinessContext(BaseModel):
     # so the readiness report is a single audit surface for "why can't this emit".
     blocking_findings: list[Finding] = Field(default_factory=list)
 
+    # Result of the local-cluster build/run feasibility probe
+    # (agents.cloud.local_cluster.probe_cluster().to_dict()), or None when no probe
+    # ran. Read by env-buildable. None → the check is not_applicable, so this is
+    # fully inert until a caller opts in by injecting a probe result.
+    local_cluster: dict | None = None
+
 
 CheckFn = Callable[
     ["NormalizedPlan", "EpicPlan", ReadinessContext], ReadinessCheckResult
@@ -211,6 +217,58 @@ def _access_granted(
         if ok
         else "Grant the denied IAM action(s) to the principal, or rescope the plan.",
         evidence={} if ok else {"denied": denied},
+    )
+
+
+@check("env-buildable")
+def _env_buildable(
+    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+) -> ReadinessCheckResult:
+    """The target local cluster can actually build/run the proposed workload.
+
+    Consumes the read-only local-cluster probe result that a caller injects into
+    :attr:`ReadinessContext.local_cluster` (see ``agents.cloud.local_cluster``).
+    Honest degradation:
+
+      - not_applicable → no probe ran (``ctx.local_cluster is None``). This is the
+        default, so the check is inert until a caller opts in — it never blocks a
+        plan that was never probed.
+      - pass           → the cluster is reachable, the namespace exists, and a pod
+                         can be scheduled (``buildable`` is true).
+      - fail (hard)    → a probe ran and a prerequisite is missing; emission is
+                         blocked unless waived (e.g. "the cluster will exist at
+                         deploy time"). Mirrors access-granted semantics.
+    """
+    probe = ctx.local_cluster
+    if not probe:
+        return ReadinessCheckResult(
+            check_id="env-buildable",
+            title="Target cluster can build/run the workload",
+            status="not_applicable",
+            detail="No local-cluster probe ran for this plan.",
+            hard=True,
+            waivable=True,
+        )
+    ok = bool(probe.get("buildable"))
+    failed = [c for c in probe.get("checks", []) if not c.get("ok")]
+    reasons = "; ".join(f"{c.get('id')}: {c.get('detail')}" for c in failed) or (
+        probe.get("error") or "unknown"
+    )
+    return ReadinessCheckResult(
+        check_id="env-buildable",
+        title="Target cluster can build/run the workload",
+        status="pass" if ok else "fail",
+        severity="info" if ok else "high",
+        hard=True,
+        waivable=True,
+        detail=""
+        if ok
+        else f"Local cluster {probe.get('context')!r} is not build-ready: {reasons}.",
+        remediation=""
+        if ok
+        else "Create/reach the cluster + namespace and grant pod scheduling, or "
+        "waive if the environment will exist only at deploy time.",
+        evidence={} if ok else {"probe": probe},
     )
 
 
@@ -436,9 +494,17 @@ def run_readiness(
     *,
     checks: list[CheckFn] | None = None,
     blocking_findings: list[Finding] | None = None,
+    local_cluster: dict | None = None,
 ) -> ReadinessReport:
-    """Run every readiness check and collect the results into a report."""
-    ctx = ReadinessContext(blocking_findings=blocking_findings or [])
+    """Run every readiness check and collect the results into a report.
+
+    ``local_cluster`` is an optional read-only local-cluster probe result
+    (``agents.cloud.local_cluster.probe_cluster().to_dict()``); when omitted the
+    ``env-buildable`` check reports not_applicable.
+    """
+    ctx = ReadinessContext(
+        blocking_findings=blocking_findings or [], local_cluster=local_cluster
+    )
     fns = checks if checks is not None else default_checks()
     results = [fn(plan, epic, ctx) for fn in fns]
     return ReadinessReport(
