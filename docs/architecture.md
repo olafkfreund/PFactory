@@ -40,6 +40,19 @@ Feasibility + Review-gates → Human-approval → Emit`
 - **`PlanReview`** — per-lens scores and findings, the aggregate vs threshold,
   whether code gates applied, and the human-approval record (with hash
   invalidation).
+- **`PlanReadiness`** — the hard completeness gate, orthogonal to the lens score
+  so a high aggregate cannot mask missing information. A set of named checks
+  (children/criteria present, acceptance-criterion to child coverage, sound
+  dependencies, access granted/verified, enrichment integrity, no blocking
+  findings, decomposition trustworthiness, criterion testability), each with a
+  severity, reason, remediation, and evidence. A hard fail blocks emission unless
+  a human records an audited waiver bound to the plan hash. See the
+  [Planning and Trust]({{ '/planning-and-trust/' | relative_url }}) guide.
+- **Task Contract** — the signed RFC-0002 contract handed to AIFactory carries,
+  in addition to the plan and execution profile, the `tfactory` test lanes, the
+  RFC-0005 `environment` manifest (per-task toolchain + Nix provisioning; see the
+  fleet guide "Reproducible test environments"), and the RFC-0007 `access` block
+  (auth requirements, broker refs only — never secrets).
 - **AIFactory handoff** — `{ title, description, metadata }` written to
   `.aifactory/specs/{id}/requirements.json` (preferred), POSTed to
   `/api/tasks/create-and-run`, or attached to a labelled GitHub issue.
