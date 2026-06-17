@@ -4,13 +4,21 @@
   "title": "Factory Task Contract v2",
   "description": "Canonical, signed cross-factory task contract (RFC-0002). Superset of AIFactory's implementation_plan.json adding execution + tfactory profiles. PFactory produces it; AIFactory executes it (skip planning); TFactory tests from it.",
   "type": "object",
-  "required": ["contract_version", "feature", "workflow_type", "phases"],
+  "required": [
+    "contract_version",
+    "feature",
+    "workflow_type",
+    "phases"
+  ],
   "additionalProperties": true,
   "properties": {
     "contract_version": {
       "type": "string",
       "description": "Contract schema version. '2' enables the execution/tfactory blocks.",
-      "enum": ["1", "2"]
+      "enum": [
+        "1",
+        "2"
+      ]
     },
     "correlation_key": {
       "type": "string",
@@ -21,93 +29,251 @@
       "description": "Where the contract came from.",
       "additionalProperties": true,
       "properties": {
-        "source": { "type": "string", "description": "Emitting system, e.g. 'pfactory'." },
-        "session_id": { "type": "string" },
-        "issue_number": { "type": "integer" },
-        "repo": { "type": "string", "description": "owner/name of the target repo." }
+        "source": {
+          "type": "string",
+          "description": "Emitting system, e.g. 'pfactory'."
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "issue_number": {
+          "type": "integer"
+        },
+        "repo": {
+          "type": "string",
+          "description": "owner/name of the target repo."
+        }
       }
     },
     "approval": {
       "type": "object",
       "description": "HMAC trust envelope (AIFactory trusted_plan). Required for the skip-planning fast-path.",
-      "required": ["approved_by", "approval_timestamp", "plan_contract_version", "signature"],
+      "required": [
+        "approved_by",
+        "approval_timestamp",
+        "plan_contract_version",
+        "signature"
+      ],
       "additionalProperties": true,
       "properties": {
-        "approved_by": { "type": "string", "description": "Signing authority, e.g. 'pfactory' or 'cfactory'." },
-        "approval_timestamp": { "type": "string", "format": "date-time" },
-        "plan_contract_version": { "type": "string" },
-        "signature": { "type": "string", "description": "HMAC-SHA256 hex over the canonical contract + approval metadata." }
+        "approved_by": {
+          "type": "string",
+          "description": "Signing authority, e.g. 'pfactory' or 'cfactory'."
+        },
+        "approval_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "plan_contract_version": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string",
+          "description": "HMAC-SHA256 hex over the canonical contract + approval metadata."
+        }
       }
     },
-
-    "feature": { "type": "string", "description": "Short feature/task name." },
+    "feature": {
+      "type": "string",
+      "description": "Short feature/task name."
+    },
     "workflow_type": {
       "type": "string",
-      "enum": ["feature", "refactor", "investigation", "migration", "simple", "development", "enhancement"]
+      "enum": [
+        "feature",
+        "refactor",
+        "investigation",
+        "migration",
+        "simple",
+        "development",
+        "enhancement"
+      ]
     },
-    "services_involved": { "type": "array", "items": { "type": "string" } },
-    "final_acceptance": { "type": "array", "items": { "type": "string" } },
+    "services_involved": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "final_acceptance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "required_commands": {
       "type": "array",
       "description": "Global verification command NAMES granted into the security allowlist (uv/pytest/ruff/mypy/...).",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-
     "phases": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["phase", "name", "subtasks"],
+        "required": [
+          "phase",
+          "name",
+          "subtasks"
+        ],
         "additionalProperties": true,
         "properties": {
-          "phase": { "type": "integer" },
-          "name": { "type": "string" },
+          "phase": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
           "type": {
             "type": "string",
-            "enum": ["setup", "implementation", "investigation", "integration", "cleanup"]
+            "enum": [
+              "setup",
+              "implementation",
+              "investigation",
+              "integration",
+              "cleanup"
+            ]
           },
           "depends_on": {
             "type": "array",
             "description": "Phase numbers, or planner slugs (e.g. 'phase-1-scaffold'), this phase depends on.",
-            "items": { "type": ["integer", "string"] }
+            "items": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
           },
-          "parallel_safe": { "type": "boolean" },
+          "parallel_safe": {
+            "type": "boolean"
+          },
           "subtasks": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": ["id", "description"],
+              "required": [
+                "id",
+                "description"
+              ],
               "additionalProperties": true,
               "properties": {
-                "id": { "type": "string" },
-                "description": { "type": "string" },
+                "id": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
                 "status": {
                   "type": "string",
-                  "enum": ["pending", "in_progress", "completed", "blocked", "failed"]
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed",
+                    "blocked",
+                    "failed"
+                  ]
                 },
-                "service": { "type": ["string", "null"] },
-                "depends_on": { "type": "array", "items": { "type": "string" } },
-                "model": { "type": ["string", "null"], "description": "Per-subtask model override (right-sizing)." },
-                "files_to_create": { "type": "array", "items": { "type": "string" } },
-                "files_to_modify": { "type": "array", "items": { "type": "string" } },
-                "patterns_from": { "type": "array", "items": { "type": "string" } },
-                "required_commands": { "type": "array", "items": { "type": "string" } },
+                "service": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "depends_on": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Per-subtask model override (right-sizing)."
+                },
+                "files_to_create": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "files_to_modify": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "patterns_from": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "required_commands": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "verification": {
-                  "type": ["object", "null"],
+                  "type": [
+                    "object",
+                    "null"
+                  ],
                   "additionalProperties": true,
                   "properties": {
                     "type": {
                       "type": "string",
-                      "enum": ["command", "api", "browser", "component", "manual", "none", "e2e"]
+                      "enum": [
+                        "command",
+                        "api",
+                        "browser",
+                        "component",
+                        "manual",
+                        "none",
+                        "e2e"
+                      ]
                     },
-                    "run": { "type": ["string", "null"] },
-                    "url": { "type": ["string", "null"] },
-                    "method": { "type": ["string", "null"] },
-                    "expect_status": { "type": ["integer", "null"] },
-                    "expect_contains": { "type": ["string", "null"] },
-                    "scenario": { "type": ["string", "null"] }
+                    "run": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "method": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expect_status": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "expect_contains": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scenario": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
                   }
                 }
               }
@@ -116,41 +282,96 @@
         }
       }
     },
-
     "execution": {
       "type": "object",
-      "description": "HOW to execute — computed by PFactory, consumed by AIFactory. Absent => AIFactory uses its own defaults/planning.",
+      "description": "HOW to execute \u2014 computed by PFactory, consumed by AIFactory. Absent => AIFactory uses its own defaults/planning.",
       "additionalProperties": true,
       "properties": {
-        "complexity": { "type": "string", "enum": ["simple", "standard", "complex"] },
-        "model": { "type": "string", "description": "Default model (full id or shorthand opus/sonnet/haiku)." },
+        "complexity": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "complex"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "description": "Default model (full id or shorthand opus/sonnet/haiku)."
+        },
         "provider": {
           "type": "string",
           "description": "Inferred from model via phase_config.infer_provider_from_model.",
-          "enum": ["claude", "codex", "antigravity", "ollama", "copilot", "opencode", "openai-compatible", "gemini"]
+          "enum": [
+            "claude",
+            "codex",
+            "antigravity",
+            "ollama",
+            "copilot",
+            "opencode",
+            "openai-compatible",
+            "gemini"
+          ]
         },
-        "provider_rationale": { "type": "string" },
+        "provider_rationale": {
+          "type": "string"
+        },
         "phase_models": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "Per-phase model overrides keyed by spec|planning|coding|qa|qa_fixer."
         },
         "phase_thinking": {
           "type": "object",
-          "additionalProperties": { "type": "string", "enum": ["none", "low", "medium", "high"] }
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
         },
-        "parallel": { "type": "boolean" },
-        "workers": { "type": "integer", "minimum": 1 },
-        "review_tier": { "type": "string", "enum": ["auto", "async", "blocking"] },
+        "parallel": {
+          "type": "boolean"
+        },
+        "workers": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "review_tier": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "async",
+            "blocking"
+          ]
+        },
         "agents": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "planner": { "type": "boolean" },
-            "coder": { "type": "boolean" },
-            "qa_reviewer": { "type": "boolean" },
-            "qa_fixer": { "type": "boolean" },
-            "subagents": { "type": "array", "items": { "type": "string" } }
+            "planner": {
+              "type": "boolean"
+            },
+            "coder": {
+              "type": "boolean"
+            },
+            "qa_reviewer": {
+              "type": "boolean"
+            },
+            "qa_fixer": {
+              "type": "boolean"
+            },
+            "subagents": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         },
         "skills": {
@@ -158,9 +379,15 @@
           "items": {
             "type": "object",
             "properties": {
-              "id": { "type": "string" },
-              "name": { "type": "string" },
-              "category": { "type": "string" }
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              }
             }
           }
         },
@@ -170,50 +397,113 @@
         }
       }
     },
-
     "tfactory": {
       "type": "object",
-      "description": "VERIFY profile — computed by PFactory, carried by AIFactory, consumed by TFactory. Absent => TFactory infers.",
+      "description": "VERIFY profile \u2014 computed by PFactory, carried by AIFactory, consumed by TFactory. Absent => TFactory infers.",
       "additionalProperties": true,
       "properties": {
         "lanes": {
           "type": "array",
-          "items": { "type": "string", "enum": ["unit", "api", "browser", "integration", "security", "mutation"] }
+          "items": {
+            "type": "string",
+            "enum": [
+              "unit",
+              "api",
+              "browser",
+              "integration",
+              "security",
+              "mutation"
+            ]
+          }
         },
         "frameworks": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "Lane -> framework, e.g. {unit: pytest, browser: playwright}."
         },
         "endpoints": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "e.g. {api_base_url: http://localhost:8000}."
         },
-        "docker_compose": { "type": ["string", "null"], "description": "Path to a compose file for integration lanes." },
-        "coverage_target": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
-        "mutation_scope": { "type": "array", "items": { "type": "string" }, "description": "Globs/files to mutate." },
-        "security_scope": { "type": "array", "items": { "type": "string" }, "description": "Rule sets, e.g. owasp:* ; empty => out of scope." },
+        "docker_compose": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Path to a compose file for integration lanes."
+        },
+        "coverage_target": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "mutation_scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs/files to mutate."
+        },
+        "security_scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Rule sets, e.g. owasp:* ; empty => out of scope."
+        },
         "ac_to_code_map": {
           "type": "object",
-          "additionalProperties": { "type": "array", "items": { "type": "string" } },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "description": "Acceptance-criterion id -> files/functions it covers."
         }
       }
     },
-
-    "created_at": { "type": ["string", "null"] },
-    "updated_at": { "type": ["string", "null"] },
-    "spec_file": { "type": ["string", "null"] },
-
-    "access": { "$ref": "#/$defs/access" }
+    "created_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "updated_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "spec_file": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "access": {
+      "$ref": "#/$defs/access"
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    }
   },
   "$defs": {
     "access": {
       "type": "object",
       "additionalProperties": false,
-      "description": "RFC-0007 access requirements discovered at planning time. Absent => the task needs no external/authenticated resource. The curation gate sets curated/human_approval; TFactory consumes credential_ref; the VAL gate (RFC-0006) treats an un-curated requirement as a VAL-3 not_run. Secrets are NEVER stored here — only broker refs.",
-      "required": ["requirements"],
+      "description": "RFC-0007 access requirements discovered at planning time. Absent => the task needs no external/authenticated resource. The curation gate sets curated/human_approval; TFactory consumes credential_ref; the VAL gate (RFC-0006) treats an un-curated requirement as a VAL-3 not_run. Secrets are NEVER stored here \u2014 only broker refs.",
+      "required": [
+        "requirements"
+      ],
       "properties": {
         "requirements": {
           "type": "array",
@@ -221,29 +511,174 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["resource", "auth_class", "bootstrap"],
+            "required": [
+              "resource",
+              "auth_class",
+              "bootstrap"
+            ],
             "properties": {
-              "resource": { "type": "string", "description": "What is being reached, e.g. 'staging-api', 'sandbox-aws', 'keycloak-realm'." },
+              "resource": {
+                "type": "string",
+                "description": "What is being reached, e.g. 'staging-api', 'sandbox-aws', 'keycloak-realm'."
+              },
               "auth_class": {
                 "type": "string",
-                "enum": ["A-machine-native", "B-bootstrap-once", "C-ephemeral-target", "D-un-automatable"],
-                "description": "A: OIDC federation / service account / scoped token (no MFA in path). B: device-code / refresh token / TOTP-seed-as-secret / captured session (human clears MFA once). C: disposable target the pipeline owns (no prod cred). D: interactive MFA (push / hardware key / SMS) — refused or assisted, never faked."
+                "enum": [
+                  "A-machine-native",
+                  "B-bootstrap-once",
+                  "C-ephemeral-target",
+                  "D-un-automatable"
+                ],
+                "description": "A: OIDC federation / service account / scoped token (no MFA in path). B: device-code / refresh token / TOTP-seed-as-secret / captured session (human clears MFA once). C: disposable target the pipeline owns (no prod cred). D: interactive MFA (push / hardware key / SMS) \u2014 refused or assisted, never faked."
               },
-              "credential_ref": { "type": ["string", "null"], "description": "Existing broker ref the test will use: env:NAME | vault:path#field | store:<id>. Never an inline secret." },
-              "env_required": { "type": "array", "items": { "type": "string" }, "description": "Env var names the auth needs at runtime." },
-              "bootstrap": { "type": "string", "enum": ["none", "human"], "description": "human => a one-time human-verified login/seed/approval is required before this is usable." },
-              "curated": { "type": "boolean", "description": "Set true ONLY by the curation gate once the credential/target is provisioned and a liveness check passes. VAL-3 stays not_run until true." },
+              "credential_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Existing broker ref the test will use: env:NAME | vault:path#field | store:<id>. Never an inline secret."
+              },
+              "env_required": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Env var names the auth needs at runtime."
+              },
+              "bootstrap": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "human"
+                ],
+                "description": "human => a one-time human-verified login/seed/approval is required before this is usable."
+              },
+              "curated": {
+                "type": "boolean",
+                "description": "Set true ONLY by the curation gate once the credential/target is provisioned and a liveness check passes. VAL-3 stays not_run until true."
+              },
               "human_approval": {
-                "type": ["object", "null"],
+                "type": [
+                  "object",
+                  "null"
+                ],
                 "additionalProperties": false,
                 "description": "Audit trail of the human bootstrap (RFC-0001a chain).",
                 "properties": {
-                  "approved_by": { "type": "string" },
-                  "approved_at": { "type": "string" },
-                  "scope": { "type": "string", "description": "What was granted, e.g. 'sandbox account, read+deploy, auto-teardown'." }
+                  "approved_by": {
+                    "type": "string"
+                  },
+                  "approved_at": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "description": "What was granted, e.g. 'sandbox account, read+deploy, auto-teardown'."
+                  }
                 }
               },
-              "mvp_note": { "type": ["string", "null"], "description": "For auth_class D: the honest reason testing cannot pass this gate autonomously." }
+              "mvp_note": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "For auth_class D: the honest reason testing cannot pass this gate autonomously."
+              }
+            }
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "RFC-0005 environment manifest \u2014 the single source of truth for the per-task toolchain, so the build env (AIFactory) and verify env (TFactory) cannot drift. The planner writes it; the provisioner materializes a throwaway sandbox from it (Tier A Nix preferred). Absent => the task runs in whatever the consumer's default runner provides.",
+      "properties": {
+        "language": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Primary language under test, e.g. 'python', 'rust', 'go', 'typescript'."
+        },
+        "toolchain": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Pinned tool => version map, e.g. {\"rust\": \"1.90\", \"cargo\": \"1.90\"}. Versions feed the flake/devcontainer the provisioner builds."
+        },
+        "system_packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "OS/Nix package names the tests need beyond the language toolchain, e.g. ['pkg-config', 'openssl-dev', 'chromium']. For a browser lane: the browser + its libs (e.g. via nixpkgs playwright-driver.browsers)."
+        },
+        "build_commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Commands AIFactory runs to build the artifact in the materialized env."
+        },
+        "verify_commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Commands TFactory runs to verify in the SAME materialized env (no drift)."
+        },
+        "provisioning": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method"
+          ],
+          "description": "How the consumer materializes this env. The provisioner resolves it tiered (A Nix, B image catalog, C on-demand build, D setup script).",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": [
+                "nix",
+                "devcontainer",
+                "image",
+                "setup_script"
+              ],
+              "description": "nix => `nix develop -c` of `ref` (preferred, hermetic). devcontainer => devcontainer.json. image => a prebuilt registry image tag. setup_script => run `ref` inside the ephemeral container (last resort)."
+            },
+            "ref": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Path/identifier for the method: 'flake.nix' | '.devcontainer/devcontainer.json' | 'ghcr.io/.../rust:1.90' | '.factory/setup.sh'."
+            },
+            "generated": {
+              "type": "boolean",
+              "description": "true when the planner generated `ref` (and committed it as a deliverable) rather than the repo already carrying it."
+            }
+          }
+        },
+        "network": {
+          "type": "string",
+          "enum": [
+            "none",
+            "restricted"
+          ],
+          "description": "Egress posture for the materialized sandbox. 'none' for hermetic build/unit; 'restricted' when the lane must reach a declared target (RFC-0007 access)."
+        },
+        "proof": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Materialize-or-HALT evidence (RFC-0005 \u00a73.4): commands that must succeed in the provisioned env before coding/verifying proceeds.",
+          "properties": {
+            "verify": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Toolchain-presence checks, e.g. ['rustc --version', 'chromium --version']. A failure HALTs with a provisioning error, never a silent fallback."
             }
           }
         }

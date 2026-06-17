@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from plan.emit.access_block import attach_access
 from plan.emit.contract_builder import build_task_contract
+from plan.emit.environment_block import attach_environment
 from plan.emit.execution_profile import attach_execution
 from plan.emit.handoff_sanitize import attach_constraints
 from plan.emit.review_tier import attach_review_tier
@@ -137,6 +138,10 @@ def assemble_contract(
         attach_review_tier(contract, review)
     attach_verification(contract, plan, epic)
     attach_tfactory(contract, plan, epic)
+    # RFC-0005: derive the environment manifest from the tfactory lanes (must run
+    # AFTER attach_tfactory). Declares the per-task toolchain (nix provisioning)
+    # so build (AIFactory) and verify (TFactory) cannot drift.
+    attach_environment(contract)
     # Carry sanitized live-cloud enrichment as epic_context constraints (#80).
     attach_constraints(contract, plan)
     # RFC-0007: access requirements discovered from .pfactory.yml (#84) + recorded
