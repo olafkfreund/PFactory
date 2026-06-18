@@ -78,14 +78,28 @@ def _ordered_modules(contract: BehavioralContract) -> list[str]:
     return visited
 
 
+def _is_portable_module(path: str) -> bool:
+    """Skip non-source files: docs, test files, and package __init__ markers."""
+    base = path.rsplit("/", 1)[-1]
+    if path.endswith((".md", ".txt")):
+        return False
+    if base.startswith("test_") or base.endswith("_test.py") or "/tests/" in f"/{path}":
+        return False
+    return base not in ("__init__.py", "__init__.rs")
+
+
 def build_module_map(
     contract: BehavioralContract, target_language: str, *, crate: str = "port"
 ) -> dict[str, str]:
-    """source module → target module path, leaf-first (dict preserves order)."""
+    """source module → target module path, leaf-first (dict preserves order).
+
+    Excludes docs, test files, and package ``__init__`` markers — only real
+    source modules are ported.
+    """
     return {
         src: _target_path(src, target_language, crate)
         for src in _ordered_modules(contract)
-        if not src.endswith((".md", ".txt"))
+        if _is_portable_module(src)
     }
 
 

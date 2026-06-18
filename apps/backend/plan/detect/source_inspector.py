@@ -117,7 +117,10 @@ def build_behavioral_contract(
         except (SyntaxError, OSError):
             continue
 
-        # Public API: top-level non-underscore defs/classes.
+        # Public API: top-level non-underscore defs/classes. Test files are
+        # recorded under test_files, not as public surface to port/capture.
+        if _is_test(rel):
+            continue
         for node in tree.body:
             if isinstance(
                 node, (ast.FunctionDef, ast.AsyncFunctionDef)

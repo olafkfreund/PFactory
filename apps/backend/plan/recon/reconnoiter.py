@@ -126,18 +126,25 @@ def build_repo_map(
     scripts, _script_cmds, _custom = StructureAnalyzer(root).analyze()
     frameworks = FrameworkDetector(root).detect_all()
     inventory = probe_iac(root)
+    iac = iac_tools(inventory)
+    # An IaC-only repo (e.g. pure Terraform) has no code "language" by the stack
+    # detector, but a change to it still has a grounded language — the IaC tool.
+    # Fold it in so environment.language / change classification aren't blank.
+    languages = list(stack.languages)
+    if not languages and iac:
+        languages = list(iac)
     return RepoMap(
         available=True,
         repo=repo,
         base_ref=base_ref,
         commit=commit,
-        languages=list(stack.languages),
+        languages=languages,
         versions=_detect_versions(root),
         package_managers=list(stack.package_managers),
         frameworks=sorted(set(frameworks) | set(stack.frameworks)),
         databases=list(stack.databases),
         cloud_providers=list(stack.cloud_providers),
-        iac=iac_tools(inventory),
+        iac=iac,
         iac_resources=inventory,
         layout=_top_level_layout(root),
         existing_test_command=_existing_test_command(scripts),
