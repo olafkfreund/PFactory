@@ -15,6 +15,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+from plan.recon.models import RepoMap
 from pydantic import BaseModel, Field
 from spec_sources import NormalizedSpec
 
@@ -29,7 +30,7 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 def slugify(text: str, *, max_len: int = 50) -> str:
     """Lowercase, hyphenate, and trim a title into a URL/branch-safe slug."""
     slug = _SLUG_RE.sub("-", text.lower()).strip("-")
-    return (slug[:max_len].rstrip("-") or "plan")
+    return slug[:max_len].rstrip("-") or "plan"
 
 
 def make_plan_id(seq: int, title: str) -> str:
@@ -73,6 +74,11 @@ class NormalizedPlan(BaseModel):
     target_kind: TargetKind = "undetermined"
     plan_type: str | None = None
     enrichment: Enrichment = Field(default_factory=Enrichment)
+    # RFC-0010: what reconnaissance statically observed in the target repo. None
+    # until the recon stage runs (or when no target repo is given → greenfield).
+    # Excluded from canonical_content() here; Phase 4 folds a stable digest of it
+    # into the approval hash so sign-off invalidates when the repo drifts.
+    repo_map: RepoMap | None = None
     raw_text: str | None = None
     content_hash: str = ""
     ingested_at: str = Field(default_factory=_utcnow_iso)

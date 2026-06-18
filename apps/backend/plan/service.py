@@ -62,15 +62,21 @@ def _knowledge_connector_kwargs(name: str, wiki_root: str | None) -> dict[str, o
         return {k: v for k, v in pairs.items() if v}
 
     if name == "backstage":
-        return _kw(base_url=env("PFACTORY_BACKSTAGE_URL"),
-                   token=env("PFACTORY_BACKSTAGE_TOKEN"))
+        return _kw(
+            base_url=env("PFACTORY_BACKSTAGE_URL"),
+            token=env("PFACTORY_BACKSTAGE_TOKEN"),
+        )
     if name == "confluence":
-        return _kw(base_url=env("PFACTORY_CONFLUENCE_URL"),
-                   token=env("PFACTORY_CONFLUENCE_TOKEN"),
-                   email=env("PFACTORY_CONFLUENCE_EMAIL"))
+        return _kw(
+            base_url=env("PFACTORY_CONFLUENCE_URL"),
+            token=env("PFACTORY_CONFLUENCE_TOKEN"),
+            email=env("PFACTORY_CONFLUENCE_EMAIL"),
+        )
     if name == "gitbook":
-        return _kw(token=env("PFACTORY_GITBOOK_TOKEN"),
-                   space_id=env("PFACTORY_GITBOOK_SPACE_ID"))
+        return _kw(
+            token=env("PFACTORY_GITBOOK_TOKEN"),
+            space_id=env("PFACTORY_GITBOOK_SPACE_ID"),
+        )
     if name == "notion":
         return _kw(token=env("PFACTORY_NOTION_TOKEN"))
     if name == "git-markdown":
@@ -108,6 +114,12 @@ class PlanSession(BaseModel):
     session_id: str
     status: SessionStatus = "ingested"
     plan: NormalizedPlan
+    # RFC-0010: the target repo this plan changes, captured at ingest so the
+    # reconnaissance stage (Phase 2) can read it during process(). Today `repo`
+    # was only known at emit; threading it here lets planning be code-aware.
+    # `base_ref` defaults to the repo's default branch when omitted.
+    repo: str | None = None
+    base_ref: str | None = None
     epic: EpicPlan | None = None
     artifacts: list[SynthesizedArtifact] = Field(default_factory=list)
     review: PlanReview | None = None
@@ -313,6 +325,8 @@ class PlanService:
         channel: str = "portal",
         category: str = "",
         template: str = "",
+        repo: str | None = None,
+        base_ref: str | None = None,
     ) -> PlanSession:
         plan = ingest_text(
             text, source_channel=channel, title=title, seq=self._next_seq()
@@ -320,6 +334,8 @@ class PlanService:
         session = self._store(plan)
         session.selected_category = category
         session.selected_template = template
+        session.repo = repo or None  # RFC-0010: target repo for reconnaissance
+        session.base_ref = base_ref or None
         self._save(session)
         return session
 
@@ -332,6 +348,8 @@ class PlanService:
         channel: str = "portal",
         category: str = "",
         template: str = "",
+        repo: str | None = None,
+        base_ref: str | None = None,
     ) -> PlanSession:
         plan = ingest_bytes(
             data,
@@ -344,6 +362,8 @@ class PlanService:
         session.original_filename = filename  # preserve for honouring the doc (#D)
         session.selected_category = category
         session.selected_template = template
+        session.repo = repo or None  # RFC-0010: target repo for reconnaissance
+        session.base_ref = base_ref or None
         self._save(session)
         return session
 
