@@ -60,6 +60,20 @@
 
   <script src="{{ '/assets/js/pfactory.js' | relative_url }}" defer></script>
 
+  <!-- Mermaid: render ```mermaid fenced blocks (kramdown emits them as
+       <pre><code class="language-mermaid">) into diagrams, dark theme to match. -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+    document.querySelectorAll('pre > code.language-mermaid').forEach((code) => {
+      const div = document.createElement('div');
+      div.className = 'mermaid';
+      div.textContent = code.textContent;
+      code.parentElement.replaceWith(div);
+    });
+    await mermaid.run({ querySelector: '.mermaid' });
+  </script>
+
   <footer class="site-footer" role="contentinfo">
     <div class="container site-footer__inner">
       <div>

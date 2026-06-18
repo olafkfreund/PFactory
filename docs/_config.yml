@@ -41,5 +41,5 @@ exclude:
 
 # Repo + version metadata (used by the custom layout)
 repo_url: https://github.com/olafkfreund/PFactory
-release_tag: v0.1-dev
-release_url: https://github.com/olafkfreund/PFactory/issues/1
+release_tag: v0.6.16
+release_url: https://github.com/olafkfreund/PFactory/releases/tag/v0.6.16
