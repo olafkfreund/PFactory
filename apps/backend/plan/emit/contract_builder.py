@@ -189,6 +189,9 @@ def _phase_name(children: list[ChildIssue]) -> str:
 
 
 def _workflow_type(plan: NormalizedPlan) -> str:
+    # RFC-0010: a migration change_mode is, unambiguously, a migration workflow.
+    if plan.change_mode == "migration":
+        return "migration"
     pt = (plan.plan_type or "").lower()
     if pt in _PLAN_TYPE_TO_WORKFLOW:
         return _PLAN_TYPE_TO_WORKFLOW[pt]

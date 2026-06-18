@@ -20,6 +20,7 @@ from plan.emit.contract_builder import build_task_contract
 from plan.emit.environment_block import attach_environment
 from plan.emit.execution_profile import attach_execution
 from plan.emit.handoff_sanitize import attach_constraints
+from plan.emit.migration_block import attach_migration
 from plan.emit.review_tier import attach_review_tier
 from plan.emit.signing import attach_signature, key_from_env
 from plan.emit.task_contract import validate_contract
@@ -142,6 +143,9 @@ def assemble_contract(
     # AFTER attach_tfactory). Declares the per-task toolchain (nix provisioning)
     # so build (AIFactory) and verify (TFactory) cannot drift.
     attach_environment(contract)
+    # RFC-0010: for a migration, record both languages + the equivalence lane the
+    # differential verifier consumes (must run after environment + tfactory).
+    attach_migration(contract, plan)
     # Carry sanitized live-cloud enrichment as epic_context constraints (#80).
     attach_constraints(contract, plan)
     # RFC-0007: access requirements discovered from .pfactory.yml (#84) + recorded
