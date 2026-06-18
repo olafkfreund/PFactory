@@ -19,8 +19,8 @@ nav_order: 1
       How it works →
     </a>
     &nbsp;
-    <a class="hero__cta" href="https://github.com/olafkfreund/PFactory/issues/1">
-      Build epic ↗
+    <a class="hero__cta" href="{{ '/market-positioning/' | relative_url }}">
+      Why PFactory →
     </a>
     &nbsp;
     <a class="hero__cta hero__cta--ghost" href="{{ '/roadmap/' | relative_url }}">
@@ -78,22 +78,18 @@ AI velocity **with** human-grade governance, grounded in your real infrastructur
 
 <ul class="feature-row">
   <li class="feature-row__card reveal" style="--reveal-delay: 0ms">
-    <span class="feature-row__icon" aria-hidden="true">📥</span>
     <h3>Ingest any plan</h3>
     <p>Upload docx / pdf / markdown, or drive it from the MCP control plane, the CLI, or a GitHub issue / discussion. Software plans get the deep path; any deliverable is welcome.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 80ms">
-    <span class="feature-row__icon" aria-hidden="true">🛰️</span>
     <h3>Ground it in reality</h3>
     <p>Enrich with internal wikis &amp; <strong>Backstage</strong> (catalog, TechDocs, golden paths) and <em>read-only</em> introspection of running <strong>Kubernetes · OpenShift · Azure · AWS · GCP</strong> + <strong>Terraform</strong> — real load, quotas, policies.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 160ms">
-    <span class="feature-row__icon" aria-hidden="true">🧱</span>
     <h3>Decompose &amp; define</h3>
     <p>Break the work into an epic + child issues with dependencies. For software, add a generated <strong>Testing Strategy</strong> and a <strong>CI/CD</strong> pipeline definition.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 240ms">
-    <span class="feature-row__icon" aria-hidden="true">🛡️</span>
     <h3>Govern, then hand off</h3>
     <p>Mandatory <strong>architecture / security / best-practice / feasibility</strong> gates (deterministic policy-as-code + LLM lenses) and one human approval — then emit governed issues for AIFactory.</p>
   </li>
@@ -146,22 +142,18 @@ end to end:
 
 <ul class="feature-row">
   <li class="feature-row__card reveal" style="--reveal-delay: 0ms">
-    <span class="feature-row__icon">🏗️</span>
     <h3><a href="{{ '/architecture/' | relative_url }}">Architecture</a></h3>
     <p>The eight-stage planning pipeline and how it transforms inputs into governed issues.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 70ms">
-    <span class="feature-row__icon">🧭</span>
     <h3><a href="{{ '/roadmap/' | relative_url }}">Roadmap</a></h3>
     <p>Phases P0–P8, the epic, and the 26 child issues that build PFactory.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 140ms">
-    <span class="feature-row__icon">🎯</span>
     <h3><a href="{{ '/market-positioning/' | relative_url }}">Positioning</a></h3>
     <p>Where PFactory sits in the 2026 autonomous-engineering market, and the wedge.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 210ms">
-    <span class="feature-row__icon">📰</span>
     <h3><a href="{{ '/blog/' | relative_url }}">Blog</a></h3>
     <p>Notes on AI planning, governance gates, and live-infrastructure grounding.</p>
   </li>
