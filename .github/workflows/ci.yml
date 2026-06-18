@@ -44,6 +44,12 @@ jobs:
       - name: Ruff lint
         run: apps/backend/.venv/bin/ruff check apps/backend tests
 
+      - name: Schema-drift guard (RFC-0010)
+        # Fail if the vendored Task Contract schema drifts from the canonical
+        # copy in the Factory hub. Soft-skips on a network error fetching the
+        # canonical schema, so a GitHub outage can't red the build.
+        run: apps/backend/.venv/bin/python scripts/check_schema_drift.py
+
       - name: Pytest (skip slow)
         env:
           GRAPHITI_ENABLED: "false"
