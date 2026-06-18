@@ -59,7 +59,21 @@ def _epic(children):
 
 def _healthy_children():
     return [
-        ChildIssue(key="C1", title="Implement payments API", kind="feature"),
+        # A complete service feature now carries the implicit runtime ACs the
+        # completeness lens enforces (RFC-0008 §3.1, #166): boots, declares
+        # dependencies, health check, deployable. In the live pipeline these are
+        # auto-injected before gates; the fixture states them explicitly.
+        ChildIssue(
+            key="C1",
+            title="Implement payments API",
+            kind="feature",
+            acceptance_criteria=[
+                "The service starts and serves traffic without error",
+                "Declares its dependencies in requirements.txt",
+                "Exposes a /health endpoint returning 200",
+                "Deployable as a container image",
+            ],
+        ),
         ChildIssue(
             key="C2", title="Add auth middleware", kind="feature", depends_on=["C1"]
         ),
