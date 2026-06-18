@@ -402,6 +402,11 @@
         "skip_planning": {
           "type": "boolean",
           "description": "When true AND signature+completeness verify, AIFactory goes straight to the wave executor."
+        },
+        "budget_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "OPTIONAL soft cost budget in USD for the task. OBSERVE-ONLY: when AIFactory's rolled-up spend exceeds it, the terminal completion event carries a usage.budget warning block (limit_usd/spent_usd/exceeded) and an OTel budget.exceeded metric fires. NEVER aborts, pauses, or kills the build. Absent => no budget tracking (back-compat)."
         }
       }
     },
@@ -552,6 +557,9 @@
     },
     "baseline": {
       "$ref": "#/$defs/baseline"
+    },
+    "verification": {
+      "$ref": "#/$defs/verification"
     }
   },
   "$defs": {
@@ -753,6 +761,13 @@
             "null"
           ],
           "description": "RFC-0010 migration only: the language being ported TO (the deliverable), e.g. 'rust'. Mirrors `language` for migration tasks."
+        },
+        "serve_command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "How to start the app inside the materialized env for a lane that needs it running (browser/api against a live URL), e.g. 'python -m uvicorn app:app --port 8099'. Optional: when absent the consumer detects it from the checkout. Backgrounded by the runner, with a readiness wait, before the browser/api verify commands."
         }
       }
     },
@@ -870,6 +885,107 @@
               "description": "IaC changes that force resource replacement/destruction (high-severity advisory)."
             }
           }
+        }
+      }
+    },
+    "valLevel": {
+      "type": "string",
+      "enum": [
+        "VAL-0",
+        "VAL-1",
+        "VAL-2",
+        "VAL-3",
+        "VAL-4"
+      ],
+      "description": "Verification Assurance Level (RFC-0006). VAL-0 static \u00b7 VAL-1 unit \u00b7 VAL-2 ephemeral integration \u00b7 VAL-3 sandbox target \u00b7 VAL-4 production (never autonomous)."
+    },
+    "verification": {
+      "type": "object",
+      "description": "RFC-0006 honest-reporting block. A status is reported ONLY at achieved_level; every un-run/failed level carries a reason. A producer that omits this block is treated as VAL-0 (never 'tested'). The ordinal never-overclaim rule (no level marked 'passed' above achieved_level) is enforced by the verification gate (scripts/verification_gate.py), not expressible in JSON Schema alone.",
+      "additionalProperties": false,
+      "required": [
+        "target_level",
+        "achieved_level",
+        "levels"
+      ],
+      "properties": {
+        "target_level": {
+          "$ref": "#/$defs/valLevel"
+        },
+        "achieved_level": {
+          "$ref": "#/$defs/valLevel"
+        },
+        "levels": {
+          "type": "array",
+          "description": "Per-level outcome, bottom-up.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "level",
+              "status"
+            ],
+            "properties": {
+              "level": {
+                "$ref": "#/$defs/valLevel"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed",
+                  "not_run",
+                  "skipped"
+                ]
+              },
+              "ran": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Commands actually executed."
+              },
+              "evidence": {
+                "type": "string",
+                "description": "Proof, e.g. 'idempotence: 0 changed'."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why not passed \u2014 REQUIRED for failed/not_run/skipped."
+              },
+              "risk": {
+                "type": "string",
+                "description": "Plain-language consequence of this gap for the user."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "failed",
+                        "not_run",
+                        "skipped"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "reason"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "claim": {
+          "type": "string",
+          "description": "Mandatory honest one-liner stating what was and was NOT verified."
         }
       }
     }
