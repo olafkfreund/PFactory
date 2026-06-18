@@ -108,6 +108,23 @@ def test_behavioral_contract_extraction(tmp_path: Path):
 # ── migration planner ───────────────────────────────────────────────────
 
 
+def test_module_map_excludes_tests_and_init(tmp_path: Path):
+    (tmp_path / "pay").mkdir()
+    (tmp_path / "pay" / "__init__.py").write_text("")
+    (tmp_path / "pay" / "refund.py").write_text("def refund(a):\n    return a\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_refund.py").write_text(
+        "def test_x():\n    assert True\n"
+    )
+    c = build_behavioral_contract(tmp_path)
+    # test functions are not public surface to port/capture
+    assert "test_x" not in {s.name for s in c.public_api}
+    mm = build_module_map(c, "rust", crate="port")
+    assert mm == {
+        "pay/refund.py": "rust/port/src/pay/refund.rs"
+    }  # no __init__, no tests
+
+
 def test_module_map_and_corpus(tmp_path: Path):
     (tmp_path / "a.py").write_text("def f():\n    return 1\n")
     (tmp_path / "b.py").write_text("from a import f\n\ndef g():\n    return f()\n")

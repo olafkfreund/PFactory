@@ -70,6 +70,15 @@ def test_probe_empty_repo_returns_empty(tmp_path: Path):
 # ── RepoMap building (no clone, no execution) ───────────────────────────
 
 
+def test_build_repo_map_iac_only_folds_iac_into_languages(tmp_path: Path):
+    # A pure-Terraform repo has no code language; the IaC tool becomes the
+    # grounded language so environment.language isn't blank.
+    _write(tmp_path / "eks.tf", 'resource "aws_eks_cluster" "main" {}\n')
+    rm = build_repo_map(tmp_path, repo="o/infra", base_ref="main", commit="c0")
+    assert rm.iac == ["terraform"]
+    assert rm.languages == ["terraform"]
+
+
 def test_build_repo_map_python_terraform(tmp_path: Path):
     _write(tmp_path / "pyproject.toml", '[project]\nrequires-python = ">=3.11"\n')
     _write(tmp_path / "Makefile", "test:\n\tpytest\n")
