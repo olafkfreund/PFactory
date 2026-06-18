@@ -623,6 +623,13 @@ class PlanService:
         # the machine-readable pfactory:meta block AIFactory/TFactory parse.
         labels = taxonomy_labels(session.plan, session.epic, session.review)
         meta = pfactory_meta_block(session.plan, session.epic, session.review)
+        # Idempotent re-emit (#119): if a prior attempt already created the epic
+        # (and possibly some children) for this session, reuse them instead of
+        # creating duplicates. The numbers survive a partial failure because we
+        # persist them below regardless of `result.errors`.
+        prior = session.emit_result or {}
+        existing_epic = session.emitted_issue_number or prior.get("epic_number")
+        existing_children = prior.get("child_numbers") or {}
         result = emit_to_github(
             session.epic,
             repo=repo,
@@ -632,13 +639,19 @@ class PlanService:
             extra_labels=labels,
             meta_block=meta,
             gh=gh,
+            existing_epic_number=existing_epic if not dry_run else None,
+            existing_child_numbers=existing_children if not dry_run else None,
         )
         session.emit_result = result.model_dump()
+        # Persist the epic number as soon as it exists — even on a PARTIAL emit
+        # (some children failed). This is what makes a retry idempotent: the next
+        # emit reuses this epic rather than spawning a duplicate (#119).
+        if not dry_run and result.epic_number is not None:
+            session.emitted_issue_number = result.epic_number
         if not dry_run and not result.errors:
             session.status = "emitted"
-            # Persist the upstream correlation id (the emitted epic issue#) and the
-            # shared key, then emit the terminal completion event (#47).
-            session.emitted_issue_number = result.epic_number
+            # Persist the shared correlation key, then emit the terminal
+            # completion event (#47).
             session.correlation_key = correlation_key_for(session)
             notify_completion(session)
             # Documentation emit (P1) — gated + best-effort. Default OFF, never

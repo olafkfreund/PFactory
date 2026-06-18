@@ -23,6 +23,7 @@ from plan.emit import (  # noqa: E402
     trigger_api,
     write_requirements,
 )
+from plan.emit.gh_runner import GhRunnerError  # noqa: E402
 from plan.models import NormalizedPlan  # noqa: E402
 from plan.review.models import HumanApproval, LensScore, PlanReview  # noqa: E402
 
@@ -161,6 +162,97 @@ def test_emit_refuses_ungoverned_plan() -> None:
     assert gh.created == []  # FakeGh NOT called
     assert gh.links == []
     assert result.epic_number is None
+
+
+# ── #119: idempotent + rate-limit-resilient emit ─────────────────────────
+
+
+class FlakyGh:
+    """A gh runner that fails on a schedule, to exercise the resilience paths.
+
+    - ``fail_times``: the first N ``create_issue`` calls raise a *retryable*
+      (secondary-rate-limit) error before any succeed.
+    - ``always_fail_titles``: any issue with one of these titles always raises a
+      *non-retryable* error (exercises continue-past-failure).
+    """
+
+    def __init__(
+        self,
+        *,
+        fail_times: int = 0,
+        always_fail_titles: tuple[str, ...] = (),
+    ) -> None:
+        self.created: list[dict[str, object]] = []
+        self.links: list[tuple[int, int]] = []
+        self._next = 100
+        self._remaining = fail_times
+        self._always_fail = always_fail_titles
+
+    def create_issue(self, title: str, body: str, labels: list[str]) -> int:
+        if title in self._always_fail:
+            raise GhRunnerError("gh issue create failed: validation: bad label")
+        if self._remaining > 0:
+            self._remaining -= 1
+            raise GhRunnerError(
+                "gh issue create failed: You have exceeded a secondary rate "
+                "limit. Please retry after 60 seconds."
+            )
+        self._next += 1
+        self.created.append({"title": title, "labels": labels})
+        return self._next
+
+    def link_sub_issue(self, parent: int, child: int) -> None:
+        self.links.append((parent, child))
+
+
+def test_emit_retries_transient_rate_limit_then_succeeds() -> None:
+    # First two create_issue calls trip a secondary rate limit, then succeed.
+    gh = FlakyGh(fail_times=2)
+    slept: list[float] = []
+    result = emit_to_github(
+        _epic(), repo="acme/widget", gh=gh, dry_run=False, sleep_fn=slept.append
+    )
+    # Epic + all three children eventually created, no errors surfaced.
+    assert result.errors == []
+    assert result.epic_number is not None
+    assert set(result.child_numbers) == {"C1", "C2", "C3"}
+    # Backoff actually slept between the transient failures.
+    assert len(slept) == 2
+
+
+def test_emit_reuses_existing_epic_and_children_idempotently() -> None:
+    gh = FakeGh()
+    result = emit_to_github(
+        _epic(),
+        repo="acme/widget",
+        gh=gh,
+        dry_run=False,
+        existing_epic_number=42,
+        existing_child_numbers={"C1": 7},
+    )
+    # Epic reused (not created); C1 reused; only C2 + C3 created.
+    assert result.epic_number == 42
+    assert result.child_numbers["C1"] == 7
+    assert [c["title"] for c in gh.created] == ["Wire widget config", "Test the widget"]
+    # Only the newly-created children are linked under the reused epic.
+    assert gh.links == [
+        (42, result.child_numbers["C2"]),
+        (42, result.child_numbers["C3"]),
+    ]
+
+
+def test_emit_continues_past_a_failing_child_and_records_it() -> None:
+    # C2 ("Wire widget config") always fails with a non-retryable error.
+    gh = FlakyGh(always_fail_titles=("Wire widget config",))
+    result = emit_to_github(
+        _epic(), repo="acme/widget", gh=gh, dry_run=False, sleep_fn=lambda _s: None
+    )
+    # Epic + C1 + C3 created; C2 recorded as an error but did not abort the rest.
+    assert result.epic_number is not None
+    assert set(result.child_numbers) == {"C1", "C3"}
+    assert len(result.errors) == 1 and "C2" in result.errors[0]
+    # Only the children that succeeded are linked.
+    assert result.child_numbers["C3"] in {c for _p, c in gh.links}
 
 
 # ── aifactory handoff ───────────────────────────────────────────────────

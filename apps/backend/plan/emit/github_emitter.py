@@ -19,7 +19,8 @@ create issues for an ungoverned plan.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+import time
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,57 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from plan.decompose.models import ChildIssue, EpicPlan
     from plan.models import NormalizedPlan
     from plan.review.models import PlanReview
+
+
+# Substrings that mark a *transient* GitHub failure worth retrying — secondary
+# rate limits / abuse detection / throttling (#119). Matched case-insensitively
+# against the GhRunnerError message, which carries gh's stderr. A genuine error
+# (bad label, auth, validation) won't match, so it fails fast without retrying.
+_RETRYABLE_MARKERS = (
+    "rate limit",
+    "secondary rate",
+    "abuse detection",
+    "retry after",
+    "submitted too quickly",
+    "exceeded a secondary",
+    "http 403",
+    "http 429",
+)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """True when ``exc`` looks like a transient GitHub rate-limit/throttle."""
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _RETRYABLE_MARKERS)
+
+
+def _create_issue_resilient(
+    gh: GhRunner,
+    title: str,
+    body: str,
+    labels: list[str],
+    *,
+    attempts: int = 4,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    backoff_base: float = 2.0,
+) -> int:
+    """Create one issue, retrying transient rate-limit failures with backoff.
+
+    Retries only on a :func:`_is_retryable` error (secondary rate limit / abuse
+    detection / 403 throttle), sleeping ``backoff_base ** attempt`` seconds
+    between tries. A non-retryable error (or the final attempt) re-raises so the
+    caller can record it and move on — see :func:`emit_to_github` (#119).
+    """
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return gh.create_issue(title, body, labels)
+        except Exception as exc:  # noqa: BLE001 — classify then re-raise
+            last = exc
+            if not _is_retryable(exc) or attempt == attempts - 1:
+                raise
+            sleep_fn(backoff_base ** attempt)
+    raise last  # pragma: no cover - loop always returns or raises above
 
 
 def _dedup(labels: list[str]) -> list[str]:
@@ -130,6 +182,9 @@ def emit_to_github(
     dry_run: bool = True,
     extra_labels: list[str] | None = None,
     meta_block: str = "",
+    existing_epic_number: int | None = None,
+    existing_child_numbers: dict[str, int] | None = None,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> EmitResult:
     """Emit an :class:`EpicPlan` as a GitHub epic + child issues.
 
@@ -142,14 +197,23 @@ def emit_to_github(
         dry_run: When ``True`` (default) no issues are created — the payloads
             that *would* be sent are returned in :attr:`EmitResult.planned`.
         extra_labels: Labels applied to every created issue (e.g. handoff tags).
+        existing_epic_number: When set, reuse this epic instead of creating a new
+            one — idempotent recovery after a partial emit, so a retry never
+            duplicates the epic (#119).
+        existing_child_numbers: ``{child.key: issue#}`` already created in a prior
+            attempt; those children are reused (not re-created), and only the
+            missing ones are created (#119).
+        sleep_fn: Injected sleep seam for the retry backoff (tests pass a no-op).
 
     Behaviour:
         * Live emit refuses an ungoverned plan: if ``review`` is provided and
           not ready, returns an :class:`EmitResult` with an error and creates
           nothing.
         * Dry-run fills :attr:`EmitResult.planned` (epic first, then children).
-        * Live emit creates the epic, then each child, then links the children
-          as sub-issues, recording numbers in :attr:`EmitResult.child_numbers`.
+        * Live emit reuses any ``existing_epic_number``/``existing_child_numbers``
+          (idempotent), creates the rest with retry-on-rate-limit, CONTINUES past
+          a single child failure, then links the newly-created children as
+          sub-issues — recording numbers in :attr:`EmitResult.child_numbers`.
     """
     if not dry_run and review is not None and not review.ready_to_emit(plan):
         return EmitResult(
@@ -178,21 +242,57 @@ def emit_to_github(
         )
 
     errors: list[str] = []
-    epic_number = gh.create_issue(
-        epic_pl["title"], epic_pl["body"], list(epic_pl["labels"])
-    )
 
+    # Idempotency (#119): reuse an epic already created for this session rather
+    # than creating a duplicate. The caller (PlanService.emit) passes the prior
+    # epic number whenever a previous attempt created it — even one that then
+    # failed mid-children — so a retry recovers instead of spawning epic #N+1.
+    if existing_epic_number is not None:
+        epic_number = existing_epic_number
+    else:
+        try:
+            epic_number = _create_issue_resilient(
+                gh, epic_pl["title"], epic_pl["body"], list(epic_pl["labels"]),
+                sleep_fn=sleep_fn,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # No epic means nothing to attach children to — fail the whole emit
+            # (and create nothing else), leaving a clean retry.
+            return EmitResult(
+                dry_run=False,
+                errors=[f"failed to create epic issue: {exc}"],
+            )
+
+    # Resilient + idempotent child creation (#119): reuse children already made
+    # in a prior attempt (keyed by child.key), retry transient rate-limit errors
+    # with backoff, and CONTINUE past a single child failure so one throttled
+    # child can't strand the rest. A failed child is recorded in ``errors`` and
+    # re-attempted on the next emit (the epic + good children are reused).
+    reused = dict(existing_child_numbers or {})
     child_numbers: dict[str, int] = {}
+    newly_created: list[int] = []
     for child in epic.children:
+        if child.key in reused:
+            child_numbers[child.key] = reused[child.key]
+            continue
         pl = _child_payload(child, epic_number=epic_number, extra_labels=extra_labels,
                             meta_block=meta_block)
-        number = gh.create_issue(pl["title"], pl["body"], list(pl["labels"]))
+        try:
+            number = _create_issue_resilient(
+                gh, pl["title"], pl["body"], list(pl["labels"]), sleep_fn=sleep_fn,
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"failed to create child issue {child.key!r}: {exc}")
+            continue
         child_numbers[child.key] = number
+        newly_created.append(number)
 
+    # Link only the children we created THIS call as sub-issues (best-effort);
+    # reused children were already linked by the attempt that created them.
     warnings: list[str] = []
     link = getattr(gh, "link_sub_issue", None)
     if callable(link):
-        for number in child_numbers.values():
+        for number in newly_created:
             try:
                 link(epic_number, number)
             except Exception as exc:  # pragma: no cover - defensive
