@@ -172,4 +172,31 @@ def create_plan_tools() -> list:
 
     tools.append(plan_approve)
 
+    @tool(
+        "plan_export_audit_pack",
+        "Export the EU AI Act audit pack for a session (#122): a self-contained "
+        "bundle of the source doc, review findings + citations, human approval, "
+        "signed Task Contract, completion timeline, and TFactory verdict (if "
+        "present), cross-referenced to EU AI Act obligation headings. `format` is "
+        "'json' (default) or 'markdown'. NOTE: a descriptive evidence bundle, not "
+        "a compliance attestation — the pack carries an explicit disclaimer.",
+        {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "format": {"type": "string", "enum": ["json", "markdown"]},
+            },
+            "required": ["session_id"],
+        },
+    )
+    async def plan_export_audit_pack(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return _ok(agent_api.plan_export_audit_pack(
+                args["session_id"], fmt=args.get("format", "json"),
+            ))
+        except Exception as exc:  # noqa: BLE001
+            return _err(str(exc))
+
+    tools.append(plan_export_audit_pack)
+
     return tools

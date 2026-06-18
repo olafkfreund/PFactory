@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,6 +167,28 @@ async def get_session(session_id: str) -> dict:
         return _session_dict(SERVICE.get(session_id))
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/audit-pack")
+async def audit_pack(session_id: str, format: str = "json"):
+    """Export the EU AI Act audit pack for a session (#122).
+
+    ``format=json`` (default) returns the structured pack; ``format=markdown``
+    returns the human-readable export as ``text/markdown``. A descriptive
+    evidence bundle, not a compliance attestation (see the pack disclaimer).
+    """
+    from plan.emit.audit_pack import build_audit_pack, render_markdown
+
+    try:
+        session = SERVICE.get(session_id)
+    except PlanServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    pack = build_audit_pack(session)
+    if format == "markdown":
+        return PlainTextResponse(
+            render_markdown(pack), media_type="text/markdown"
+        )
+    return pack.model_dump()
 
 
 @router.post("/{session_id}/process")
