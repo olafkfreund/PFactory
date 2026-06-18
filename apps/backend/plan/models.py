@@ -79,6 +79,10 @@ class NormalizedPlan(BaseModel):
     # Excluded from canonical_content() here; Phase 4 folds a stable digest of it
     # into the approval hash so sign-off invalidates when the repo drifts.
     repo_map: RepoMap | None = None
+    # RFC-0010: the reconnaissance verdict — greenfield | modify | migration.
+    # None until the recon stage runs. Excluded from canonical_content() here;
+    # Phase 4 folds it into the approval-hash digest.
+    change_mode: str | None = None
     raw_text: str | None = None
     content_hash: str = ""
     ingested_at: str = Field(default_factory=_utcnow_iso)

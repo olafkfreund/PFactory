@@ -28,7 +28,7 @@ from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import NormalizedPlan
 from plan.plan_types import apply as plan_type_apply
 from plan.plan_types import select_for
-from plan.recon import reconnoiter
+from plan.recon import classify_change_mode, reconnoiter
 from plan.review.approval import approve as approve_review
 from plan.review.approval import reject as reject_review
 from plan.review.gates import run_gates
@@ -494,7 +494,13 @@ class PlanService:
         if plan.target_kind == "non-software" or not session.repo:
             return plan
         repo_map = reconnoiter(session.repo, session.base_ref)
-        return plan.model_copy(update={"repo_map": repo_map})
+        # RFC-0010 #109: classify the change grounded in what recon found. The
+        # migration signal (directional rewrite) is wired in Phase 5; until then
+        # a code-bearing repo is `modify`, an unreadable/empty one `greenfield`.
+        change_mode = classify_change_mode(repo_map)
+        return plan.model_copy(
+            update={"repo_map": repo_map, "change_mode": change_mode}
+        )
 
     def _enrich(self, plan: NormalizedPlan) -> NormalizedPlan:
         """Attach live infra context from the adapters named in
