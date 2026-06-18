@@ -18,6 +18,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from plan.enrich.relevance import is_cloud_relevant
+from plan.recon.delta import blast_radius, compute_footprints
 from plan.recon.language_reconcile import reconcile_language
 from plan.review.models import Finding
 from plan.review.readiness.models import ReadinessCheckResult, ReadinessReport
@@ -172,6 +173,64 @@ def _language_reconciled(
             "repo_language": rec.repo_language,
             "change_mode": plan.change_mode,
         },
+    )
+
+
+@check("change-footprint-surfaced")
+def _change_footprint_surfaced(
+    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+) -> ReadinessCheckResult:
+    """A modify/migration plan must be grounded in a repo it actually read (RFC-0010).
+
+    Surfaces what the plan will touch (files + blast radius) so the human approves
+    a grounded delta, not prose. Hard-fails when the plan claims to modify/migrate
+    a repo but reconnaissance never read it (the exact silent-guess failure this
+    feature exists to prevent). Greenfield → not_applicable.
+    """
+    mode = plan.change_mode
+    rm = plan.repo_map
+    if mode not in ("modify", "migration"):
+        return ReadinessCheckResult(
+            check_id="change-footprint-surfaced",
+            title="Change footprint surfaced for review",
+            status="not_applicable",
+            detail="Greenfield plan — no existing-code footprint to surface.",
+        )
+    if rm is None or not rm.available:
+        return ReadinessCheckResult(
+            check_id="change-footprint-surfaced",
+            title="Change footprint surfaced for review",
+            status="fail",
+            severity="high",
+            hard=True,
+            waivable=True,
+            detail=(
+                f"Plan is change_mode={mode} but reconnaissance could not read the "
+                f"repo ({rm.error if rm else 'no repo_map'}). It would modify code "
+                "it never saw."
+            ),
+            remediation=(
+                "Ensure the target repo + base_ref are set and readable (recon "
+                "token for private repos), or waive to proceed greenfield-style."
+            ),
+        )
+    footprints = compute_footprints(plan, epic)
+    radius = blast_radius(footprints, rm)
+    return ReadinessCheckResult(
+        check_id="change-footprint-surfaced",
+        title="Change footprint surfaced for review",
+        status="pass",
+        detail=(
+            f"Grounded at {rm.repo}@{(rm.commit or '')[:8]}; "
+            f"touches {len(radius.get('files', []))} file(s)."
+            + (
+                f" Destructive IaC: {', '.join(radius['destructive_iac'])}."
+                if radius.get("destructive_iac")
+                else ""
+            )
+        ),
+        severity="high" if radius.get("destructive_iac") else "info",
+        evidence={"change_mode": mode, **radius},
     )
 
 

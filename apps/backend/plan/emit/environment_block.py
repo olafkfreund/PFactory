@@ -44,13 +44,13 @@ def derive_environment(contract: dict) -> dict | None:
     frameworks: dict[str, str] = dict(tf.get("frameworks") or {})
 
     unit_fw = frameworks.get("unit", "pytest")
-    language = "python" if unit_fw == "pytest" else "typescript"
+    # The test-framework language drives the lane commands + proof (pytest→python,
+    # jest→node); this is what TFactory actually runs.
+    lane_language = "python" if unit_fw == "pytest" else "typescript"
     browser = "browser" in lanes
 
-    lane_cmd = _PY_LANE_CMD if language == "python" else _NODE_LANE_CMD
-    verify_commands: list[str] = [
-        lane_cmd[ln] for ln in lanes if ln in lane_cmd
-    ]
+    lane_cmd = _PY_LANE_CMD if lane_language == "python" else _NODE_LANE_CMD
+    verify_commands: list[str] = [lane_cmd[ln] for ln in lanes if ln in lane_cmd]
     if browser:
         # The Nix `playwright` binary (not npx) — see nix_provisioner.
         verify_commands.append("playwright test")
@@ -62,18 +62,29 @@ def derive_environment(contract: dict) -> dict | None:
     needs_net = browser or "api" in lanes or "integration" in lanes
     network = "restricted" if needs_net else "none"
 
-    proof: list[str] = ["python --version" if language == "python" else "node --version"]
+    proof: list[str] = [
+        "python --version" if lane_language == "python" else "node --version"
+    ]
     if browser:
         proof.append("playwright --version")
 
+    # RFC-0010: report the repo's actual primary language + pinned versions when
+    # reconnaissance grounded the plan (the manifest's source of truth), else the
+    # framework-derived language.
+    baseline = contract.get("baseline") or {}
+    reported_language = (baseline.get("languages") or [lane_language])[0]
+
     env: dict[str, Any] = {
-        "language": language,
+        "language": reported_language,
         "verify_commands": verify_commands,
         "system_packages": system_packages,
         "provisioning": {"method": "nix", "ref": "flake.nix", "generated": True},
         "network": network,
         "proof": {"verify": proof},
     }
+    versions = baseline.get("versions") or {}
+    if versions:
+        env["toolchain"] = dict(versions)
     return env
 
 

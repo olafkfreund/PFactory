@@ -31,20 +31,53 @@ _SCHEMA_PATH = Path(__file__).parent / "contracts" / "task-contract.schema.json"
 # truth when jsonschema is available).
 _CONTRACT_VERSIONS = {"1", "2"}
 _WORKFLOW_TYPES = {
-    "feature", "refactor", "investigation", "migration",
-    "simple", "development", "enhancement",
+    "feature",
+    "refactor",
+    "investigation",
+    "migration",
+    "simple",
+    "development",
+    "enhancement",
 }
 _PHASE_TYPES = {"setup", "implementation", "investigation", "integration", "cleanup"}
 _SUBTASK_STATUS = {"pending", "in_progress", "completed", "blocked", "failed"}
-_VERIFICATION_TYPES = {"command", "api", "browser", "component", "manual", "none", "e2e"}
+_VERIFICATION_TYPES = {
+    "command",
+    "api",
+    "browser",
+    "component",
+    "manual",
+    "none",
+    "e2e",
+}
 _COMPLEXITY = {"simple", "standard", "complex"}
 _PROVIDERS = {
-    "claude", "codex", "antigravity", "ollama", "copilot",
-    "opencode", "openai-compatible", "gemini",
+    "claude",
+    "codex",
+    "antigravity",
+    "ollama",
+    "copilot",
+    "opencode",
+    "openai-compatible",
+    "gemini",
 }
 _REVIEW_TIERS = {"auto", "async", "blocking"}
-_TFACTORY_LANES = {"unit", "api", "browser", "integration", "security", "mutation"}
-_APPROVAL_REQUIRED = ("approved_by", "approval_timestamp", "plan_contract_version", "signature")
+_TFACTORY_LANES = {
+    "unit",
+    "api",
+    "browser",
+    "integration",
+    "security",
+    "mutation",
+    "equivalence",
+}
+_CHANGE_MODES = {"greenfield", "modify", "migration"}  # RFC-0010
+_APPROVAL_REQUIRED = (
+    "approved_by",
+    "approval_timestamp",
+    "plan_contract_version",
+    "signature",
+)
 
 
 class ContractValidationError(ValueError):
@@ -126,6 +159,7 @@ def _structural_validate(contract: Any) -> list[str]:
 
     _enum(contract.get("contract_version"), _CONTRACT_VERSIONS, "contract_version")
     _enum(contract.get("workflow_type"), _WORKFLOW_TYPES, "workflow_type")
+    _enum(contract.get("change_mode"), _CHANGE_MODES, "change_mode")  # RFC-0010
 
     # phases: non-empty array of well-formed phase objects.
     phases = contract.get("phases")

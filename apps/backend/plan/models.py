@@ -103,6 +103,17 @@ class NormalizedPlan(BaseModel):
             self.plan_type or "",
             *[f"{c.id}:{c.text.strip()}" for c in self.criteria],
         ]
+        # RFC-0010: fold a STABLE digest of the reconnaissance grounding into the
+        # approval hash so sign-off invalidates when the repo drifts, yet stays
+        # idempotent on the same commit. Uses only stable facts (baseline commit +
+        # change_mode + primary language) — the file footprint is a pure function
+        # of the commit, so the commit already captures it. Greenfield plans (no
+        # repo_map) add nothing, preserving the historical hash.
+        if self.repo_map is not None and self.repo_map.available:
+            primary = self.repo_map.languages[0] if self.repo_map.languages else ""
+            parts.append(
+                f"recon:{self.repo_map.commit or ''}:{self.change_mode or ''}:{primary}"
+            )
         return "\n".join(parts)
 
     def compute_hash(self) -> str:
