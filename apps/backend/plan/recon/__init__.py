@@ -17,5 +17,6 @@ This package is introduced in phases:
 """
 
 from plan.recon.models import RepoMap
+from plan.recon.reconnoiter import build_repo_map, reconnoiter
 
-__all__ = ["RepoMap"]
+__all__ = ["RepoMap", "build_repo_map", "reconnoiter"]
