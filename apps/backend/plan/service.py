@@ -28,6 +28,7 @@ from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import NormalizedPlan
 from plan.plan_types import apply as plan_type_apply
 from plan.plan_types import select_for
+from plan.recon import reconnoiter
 from plan.review.approval import approve as approve_review
 from plan.review.approval import reject as reject_review
 from plan.review.gates import run_gates
@@ -407,7 +408,12 @@ class PlanService:
         # in-progress while we detect/enrich/decompose/synthesize, AI-review while
         # the gates run. (Synchronous callers just see the final "processed".)
         session.status = "processing"
-        plan = self._enrich(plan_type_apply(detect_apply(session.plan)))
+        # RFC-0010: reconnaissance runs between detect and plan-type — software is
+        # already known (skip recon otherwise), and the RepoMap must inform
+        # plan-type selection, decomposition and the language used at emit.
+        detected = detect_apply(session.plan)
+        detected = self._reconnoiter(session, detected)
+        plan = self._enrich(plan_type_apply(detected))
         descriptor = select_for(plan)
         usage_sink: list[PlanUsage] = []
         epic = decompose(plan, descriptor=descriptor, llm=llm, usage_sink=usage_sink)
@@ -472,6 +478,23 @@ class PlanService:
         session.status = "processed"
         self._save(session)
         return session
+
+    def _reconnoiter(
+        self, session: PlanSession, plan: NormalizedPlan
+    ) -> NormalizedPlan:
+        """Attach a static :class:`RepoMap` of the target repo (RFC-0010, #108).
+
+        Reads the repo **statically, read-only** — never executes its code (see
+        :mod:`plan.recon.clone`). Skipped for non-software plans and when no
+        target repo was supplied at ingest; in both cases the plan stays in
+        greenfield mode (``repo_map`` left ``None``). Never raises:
+        :func:`reconnoiter` already degrades unreachable repos to an unavailable
+        RepoMap, so a failure here cannot break the run.
+        """
+        if plan.target_kind == "non-software" or not session.repo:
+            return plan
+        repo_map = reconnoiter(session.repo, session.base_ref)
+        return plan.model_copy(update={"repo_map": repo_map})
 
     def _enrich(self, plan: NormalizedPlan) -> NormalizedPlan:
         """Attach live infra context from the adapters named in
