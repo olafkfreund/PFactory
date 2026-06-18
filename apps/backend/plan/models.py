@@ -83,6 +83,12 @@ class NormalizedPlan(BaseModel):
     # None until the recon stage runs. Excluded from canonical_content() here;
     # Phase 4 folds it into the approval-hash digest.
     change_mode: str | None = None
+    # RFC-0010 migration (Phase 5): the languages being ported from/to, and the
+    # migration metadata (golden-corpus manifest + tfactory.equivalence block)
+    # the downstream factories consume. None outside a migration.
+    source_language: str | None = None
+    target_language: str | None = None
+    migration: dict[str, Any] | None = None
     raw_text: str | None = None
     content_hash: str = ""
     ingested_at: str = Field(default_factory=_utcnow_iso)

@@ -20,8 +20,14 @@ from pathlib import Path
 
 from plan.annotate import AnnotationResult, annotate_plan
 from plan.completion import correlation_key_for, notify_completion
+from plan.decompose.migration_planner import (
+    build_equivalence_block,
+    build_golden_corpus_manifest,
+)
 from plan.decompose.models import EpicPlan
 from plan.decompose.planner import decompose
+from plan.detect.migration_classifier import classify_migration
+from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply
 from plan.detect.target_classifier import classify_plan
 from plan.ingest.channels import ingest_bytes, ingest_text
@@ -494,13 +500,30 @@ class PlanService:
         if plan.target_kind == "non-software" or not session.repo:
             return plan
         repo_map = reconnoiter(session.repo, session.base_ref)
-        # RFC-0010 #109: classify the change grounded in what recon found. The
-        # migration signal (directional rewrite) is wired in Phase 5; until then
-        # a code-bearing repo is `modify`, an unreadable/empty one `greenfield`.
-        change_mode = classify_change_mode(repo_map)
-        return plan.model_copy(
-            update={"repo_map": repo_map, "change_mode": change_mode}
-        )
+        # RFC-0010 #111: a directional rewrite ("port X from L1 to L2", L1 == repo
+        # language) is a migration, not a #109 language conflict.
+        signal = classify_migration(plan, repo_map)
+        change_mode = classify_change_mode(repo_map, is_migration=signal.is_migration)
+        update: dict = {"repo_map": repo_map, "change_mode": change_mode}
+        if signal.is_migration:
+            update["source_language"] = signal.source_language
+            update["target_language"] = signal.target_language
+            # Extract the behavioral contract (AST-only) + declare the migration
+            # metadata the downstream factories consume.
+            contract = inspect_source(
+                session.repo, session.base_ref, signal.source_language or "python"
+            )
+            if contract is not None:
+                update["migration"] = {
+                    "source_language": signal.source_language,
+                    "target_language": signal.target_language,
+                    "behavioral_contract": contract.to_dict(),
+                    "golden_corpus": build_golden_corpus_manifest(contract),
+                    "equivalence": build_equivalence_block(
+                        contract, signal.target_language or "rust"
+                    ),
+                }
+        return plan.model_copy(update=update)
 
     def _enrich(self, plan: NormalizedPlan) -> NormalizedPlan:
         """Attach live infra context from the adapters named in
