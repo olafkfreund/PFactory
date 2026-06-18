@@ -35,6 +35,10 @@ class IngestTextBody(BaseModel):
     channel: str = "portal"
     category: str = ""  # intake category (#E)
     template: str = ""  # selected template — its policy is enforced (#E)
+    # RFC-0010: the target repo (owner/name) this plan changes, so reconnaissance
+    # can read its existing code at process() time. Optional → greenfield.
+    repo: str | None = None
+    base_ref: str | None = None  # branch/tag; default repo branch when omitted
 
 
 class ApproveBody(BaseModel):
@@ -134,6 +138,8 @@ async def ingest_text(body: IngestTextBody) -> dict:
             channel=body.channel,
             category=body.category,
             template=body.template,
+            repo=body.repo,
+            base_ref=body.base_ref,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -146,6 +152,8 @@ async def ingest_upload(
     title: str | None = Form(None),
     category: str = Form(""),
     template: str = Form(""),
+    repo: str | None = Form(None),
+    base_ref: str | None = Form(None),
 ) -> dict:
     data = await file.read()
     try:
@@ -155,6 +163,8 @@ async def ingest_upload(
             title=title,
             category=category,
             template=template,
+            repo=repo,
+            base_ref=base_ref,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
