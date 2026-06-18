@@ -393,7 +393,15 @@ def create_app() -> FastAPI:
     # Health check endpoint (no auth required)
     @app.get("/api/health")
     async def health_check():
-        return {"status": "healthy", "version": app.version}
+        from .provider_health import provider_credential_health
+
+        return {
+            "status": "healthy",
+            "version": app.version,
+            # Provider-credential config pre-flight (#109) — booleans only, no
+            # secrets; CFactory surfaces it as a provider-auth health tile.
+            "provider_auth": provider_credential_health(),
+        }
 
     # Mount static files for SPA (if build directory exists).
     #
