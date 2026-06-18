@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from plan import plan_types
 from plan.review.lenses.base import register_lens
-from plan.review.models import Finding, LensScore
+from plan.review.models import Citation, Finding, LensScore
 
 if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
@@ -55,17 +55,36 @@ class BestPracticesLens:
                 )
             )
 
-        # Reward alignment with golden-path knowledge when present.
-        if plan.enrichment.knowledge:
+        # Reward alignment with golden-path knowledge when present — and CITE the
+        # actual surfaced references (title + uri) so the reviewer sees the org
+        # guidance the plan should follow, not just a count.
+        knowledge = [k for k in plan.enrichment.knowledge if isinstance(k, dict)]
+        if knowledge:
+            ranked = sorted(
+                knowledge, key=lambda k: float(k.get("score") or 0.0), reverse=True
+            )
+            citations = [
+                Citation(
+                    why="Surfaced from your org's knowledge sources — the plan should follow it.",
+                    uri=str(k.get("uri") or ""),
+                    title=str(k.get("title") or k.get("uri") or "untitled"),
+                    source=f"knowledge:{k.get('connector') or 'unknown'}",
+                )
+                for k in ranked[:8]
+                if (k.get("uri") or k.get("title"))
+            ]
+            top = ", ".join(c.title for c in citations[:3]) or "org guidance"
             findings.append(
                 Finding(
                     title="Golden-path guidance available",
                     detail=(
-                        f"{len(plan.enrichment.knowledge)} knowledge reference(s) "
-                        "were surfaced; confirm the plan follows them."
+                        f"{len(knowledge)} knowledge reference(s) surfaced from "
+                        f"{len({k.get('connector') for k in knowledge})} source(s) "
+                        f"(e.g. {top}); confirm the plan follows them."
                     ),
                     severity="info",
                     source=self.name,
+                    citations=citations,
                 )
             )
 

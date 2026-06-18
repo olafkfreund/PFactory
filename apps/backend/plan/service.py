@@ -47,6 +47,37 @@ SessionStatus = str
 BoardColumn = str  # backlog | in_progress | ai_review | human_review | done
 
 
+def _knowledge_connector_kwargs(name: str, wiki_root: str | None) -> dict[str, object]:
+    """Build a knowledge connector's constructor kwargs from the environment.
+
+    The connectors accept ``base_url`` / ``token`` (etc.) but read nothing
+    themselves, so without this the enrichment loop ran them unconfigured and
+    they returned nothing. Each source has its own ``PFACTORY_<SOURCE>_*`` vars;
+    empty/unset values are dropped so an unconfigured connector simply reports
+    ``available() is False`` and degrades to an empty result.
+    """
+    env = os.environ.get
+
+    def _kw(**pairs: str | None) -> dict[str, object]:
+        return {k: v for k, v in pairs.items() if v}
+
+    if name == "backstage":
+        return _kw(base_url=env("PFACTORY_BACKSTAGE_URL"),
+                   token=env("PFACTORY_BACKSTAGE_TOKEN"))
+    if name == "confluence":
+        return _kw(base_url=env("PFACTORY_CONFLUENCE_URL"),
+                   token=env("PFACTORY_CONFLUENCE_TOKEN"),
+                   email=env("PFACTORY_CONFLUENCE_EMAIL"))
+    if name == "gitbook":
+        return _kw(token=env("PFACTORY_GITBOOK_TOKEN"),
+                   space_id=env("PFACTORY_GITBOOK_SPACE_ID"))
+    if name == "notion":
+        return _kw(token=env("PFACTORY_NOTION_TOKEN"))
+    if name == "git-markdown":
+        return _kw(root=wiki_root)
+    return {}
+
+
 def board_state(status: str, review: PlanReview | None) -> BoardColumn:
     """Project a session's (status, review) onto a kanban column (#5).
 
@@ -500,11 +531,7 @@ class PlanService:
             ]
             for name in connectors:
                 try:
-                    kw = (
-                        {"root": wiki_root}
-                        if (name == "git-markdown" and wiki_root)
-                        else {}
-                    )
+                    kw = _knowledge_connector_kwargs(name, wiki_root)
                     knowledge.extend(
                         get_connector(name, **kw).to_enrichment(text, limit=8)
                     )
