@@ -70,6 +70,20 @@ def test_non_directional_is_not_migration():
     assert sig.is_migration is False
 
 
+def test_classifier_robust_to_distractors_and_punctuation():
+    # Realistic ingested text: a distractor "Rust" mention in the criteria, an
+    # "AC#1" id (must not match the C# signal), and a trailing period on the
+    # target — the directional clause must still resolve python -> rust.
+    plan = _plan(
+        desc="Rewrite the payments module from Python to Rust.",
+        crits=("The Rust refund behaves identically",),
+    )
+    plan = plan.model_copy(update={"raw_text": "rewrite from Python to Rust."})
+    sig = classify_migration(plan, _PY_REPO)
+    assert sig.is_migration
+    assert sig.source_language == "python" and sig.target_language == "rust"
+
+
 def test_same_language_is_not_migration():
     sig = classify_migration(
         _plan(desc="rewrite the python module in python"), _PY_REPO
