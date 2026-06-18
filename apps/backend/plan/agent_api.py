@@ -113,6 +113,25 @@ def plan_approve(session_id: str, *, approver: str, feedback: str | None = None)
     return plan_status(session_id) | {"approved_by": approver}
 
 
+def plan_export_audit_pack(session_id: str, *, fmt: str = "json") -> dict:
+    """Export the EU AI Act audit pack for a session (#122).
+
+    Bundles the evidence PFactory already holds (source doc, review findings +
+    citations, human approval, signed Task Contract, completion timeline, and the
+    TFactory verdict if present) into a self-contained pack, cross-referenced to
+    EU AI Act obligation headings. ``fmt`` is ``"json"`` (default — the structured
+    pack) or ``"markdown"`` (the human-readable export). This is a descriptive
+    evidence bundle, NOT a compliance attestation (see the pack's disclaimer).
+    """
+    from plan.emit.audit_pack import build_audit_pack, render_markdown
+
+    session = SERVICE.get(session_id)
+    pack = build_audit_pack(session)
+    if fmt == "markdown":
+        return {"format": "markdown", "markdown": render_markdown(pack)}
+    return {"format": "json", "pack": pack.model_dump()}
+
+
 def _with_review(session) -> dict:
     out = session.summary()
     if session.review is not None:
@@ -139,6 +158,7 @@ __all__ = [
     "PlanServiceError",
     "plan_approve",
     "plan_categories",
+    "plan_export_audit_pack",
     "plan_get",
     "plan_ingest",
     "plan_list",
