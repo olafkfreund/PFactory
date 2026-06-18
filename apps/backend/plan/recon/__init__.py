@@ -16,7 +16,22 @@ This package is introduced in phases:
 * Phase 3+: ``change_mode`` / ``language_reconcile`` / ``delta``.
 """
 
+from plan.recon.change_mode import ChangeMode, classify_change_mode
+from plan.recon.language_reconcile import (
+    LanguageReconcile,
+    detect_spec_language,
+    reconcile_language,
+)
 from plan.recon.models import RepoMap
 from plan.recon.reconnoiter import build_repo_map, reconnoiter
 
-__all__ = ["RepoMap", "build_repo_map", "reconnoiter"]
+__all__ = [
+    "RepoMap",
+    "build_repo_map",
+    "reconnoiter",
+    "ChangeMode",
+    "classify_change_mode",
+    "LanguageReconcile",
+    "detect_spec_language",
+    "reconcile_language",
+]

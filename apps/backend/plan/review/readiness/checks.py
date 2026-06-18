@@ -18,6 +18,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from plan.enrich.relevance import is_cloud_relevant
+from plan.recon.language_reconcile import reconcile_language
 from plan.review.models import Finding
 from plan.review.readiness.models import ReadinessCheckResult, ReadinessReport
 from pydantic import BaseModel, Field
@@ -115,6 +116,62 @@ def _criteria_present(
         remediation=""
         if ok
         else "Add an '## Acceptance Criteria' section (or AC#N: lines).",
+    )
+
+
+@check("language-reconciled")
+def _language_reconciled(
+    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+) -> ReadinessCheckResult:
+    """The spec's intended language must reconcile with the repo's (RFC-0010, #585).
+
+    Only meaningful once reconnaissance has read the repo. When the spec asks for
+    a different language than the repo carries and this is not a migration, the
+    plan would silently produce the repo's language — the #585 trap. HALT instead
+    (hard fail): correct the spec, re-classify as a migration, or waive.
+    """
+    rm = plan.repo_map
+    if rm is None or not rm.available:
+        return ReadinessCheckResult(
+            check_id="language-reconciled",
+            title="Spec language reconciles with the repo",
+            status="not_applicable",
+            detail="No reconnaissance grounding (greenfield) — nothing to reconcile.",
+        )
+    rec = reconcile_language(plan, rm, plan.change_mode or "modify")
+    if not rec.conflict:
+        return ReadinessCheckResult(
+            check_id="language-reconciled",
+            title="Spec language reconciles with the repo",
+            status="pass",
+            detail=(
+                f"resolved language: {rec.resolved_language or 'unspecified'}"
+                + (f" (repo: {rec.repo_language})" if rec.repo_language else "")
+            ),
+            evidence={
+                "spec_language": rec.spec_language,
+                "repo_language": rec.repo_language,
+                "resolved_language": rec.resolved_language,
+                "change_mode": plan.change_mode,
+            },
+        )
+    return ReadinessCheckResult(
+        check_id="language-reconciled",
+        title="Spec language reconciles with the repo",
+        status="fail",
+        severity="high",
+        hard=True,
+        waivable=True,
+        detail=rec.reason,
+        remediation=(
+            "Align the spec with the repo's language, re-classify as a migration "
+            "(rewrite from X to Y), or record a deliberate waiver."
+        ),
+        evidence={
+            "spec_language": rec.spec_language,
+            "repo_language": rec.repo_language,
+            "change_mode": plan.change_mode,
+        },
     )
 
 
