@@ -125,29 +125,11 @@ jobs:
           cat release-notes.md
           echo "--------------------------"
 
-      - name: Create + push tag
-        if: steps.detect.outputs.should_release == 'true'
-        run: |
-          V="${{ steps.detect.outputs.new }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v$V" -m "Release v$V"
-          git push origin "v$V"
-
-      - name: Create GitHub release
-        if: steps.detect.outputs.should_release == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          V="${{ steps.detect.outputs.new }}"
-          gh release create "v$V" \
-            --title "v$V" \
-            --notes-file release-notes.md \
-            --verify-tag
-
       # ----------------------------------------------------------------------
       # P0 supply-chain pipeline: multi-arch build → push → cosign sign +
-      # SBOM attest → self-verify. Runs only on a real release (version bump).
+      # SBOM attest → self-verify. Runs FIRST so a failed/unsigned push leaves
+      # NO dangling tag or release behind (#104): the tag + GitHub release are
+      # created only after the image is pushed, signed, attested, and verified.
       # ----------------------------------------------------------------------
 
       - name: Set up QEMU
@@ -261,6 +243,29 @@ jobs:
             --certificate-identity-regexp "^https://github\.com/${{ github.repository_owner }}/PFactory/" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "$IMAGE"
+
+      # Image is pushed, signed, attested and verified above — only now is it
+      # safe to cut the tag + release. A failure in any prior step leaves no
+      # `vX.Y.Z` tag or release, so workflow_dispatch re-runs are idempotent (#104).
+      - name: Create + push tag
+        if: steps.detect.outputs.should_release == 'true'
+        run: |
+          V="${{ steps.detect.outputs.new }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$V" -m "Release v$V"
+          git push origin "v$V"
+
+      - name: Create GitHub release
+        if: steps.detect.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${{ steps.detect.outputs.new }}"
+          gh release create "v$V" \
+            --title "v$V" \
+            --notes-file release-notes.md \
+            --verify-tag
 
       - name: Upload SBOM artifacts to GitHub release
         if: steps.detect.outputs.should_release == 'true'
