@@ -59,12 +59,23 @@ def test_baseline_block_includes_populated_fields():
     assert "frameworks" not in block
 
 
-# ── repo_map does not affect the approval hash (Phase 4 adds the digest) ─
+# ── approval hash: unavailable recon is inert; available recon is digested ─
 
-def test_repo_map_does_not_change_canonical_content():
+def test_unavailable_repo_map_does_not_change_canonical_content():
     plan = _plan()
-    grounded = plan.model_copy(update={"repo_map": RepoMap(available=True, repo="o/r")})
-    assert grounded.canonical_content() == plan.canonical_content()
+    greenfield = plan.model_copy(update={"repo_map": RepoMap(available=False)})
+    assert greenfield.canonical_content() == plan.canonical_content()
+
+
+def test_available_repo_map_folds_into_canonical_content():
+    # RFC-0010 Phase 4: a grounded plan's hash includes a stable recon digest so
+    # approval invalidates when the repo drifts.
+    plan = _plan()
+    grounded = plan.model_copy(
+        update={"repo_map": RepoMap(available=True, repo="o/r", commit="abc"), "change_mode": "modify"}
+    )
+    assert grounded.canonical_content() != plan.canonical_content()
+    assert "recon:abc:modify" in grounded.canonical_content()
 
 
 # ── serialization round-trip with a RepoMap attached ────────────────────

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plan.recon.delta import build_ac_to_code_map
+
 if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
     from plan.models import NormalizedPlan
@@ -22,7 +24,12 @@ _DEFAULT_API_BASE = "http://localhost:8000"
 
 def _plan_text(plan: NormalizedPlan) -> str:
     return " ".join(
-        [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
+        [
+            plan.title,
+            plan.description,
+            *(c.text for c in plan.criteria),
+            plan.raw_text or "",
+        ]
     ).lower()
 
 
@@ -40,11 +47,26 @@ def build_tfactory(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, Any]:
         {"testing", "cicd"} & kinds
     )
     node_ish = _any(text, ("jest", "npm", "node", "react", "vitest", "next"))
+    # RFC-0010: when reconnaissance read the repo, its actual language wins over
+    # the plan-text guess (fixes the #585 wrong-language trap at the source).
+    repo_map = getattr(plan, "repo_map", None)
+    if (
+        repo_map is not None
+        and getattr(repo_map, "available", False)
+        and repo_map.languages
+    ):
+        primary = repo_map.languages[0]
+        python_ish = primary == "python"
+        node_ish = primary in ("typescript", "javascript")
     api = _any(text, ("api", "endpoint", "rest", "fastapi", "express", "graphql")) or (
         "area:api" in labels or "service:api" in labels
     )
-    browser = _any(text, ("frontend", "react", "playwright", "browser", "vue", "svelte", "next"))
-    integration = _any(text, ("integration", "docker", "compose", "database", "postgres", "redis"))
+    browser = _any(
+        text, ("frontend", "react", "playwright", "browser", "vue", "svelte", "next")
+    )
+    integration = _any(
+        text, ("integration", "docker", "compose", "database", "postgres", "redis")
+    )
 
     lanes = ["unit"]
     if api:
@@ -68,9 +90,9 @@ def build_tfactory(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, Any]:
         "mutation_scope": [],
         "security_scope": [],  # app SAST/DAST delegated — out of scope here
         # AC → code map: keyed by every acceptance criterion so TFactory knows the
-        # full set that must be covered; the file/function lists are filled once
-        # code exists (empty at plan time).
-        "ac_to_code_map": {c.id: [] for c in plan.criteria},
+        # full set that must be covered. RFC-0010 pre-seeds the file lists from
+        # reconnaissance when available; empty (filled once code exists) otherwise.
+        "ac_to_code_map": build_ac_to_code_map(plan, epic),
     }
     if api:
         block["endpoints"] = {"api_base_url": _DEFAULT_API_BASE}

@@ -18,6 +18,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
+from plan.recon.delta import blast_radius, compute_footprints
+
 if TYPE_CHECKING:
     from plan.decompose.models import ChildIssue, EpicPlan
     from plan.models import NormalizedPlan
@@ -51,7 +53,7 @@ def _service_of(child: ChildIssue) -> str | None:
     for label in child.labels:
         for prefix in ("service:", "area:"):
             if label.startswith(prefix):
-                return label[len(prefix):] or None
+                return label[len(prefix) :] or None
     return None
 
 
@@ -94,21 +96,30 @@ def _phase_type(kinds: list[str]) -> str:
     return "implementation" if "implementation" in winners else winners[0]
 
 
-def _subtask(child: ChildIssue, all_keys: set[str]) -> dict[str, Any]:
-    """Render one ChildIssue as a contract subtask."""
+def _subtask(
+    child: ChildIssue,
+    all_keys: set[str],
+    footprint: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """Render one ChildIssue as a contract subtask.
+
+    ``footprint`` (RFC-0010 delta pass) carries the files this child touches when
+    the plan was grounded in a RepoMap; absent → empty (greenfield) as before.
+    """
     description = child.title.strip()
     if child.body.strip() and child.body.strip() != description:
         description = f"{description}\n\n{child.body.strip()}"
+    fp = footprint or {}
     return {
         "id": child.key,
         "description": description,
         "status": "pending",
         "service": _service_of(child),
-        # Only intra-graph deps; file footprints are not yet derived (empty for
-        # now — a later enhancement may parse them from the plan body).
         "depends_on": [d for d in child.depends_on if d in all_keys and d != child.key],
-        "files_to_create": [],
-        "files_to_modify": [],
+        # RFC-0010: real footprints from reconnaissance (empty when greenfield).
+        "files_to_create": fp.get("files_to_create", []),
+        "files_to_modify": fp.get("files_to_modify", []),
+        "patterns_from": fp.get("patterns_from", []),
         # Carried for the execution-profile child (#65): not in the base schema
         # but additionalProperties allows it.
         "complexity": child.complexity,
@@ -116,12 +127,20 @@ def _subtask(child: ChildIssue, all_keys: set[str]) -> dict[str, Any]:
     }
 
 
-def build_phases(epic: EpicPlan) -> list[dict[str, Any]]:
-    """Group the epic's children into dependency-layer phases."""
+def build_phases(
+    epic: EpicPlan, footprints: dict[str, dict[str, list[str]]] | None = None
+) -> list[dict[str, Any]]:
+    """Group the epic's children into dependency-layer phases.
+
+    ``footprints`` (keyed by child.key) carries the RFC-0010 delta — the files
+    each child touches — populated by :func:`build_task_contract` from the plan's
+    RepoMap. None/empty → greenfield, footprints stay empty.
+    """
     if not epic.children:
         return []
     levels = _dependency_levels(epic)
     all_keys = {c.key for c in epic.children}
+    footprints = footprints or {}
 
     # children grouped by level, preserving input order within a level.
     by_level: dict[int, list[ChildIssue]] = {}
@@ -131,7 +150,7 @@ def build_phases(epic: EpicPlan) -> list[dict[str, Any]]:
     phases: list[dict[str, Any]] = []
     for level in sorted(by_level):
         children = by_level[level]
-        subtasks = [_subtask(c, all_keys) for c in children]
+        subtasks = [_subtask(c, all_keys, footprints.get(c.key)) for c in children]
         # phase depends on the (1-based) phase numbers holding any child's deps.
         dep_levels = {
             levels[d]
@@ -193,15 +212,24 @@ def build_task_contract(
     The ``execution`` / ``tfactory`` / ``approval`` blocks are added by later
     children of #65.
     """
-    phases = build_phases(epic)
+    # RFC-0010: derive the delta (per-child file footprints) from the RepoMap, so
+    # subtasks carry real files_to_modify/create instead of empty lists.
+    footprints = compute_footprints(plan, epic)
+    phases = build_phases(epic, footprints)
     services = sorted(
-        {
-            s
-            for ph in phases
-            for st in ph["subtasks"]
-            if (s := st.get("service"))
-        }
+        {s for ph in phases for st in ph["subtasks"] if (s := st.get("service"))}
     )
+    rm = plan.repo_map
+    provenance: dict[str, Any] = {
+        "source": "pfactory",
+        "plan_id": plan.plan_id,
+        **({"repo": repo} if repo else {}),
+    }
+    if rm is not None and rm.available:
+        if rm.base_ref:
+            provenance["base_ref"] = rm.base_ref
+        if rm.commit:
+            provenance["baseline_commit"] = rm.commit
     contract: dict[str, Any] = {
         "contract_version": CONTRACT_VERSION,
         "feature": (epic.epic_title or plan.title).strip(),
@@ -209,12 +237,15 @@ def build_task_contract(
         "services_involved": services,
         "final_acceptance": [c.text for c in plan.criteria],
         "phases": phases,
-        "provenance": {
-            "source": "pfactory",
-            "plan_id": plan.plan_id,
-            **({"repo": repo} if repo else {}),
-        },
+        "provenance": provenance,
     }
+    # RFC-0010: the recon verdict + the grounding the human approves.
+    if plan.change_mode:
+        contract["change_mode"] = plan.change_mode
+    if rm is not None and rm.available:
+        baseline = rm.to_baseline_block()
+        baseline["blast_radius"] = blast_radius(footprints, rm)
+        contract["baseline"] = baseline
     if correlation_key:
         contract["correlation_key"] = correlation_key
     return contract
