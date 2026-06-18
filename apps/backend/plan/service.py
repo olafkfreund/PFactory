@@ -393,6 +393,15 @@ class PlanService:
         epic = decompose(plan, descriptor=descriptor, llm=llm, usage_sink=usage_sink)
         for u in usage_sink:
             session.record_usage(u)
+        # Complete the plan (RFC-0008 §3.1, #166): a user describes feature intent
+        # but never the implicit runtime requirements of a deployable service
+        # (boots / declares dependencies / health check / deployable). Inject them
+        # as acceptance criteria BEFORE synthesize + gates so the completeness lens
+        # and the service-requirements-covered readiness check see — and enforce —
+        # a plan that demands the service actually runs.
+        from plan.decompose.implicit_requirements import inject_into_epic
+
+        inject_into_epic(plan, epic, descriptor)
         artifacts = synthesize(plan, epic, descriptor=descriptor)
 
         # Feasibility (#C): price the proposed shape, estimate effort, verify

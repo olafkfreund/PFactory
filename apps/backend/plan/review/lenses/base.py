@@ -51,11 +51,14 @@ def default_lenses() -> list[Lens]:
     from plan.review.lenses import (  # noqa: F401
         architecture,
         best_practices,
+        completeness,
         feasibility,
         security,
     )
 
-    order = ["feasibility", "architecture", "security", "best-practices"]
+    order = [
+        "feasibility", "architecture", "security", "best-practices", "completeness",
+    ]
     seen = list(order)
     seen.extend(n for n in _REGISTRY if n not in order)
     return [_REGISTRY[n] for n in seen if n in _REGISTRY]

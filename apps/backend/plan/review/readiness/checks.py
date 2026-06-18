@@ -159,6 +159,57 @@ def _ac_child_coverage(
     )
 
 
+@check("service-requirements-covered")
+def _service_requirements_covered(
+    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+) -> ReadinessCheckResult:
+    """A deployable service must demand it actually runs (RFC-0008 §3.1, #166).
+
+    Users state feature intent but never write the implicit runtime requirements
+    (boots / declares dependencies / health check / deployable), so a build can
+    satisfy every stated AC yet not run. ``inject_into_epic`` adds them at plan
+    time; this check is the teeth — a hard fail if any remain uncovered (e.g. an
+    LLM decompose path that bypassed injection on a child-less epic).
+    """
+    from plan import plan_types
+    from plan.decompose.implicit_requirements import (
+        is_deployable_service,
+        missing_requirements,
+    )
+
+    descriptor = plan_types.select_for(plan)
+    if not is_deployable_service(plan, descriptor):
+        return ReadinessCheckResult(
+            check_id="service-requirements-covered",
+            title="Deployable service covers implicit runtime requirements",
+            status="not_applicable",
+            detail="Not a deployable software service — runtime ACs don't apply.",
+            hard=True,
+            waivable=True,
+        )
+    missing = [key for key, _text in missing_requirements(epic)]
+    ok = not missing
+    return ReadinessCheckResult(
+        check_id="service-requirements-covered",
+        title="Deployable service covers implicit runtime requirements",
+        status="pass" if ok else "fail",
+        severity="info" if ok else "high",
+        hard=True,
+        waivable=True,
+        detail=""
+        if ok
+        else (
+            "Implicit service requirements with no acceptance criterion: "
+            f"{', '.join(missing)}. The build could pass every stated AC yet "
+            "not run."
+        ),
+        remediation=""
+        if ok
+        else "Add ACs for: boots, declares dependencies, health check, deployable.",
+        evidence={} if ok else {"missing_requirements": missing},
+    )
+
+
 @check("deps-sound")
 def _deps_sound(
     plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
