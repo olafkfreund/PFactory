@@ -36,6 +36,9 @@ class BehavioralContract:
     public_api: list[PublicSymbol] = field(default_factory=list)
     test_files: list[str] = field(default_factory=list)
     module_graph: dict[str, list[str]] = field(default_factory=dict)
+    # Concrete golden-corpus input vectors extracted from the existing tests
+    # (literal-arg calls to the public functions). Drives the equivalence lane.
+    input_vectors: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -44,6 +47,7 @@ class BehavioralContract:
             "public_api": [vars(s) for s in self.public_api],
             "test_files": self.test_files,
             "module_graph": self.module_graph,
+            "input_vectors": self.input_vectors,
         }
 
 
@@ -106,6 +110,7 @@ def build_behavioral_contract(
     contract = BehavioralContract(language="python")
     files = _py_files(root)
     local_modules = {_module_name(_rel(f, root)) for f in files}
+    test_trees: list[ast.Module] = []
 
     for fp in files:
         rel = _rel(fp, root)
@@ -118,8 +123,10 @@ def build_behavioral_contract(
             continue
 
         # Public API: top-level non-underscore defs/classes. Test files are
-        # recorded under test_files, not as public surface to port/capture.
+        # recorded under test_files, not as public surface to port/capture — but
+        # we keep their AST to mine concrete input vectors below.
         if _is_test(rel):
+            test_trees.append(tree)
             continue
         for node in tree.body:
             if isinstance(
@@ -155,7 +162,62 @@ def build_behavioral_contract(
     contract.modules.sort()
     contract.test_files.sort()
     contract.public_api.sort(key=lambda s: (s.module, s.name))
+    func_module = {
+        s.name: s.module for s in contract.public_api if s.kind == "function"
+    }
+    contract.input_vectors = _extract_vectors(test_trees, func_module)
     return contract
+
+
+def _extract_vectors(
+    test_trees: list[ast.Module], func_module: dict[str, str]
+) -> list[dict]:
+    """Mine concrete input vectors from literal-arg calls to public functions.
+
+    Walks the test ASTs for ``func(<literals>)`` calls to a public function and
+    records the (deduped) argument tuples — the real inputs the golden corpus is
+    captured over. Calls with non-literal args or keyword args are skipped (a
+    captured vector must be reproducible from constants alone).
+    """
+    vectors: list[dict] = []
+    seen: set[tuple] = set()
+    counts: dict[str, int] = {}
+    for tree in test_trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+            else:
+                continue
+            if name not in func_module or node.keywords:
+                continue
+            args = []
+            ok = True
+            for a in node.args:
+                try:
+                    args.append(ast.literal_eval(a))
+                except (ValueError, SyntaxError, TypeError):
+                    ok = False
+                    break
+            if not ok:
+                continue
+            key = (name, repr(args))
+            if key in seen:
+                continue
+            seen.add(key)
+            counts[name] = counts.get(name, 0) + 1
+            vectors.append(
+                {
+                    "id": f"{name}-{counts[name]}",
+                    "module": func_module[name],
+                    "function": name,
+                    "args": args,
+                }
+            )
+    return vectors
 
 
 def inspect_source(

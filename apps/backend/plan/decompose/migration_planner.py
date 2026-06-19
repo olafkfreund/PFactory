@@ -119,6 +119,9 @@ def build_golden_corpus_manifest(contract: BehavioralContract) -> dict[str, Any]
             for s in contract.public_api
             if s.kind == "function"
         ],
+        # Concrete inputs mined from the existing tests (empty => TFactory falls
+        # back to a thin no-arg corpus).
+        "input_vectors": list(contract.input_vectors),
     }
 
 
@@ -130,10 +133,19 @@ def build_equivalence_block(
     corpus_ref: str = "findings/golden_corpus.json",
     parity_threshold: float = 1.0,
 ) -> dict[str, Any]:
-    """The ``tfactory.equivalence`` block for the differential lane."""
+    """The ``tfactory.equivalence`` block for the differential lane.
+
+    Embeds the golden-corpus ``manifest`` (functions + concrete input vectors) so
+    TFactory's lane runs over the real inputs without re-reading the source.
+    """
+    manifest = build_golden_corpus_manifest(contract)
     return {
         "golden_corpus_ref": corpus_ref,
         "parity_threshold": parity_threshold,
         "differential_lanes": ["equivalence"],
         "module_map": build_module_map(contract, target_language, crate=crate),
+        "manifest": {
+            "functions": manifest["functions"],
+            "input_vectors": manifest["input_vectors"],
+        },
     }
