@@ -122,6 +122,35 @@ def test_behavioral_contract_extraction(tmp_path: Path):
 # ── migration planner ───────────────────────────────────────────────────
 
 
+def test_extracts_input_vectors_from_tests(tmp_path: Path):
+    (tmp_path / "pay").mkdir()
+    (tmp_path / "pay" / "__init__.py").write_text("")
+    (tmp_path / "pay" / "refund.py").write_text(
+        "def refund(amount, reason):\n"
+        '    if amount <= 0:\n        raise ValueError("bad")\n'
+        "    return amount\n\ndef fee(amount):\n    return amount * 0.03\n"
+    )
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_pay.py").write_text(
+        "import pytest\nfrom pay.refund import refund, fee\n"
+        'def test_ok(): assert refund(100, "x") == 100\n'
+        'def test_neg():\n    with pytest.raises(ValueError): refund(-5, "y")\n'
+        "def test_fee(): assert fee(7.5) == 0.225\n"
+    )
+    c = build_behavioral_contract(tmp_path)
+    vecs = {(v["function"], tuple(v["args"])) for v in c.input_vectors}
+    assert ("refund", (100, "x")) in vecs
+    assert ("refund", (-5, "y")) in vecs  # extracted from inside pytest.raises
+    assert ("fee", (7.5,)) in vecs
+    # manifest + equivalence block carry the concrete vectors
+    eq = build_equivalence_block(c, "rust")
+    assert eq["manifest"]["input_vectors"]
+    assert {iv["function"] for iv in eq["manifest"]["input_vectors"]} == {
+        "refund",
+        "fee",
+    }
+
+
 def test_module_map_excludes_tests_and_init(tmp_path: Path):
     (tmp_path / "pay").mkdir()
     (tmp_path / "pay" / "__init__.py").write_text("")
