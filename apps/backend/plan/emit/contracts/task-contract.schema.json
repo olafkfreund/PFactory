@@ -416,6 +416,66 @@
           "type": "number",
           "minimum": 0,
           "description": "OPTIONAL soft cost budget in USD for the task. OBSERVE-ONLY: when AIFactory's rolled-up spend exceeds it, the terminal completion event carries a usage.budget warning block (limit_usd/spent_usd/exceeded) and an OTel budget.exceeded metric fires. NEVER aborts, pauses, or kills the build. Absent => no budget tracking (back-compat)."
+        },
+        "routing": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "RFC-0014 cost-aware, capability-aware routing decision. Emitted by PFactory's cost router AFTER the RFC-0011 tier floor is set; records WHY the per-role models were chosen and the cost envelope they fit. Fully additive and OPTIONAL — absent => today's behaviour (contract_version stays \"2\"). Open object; consumers ignore unknown keys. The router never drops below the tier/class capability floor: cost is minimized only within that envelope.",
+          "properties": {
+            "class": {
+              "type": "string",
+              "enum": [
+                "economy",
+                "standard",
+                "premium",
+                "governed"
+              ],
+              "description": "Routing class from the task scorer (RFC-0014 §4). 'governed' (high risk / production) forces a frontier model for PLANNING even when coding/testing are cheap; it is never silently degraded."
+            },
+            "cost_estimate_usd": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Pre-execution rolled-up cost estimate in USD for the chosen per-role models. null when the selection is subscription- or local-priced (no $ estimate — costed as tokens/time, mirroring CFactory billing-mode display)."
+            },
+            "cost_ceiling_usd": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The cost ceiling the router targeted. The chosen selection keeps cost_estimate_usd under this ceiling where a $ estimate exists; null => no ceiling applied."
+            },
+            "policy": {
+              "type": "string",
+              "description": "The operator policy that governed the selection, e.g. 'operator-default'."
+            },
+            "rationale": {
+              "type": "string",
+              "description": "Human-readable explanation of the per-role picks and any downgrades/holds (e.g. 'tier=medium floor=sonnet; planning kept at opus by policy; qa/test_gen downgraded to cheap within floor')."
+            }
+          }
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex",
+            "antigravity",
+            "ollama",
+            "ollama-cloud",
+            "claude-subagents",
+            "dynamic-workflow"
+          ],
+          "description": "RFC-0014 execution runtime. Default 'claude' (today's path, unchanged). All non-'claude' runtimes are GATED OFF unless the operator enables them in config/env allowlist AND the contract opts in. 'claude-subagents' and 'dynamic-workflow' are the speed-up runtimes (parallel sub-agent fan-out / scripted multi-agent orchestration) and are manual-enable only because they multiply spend. Absent => 'claude'."
+        },
+        "budget_mode": {
+          "type": "string",
+          "enum": [
+            "observe",
+            "enforce"
+          ],
+          "description": "RFC-0014 budget enforcement mode. 'observe' (default) keeps budget_usd as a post-hoc warning that never changes the run. 'enforce' (operator-gated) lets the router refuse a selection whose estimate exceeds the ceiling — downgrading within the capability floor, or failing fast with a named reason if even the floor exceeds it. A 'governed' task is never silently degraded. Absent => 'observe'."
         }
       }
     },

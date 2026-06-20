@@ -48,16 +48,6 @@ class CostEstimate(BaseModel):
     source: str = ""  # e.g. "aws-price-list", "azure-retail-prices"
 
 
-class EffortEstimate(BaseModel):
-    """Estimated time/effort, rolled up from child complexity (Phase C)."""
-
-    story_points: int = 0
-    duration_days_low: float = 0.0
-    duration_days_high: float = 0.0
-    confidence: Confidence = "low"
-    assumptions: list[str] = Field(default_factory=list)
-
-
 class AccessRequirement(BaseModel):
     """One capability the plan needs PFactory/the principal to actually have.
 
@@ -85,7 +75,8 @@ class ChildIssue(BaseModel):
     complexity: Complexity = "standard"
     acceptance_criteria: list[str] = Field(default_factory=list)
     # Feasibility annotations (filled by Phase C; empty/None until then).
-    effort_estimate: EffortEstimate | None = None
+    # RFC-0014: dev-day/story-point effort sizing removed — capability is expressed
+    # via ``complexity`` + the scorer's difficulty/risk/autonomy on the contract.
     access_requirements: list[AccessRequirement] = Field(default_factory=list)
 
 
@@ -98,8 +89,9 @@ class EpicPlan(BaseModel):
     children: list[ChildIssue] = Field(default_factory=list)
     summary: str = ""
     # Feasibility rollups for the whole epic (filled by Phase C).
+    # RFC-0014: no ``effort_estimate`` — dev-day/story-point sizing is meaningless
+    # with LLM agents; difficulty/risk/autonomy on the contract replace it.
     cost_estimate: CostEstimate | None = None
-    effort_estimate: EffortEstimate | None = None
     access_requirements: list[AccessRequirement] = Field(default_factory=list)
     # RFC-0013 deployment-aware planning: the derived ``deployment`` contract
     # block (CI/deploy surface, risk/scan/gate policy, DORA context, readiness,

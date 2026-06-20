@@ -37,8 +37,11 @@ def test_ingest_then_process_flow():
     processed = agent_api.plan_process(sid)
     assert "review" in processed
     assert processed["review"]["gates_passed"] in (True, False)
-    # feasibility estimates surface for a cloud-ish plan, effort always present
-    assert processed["effort_estimate"]["story_points"] >= 0
+    # RFC-0014: the effort-free scoring verdict replaces the dev-day estimate.
+    scoring = processed["scoring"]
+    assert scoring["difficulty"] in {"low", "medium", "high"}
+    assert scoring["risk"] in {"low", "medium", "high"}
+    assert scoring["autonomy"] in {"autonomous", "review", "approval"}
 
     status = agent_api.plan_status(sid)
     assert status["session_id"] == sid

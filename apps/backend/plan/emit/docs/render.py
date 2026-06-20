@@ -55,6 +55,31 @@ def _dependencies(session: PlanSession) -> list[str]:
     return out
 
 
+def _routing_verdict(session: PlanSession) -> dict[str, str] | None:
+    """The RFC-0014 effort-free verdict for the doc, read defensively off the
+    emitted contract's ``execution.routing``. Returns ``None`` when no contract
+    has been emitted yet (dry-run a contract first to populate it)."""
+    contract = (session.contract_result or {}).get("contract")
+    if not isinstance(contract, dict):
+        return None
+    routing = (
+        (contract.get("execution") or {}) if isinstance(contract.get("execution"), dict) else {}
+    ).get("routing")
+    if not isinstance(routing, dict):
+        return None
+    autonomy = routing.get("autonomy")
+    autonomy = autonomy if isinstance(autonomy, dict) else {}
+    out = {
+        "difficulty": str(routing.get("difficulty", "")),
+        "risk": str(routing.get("risk", "")),
+        "autonomy": str(autonomy.get("verdict", "")),
+        "reason": str(autonomy.get("reason", "")),
+    }
+    if not (out["difficulty"] or out["risk"] or out["autonomy"]):
+        return None
+    return out
+
+
 def _render_markdown(session: PlanSession, deps: list[str]) -> str:
     plan = session.plan
     epic = session.epic
@@ -100,10 +125,7 @@ def _render_markdown(session: PlanSession, deps: list[str]) -> str:
         if epic.children:
             parts.append("\n")
             for child in epic.children:
-                sp = ""
-                if child.effort_estimate and child.effort_estimate.story_points:
-                    sp = f" _( {child.effort_estimate.story_points} pts )_"
-                parts.append(f"- **{child.key}** — {child.title}{sp}\n")
+                parts.append(f"- **{child.key}** — {child.title}\n")
 
         # Feasibility
         if epic.cost_estimate and epic.cost_estimate.lines:
@@ -121,12 +143,17 @@ def _render_markdown(session: PlanSession, deps: list[str]) -> str:
                     f"| `{ln.resource}` | {ln.quantity:g} | "
                     f"{ln.monthly_usd:.2f} {ce.currency} | {ln.detail} |\n"
                 )
-        if epic.effort_estimate and epic.effort_estimate.story_points:
-            ee = epic.effort_estimate
-            parts.append("\n" + _h(2, "Effort"))
+        # RFC-0014: render the effort-free difficulty/risk/autonomy verdict (from
+        # the emitted contract's execution.routing) in place of dev-day sizing.
+        verdict = _routing_verdict(session)
+        if verdict:
+            parts.append("\n" + _h(2, "Difficulty, risk & autonomy"))
+            parts.append(f"- **Difficulty:** {verdict['difficulty']}\n")
+            parts.append(f"- **Risk:** {verdict['risk']}\n")
             parts.append(
-                f"- **{ee.story_points} story points** "
-                f"(~{ee.duration_days_low:g}–{ee.duration_days_high:g} days)\n"
+                f"- **Autonomy:** {verdict['autonomy']}"
+                + (f" — {verdict['reason']}" if verdict.get("reason") else "")
+                + "\n"
             )
         if epic.access_requirements:
             parts.append("\n" + _h(2, "Access requirements"))

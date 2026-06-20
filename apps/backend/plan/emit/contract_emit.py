@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from plan.emit.access_block import attach_access
 from plan.emit.contract_builder import build_task_contract
+from plan.emit.cost_router import apply_cost_routing
 from plan.emit.environment_block import attach_environment
 from plan.emit.execution_profile import attach_execution
 from plan.emit.handoff_sanitize import attach_constraints
@@ -144,6 +145,12 @@ def assemble_contract(
     # the tier has the last word. No-op when no tier was classified. A blocking
     # gate finding still forces blocking (apply_tier only ratchets review_tier up).
     apply_tier(contract, getattr(plan, "autonomy_tier", None))
+    # RFC-0014: cost-aware, capability-aware routing. Runs AFTER apply_tier so the
+    # tier floor is set, then picks the cheapest capable per-role model under the
+    # scored cost ceiling (strong for planning/governed, cheaper for code/test)
+    # and writes execution.phase_models + execution.routing. Additive + never
+    # raises — leaves the tier/complexity execution.model in place as the fallback.
+    apply_cost_routing(contract)
     # RFC-0005: derive the environment manifest from the tfactory lanes (must run
     # AFTER attach_tfactory). Declares the per-task toolchain (nix provisioning)
     # so build (AIFactory) and verify (TFactory) cannot drift.
