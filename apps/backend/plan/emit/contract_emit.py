@@ -25,6 +25,7 @@ from plan.emit.review_tier import attach_review_tier
 from plan.emit.signing import attach_signature, key_from_env
 from plan.emit.task_contract import validate_contract
 from plan.emit.tfactory_block import attach_tfactory
+from plan.emit.tier_profile import apply_tier
 from plan.emit.verification import attach_verification
 
 if TYPE_CHECKING:
@@ -139,6 +140,11 @@ def assemble_contract(
         attach_review_tier(contract, review)
     attach_verification(contract, plan, epic)
     attach_tfactory(contract, plan, epic)
+    # RFC-0011: the label-driven difficulty tier (low|medium|hard) wins over the
+    # per-complexity defaults above — runs AFTER execution/review_tier/tfactory so
+    # the tier has the last word. No-op when no tier was classified. A blocking
+    # gate finding still forces blocking (apply_tier only ratchets review_tier up).
+    apply_tier(contract, getattr(plan, "autonomy_tier", None))
     # RFC-0005: derive the environment manifest from the tfactory lanes (must run
     # AFTER attach_tfactory). Declares the per-task toolchain (nix provisioning)
     # so build (AIFactory) and verify (TFactory) cannot drift.

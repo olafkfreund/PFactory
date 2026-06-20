@@ -89,6 +89,12 @@ class NormalizedPlan(BaseModel):
     source_language: str | None = None
     target_language: str | None = None
     migration: dict[str, Any] | None = None
+    # RFC-0011: the label-driven difficulty tier (low|medium|hard) carried from
+    # intake (factory:low|medium|hard) through the pipeline so emit can override
+    # the execution/review_tier/tfactory blocks per the tier routing table. None
+    # until classified; excluded from canonical_content() (a routing knob, not
+    # plan substance — changing it must not invalidate a human approval).
+    autonomy_tier: str | None = None
     raw_text: str | None = None
     content_hash: str = ""
     ingested_at: str = Field(default_factory=_utcnow_iso)
