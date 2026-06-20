@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from plan.emit.task_scorer import score_task
 from plan.service import SERVICE, PlanServiceError
 
 
@@ -137,6 +138,38 @@ def plan_export_audit_pack(session_id: str, *, fmt: str = "json") -> dict:
     return {"format": "json", "pack": pack.model_dump()}
 
 
+def _scoring_verdict(session) -> dict:
+    """The RFC-0014 effort-free verdict ``{difficulty, risk, routing_class,
+    cost_ceiling, autonomy, reason}`` for a session's API view.
+
+    Prefers the emitted contract's ``execution.routing`` (the authoritative pick);
+    otherwise scores the plan/epic signals directly so the verdict is available
+    even before a contract has been emitted."""
+    contract = (session.contract_result or {}).get("contract")
+    if isinstance(contract, dict):
+        execution = contract.get("execution")
+        routing = execution.get("routing") if isinstance(execution, dict) else None
+        if isinstance(routing, dict) and routing.get("difficulty"):
+            autonomy = routing.get("autonomy")
+            autonomy = autonomy if isinstance(autonomy, dict) else {}
+            return {
+                "difficulty": routing.get("difficulty"),
+                "risk": routing.get("risk"),
+                "routing_class": routing.get("class"),
+                "cost_ceiling": routing.get("cost_ceiling_usd"),
+                "autonomy": autonomy.get("verdict"),
+                "reason": autonomy.get("reason"),
+            }
+
+    plan = session.plan
+    signals: dict[str, object] = {
+        "execution": {"autonomy_tier": getattr(plan, "autonomy_tier", None) or ""},
+        "change_mode": getattr(plan, "change_mode", None) or "",
+        "final_acceptance": [c.text for c in plan.criteria],
+    }
+    return dict(score_task(signals))
+
+
 def _with_review(session) -> dict:
     out = session.summary()
     if session.review is not None:
@@ -164,9 +197,8 @@ def _with_review(session) -> dict:
         out["cost_estimate"] = (
             session.epic.cost_estimate.model_dump() if session.epic.cost_estimate else None
         )
-        out["effort_estimate"] = (
-            session.epic.effort_estimate.model_dump() if session.epic.effort_estimate else None
-        )
+        # RFC-0014: the effort-free verdict replaces the dev-day effort estimate.
+        out["scoring"] = _scoring_verdict(session)
     if session.suggested_template:
         out["suggested_template"] = session.suggested_template
     return out

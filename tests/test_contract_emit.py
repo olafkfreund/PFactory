@@ -11,19 +11,28 @@ from plan.review.models import LensScore, PlanReview
 
 def _plan(**kw) -> NormalizedPlan:
     return NormalizedPlan(
-        plan_id="001-widget", title="Widget", source_format="markdown",
+        plan_id="001-widget",
+        title="Widget",
+        source_format="markdown",
         description="fastapi service tested with pytest",
-        criteria=[Criterion(id="AC#1", text="exposes an API")], **kw,
+        criteria=[Criterion(id="AC#1", text="exposes an API")],
+        **kw,
     ).with_hash()
 
 
 def _epic() -> EpicPlan:
     return EpicPlan(
-        plan_id="001-widget", epic_title="Widget",
+        plan_id="001-widget",
+        epic_title="Widget",
         children=[
             ChildIssue(key="C1", title="Scaffold", kind="infra"),
-            ChildIssue(key="C2", title="API", kind="feature", depends_on=["C1"],
-                       acceptance_criteria=["exposes an API"]),
+            ChildIssue(
+                key="C2",
+                title="API",
+                kind="feature",
+                depends_on=["C1"],
+                acceptance_criteria=["exposes an API"],
+            ),
         ],
     )
 
@@ -32,7 +41,8 @@ def _review(passed: bool = True, score: float = 0.95) -> PlanReview:
     return PlanReview(
         plan_id="001-widget",
         lenses=[LensScore(lens="architecture", score=score)],
-        aggregate_score=score, gates_passed=passed,
+        aggregate_score=score,
+        gates_passed=passed,
     )
 
 
@@ -59,19 +69,46 @@ def test_assemble_is_complete_and_valid() -> None:
     assert all("verification" in st for st in subs)
 
 
+def test_assemble_attaches_rfc0014_routing() -> None:
+    # RFC-0014: assemble_contract runs the cost router after apply_tier and writes
+    # execution.phase_models + execution.routing; the contract still validates.
+    contract = assemble_contract(_plan(), _epic(), _review())
+    assert validate_contract(contract) == []
+    routing = contract["execution"]["routing"]
+    assert routing["class"] in {"economy", "standard", "premium", "governed"}
+    assert "autonomy" in routing and "verdict" in routing["autonomy"]
+    pm = contract["execution"]["phase_models"]
+    # router owns at least the planning role.
+    assert "planning" in pm
+
+
 def test_dry_run_does_not_post() -> None:
     http = FakeHttp()
-    result = emit_contract(_plan(), _epic(), _review(), base_url="http://ai:3101",
-                           project_id="p1", http=http, dry_run=True)
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=http,
+        dry_run=True,
+    )
     assert result["ok"] and result["dry_run"]
     assert result["endpoint"].endswith("/api/tasks/from-plan")
     assert http.calls == []  # nothing posted
 
 
 def test_sign_when_key_provided() -> None:
-    result = emit_contract(_plan(), _epic(), _review(), base_url="http://ai:3101",
-                           project_id="p1", key="secret", approval_timestamp="2026-06-06T00:00:00Z",
-                           dry_run=True)
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        key="secret",
+        approval_timestamp="2026-06-06T00:00:00Z",
+        dry_run=True,
+    )
     assert result["signed"] is True
     approval = result["contract"]["approval"]
     assert approval["approved_by"] == "pfactory"
@@ -80,9 +117,17 @@ def test_sign_when_key_provided() -> None:
 
 def test_live_posts_to_from_plan() -> None:
     http = FakeHttp()
-    result = emit_contract(_plan(), _epic(), _review(), base_url="http://ai:3101",
-                           project_id="p1", http=http, key="secret",
-                           approval_timestamp="2026-06-06T00:00:00Z", dry_run=False)
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=http,
+        key="secret",
+        approval_timestamp="2026-06-06T00:00:00Z",
+        dry_run=False,
+    )
     assert result["ok"] and not result["dry_run"] and not result["fallback"]
     assert http.calls[0]["url"].endswith("/api/tasks/from-plan")
     assert http.calls[0]["json"]["plan"]["approval"]["signature"]
@@ -90,8 +135,15 @@ def test_live_posts_to_from_plan() -> None:
 
 def test_falls_back_to_create_and_run() -> None:
     http = FakeHttp(fail_urls=("/from-plan",))
-    result = emit_contract(_plan(), _epic(), _review(), base_url="http://ai:3101",
-                           project_id="p1", http=http, dry_run=False)
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=http,
+        dry_run=False,
+    )
     assert result["ok"] and result["fallback"]
     # second call was the create-and-run fallback
     assert any("create-and-run" in c["url"] for c in http.calls)
@@ -100,8 +152,15 @@ def test_falls_back_to_create_and_run() -> None:
 def test_invalid_contract_not_emitted() -> None:
     empty_epic = EpicPlan(plan_id="001-widget", epic_title="Widget", children=[])
     http = FakeHttp()
-    result = emit_contract(_plan(), empty_epic, _review(), base_url="http://ai:3101",
-                           project_id="p1", http=http, dry_run=False)
+    result = emit_contract(
+        _plan(),
+        empty_epic,
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=http,
+        dry_run=False,
+    )
     assert not result["ok"]
     assert result["errors"]
     assert http.calls == []  # never posted

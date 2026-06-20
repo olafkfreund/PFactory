@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from plan.emit.task_scorer import score_task
+
 if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
     from plan.models import NormalizedPlan
@@ -88,6 +90,22 @@ def _access_verified(epic: EpicPlan | None) -> bool | None:
     return None
 
 
+def _difficulty_autonomy(plan: NormalizedPlan) -> tuple[str, str]:
+    """RFC-0014 ``(difficulty, autonomy)`` for the meta block, from the same
+    signals the contract scorer reads — derived here from the plan so the GitHub
+    emit (which has no assembled contract) stays consistent with the contract.
+
+    Builds a minimal signal dict (tier + change_mode + AC count) and scores it.
+    Best-effort: any gap degrades to the scorer's safe defaults."""
+    signals: dict[str, object] = {
+        "execution": {"autonomy_tier": getattr(plan, "autonomy_tier", None) or ""},
+        "change_mode": getattr(plan, "change_mode", None) or "",
+        "final_acceptance": [c.text for c in plan.criteria],
+    }
+    score = score_task(signals)
+    return score["difficulty"], score["autonomy"]
+
+
 def taxonomy_labels(
     plan: NormalizedPlan,
     epic: EpicPlan | None = None,
@@ -130,8 +148,10 @@ def pfactory_meta_block(
 ) -> str:
     """The machine-readable ``<!-- pfactory:meta ... -->`` block for an issue body."""
     cost = getattr(epic, "cost_estimate", None) if epic else None
-    effort = getattr(epic, "effort_estimate", None) if epic else None
     access_ok = _access_verified(epic)
+    # RFC-0014: surface the effort-free difficulty/autonomy verdict instead of
+    # dev-day story points. ``risk`` below already comes from the review.
+    difficulty, autonomy = _difficulty_autonomy(plan)
 
     lines = [
         "<!-- pfactory:meta",
@@ -140,13 +160,12 @@ def pfactory_meta_block(
         f"category: {_category(plan)}",
         f"priority: {priority_for(review)}",
         f"risk: {risk_for(review)}",
+        f"difficulty: {difficulty}",
+        f"autonomy: {autonomy}",
     ]
     if cost is not None:
         lines.append(f"cost_monthly_usd: {cost.monthly_usd}")
         lines.append(f"cost_confidence: {cost.confidence}")
-    if effort is not None:
-        lines.append(f"effort_points: {effort.story_points}")
-        lines.append(f"effort_days: [{effort.duration_days_low}, {effort.duration_days_high}]")
     if access_ok is not None:
         lines.append(f"access_verified: {str(access_ok).lower()}")
 

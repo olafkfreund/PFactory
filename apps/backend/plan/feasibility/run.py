@@ -1,9 +1,13 @@
-"""Feasibility orchestrator (Phase C) — cost + effort + access in one pass.
+"""Feasibility orchestrator (Phase C) — cost + access in one pass.
 
-:func:`assess_feasibility` runs all three assessors, returns the populated
-estimates, and emits CITED findings (an info summary for cost/effort, a budget
-advisory when over threshold, plus the access findings). It never raises — any
-assessor failure degrades to a low-confidence/empty result, never an error.
+:func:`assess_feasibility` runs both assessors, returns the populated estimates,
+and emits CITED findings (an info summary for cost, a budget advisory when over
+threshold, plus the access findings). It never raises — any assessor failure
+degrades to a low-confidence/empty result, never an error.
+
+RFC-0014: the dev-day/story-point effort estimate was removed — sizing an
+LLM-agent task in human dev-days is meaningless. Capability is now expressed via
+the scorer's difficulty/risk/autonomy verdict on the Task Contract.
 """
 
 from __future__ import annotations
@@ -11,10 +15,9 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from plan.decompose.models import AccessRequirement, CostEstimate, EffortEstimate
+from plan.decompose.models import AccessRequirement, CostEstimate
 from plan.feasibility.access import verify_access
 from plan.feasibility.cost import estimate_cost
-from plan.feasibility.effort import estimate_effort
 from plan.review.models import Citation, Finding
 from pydantic import BaseModel, Field
 
@@ -26,10 +29,9 @@ _PRICING_DOCS = "https://aws.amazon.com/pricing/"
 
 
 class FeasibilityResult(BaseModel):
-    """Bundle of the three feasibility assessments + their review findings."""
+    """Bundle of the feasibility assessments + their review findings."""
 
     cost: CostEstimate | None = None
-    effort: EffortEstimate | None = None
     access: list[AccessRequirement] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
 
@@ -43,7 +45,7 @@ def _budget_threshold() -> float | None:
 
 
 def assess_feasibility(plan: NormalizedPlan, epic: EpicPlan) -> FeasibilityResult:
-    """Run cost + effort + access; return estimates + cited findings."""
+    """Run cost + access; return estimates + cited findings."""
     findings: list[Finding] = []
 
     # ── cost ──
@@ -95,24 +97,6 @@ def assess_feasibility(plan: NormalizedPlan, epic: EpicPlan) -> FeasibilityResul
                 )
             )
 
-    # ── effort ──
-    try:
-        effort = estimate_effort(epic)
-    except Exception:
-        effort = EffortEstimate(confidence="low")
-    if effort.story_points:
-        findings.append(
-            Finding(
-                title=(
-                    f"Estimated effort ≈ {effort.story_points} pts "
-                    f"(~{effort.duration_days_low:g}–{effort.duration_days_high:g} dev-days)"
-                ),
-                detail="; ".join(effort.assumptions),
-                severity="info",
-                source="feasibility-effort",
-            )
-        )
-
     # ── access ──
     try:
         access, access_findings = verify_access(plan, epic)
@@ -120,4 +104,4 @@ def assess_feasibility(plan: NormalizedPlan, epic: EpicPlan) -> FeasibilityResul
         access, access_findings = [], []
     findings.extend(access_findings)
 
-    return FeasibilityResult(cost=cost, effort=effort, access=access, findings=findings)
+    return FeasibilityResult(cost=cost, access=access, findings=findings)

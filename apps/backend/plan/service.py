@@ -407,14 +407,14 @@ class PlanService:
         (feasibility → deployment → template) so the epic mutations and finding
         ordering are unchanged.
         """
-        # Feasibility (#C): price the proposed shape, estimate effort, verify
-        # access. Estimates are attached to the epic; findings are folded into
-        # the feasibility lens via a composed external runner.
+        # Feasibility (#C): price the proposed shape, verify access. Estimates are
+        # attached to the epic; findings are folded into the feasibility lens via a
+        # composed external runner. RFC-0014: no dev-day effort estimate — the
+        # scorer's difficulty/risk/autonomy on the contract replaces it.
         from plan.feasibility import assess_feasibility
 
         feasibility = assess_feasibility(plan, epic)
         epic.cost_estimate = feasibility.cost
-        epic.effort_estimate = feasibility.effort
         epic.access_requirements = feasibility.access
 
         # Deployment-aware planning (RFC-0013, #190): derive the `deployment`
