@@ -171,15 +171,101 @@ class PlanServiceError(RuntimeError):
 logger = logging.getLogger(__name__)
 
 
-class PlanService:
-    """Orchestrator for plan sessions, with optional disk-backed persistence.
+# Process-wide cache of the durable store, keyed by DATABASE_URL. Every
+# PlanService shares ONE store (hence one background loop + one connection
+# pool), matching production (a single shared Postgres) and — critically —
+# preventing the test suite from spawning a fresh loop/pool per PlanService
+# instance (which would exhaust Postgres connections + balloon runtime).
+_JOB_STORE_CACHE: dict[str, object] = {}
+_JOB_STORE_LOCK = threading.Lock()
 
-    The store is in-memory for speed/testability; when ``PFACTORY_PLAN_PERSIST``
-    is set, every mutation is mirrored to a JSON file under the store dir and the
-    set is reloaded on startup, so plans survive pod restarts.
+
+def _resolve_job_store() -> object | None:
+    """Return the shared durable job-state store, or ``None`` (in-memory path).
+
+    Returns a process-wide singleton :class:`server.jobstore.JobStateStore`
+    (cached by ``DATABASE_URL``) when the env var is set and the web-server DB
+    layer is importable (the normal in-cluster case). Returns ``None`` — and
+    logs a clear not-multi-replica-safe warning — when ``DATABASE_URL`` is unset
+    (single-pod dev) or the SQLAlchemy-backed store cannot be imported (e.g. the
+    dependency-light backend test venv). Never raises: a store-construction
+    hiccup degrades to the in-memory path rather than breaking the pipeline.
+    """
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        logger.warning(
+            "PFactory plan state is IN-MEMORY (DATABASE_URL unset): NOT "
+            "multi-replica safe and lost on restart. Set DATABASE_URL to a "
+            "shared Postgres for durable, multi-replica admission (RFC-0016)."
+        )
+        return None
+    with _JOB_STORE_LOCK:
+        cached = _JOB_STORE_CACHE.get(url)
+        if cached is not None:
+            return cached
+        try:
+            # Deferred + optional: server.jobstore (SQLAlchemy-backed) is not
+            # importable in the dependency-light backend venv, so this import
+            # MUST stay inside the guard (PLC0415 is intentional here).
+            from server.jobstore import (  # type: ignore[import-not-found]  # noqa: PLC0415
+                JobStateStore,
+            )
+
+            store = JobStateStore()
+            # Verify the store can actually serve requests (DB reachable +
+            # job_states table migrated). If not — e.g. a process that set
+            # DATABASE_URL but never ran migrations — close it and fall back to
+            # the in-memory path rather than failing every transition (RFC-0016
+            # graceful-degradation). This keeps unit tests that point at a bare
+            # Postgres green and matches the conventions' fallback intent.
+            if not store.is_ready():
+                store.close()
+                logger.warning(
+                    "DATABASE_URL is set but the job_states table is not "
+                    "ready (DB unreachable or migrations not applied); using "
+                    "the IN-MEMORY path, which is NOT multi-replica safe "
+                    "(RFC-0016). Run `alembic upgrade head`."
+                )
+                return None
+            _JOB_STORE_CACHE[url] = store
+            logger.info(
+                "PFactory plan state is DURABLE: backed by the shared "
+                "job_states table (RFC-0016 #217)."
+            )
+            return store
+        except Exception as exc:  # noqa: BLE001 — degrade to in-memory, never fatal
+            logger.warning(
+                "DATABASE_URL is set but the durable job-state store is "
+                "unavailable (%s); falling back to the IN-MEMORY path, which is "
+                "NOT multi-replica safe (RFC-0016).",
+                exc,
+            )
+            return None
+
+
+class PlanService:
+    """Orchestrator for plan sessions, with durable + disk-backed persistence.
+
+    The working store is in-memory for speed/testability. Two durability layers
+    sit alongside it:
+
+      - RFC-0016 (#217): when ``DATABASE_URL`` is set, every state transition is
+        mirrored into a shared Postgres ``job_states`` row and the admission
+        cap/queue is granted via a ``SELECT ... FOR UPDATE`` transaction, so
+        state survives a restart and is consistent across replicas. When
+        ``DATABASE_URL`` is unset the in-memory path is used and a clear
+        not-multi-replica-safe warning is logged.
+      - The legacy opt-in (``PFACTORY_PLAN_PERSIST``) JSON disk mirror still
+        works for single-pod dev that wants restart survival without a database.
     """
 
-    def __init__(self, *, store_dir: Path | None = None, persist: bool | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        store_dir: Path | None = None,
+        persist: bool | None = None,
+        job_store: object | None = None,
+    ) -> None:
         self._sessions: dict[str, PlanSession] = {}
         # RFC-0016 (#217): process() now runs in a worker thread (see
         # `process_async`), so concurrent offloaded runs mutate the shared
@@ -201,6 +287,15 @@ class PlanService:
         if self._persist:
             self._load_all()
         self._seq = len(self._sessions)
+
+        # RFC-0016 (#217): durable, multi-replica-safe job-state store. When
+        # ``DATABASE_URL`` is set we back the session lifecycle + the admission
+        # cap/queue with a Postgres ``job_states`` row so state survives a
+        # restart and is consistent across replicas. When it is unset we stay on
+        # the in-memory path above and WARN that it is not multi-replica safe
+        # (per apis/concurrency-conventions.md §1). An explicit ``job_store``
+        # (tests) wins over auto-resolution.
+        self._job_store = job_store if job_store is not None else _resolve_job_store()
 
     # ── persistence (opt-in via PFACTORY_PLAN_PERSIST) ──────────────────
 
@@ -226,11 +321,17 @@ class PlanService:
             logger.info("loaded %d persisted plan session(s)", len(self._sessions))
 
     def _save(self, session: PlanSession) -> None:
-        """Mirror one session to disk atomically (temp file + rename).
+        """Persist one session: durable job-state row + optional disk mirror.
 
-        Never raises — persistence is best-effort telemetry of state, not part
-        of the request's success contract.
+        Every state transition funnels through here, so this is where the
+        durable RFC-0016 row is kept in lockstep with the in-memory session
+        (independent of the opt-in JSON disk mirror). Never raises — both the
+        durable mirror and the disk write are best-effort telemetry of state,
+        not part of the request's success contract.
         """
+        # Durable job-state row first (RFC-0016 #217) — runs whether or not the
+        # JSON disk mirror is enabled; a no-op when no durable store is set.
+        self._mirror(session)
         if not self._persist:
             return
         # Serialise concurrent disk writes (RFC-0016 #217): two offloaded runs
@@ -245,6 +346,46 @@ class PlanService:
                 tmp.replace(dest)
             except Exception as exc:  # noqa: BLE001 — disk hiccup must not break a run
                 logger.warning("failed to persist plan session %s: %s", session.session_id, exc)
+
+    # ── durable job-state mirror (RFC-0016 #217) ────────────────────────
+
+    def _mirror(self, session: PlanSession) -> None:
+        """Mirror a session's current lifecycle into the durable store.
+
+        Best-effort and never raises: the durable row is the source of truth
+        for cross-replica admission + restart recovery, but a transient DB
+        hiccup must not break the request (the in-memory session still drives
+        the response). A no-op when no durable store is configured.
+
+        Maps the session's native status -> canonical lifecycle in the store
+        (see ``server.jobstore.lifecycle``), and carries the terminal payload
+        (``result`` / ``error`` / ``usage``) so a terminal row is complete.
+        """
+        store = self._job_store
+        if store is None:
+            return
+        result: dict | None = None
+        error: str | None = None
+        if session.status == "emitted":
+            result = session.emit_result or session.contract_result or {}
+        elif session.status == "rejected":
+            result = {"rejected": True}
+            error = "plan rejected at review"
+        try:
+            store.upsert(
+                session.session_id,
+                service_status=session.status,
+                correlation_key=session.correlation_key or session.emitted_issue_number,
+                result=result,
+                error=error,
+                usage=session.usage.model_dump() if session.usage else None,
+            )
+        except Exception as exc:  # noqa: BLE001 — durable mirror is best-effort
+            logger.warning(
+                "failed to mirror plan session %s to the durable store: %s",
+                session.session_id,
+                exc,
+            )
 
     # ── ingest ─────────────────────────────────────────────────────────
 
@@ -416,10 +557,19 @@ class PlanService:
         — so the single uvicorn event loop stays free to serve ``/api/health``
         and other sessions concurrently while one plan is being processed.
 
-        When the admission cap is reached, callers WAIT (queue) on the semaphore
+        When the admission cap is reached, callers WAIT (queue) on the gate
         rather than erroring; ``/api/health`` never goes through this path so it
         is unaffected.
+
+        Admission gate selection (RFC-0016 #217):
+          - durable store set  → grant the slot in Postgres via a
+            ``SELECT ... FOR UPDATE`` transaction (:meth:`_durable_admit`), so
+            the cap holds ACROSS replicas and survives a restart.
+          - no durable store   → the in-process :class:`asyncio.Semaphore`
+            (single-pod dev only).
         """
+        if self._job_store is not None:
+            return await self._durable_admit(session_id, external_runner=external_runner, llm=llm)
         sem = self._admission_semaphore()
         if sem is None:
             return await asyncio.to_thread(
@@ -429,6 +579,61 @@ class PlanService:
             return await asyncio.to_thread(
                 self.process, session_id, external_runner=external_runner, llm=llm
             )
+
+    async def _durable_admit(
+        self, session_id: str, *, external_runner=None, llm=None
+    ) -> PlanSession:
+        """Grant a slot via the durable store, then run ``process`` off-loop.
+
+        The slot grant is a ``SELECT ... FOR UPDATE`` transaction in the store
+        (:meth:`server.jobstore.JobStateStore.try_start`): two replicas racing
+        for the last slot serialise on the row locks, so the cap can never be
+        exceeded and a ``job_id`` cannot be double-started. When the cap is full
+        the store raises ``SlotDenied`` and we WAIT (poll with bounded backoff)
+        until a slot frees — preserving the in-memory semaphore's queue-don't-
+        error behaviour. The terminal transition inside ``process`` flips the
+        row off ``running`` via ``_save``/``_mirror``, freeing the slot.
+        """
+        # Deferred + optional import (see _resolve_job_store): only reached when
+        # a durable store is configured, so server.jobstore is importable here.
+        from server.jobstore import (  # type: ignore[import-not-found]  # noqa: PLC0415
+            SlotDenied,
+        )
+
+        store = self._job_store
+        delay = 0.05
+        while True:
+            try:
+                # Grant happens in a worker thread (the store's sync API drives
+                # its own loop via asyncio.run; calling it on the event loop
+                # would conflict), so run it via to_thread.
+                await asyncio.to_thread(store.try_start, session_id)
+                break
+            except SlotDenied:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 1.0)  # bounded exponential backoff
+        try:
+            return await asyncio.to_thread(
+                self.process, session_id, external_runner=external_runner, llm=llm
+            )
+        except Exception as exc:
+            # A crashed run must not leak its concurrency slot: mark the durable
+            # row failed (terminal, off `running`) with a reason so the cap
+            # frees and never-overclaim holds. Best-effort; re-raise the
+            # original error so the caller's contract is unchanged.
+            try:
+                await asyncio.to_thread(
+                    store.upsert,
+                    session_id,
+                    service_status="failed",
+                    error=f"process() raised: {exc}",
+                )
+            except Exception:  # noqa: BLE001 — never mask the original failure
+                logger.warning(
+                    "failed to mark durable job %s failed after process() raised",
+                    session_id,
+                )
+            raise
 
     def _detect_and_plan_type(self, session: PlanSession) -> tuple[NormalizedPlan, object]:
         """Detect → reconnoiter → route tier → enrich → plan-type select.
