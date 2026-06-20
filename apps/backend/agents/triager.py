@@ -45,9 +45,10 @@ import logging as _logging
 import os
 import traceback
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+
+from agents.agent_infra import now_iso, read_status, truthy, write_status_patch
 
 _triage_log = _logging.getLogger(__name__)
 
@@ -352,18 +353,10 @@ def _mutate_catalog(
 # ─── Workspace helpers ─────────────────────────────────────────────────
 
 
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _read_status(spec_dir: Path) -> dict:
-    status_path = spec_dir / "status.json"
-    if not status_path.exists():
-        return {}
-    try:
-        return json.loads(status_path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
+# now_iso / read_status are shared via agents.agent_infra (#195); keep the
+# historical private aliases.
+_now_iso = now_iso
+_read_status = read_status
 
 
 # Terminal statuses the Triager can land on. A completion callback fires once
@@ -372,16 +365,13 @@ _TERMINAL_STATUSES = frozenset({"triaged", "triaged_empty", "triager_failed"})
 
 
 def _write_status_patch(spec_dir: Path, **fields: object) -> None:
-    status = _read_status(spec_dir)
-    status.update(fields)
-    status["updated_at"] = _now_iso()
-    (spec_dir / "status.json").write_text(json.dumps(status, indent=2))
-    # Best-effort push-based progress event (#95); no-op unless opted in.
-    from agents.stage_events import emit_stage_event
-
-    emit_stage_event(spec_dir, status, stage="triager")
+    # Shared read/merge/write + best-effort #95 stage event (stage="triager").
+    write_status_patch(spec_dir, "triager", **fields)
     # Fire the completion callback exactly once, when the task goes terminal.
     if fields.get("status") in _TERMINAL_STATUSES:
+        # Re-read the just-written status (identical content to the in-memory
+        # merged dict the previous inline version passed through).
+        status = _read_status(spec_dir)
         _notify_completion(spec_dir, status)
         # Best-effort PFactory→AIFactory correction hand-back (#185 / epic #182).
         # Prepares findings/handback_request.{md,json} when the run has failures;
@@ -394,10 +384,7 @@ def _write_status_patch(spec_dir: Path, **fields: object) -> None:
 # ─── Mode resolution: dry-run vs real ─────────────────────────────────
 
 
-def _truthy(env_val: str | None) -> bool:
-    if env_val is None:
-        return False
-    return env_val.strip().lower() in ("1", "true", "yes", "on")
+_truthy = truthy
 
 
 def _git_writer_dry_run() -> bool:

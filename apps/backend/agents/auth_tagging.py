@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents.agent_infra import iter_subtasks
+
 __all__ = ["apply_requires_auth_from_config", "tag_requires_auth"]
 
 
@@ -72,5 +74,5 @@ def apply_requires_auth_from_config(plan, project_dir: Path | str | None) -> int
         return 0
     if config is None:
         return 0
-    subtasks = [st for phase in plan.phases for st in phase.subtasks]
+    subtasks = [st for _phase, st in iter_subtasks(plan)]
     return tag_requires_auth(subtasks, config)

@@ -31,13 +31,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+from agents.agent_infra import truthy as _truthy
+
 __all__ = ["emit_stage_event", "stage_event_payload"]
-
-
-def _truthy(env_val: str | None) -> bool:
-    if env_val is None:
-        return False
-    return env_val.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _sentinel_enabled() -> bool:

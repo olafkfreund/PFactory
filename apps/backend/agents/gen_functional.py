@@ -36,41 +36,32 @@ import json
 import logging as _logging
 import os
 import traceback
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+
+from agents.agent_infra import (
+    BackgroundTaskRegistry,
+    iter_subtasks,
+    now_iso,
+    read_status,
+    write_status_patch,
+)
 
 _gen_log = _logging.getLogger(__name__)
 
 
-# ─── Helpers shared with planner.py — keep these local to avoid an extra
-#    import surface. If the duplication starts hurting, factor into a
-#    new agents/_workspace_io.py module. ──────────────────────────────────
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
+# ─── Per-agent infra shared via agents.agent_infra (#195) ──────────────────
+# These thin module-level wrappers keep the historical private names + the
+# "gen_functional" stage discriminator so call sites and tests are unchanged.
+_now_iso = now_iso
 
 
 def _read_status(spec_dir: Path) -> dict:
-    status_path = spec_dir / "status.json"
-    if not status_path.exists():
-        return {}
-    try:
-        return json.loads(status_path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return read_status(spec_dir)
 
 
 def _write_status_patch(spec_dir: Path, **fields: object) -> None:
-    status = _read_status(spec_dir)
-    status.update(fields)
-    status["updated_at"] = _now_iso()
-    (spec_dir / "status.json").write_text(json.dumps(status, indent=2))
-    # Best-effort push-based progress event (#95); no-op unless opted in.
-    from agents.stage_events import emit_stage_event
-
-    emit_stage_event(spec_dir, status, stage="gen_functional")
+    write_status_patch(spec_dir, "gen_functional", **fields)
 
 
 # ─── The agent itself ─────────────────────────────────────────────────────
@@ -385,16 +376,14 @@ async def run_gen_functional(
             return False
 
         plan = ImplementationPlan.load(plan_file)
-        pending: list = []
-        for phase in plan.phases:
-            for st in phase.subtasks:
-                # Generate every pending subtask regardless of lane — the
-                # per-subtask framework descriptor (Playwright / Jest / pytest /
-                # httpx) drives the prompt + runner image. Previously gated to
-                # Lane.UNIT, which silently dropped the browser/api/integration
-                # subtasks the Planner emitted (→ generated_empty).
-                if st.status == SubtaskStatus.PENDING:
-                    pending.append(st)
+        # Generate every pending subtask regardless of lane — the per-subtask
+        # framework descriptor (Playwright / Jest / pytest / httpx) drives the
+        # prompt + runner image. Previously gated to Lane.UNIT, which silently
+        # dropped the browser/api/integration subtasks the Planner emitted
+        # (→ generated_empty).
+        pending: list = [
+            st for _phase, st in iter_subtasks(plan, lambda st: st.status == SubtaskStatus.PENDING)
+        ]
 
         if not pending:
             _write_status_patch(
@@ -589,7 +578,8 @@ async def run_gen_functional(
 # status=planned / planned_empty; gating on env keeps tests
 # deterministic.
 
-_BG_GEN_FUNCTIONAL_TASKS: set[asyncio.Task] = set()
+_BG_GEN_FUNCTIONAL_REGISTRY = BackgroundTaskRegistry()
+_BG_GEN_FUNCTIONAL_TASKS: set[asyncio.Task] = _BG_GEN_FUNCTIONAL_REGISTRY.tasks
 
 
 def schedule_gen_functional(
@@ -609,7 +599,6 @@ def schedule_gen_functional(
     """
     if os.environ.get("PFACTORY_AUTO_GENERATE", "1") == "0":
         return None
-    task = asyncio.create_task(run_gen_functional(spec_dir, project_dir, mode=mode))
-    _BG_GEN_FUNCTIONAL_TASKS.add(task)
-    task.add_done_callback(_BG_GEN_FUNCTIONAL_TASKS.discard)
-    return task
+    return _BG_GEN_FUNCTIONAL_REGISTRY.schedule(
+        run_gen_functional(spec_dir, project_dir, mode=mode),
+    )
