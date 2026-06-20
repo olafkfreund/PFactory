@@ -518,6 +518,42 @@ class PlanService:
         self._save(session)
         return session
 
+    # ── execution model: pooled worker, NOT Job-per-task (RFC-0016 #218) ─
+    #
+    # RFC-0016 §5(c) gives PFactory an explicit choice for Phase-2 execution:
+    # a k8s **Job-per-task** OR a **thread/process-pool worker model**, noting
+    # that "default planning is deterministic (no LLM) and light, so PFactory
+    # may run a thread/process-pool worker model rather than full Job-per-task
+    # if Jobs prove heavy for sub-second planning."
+    #
+    # DECISION (#218): PFactory uses the **bounded pooled-worker model**, NOT a
+    # Job-per-task. ``process_async`` offloads the pipeline onto a worker thread
+    # (:func:`asyncio.to_thread`) under an admission cap whose state is durable +
+    # multi-replica-safe in Postgres (:meth:`_durable_admit`, #220). This IS the
+    # Phase-2 execution model for planning. WHY:
+    #
+    #   * Planning is deterministic and sub-second (no LLM by default): detect →
+    #     plan-type → decompose → synthesize → gates are pure-Python passes over
+    #     the contract. A k8s Job's spin-up cost (image pull, pod schedule, warm
+    #     nix-store mount) is measured in seconds — i.e. >> the work it would run,
+    #     so Job-per-plan would make planning slower and burn cluster churn for no
+    #     isolation benefit.
+    #   * The two scaling hazards a Job would address are already handled here:
+    #     event-loop starvation (fixed by the off-loop worker, #219) and unbounded
+    #     fan-out (fixed by the durable, cross-replica admission cap, #220). Multi-
+    #     replica correctness comes from the Postgres ``SELECT ... FOR UPDATE``
+    #     slot grant, not from the pod boundary.
+    #
+    # The heavy outlier is the optional RFC-0010 reconnaissance git-clone of a
+    # large target repo (:meth:`_reconnoiter`) — but it is read-only and static
+    # (never executes repo code; see :mod:`plan.recon.clone`) and bounded by the
+    # same admission cap, so it does not by itself justify a Job pod per plan. If a
+    # genuinely heavy/governed (LLM) planning path ever lands, the shared
+    # ``scripts/job_dispatch.py`` builder + ``apis/concurrency-conventions.md`` §3
+    # are the seam to add an opt-in, env-gated Job path for THAT path only — it is
+    # deliberately not added now (no consumer warrants it). See CONTRIBUTING.md
+    # ("Concurrency / execution model").
+    #
     # ── async offload + admission control (RFC-0016 #217) ───────────────
 
     def _admission_semaphore(self) -> asyncio.Semaphore | None:

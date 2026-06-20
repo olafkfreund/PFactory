@@ -138,6 +138,40 @@ async def test_unlimited_cap_means_no_gate(monkeypatch):
     assert svc._admission_semaphore() is None
 
 
+# ── execution-model decision lock-in (RFC-0016 #218) ──────────────────────
+#
+# #218 asks PFactory to "run process() as a Job or pool worker". The decision
+# (RFC-0016 §5(c)) is the *pool-worker* model: sub-second deterministic planning
+# does not warrant a k8s Job pod per plan. These tests pin that contract so a
+# regression toward Job-per-plan or a dropped admission cap is caught.
+
+
+def test_execution_model_is_pooled_worker_not_job_per_task():
+    """The Phase-2 execution seam is the off-loop pooled worker + admission cap.
+
+    Asserts the structural contract of the chosen model: ``process_async`` (the
+    pooled-worker entrypoint) exists and the admission gate is the cap mechanism.
+    There is intentionally no Job-dispatch path for planning, so PlanService must
+    not grow a per-plan k8s-Job dispatcher.
+    """
+    svc = PlanService(persist=False)
+    # The async, off-loop worker entrypoint is the execution model.
+    assert callable(svc.process_async)
+    assert callable(svc._admission_semaphore)
+    # No Job-per-task dispatch lives on the planning service — by design, sub-
+    # second deterministic planning is NOT dispatched to a k8s Job. If a future
+    # heavy/governed path adds one, it must be an opt-in, env-gated seam (see
+    # CONTRIBUTING "Concurrency / execution model"), not a default on PlanService.
+    for forbidden in ("dispatch_job", "build_job_manifest", "_dispatch_k8s_job"):
+        assert not hasattr(svc, forbidden), (
+            f"PlanService grew {forbidden!r}: planning must stay a pooled worker, "
+            "not Job-per-task (RFC-0016 #218 / §5c)"
+        )
+    # The durable, cross-replica-safe half of the cap (#220) — which is what
+    # replaces a Job scheduler for multi-replica admission — is exercised by
+    # tests/test_plan_service_durable_state.py::test_process_async_uses_durable_admission.
+
+
 def test_concurrent_ingests_do_not_lose_sessions_or_collide_seq():
     """Many threads ingesting at once: no lost sessions, no duplicate seq/ids.
 
