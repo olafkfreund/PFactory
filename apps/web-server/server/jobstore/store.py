@@ -200,14 +200,16 @@ class JobStateStore:
         usage: dict[str, Any] | None = None,
         error: str | None = None,
         admission: dict[str, Any] | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Create or update a job's row, mapping native status -> lifecycle.
 
         Sets ``ended_at`` automatically when the new state is terminal, and
         records ``result``/``error`` (a terminal failure MUST carry a reason —
         when ``error`` is omitted for a failed/stuck state a generic reason is
-        stored so the never-overclaim rule cannot be violated). Returns the
-        row as a dict.
+        stored so the never-overclaim rule cannot be violated). ``artifacts``
+        (RFC-0016 #190) are object-store ``artifacts[]`` references (URIs, never
+        blobs) for the plan's emitted documents. Returns the row as a dict.
         """
         return self._run(
             self._upsert_async(
@@ -219,6 +221,7 @@ class JobStateStore:
                 usage=usage,
                 error=error,
                 admission=admission,
+                artifacts=artifacts,
             )
         )
 
@@ -233,6 +236,7 @@ class JobStateStore:
         usage: dict[str, Any] | None,
         error: str | None,
         admission: dict[str, Any] | None,
+        artifacts: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         lifecycle = lifecycle_state_for(service_status)
         terminal = lifecycle in TERMINAL_LIFECYCLE
@@ -258,6 +262,8 @@ class JobStateStore:
                     row.result = result
                 if usage is not None:
                     row.usage = usage
+                if artifacts is not None:
+                    row.artifacts = artifacts
                 if admission is not None:
                     row.admission = {**(row.admission or {}), **admission}
                 if terminal:

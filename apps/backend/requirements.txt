@@ -55,3 +55,9 @@ jsonschema>=4.18
 # so the pre-tool-use hook validates them against the allowlist instead of
 # silently allowing them (issue #129). Pure Python, no native deps.
 bashlex>=0.18
+
+# RFC-0016 #190 — object-store artifact emission. The vendored
+# runners/artifact_store.py imports boto3 lazily to push the plan's emitted
+# documents (plan/spec markdown + audit pack) to MinIO. Upload is fail-open:
+# absent boto3 simply no-ops the emission, never the plan emit.
+boto3>=1.35.0

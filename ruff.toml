@@ -33,6 +33,12 @@ extend-exclude = [
     "apps/backend/runners/github/providers/github_provider.py",
     "apps/backend/runners/github/providers/gitlab_provider.py",
     "apps/backend/runners/github/providers/azure_devops_provider.py",
+    # RFC-0016 #190: the shared S3-compatible artifact-store client, vendored
+    # byte-exact from the Factory hub canonical (scripts/artifact_store.py).
+    # Formatted at the hub width (100); excluded here so the local
+    # linter/formatter (and the ratchet, which honours these excludes) cannot
+    # fight a byte-exact re-vendor. Edit the hub canonical, not this copy.
+    "apps/backend/runners/artifact_store.py",
 ]
 
 [lint.per-file-ignores]
