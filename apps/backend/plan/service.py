@@ -12,7 +12,6 @@ Flow:  ingest → process (detect → plan-type → decompose → synthesize →
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from datetime import UTC, datetime
@@ -30,11 +29,6 @@ from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply
 from plan.detect.target_classifier import classify_plan
-from plan.feasibility.deployment import (
-    assess_deployment_readiness,
-    deployment_findings,
-    inject_deployment_acs,
-)
 from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import NormalizedPlan
 from plan.plan_types import apply as plan_type_apply
@@ -44,6 +38,34 @@ from plan.review.approval import approve as approve_review
 from plan.review.approval import reject as reject_review
 from plan.review.gates import run_gates
 from plan.review.models import PlanReview
+from plan.service_helpers import (
+    BoardColumn,
+    board_state,
+)
+from plan.service_helpers import (
+    attach_deployment as _attach_deployment,
+)
+from plan.service_helpers import (
+    carry_tier as _carry_tier,
+)
+from plan.service_helpers import (
+    default_store_dir as _default_store_dir,
+)
+from plan.service_helpers import (
+    knowledge_connector_kwargs as _knowledge_connector_kwargs,
+)
+from plan.service_helpers import (
+    load_access_inputs as _load_access_inputs,
+)
+from plan.service_helpers import (
+    persist_enabled as _persist_enabled,
+)
+from plan.service_helpers import (
+    route_tier as _route_tier,
+)
+from plan.service_helpers import (
+    template_findings as _template_findings,
+)
 from plan.synthesize.models import SynthesizedArtifact
 from plan.synthesize.run import synthesize
 from plan.usage import PlanUsage
@@ -54,70 +76,23 @@ from pydantic import BaseModel, Field
 SessionStatus = str
 # ingested | processing | reviewing | processed | approved | rejected | emitted
 
-# Task-board column ids (shared with the frontend kanban — see constants/task.ts).
-# "backlog" is rendered as "Plans ready".
-BoardColumn = str  # backlog | in_progress | ai_review | human_review | done
+# The board-column projection, env plumbing, RFC-0011 tier routing and the
+# additive RFC-0013/#E review-finding seams now live in ``plan.service_helpers``
+# (#194 decomposition); they are re-exported above under their historical
+# underscore names so every existing import path keeps working.
 
-
-def _knowledge_connector_kwargs(name: str, wiki_root: str | None) -> dict[str, object]:
-    """Build a knowledge connector's constructor kwargs from the environment.
-
-    The connectors accept ``base_url`` / ``token`` (etc.) but read nothing
-    themselves, so without this the enrichment loop ran them unconfigured and
-    they returned nothing. Each source has its own ``PFACTORY_<SOURCE>_*`` vars;
-    empty/unset values are dropped so an unconfigured connector simply reports
-    ``available() is False`` and degrades to an empty result.
-    """
-    env = os.environ.get
-
-    def _kw(**pairs: str | None) -> dict[str, object]:
-        return {k: v for k, v in pairs.items() if v}
-
-    if name == "backstage":
-        return _kw(
-            base_url=env("PFACTORY_BACKSTAGE_URL"),
-            token=env("PFACTORY_BACKSTAGE_TOKEN"),
-        )
-    if name == "confluence":
-        return _kw(
-            base_url=env("PFACTORY_CONFLUENCE_URL"),
-            token=env("PFACTORY_CONFLUENCE_TOKEN"),
-            email=env("PFACTORY_CONFLUENCE_EMAIL"),
-        )
-    if name == "gitbook":
-        return _kw(
-            token=env("PFACTORY_GITBOOK_TOKEN"),
-            space_id=env("PFACTORY_GITBOOK_SPACE_ID"),
-        )
-    if name == "notion":
-        return _kw(token=env("PFACTORY_NOTION_TOKEN"))
-    if name == "git-markdown":
-        return _kw(root=wiki_root)
-    return {}
-
-
-def board_state(status: str, review: PlanReview | None) -> BoardColumn:
-    """Project a session's (status, review) onto a kanban column (#5).
-
-    plans-ready (backlog) → in-progress (processing) → AI review (gates running)
-    → human review (AI done: awaiting sign-off, blocked, or needs edit) →
-    done (approved by AI *and* human, or already emitted).
-    """
-    if status in ("approved", "emitted"):
-        return "done"
-    if status == "rejected":
-        return "human_review"  # needs attention / edit
-    if status == "ingested":
-        return "backlog"
-    if status == "processing":
-        return "in_progress"
-    if status == "reviewing":
-        return "ai_review"
-    if status == "processed":
-        # AI review is complete; a human must approve a clean plan or fix a
-        # blocked one — either way it awaits a person.
-        return "human_review"
-    return "backlog"
+# Note: ``SERVICE`` is intentionally absent from ``__all__`` — it is a lazily
+# constructed module attribute resolved via ``__getattr__`` (PEP 562) below, so
+# it is not a statically defined name. ``from plan.service import SERVICE`` and
+# attribute access still work; only ``import *`` skips it.
+__all__ = [
+    "BoardColumn",
+    "PlanService",
+    "PlanServiceError",
+    "PlanSession",
+    "SessionStatus",
+    "board_state",
+]
 
 
 class PlanSession(BaseModel):
@@ -187,148 +162,11 @@ class PlanSession(BaseModel):
         }
 
 
-# RFC-0011 tier precedence (highest wins). hard > medium > low.
-_TIER_RANK = {"low": 0, "medium": 1, "hard": 2}
-
-
-def _carry_tier(plan: NormalizedPlan, tier: str | None) -> NormalizedPlan:
-    """Stamp a normalized RFC-0011 tier onto the plan (no-op for unknown)."""
-    from plan.emit.tier_profile import normalize_tier
-
-    canonical = normalize_tier(tier)
-    if canonical is None:
-        return plan
-    return plan.model_copy(update={"autonomy_tier": canonical})
-
-
-def _route_tier(current: str | None, *, is_migration: bool) -> str | None:
-    """Resolve the final tier for a plan (RFC-0011, #182).
-
-    ``change_mode == migration`` (a rewrite) forces ``hard``; otherwise the
-    highest of the carried tier wins. Returns ``None`` only when no tier was
-    carried and it is not a migration (back-compat: emit derives from complexity).
-    """
-    from plan.emit.tier_profile import normalize_tier
-
-    carried = normalize_tier(current)
-    forced = "hard" if is_migration else None
-    candidates = [t for t in (carried, forced) if t is not None]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda t: _TIER_RANK[t])
-
-
-def _attach_deployment(plan: NormalizedPlan, epic: EpicPlan) -> list:
-    """Derive + attach the RFC-0013 deployment block; return its review findings.
-
-    Stamps ``epic.deployment`` and injects the deployment ACs when a deployment
-    dimension exists. Additive + safe: returns ``[]`` (and leaves the epic
-    untouched) when there is no deployment surface or analysis fails — deployment
-    analysis must never break a plan run.
-    """
-    try:
-        block = assess_deployment_readiness(plan, epic)
-    except Exception:  # noqa: BLE001 — deployment analysis must never break a run
-        return []
-    if block is None:
-        return []
-    epic.deployment = block
-    inject_deployment_acs(epic, block)
-    return deployment_findings(block)
-
-
-def _template_findings(session: PlanSession, plan: NormalizedPlan, descriptor: object) -> list:
-    """Template-policy findings (#E). OPT-IN: only a user-selected template gates.
-
-    Records the auto-matched template as a non-gating suggestion, defaults the
-    category, and runs the selected template's policy check. Best-effort — docs
-    must never break emit, so any failure degrades to no findings.
-    """
-    from plan.templates import build_context, load_templates, select_template
-
-    try:
-        suggested = select_template(plan)
-        session.suggested_template = suggested.metadata.name if suggested else ""
-        if not session.selected_category:
-            session.selected_category = getattr(descriptor, "category", "")
-        if session.selected_template:
-            tmpl = load_templates().get(session.selected_template)
-            if tmpl is not None:
-                return tmpl.check(build_context(plan))
-    except Exception:  # noqa: BLE001 — docs must never break emit
-        return []
-    return []
-
-
 class PlanServiceError(RuntimeError):
     """Raised for invalid session ids or out-of-order stage calls."""
 
 
 logger = logging.getLogger(__name__)
-
-
-def _persist_enabled() -> bool:
-    """Whether plan sessions are persisted to disk.
-
-    Opt-in via ``PFACTORY_PLAN_PERSIST`` so unit tests (which construct bare
-    ``PlanService()`` instances) stay hermetic by default — no disk reads/writes,
-    identical to the historical in-memory behaviour. Production deployments set
-    it to survive pod restarts (the in-memory store was wiped on every restart).
-    """
-    return os.environ.get("PFACTORY_PLAN_PERSIST", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-
-
-def _default_store_dir() -> Path:
-    """Directory that holds one ``<session_id>.json`` per plan session.
-
-    Defaults under ``~/.pfactory`` — which the deployment mounts on a
-    PersistentVolumeClaim, so sessions survive restarts. Override with
-    ``PFACTORY_PLAN_STORE_DIR``.
-    """
-    override = os.environ.get("PFACTORY_PLAN_STORE_DIR", "").strip()
-    if override:
-        return Path(override)
-    return Path.home() / ".pfactory" / "plan-sessions"
-
-
-def _workspaces_dir() -> Path:
-    """Base of the per-spec workspace context snapshots (RFC-0007 / #84).
-
-    ``<base>/workspaces/{project_id}/specs/{spec_id}/context/`` holds the
-    snapshotted ``pfactory_yml.json`` + ``aifactory_spec.md`` (see
-    ``workspaces.snapshotter``). Override the base with ``PFACTORY_WORKSPACES_DIR``.
-    """
-    override = os.environ.get("PFACTORY_WORKSPACES_DIR", "").strip()
-    base = Path(override) if override else Path.home() / ".pfactory" / "workspaces"
-    return base
-
-
-def _load_access_inputs(project_id: str, spec_id: str) -> tuple[dict | None, str]:
-    """Best-effort: load the snapshotted .pfactory.yml + spec for access discovery.
-
-    Returns ``(config_dict_or_None, spec_text)``. Never raises: a missing snapshot
-    (the common case for plans with no declared targets) yields ``(None, "")`` so
-    the contract simply omits the RFC-0007 ``access`` block.
-    """
-    try:
-        ctx = _workspaces_dir() / str(project_id) / "specs" / str(spec_id) / "context"
-        config: dict | None = None
-        pj = ctx / "pfactory_yml.json"
-        if pj.is_file():
-            loaded = json.loads(pj.read_text(encoding="utf-8"))
-            config = loaded if isinstance(loaded, dict) else None
-        spec_text = ""
-        sm = ctx / "aifactory_spec.md"
-        if sm.is_file():
-            spec_text = sm.read_text(encoding="utf-8", errors="replace")
-        return config, spec_text
-    except Exception:  # noqa: BLE001 - access discovery must never break emit
-        return None, ""
 
 
 class PlanService:
@@ -486,6 +324,33 @@ class PlanService:
         # in-progress while we detect/enrich/decompose/synthesize, AI-review while
         # the gates run. (Synchronous callers just see the final "processed".)
         session.status = "processing"
+
+        plan, descriptor = self._detect_and_plan_type(session)
+        epic = self._decompose(session, plan, descriptor, llm=llm)
+        artifacts = synthesize(plan, epic, descriptor=descriptor)
+
+        composed_runner = self._build_review_runner(
+            session, plan, epic, descriptor, external_runner
+        )
+
+        session.status = "reviewing"
+        review = run_gates(plan, epic, external_runner=composed_runner)
+
+        session.plan = plan
+        session.epic = epic
+        session.artifacts = artifacts
+        session.review = review
+        # Honour the document: anchored, cited suggestions + improved draft (#D).
+        session.annotation = annotate_plan(plan, review)
+        session.status = "processed"
+        self._save(session)
+        return session
+
+    def _detect_and_plan_type(self, session: PlanSession) -> tuple[NormalizedPlan, object]:
+        """Detect → reconnoiter → route tier → enrich → plan-type select.
+
+        Returns the fully-classified, enriched plan and its plan-type descriptor.
+        """
         # RFC-0010: reconnaissance runs between detect and plan-type — software is
         # already known (skip recon otherwise), and the RepoMap must inform
         # plan-type selection, decomposition and the language used at emit.
@@ -505,6 +370,12 @@ class PlanService:
             detected = detected.model_copy(update={"autonomy_tier": resolved_tier})
         plan = self._enrich(plan_type_apply(detected))
         descriptor = select_for(plan)
+        return plan, descriptor
+
+    def _decompose(
+        self, session: PlanSession, plan: NormalizedPlan, descriptor: object, *, llm=None
+    ) -> EpicPlan:
+        """Decompose into an epic, record LLM usage, inject implicit requirements."""
         usage_sink: list[PlanUsage] = []
         epic = decompose(plan, descriptor=descriptor, llm=llm, usage_sink=usage_sink)
         for u in usage_sink:
@@ -518,8 +389,24 @@ class PlanService:
         from plan.decompose.implicit_requirements import inject_into_epic
 
         inject_into_epic(plan, epic, descriptor)
-        artifacts = synthesize(plan, epic, descriptor=descriptor)
+        return epic
 
+    def _build_review_runner(
+        self,
+        session: PlanSession,
+        plan: NormalizedPlan,
+        epic: EpicPlan,
+        descriptor: object,
+        external_runner,
+    ):
+        """Assemble the composed review runner: feasibility + deployment + template.
+
+        Runs the additive analysis stages (each stamps the epic + yields findings)
+        and returns a runner that folds their findings into the provider runner's
+        output. Behaviour-preserving: each stage runs in the same order as before
+        (feasibility → deployment → template) so the epic mutations and finding
+        ordering are unchanged.
+        """
         # Feasibility (#C): price the proposed shape, estimate effort, verify
         # access. Estimates are attached to the epic; findings are folded into
         # the feasibility lens via a composed external runner.
@@ -551,18 +438,7 @@ class PlanService:
             out.extend(template_findings)
             return out
 
-        session.status = "reviewing"
-        review = run_gates(plan, epic, external_runner=_composed_runner)
-
-        session.plan = plan
-        session.epic = epic
-        session.artifacts = artifacts
-        session.review = review
-        # Honour the document: anchored, cited suggestions + improved draft (#D).
-        session.annotation = annotate_plan(plan, review)
-        session.status = "processed"
-        self._save(session)
-        return session
+        return _composed_runner
 
     def _reconnoiter(self, session: PlanSession, plan: NormalizedPlan) -> NormalizedPlan:
         """Attach a static :class:`RepoMap` of the target repo (RFC-0010, #108).
@@ -949,4 +825,20 @@ class PlanService:
 
 
 # Module-level singleton the route layer + MCP tool share.
-SERVICE = PlanService()
+#
+# Lazily constructed on first access via module ``__getattr__`` (PEP 562, #194):
+# importing this module no longer eagerly builds a ``PlanService`` (which, when
+# ``PFACTORY_PLAN_PERSIST`` is set, reads the whole on-disk store). The instance
+# is created the first time ``plan.service.SERVICE`` is read — e.g. by
+# ``from plan.service import SERVICE`` — and cached as a real module attribute so
+# subsequent reads (and ``monkeypatch.setattr``) behave exactly as before.
+
+
+def __getattr__(name: str) -> object:
+    """Lazily instantiate the shared :data:`SERVICE` singleton (PEP 562)."""
+    if name == "SERVICE":
+        service = PlanService()
+        # Cache as a real module attribute so future lookups skip __getattr__.
+        globals()["SERVICE"] = service
+        return service
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
