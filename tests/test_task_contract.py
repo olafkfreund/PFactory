@@ -111,3 +111,24 @@ def test_assert_valid_raises() -> None:
     del bad["phases"]
     with pytest.raises(ContractValidationError):
         assert_valid(bad)
+
+
+def test_autonomy_tier_valid() -> None:
+    # RFC-0011: an additive execution.autonomy_tier validates against the schema.
+    for tier in ("low", "medium", "hard"):
+        c = _valid_contract()
+        c["execution"]["autonomy_tier"] = tier
+        assert validate_contract(c) == []
+
+
+def test_autonomy_tier_bad_value_rejected() -> None:
+    c = _valid_contract()
+    c["execution"]["autonomy_tier"] = "extreme"
+    errors = validate_contract(c)
+    assert any("autonomy_tier" in e for e in errors)
+
+
+def test_autonomy_tier_in_schema_enum() -> None:
+    schema = load_schema()
+    enum = schema["properties"]["execution"]["properties"]["autonomy_tier"]["enum"]
+    assert enum == ["low", "medium", "hard"]
