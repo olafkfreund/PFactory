@@ -29,6 +29,11 @@ if str(_WEB_SERVER) not in sys.path:
 
 from server.database.models import Base  # noqa: E402
 
+# Import the RFC-0016 job-state model so its table attaches to Base.metadata
+# (the migration is hand-written, but autogenerate / compare_* and any
+# create_all need the model registered). Side-effect import only.
+from server.jobstore import models as _jobstore_models  # noqa: E402,F401
+
 config = context.config
 
 # DATABASE_URL env var overrides the alembic.ini fallback. This is how
