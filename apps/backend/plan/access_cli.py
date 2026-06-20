@@ -53,7 +53,7 @@ def _post(url: str, body: dict, headers: dict) -> dict:
     req = urllib.request.Request(
         url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST"
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
         return json.loads(resp.read().decode("utf-8"))
 
 

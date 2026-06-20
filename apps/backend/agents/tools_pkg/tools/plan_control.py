@@ -80,7 +80,7 @@ def create_plan_tools() -> list:
                     template=args.get("template", ""),
                 )
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
     tools.append(plan_ingest)
@@ -99,7 +99,7 @@ def create_plan_tools() -> list:
     async def plan_process(args: dict[str, Any]) -> dict[str, Any]:
         try:
             return _ok(agent_api.plan_process(args["session_id"]))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
     tools.append(plan_process)
@@ -117,7 +117,7 @@ def create_plan_tools() -> list:
     async def plan_status(args: dict[str, Any]) -> dict[str, Any]:
         try:
             return _ok(agent_api.plan_status(args["session_id"]))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
     tools.append(plan_status)
@@ -135,7 +135,7 @@ def create_plan_tools() -> list:
     async def plan_get(args: dict[str, Any]) -> dict[str, Any]:
         try:
             return _ok(agent_api.plan_get(args["session_id"]))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
     tools.append(plan_get)
@@ -148,7 +148,7 @@ def create_plan_tools() -> list:
     async def plan_list(args: dict[str, Any]) -> dict[str, Any]:
         try:
             return _ok(agent_api.plan_list())
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
     tools.append(plan_list)
@@ -164,7 +164,7 @@ def create_plan_tools() -> list:
     async def plan_categories(args: dict[str, Any]) -> dict[str, Any]:
         try:
             return _ok(agent_api.plan_categories())
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
     tools.append(plan_categories)
@@ -192,7 +192,7 @@ def create_plan_tools() -> list:
                     feedback=args.get("feedback"),
                 )
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
     tools.append(plan_approve)
@@ -222,7 +222,7 @@ def create_plan_tools() -> list:
                     fmt=args.get("format", "json"),
                 )
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
     tools.append(plan_export_audit_pack)

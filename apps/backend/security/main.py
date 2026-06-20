@@ -24,7 +24,7 @@ See project_analyzer.py for the detection logic.
 """
 
 # Import everything from the security module to maintain backward compatibility
-from security import *
+from security import *  # noqa: F403
 
 # Explicitly import commonly used items for clarity
 from security import (

@@ -69,7 +69,7 @@ class RedactingFilter(logging.Filter):
         try:
             record.msg = self._redactor.redact(str(record.getMessage()))
             record.args = ()
-        except Exception:
+        except Exception:  # noqa: BLE001 - never break logging
             pass
         return True
 

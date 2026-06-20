@@ -73,7 +73,7 @@ def provisioned(factory, *, cost_guard: CostGuard):
     finally:
         try:
             target.teardown()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - teardown is best-effort but always attempted
             logger.warning("ephemeral target teardown failed: %s", exc)
 
 
@@ -83,7 +83,7 @@ def make_liveness_check(target: EphemeralTarget):
     def liveness_check(_req) -> bool:
         try:
             return bool(target.live())
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a probe failure is "not live", not a crash
             logger.warning("ephemeral target liveness probe failed: %s", exc)
             return False
 

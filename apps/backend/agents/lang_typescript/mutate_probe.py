@@ -349,13 +349,13 @@ def run_ts_mutate_probe(
 
         try:
             if runner_fn is None:
-                from tools.runners.docker_runner import DockerRunner
+                from tools.runners.docker_runner import DockerRunner  # noqa: PLC0415
 
                 runner = DockerRunner(image=runner_image, timeout=timeout)
                 result = runner.run(cmd, cwd=cwd)
             else:
                 result = runner_fn(cmd, cwd, image=runner_image, timeout=timeout)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Stryker runner raised: %s", exc)
             return TSMutateReport(
                 test_file=test_file,

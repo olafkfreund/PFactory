@@ -41,7 +41,7 @@ def _cmd_doctor(_args) -> int:
     for name in sorted(_BACKEND_REGISTRY):
         try:
             ok = get_secrets_backend(name).available()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             ok = f"error: {exc}"
         mark = "✅" if ok is True else ("—" if ok is False else "⚠️")
         print(f"  {mark} {name:22} available={ok}")
@@ -54,7 +54,7 @@ def _cmd_resolve(args) -> int:
     with CredentialBroker(egress_allowed=args.allow_egress) as broker:
         try:
             val = broker.resolve_ref(args.ref)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             print(f"resolve failed: {exc}", file=sys.stderr)
             return 1
     # Never print the value — only a redacted summary.

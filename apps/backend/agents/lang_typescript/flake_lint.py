@@ -237,7 +237,7 @@ def run_ts_flake_lint(
     cwd = str(project_dir)
 
     if runner_fn is None:
-        from tools.runners.docker_runner import DockerRunner
+        from tools.runners.docker_runner import DockerRunner  # noqa: PLC0415
 
         runner = DockerRunner(image=runner_image, timeout=timeout)
         result = runner.run(cmd, cwd=cwd)

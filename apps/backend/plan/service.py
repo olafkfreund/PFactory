@@ -280,7 +280,7 @@ def _load_access_inputs(project_id: str, spec_id: str) -> tuple[dict | None, str
         if sm.is_file():
             spec_text = sm.read_text(encoding="utf-8", errors="replace")
         return config, spec_text
-    except Exception:
+    except Exception:  # noqa: BLE001 - access discovery must never break emit
         return None, ""
 
 
@@ -317,7 +317,7 @@ class PlanService:
             try:
                 session = PlanSession.model_validate_json(path.read_text())
                 self._sessions[session.session_id] = session
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — skip corrupt/old payloads
                 logger.warning("skipping unreadable plan session %s: %s", path.name, exc)
         if self._sessions:
             logger.info("loaded %d persisted plan session(s)", len(self._sessions))
@@ -336,7 +336,7 @@ class PlanService:
             tmp = dest.with_suffix(".json.tmp")
             tmp.write_text(session.model_dump_json())
             tmp.replace(dest)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — disk hiccup must not break a run
             logger.warning("failed to persist plan session %s: %s", session.session_id, exc)
 
     # ── ingest ─────────────────────────────────────────────────────────
@@ -500,7 +500,7 @@ class PlanService:
                 tmpl = load_templates().get(session.selected_template)
                 if tmpl is not None:
                     template_findings = tmpl.check(build_context(plan))
-        except Exception:
+        except Exception:  # noqa: BLE001 — docs must never break emit
             template_findings = []
 
         def _composed_runner(p, e):

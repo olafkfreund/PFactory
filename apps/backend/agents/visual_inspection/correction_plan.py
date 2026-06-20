@@ -101,6 +101,6 @@ def render_correction_plan(meta: RunMeta, *, generate: Callable[[str], str] | No
             text = generate(build_correction_prompt(meta))
             if text and text.strip():
                 return text if text.endswith("\n") else text + "\n"
-        except Exception:
+        except Exception:  # noqa: BLE001 - never break packaging on the LLM
             pass
     return _deterministic_plan(meta)

@@ -120,8 +120,9 @@ class LocalFileBackend(SecretsBackend):
 def _run_decrypt(cmd: list[str], path: Path) -> str:
     """Run a decryption command and return stdout, or raise SecretsError."""
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - cmd built from a resolved binary
             cmd,
+            check=False,
             capture_output=True,
             text=True,
             timeout=_DECRYPT_TIMEOUT,

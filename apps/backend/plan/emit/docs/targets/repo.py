@@ -55,6 +55,6 @@ class RepoDocsTarget:
                     "plans": len(plans),
                 },
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — best-effort, never break emit
             logger.warning("RepoDocsTarget failed for %s: %s", bundle.plan_id, exc)
             return TargetResult(target=self.name, status="error", detail={"error": str(exc)})

@@ -29,7 +29,7 @@ def egress_enabled(project_dir: Path | str | None) -> bool:
         from pfactory_yml.parser import load_pfactory_yml
 
         cfg = load_pfactory_yml(Path(project_dir))
-    except Exception:
+    except Exception:  # noqa: BLE001 - missing/invalid config => egress stays off
         return False
     return bool(cfg and getattr(cfg, "egress", None) and cfg.egress.enabled)
 
@@ -107,7 +107,7 @@ def build_manifest(credentials: dict | None, egress_cfg) -> EgressManifest:
                 if ref
                 else EgressClass.MANAGED_CLOUD
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - unknown ref => assume worst case for honesty
             backend_name, ec = "?", EgressClass.MANAGED_CLOUD
         rows.append(
             ManifestRow(

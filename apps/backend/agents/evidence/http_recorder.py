@@ -303,7 +303,7 @@ def record_http_to_har(spec_dir: Path, test_id: str):
     _orig_httpx_send = None
     _httpx_client_cls = None
     try:
-        import httpx
+        import httpx  # noqa: PLC0415 — lazy import intentional
 
         _httpx_client_cls = httpx.Client
         _orig_httpx_send = httpx.Client.send

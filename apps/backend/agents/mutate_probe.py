@@ -220,7 +220,7 @@ def mutate_source(source: str) -> tuple[str | None, MutationApplied | None]:
 
     try:
         mutated = ast.unparse(tree)
-    except Exception:
+    except Exception:  # noqa: BLE001 — defensive; unparse can fail on weird ASTs
         return None, None
 
     return mutated, mutator.mutation
@@ -294,7 +294,7 @@ def run_mutate_probe(
 
     try:
         res = runner_fn(runner_target, project_dir, seed)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — runner errors → ERROR verdict
         return MutationResult(
             verdict=MutationVerdict.ERROR,
             mutation=mutation,

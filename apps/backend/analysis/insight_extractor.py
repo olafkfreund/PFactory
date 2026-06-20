@@ -89,6 +89,7 @@ def get_session_diff(
     try:
         result = subprocess.run(
             ["git", "diff", commit_before, commit_after],
+            check=False,
             cwd=project_dir,
             capture_output=True,
             text=True,
@@ -132,6 +133,7 @@ def get_changed_files(
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", commit_before, commit_after],
+            check=False,
             cwd=project_dir,
             capture_output=True,
             text=True,
@@ -157,6 +159,7 @@ def get_commit_messages(
     try:
         result = subprocess.run(
             ["git", "log", "--oneline", f"{commit_before}..{commit_after}"],
+            check=False,
             cwd=project_dir,
             capture_output=True,
             text=True,
@@ -698,7 +701,7 @@ async def extract_session_insights_bulk(
                 success=c["success"],
                 recovery_manager=c.get("recovery_manager"),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("gather_extraction_inputs failed for %s: %s", subtask_id, exc)
             entries_by_id[subtask_id] = {"skip_reason": "gather_failed"}
             continue

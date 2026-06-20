@@ -127,7 +127,7 @@ def _collect_evidence_urls(
     """
     try:
         from agents.evidence.layout import evidence_urls_for_test
-    except Exception:
+    except Exception:  # noqa: BLE001
         return {}
     spec_id = spec_dir.name
     out: dict[str, dict] = {}
@@ -137,7 +137,7 @@ def _collect_evidence_urls(
             continue
         try:
             urls = evidence_urls_for_test(spec_id, c.test_id, evidence_dir)
-        except Exception:
+        except Exception:  # noqa: BLE001
             continue
         if urls:
             out[c.test_id] = urls

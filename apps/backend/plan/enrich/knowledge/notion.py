@@ -84,9 +84,9 @@ class NotionConnector(KnowledgeConnector):
         if self._http is not None:
             return self._http
         try:
-            import requests
+            import requests  # noqa: PLC0415 - lazy import keeps deps optional
         except ImportError:  # pragma: no cover - fall back to httpx
-            import httpx
+            import httpx  # noqa: PLC0415
 
             self._http = httpx.Client()
         else:

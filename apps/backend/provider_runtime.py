@@ -160,6 +160,7 @@ def _pip_version_via(python: str | None, package: str | None) -> str | None:
                 "-c",
                 f"from importlib.metadata import version;print(version({package!r}))",
             ],
+            check=False,
             capture_output=True,
             text=True,
             timeout=15,
@@ -192,7 +193,7 @@ def detect_installed(rt: ProviderRuntime) -> str | None:
             from importlib.metadata import version as _pkg_version
 
             return _parse_version(_pkg_version(rt.package))
-        except Exception:
+        except Exception:  # noqa: BLE001 - not installed in *this* interpreter
             # Fallback: this module may be imported from the web-server venv,
             # which lacks the SDK — ask the backend venv instead (#121).
             return _pip_version_via(_backend_python(), rt.package)
@@ -207,6 +208,7 @@ def detect_installed(rt: ProviderRuntime) -> str | None:
     try:
         proc = subprocess.run(
             [binary, *rt.version_args],
+            check=False,
             capture_output=True,
             text=True,
             timeout=15,
@@ -228,6 +230,7 @@ def latest_version(rt: ProviderRuntime) -> str | None:
         try:
             proc = subprocess.run(
                 [npm, "view", rt.package, "version"],
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -240,10 +243,10 @@ def latest_version(rt: ProviderRuntime) -> str | None:
             import urllib.request
 
             url = f"https://pypi.org/pypi/{rt.package}/json"
-            with urllib.request.urlopen(url, timeout=30) as resp:
+            with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
                 data = json.loads(resp.read().decode("utf-8"))
             return _parse_version(data.get("info", {}).get("version"))
-        except Exception:
+        except Exception:  # noqa: BLE001 - network/parse best-effort
             return None
     return None
 
@@ -370,7 +373,7 @@ def run_install(name: str, version: str | None = None, *, timeout: int = 600) ->
     rt = get_runtime(name)
     argv = install_argv(rt, version)  # raises ValueError if unmanaged
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=timeout)
         returncode = proc.returncode
         output = ((proc.stdout or "") + (proc.stderr or ""))[-4000:]
     except (OSError, subprocess.SubprocessError) as exc:

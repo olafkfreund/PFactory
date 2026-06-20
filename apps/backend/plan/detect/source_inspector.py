@@ -220,6 +220,6 @@ def inspect_source(repo: str, base_ref: str | None, language: str) -> Behavioral
             if not c.ok or c.path is None:
                 return None
             return build_behavioral_contract(c.path, language)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - planning must never break
         logger.warning("source inspection failed for %s: %s", repo, exc)
         return None

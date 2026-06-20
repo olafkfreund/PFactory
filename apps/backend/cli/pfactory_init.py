@@ -445,7 +445,7 @@ def init_command(
     except ImportError:
         # Validation skipped — pfactory_yml not on PYTHONPATH in this invocation
         click.echo("note: pfactory_yml package not found; skipping parse validation.")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(f"warning: validation error: {exc}", err=True)
 
     # ── Step 6: create empty tests-catalog.json ───────────────────────

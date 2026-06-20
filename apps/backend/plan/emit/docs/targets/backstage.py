@@ -67,14 +67,14 @@ class BackstageTarget:
         out: dict[str, Any] = {}
         try:
             out["refresh"] = self._http("POST", f"{self._base_url}/api/catalog/refresh")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             out["refresh_error"] = str(exc)
         try:
             out["techdocs_sync"] = self._http(
                 "GET",
                 f"{self._base_url}/api/techdocs/sync/default/component/{self._component}",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             out["techdocs_sync_error"] = str(exc)
         return out
 
@@ -115,6 +115,6 @@ class BackstageTarget:
 
             detail["sync"] = self._sync()
             return TargetResult(target=self.name, status="written", detail=detail)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — best-effort, never break emit
             logger.warning("BackstageTarget failed for %s: %s", bundle.plan_id, exc)
             return TargetResult(target=self.name, status="error", detail={"error": str(exc)})

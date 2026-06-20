@@ -556,7 +556,7 @@ async def run_gen_functional(
                 from agents.evidence import scaffold_auth_setup
 
                 scaffold_auth_setup(spec_dir)
-            except Exception:
+            except Exception:  # noqa: BLE001 - never break generation on scaffolding
                 pass
 
         _write_status_patch(

@@ -163,6 +163,6 @@ def reconnoiter(repo: str | None, base_ref: str | None = None) -> RepoMap:
             if not c.ok or c.path is None:
                 return RepoMap(available=False, repo=repo, base_ref=base_ref, error=c.error)
             return build_repo_map(c.path, repo=repo, base_ref=base_ref, commit=c.commit)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - reconnaissance must never break a run
         logger.warning("reconnaissance failed for %s: %s", repo, exc)
         return RepoMap(available=False, repo=repo, base_ref=base_ref, error=str(exc))

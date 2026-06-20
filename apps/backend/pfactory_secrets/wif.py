@@ -58,7 +58,7 @@ def _read_oidc_token(config) -> str:
 
 def _sts_client():
     """Return a boto3 STS client. Lazy import; tests stub this whole function."""
-    import boto3
+    import boto3  # noqa: PLC0415 - lazy so boto3 isn't a hard dependency
 
     return boto3.client("sts")
 

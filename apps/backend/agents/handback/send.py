@@ -80,7 +80,7 @@ def default_sender(payload: dict) -> dict:
     req = urllib.request.Request(
         url, data=body, method="POST", headers={"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 (trusted host)
         raw = resp.read().decode() or "{}"
     return json.loads(raw)
 

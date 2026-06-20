@@ -182,7 +182,7 @@ class CredentialBroker:
             from pfactory_secrets.wif import mint_wif
 
             creds = mint_wif(provider, entry, now=now)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - incl. NotImplementedError (gcp/azure)
             logger.warning(
                 "CredentialBroker: WIF mint for %s failed (%s); "
                 "falling back to other credential heads.",
@@ -304,7 +304,7 @@ def inject_task_credentials(
         for provider in _CLOUD_PROVIDERS:
             broker.resolve_cloud(provider)
         broker.apply_to_env(env)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - never break the agent on creds
         logger.warning("CredentialBroker: credential injection skipped: %s", exc)
     return env
 
@@ -317,7 +317,7 @@ def _project_credentials(project_dir: Path | str | None) -> dict:
         from pfactory_yml.parser import load_pfactory_yml
 
         cfg = load_pfactory_yml(Path(project_dir))
-    except Exception:
+    except Exception:  # noqa: BLE001
         return {}
     return getattr(cfg, "credentials", None) or {} if cfg else {}
 

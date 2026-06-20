@@ -195,7 +195,7 @@ def _default_runner(
     Returns:
         A DockerRunResult with .returncode, .stdout, .stderr.
     """
-    from tools.runners.docker_runner import DockerRunner
+    from tools.runners.docker_runner import DockerRunner  # noqa: PLC0415
 
     runner = DockerRunner(image=image, timeout=timeout)
     return runner.run(cmd, cwd=cwd)
@@ -265,7 +265,7 @@ def run_ts_preflight(
             other_errors=("tsc invocation timed out",),
             raw_output="",
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("tsc runner raised: %s", exc)
         return TSPreflightReport(
             test_file=test_file,

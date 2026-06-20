@@ -38,10 +38,10 @@ def probe_ref_exists(ref: str | None, *, resolver=None) -> bool | None:
             from .broker import CredentialBroker
 
             resolver = CredentialBroker().resolve_ref
-        except Exception:
+        except Exception:  # noqa: BLE001 - no broker/config -> undeterminable
             return None
     try:
         value = resolver(ref)
         return value is not None  # presence only; value is discarded, never logged
-    except Exception:
+    except Exception:  # noqa: BLE001 - absent OR no-backend; do not conflate
         return None

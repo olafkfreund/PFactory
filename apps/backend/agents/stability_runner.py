@@ -145,7 +145,7 @@ def check_stability(
     for _ in range(rerun_count):
         try:
             res = runner_fn(test_file, project_dir, seed)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — bubble runner errors up
             return StabilityResult(
                 verdict=StabilityVerdict.ERROR,
                 runs=tuple(runs),

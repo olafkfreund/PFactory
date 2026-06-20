@@ -82,5 +82,5 @@ def maybe_handback(spec_dir: Path | str, *, sender_fn=None) -> SendResult | None
             confirm=send,
             sender_fn=sender_fn,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort, must not break the pipeline
         return None

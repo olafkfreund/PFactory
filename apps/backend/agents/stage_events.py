@@ -101,7 +101,7 @@ def emit_stage_event(spec_dir: Path, status: dict[str, Any], *, stage: str) -> N
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=timeout).close()
+        urllib.request.urlopen(req, timeout=timeout).close()  # noqa: S310
     except Exception:
         # Best-effort; never surface failures into the pipeline.
         pass

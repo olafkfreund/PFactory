@@ -46,7 +46,7 @@ class SandboxCredentials:
         if broker is not None and hasattr(broker, "close"):
             try:
                 broker.close()
-            except Exception:
+            except Exception:  # noqa: BLE001 - cleanup must never raise
                 logger.warning("sandbox credential wipe failed", exc_info=True)
 
 
@@ -78,7 +78,7 @@ def resolve_sandbox_credentials(
         from pfactory_secrets.broker import CredentialBroker
 
         broker = CredentialBroker(project_dir, spec_dir, egress_allowed=True)
-    except Exception:
+    except Exception:  # noqa: BLE001 - never break the lane on creds
         logger.warning("sandbox credential resolution unavailable", exc_info=True)
         return SandboxCredentials()
 
@@ -95,7 +95,7 @@ def resolve_sandbox_credentials(
         if kubeconfig and Path(kubeconfig).exists():
             files[str(Path(kubeconfig).resolve())] = _CONTAINER_KUBECONFIG
             env["KUBECONFIG"] = _CONTAINER_KUBECONFIG
-    except Exception:
+    except Exception:  # noqa: BLE001 - degrade to whatever resolved cleanly
         logger.warning("sandbox credential resolution failed", exc_info=True)
 
     return SandboxCredentials(env=env, files=files, broker=broker)
@@ -159,7 +159,7 @@ def resolve_test_target_credentials(
         from pfactory_secrets.broker import CredentialBroker
 
         broker = CredentialBroker(project_dir, spec_dir, egress_allowed=True)
-    except Exception:
+    except Exception:  # noqa: BLE001 - never break the lane on creds
         logger.warning("test-target credential resolution unavailable", exc_info=True)
         return SandboxCredentials()
 
@@ -178,7 +178,7 @@ def resolve_test_target_credentials(
             env[spec.as_secret] = broker.resolve_ref(spec.ref).value
             if spec.as_username and spec.username_ref:
                 env[spec.as_username] = broker.resolve_ref(spec.username_ref).value
-        except Exception:
+        except Exception:  # noqa: BLE001 - one bad ref must not break the lane
             logger.warning("failed to resolve test credential %r", spec.name, exc_info=True)
 
     return SandboxCredentials(env=env, broker=broker)

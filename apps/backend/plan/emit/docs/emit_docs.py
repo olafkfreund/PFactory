@@ -138,7 +138,7 @@ def emit_docs(
     updated_at = datetime.now(UTC).isoformat()
     try:
         bundle = render_plan_docs(session)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — a render bug must not break emit
         logger.warning("plan docs render failed for %s: %s", session.session_id, exc)
         return [{"target": "render", "status": "error", "detail": {"error": str(exc)}}]
 
@@ -175,7 +175,7 @@ def emit_bundle(bundle: DocBundle, *, targets: list[DocsTarget]) -> list[dict[st
                 results.append({"target": target.name, "status": "skipped", "detail": {}})
                 continue
             results.append(target.publish(bundle).as_dict())
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — isolate target failures
             logger.warning("docs target %s failed: %s", getattr(target, "name", "?"), exc)
             results.append(
                 {

@@ -273,6 +273,6 @@ def harvest_accepted_tests(
                 if out is not None:
                     written.append(out)
                     _log.info("harvested template %s", out)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — non-fatal
                 _log.warning("template harvest failed for %s: %s", rel, exc)
     return written

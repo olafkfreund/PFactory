@@ -128,6 +128,6 @@ class PlanReview(BaseModel):
 # Resolve the forward-referenced ``readiness`` field. Imported at module end (not
 # top) to break the cycle: readiness.models imports Citation/Severity from here,
 # which are defined above before this runs.
-from plan.review.readiness.models import ReadinessReport
+from plan.review.readiness.models import ReadinessReport  # noqa: E402
 
 PlanReview.model_rebuild()

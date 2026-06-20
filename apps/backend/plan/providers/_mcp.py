@@ -45,7 +45,7 @@ class TerraformScanClient:
             return []
         if shutil.which("checkov") is None:
             raise FileNotFoundError("checkov not installed")
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - fixed argv, read-only scan
             ["checkov", "-d", str(directory), "-o", "json", "--compact"],
             capture_output=True,
             text=True,
@@ -97,7 +97,7 @@ class StdioMcpClient:
         self._id = 0
 
     def __enter__(self) -> StdioMcpClient:
-        self._proc = subprocess.Popen(
+        self._proc = subprocess.Popen(  # noqa: S603 - caller-supplied known argv
             self.argv,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

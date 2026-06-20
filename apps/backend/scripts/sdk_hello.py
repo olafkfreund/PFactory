@@ -22,8 +22,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.append(str(BACKEND_DIR))
 
-from agents.session import LogPhase, run_agent_session
-from core.client import create_client
+from agents.session import LogPhase, run_agent_session  # noqa: E402
+from core.client import create_client  # noqa: E402
 
 
 def load_token_from_profiles() -> str | None:

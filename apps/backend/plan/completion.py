@@ -154,7 +154,7 @@ def _post_webhook(event: dict) -> None:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=timeout).close()
+        urllib.request.urlopen(req, timeout=timeout).close()  # noqa: S310
     except Exception:
         # Best-effort; a failing target never breaks the pipeline.
         pass

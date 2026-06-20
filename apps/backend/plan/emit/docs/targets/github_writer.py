@@ -48,7 +48,7 @@ class GitHubContentsWriter:
     def _get(self, path: str) -> dict | None:
         try:
             res = self._api("GET", f"/repos/{self.repo}/contents/{path}?ref={self.branch}", None)
-        except Exception:
+        except Exception:  # noqa: BLE001 — 404 => file absent
             return None
         return res if isinstance(res, dict) else None
 
@@ -63,7 +63,7 @@ class GitHubContentsWriter:
             return None
         try:
             return base64.b64decode(res["content"]).decode("utf-8")
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
     def put_file(self, path: str, content: str, message: str) -> dict[str, Any]:

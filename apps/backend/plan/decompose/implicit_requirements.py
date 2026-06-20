@@ -97,7 +97,7 @@ def health_path(plan: NormalizedPlan) -> str:
                 if isinstance(val, str) and val.strip():
                     path = val.strip()
                     return path if path.upper().startswith("GET") else f"GET {path}"
-    except Exception:
+    except Exception:  # noqa: BLE001 — annotation sourcing is best-effort
         pass
     return _DEFAULT_HEALTH_PATH
 

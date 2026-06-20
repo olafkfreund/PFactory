@@ -256,7 +256,7 @@ def promote_flake_findings(
             continue
         try:
             promote, reason = rule(hit, source)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — defensive
             decisions.append(
                 PromotionDecision(
                     pattern=hit.pattern,

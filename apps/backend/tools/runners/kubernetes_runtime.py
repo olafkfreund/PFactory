@@ -200,7 +200,7 @@ class KubernetesRuntime:
             proc.terminate()
             try:
                 proc.wait(timeout=10)
-            except Exception:
+            except Exception:  # noqa: BLE001 - escalate to kill on any wait failure
                 proc.kill()
         finally:
             self._proc = None

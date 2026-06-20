@@ -134,7 +134,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
         model: str = _DEFAULT_MODEL,
         base_url: str = _DEFAULT_BASE_URL,
         timeout: int = _DEFAULT_TIMEOUT,
-        working_dir: Path | str = Path("."),
+        working_dir: Path | str = Path(),
         max_turns: int = _DEFAULT_MAX_TURNS,
         tool_names: list[str] | None = None,
         extra_options: dict[str, Any] | None = None,
@@ -241,7 +241,10 @@ class OllamaAgenticProvider(BaseLLMProvider):
                 yield AssistantMessage(
                     content=[
                         TextBlock(
-                            text=f"[Ollama request timed out after {self._timeout}s on turn {turn + 1}]"
+                            text=(
+                                f"[Ollama request timed out after {self._timeout}s "
+                                f"on turn {turn + 1}]"
+                            )
                         )
                     ]
                 )

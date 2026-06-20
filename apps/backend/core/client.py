@@ -398,10 +398,7 @@ def load_project_mcp_config(project_dir: Path) -> dict:
                     key = key.strip()
                     value = value.strip().strip("\"'")
                     # Include global MCP toggles
-                    if key in mcp_keys:
-                        config[key] = value
-                    # Include per-agent MCP overrides (AGENT_MCP_<agent>_ADD/REMOVE)
-                    elif key.startswith("AGENT_MCP_"):
+                    if key in mcp_keys or key.startswith("AGENT_MCP_"):
                         config[key] = value
                     # Include custom MCP servers (parse JSON with schema validation)
                     elif key == "CUSTOM_MCP_SERVERS":
@@ -464,7 +461,7 @@ def load_claude_md(project_dir: Path) -> str | None:
     if claude_md_path.exists():
         try:
             return claude_md_path.read_text(encoding="utf-8")
-        except Exception:
+        except Exception:  # noqa: BLE001 - never let credential wiring break the agent
             return None
     return None
 

@@ -498,7 +498,7 @@ def _build_framework_registry_block() -> str:
                 f" image={desc.runtime.image}"
             )
         return "\n".join(lines) + "\n"
-    except Exception:
+    except Exception:  # noqa: BLE001
         return (
             "## FRAMEWORK REGISTRY\n"
             "(registry unavailable — use pytest for Python, jest for TypeScript)\n"
@@ -550,7 +550,7 @@ def _build_tests_catalog_block(spec_dir: Path) -> str:
             )
         lines.append(f"(catalog has {len(catalog.tests)} entries total)")
         return "\n".join(lines) + "\n"
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "## TESTS CATALOG\n(catalog present but could not be parsed — treating as absent)\n"
 
 

@@ -237,7 +237,7 @@ class AzurePricingClient:
                 "https://prices.azure.com/api/retail/prices?$filter="
                 "serviceName eq 'Azure Kubernetes Service'"
             )
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310
                 data = json.loads(resp.read().decode())
             items = data.get("Items") or []
             if items and items[0].get("retailPrice"):

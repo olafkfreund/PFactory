@@ -85,7 +85,7 @@ def _hardened_env(home: str) -> dict[str, str]:
 
 def _run_git(args: list[str], *, cwd: str, env: dict[str, str]) -> subprocess.CompletedProcess:
     """Run git with no shell, hooks disabled, bounded time. Raises on failure."""
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603 - fixed argv, no shell, hardened env
         ["git", "-c", "core.hooksPath=/dev/null", *args],
         cwd=cwd,
         env=env,

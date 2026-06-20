@@ -258,7 +258,7 @@ def emit_to_github(
                 list(epic_pl["labels"]),
                 sleep_fn=sleep_fn,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             # No epic means nothing to attach children to — fail the whole emit
             # (and create nothing else), leaving a clean retry.
             return EmitResult(
@@ -289,7 +289,7 @@ def emit_to_github(
                 list(pl["labels"]),
                 sleep_fn=sleep_fn,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             errors.append(f"failed to create child issue {child.key!r}: {exc}")
             continue
         child_numbers[child.key] = number

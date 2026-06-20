@@ -107,7 +107,7 @@ def load_templates(root: str | Path | None = None) -> dict[str, Template]:
     for template_file in sorted(base.glob("*/template.yaml")):
         try:
             template = load_template(template_file)
-        except Exception:
+        except Exception:  # noqa: BLE001 - discovery must be resilient
             continue
         templates[template.metadata.name] = template
     return templates

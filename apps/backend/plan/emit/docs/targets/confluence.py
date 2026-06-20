@@ -125,7 +125,7 @@ class ConfluenceTarget:
                             },
                         ],
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             return TargetResult(
@@ -133,6 +133,6 @@ class ConfluenceTarget:
                 status="written",
                 detail={"action": action, "page_id": page_id, "title": title},
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — best-effort, never break emit
             logger.warning("ConfluenceTarget failed for %s: %s", bundle.plan_id, exc)
             return TargetResult(target=self.name, status="error", detail={"error": str(exc)})

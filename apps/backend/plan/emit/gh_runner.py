@@ -118,7 +118,7 @@ class GhCliRunner:
                     cwd=self._cwd,
                     stdin=None,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — label bootstrap is best-effort
                 pass
 
     def create_issue(self, title: str, body: str, labels: list[str]) -> int:

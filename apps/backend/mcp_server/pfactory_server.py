@@ -208,7 +208,7 @@ def main() -> int:
         asyncio.run(_run(spec_resolver))
     except KeyboardInterrupt:
         return 0
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         sys.stderr.write(f"pfactory MCP server failed: {exc}\n")
         return 1
     return 0
