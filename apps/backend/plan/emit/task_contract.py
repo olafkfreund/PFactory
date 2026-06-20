@@ -62,6 +62,7 @@ _PROVIDERS = {
     "gemini",
 }
 _REVIEW_TIERS = {"auto", "async", "blocking"}
+_AUTONOMY_TIERS = {"low", "medium", "hard"}  # RFC-0011
 _TFACTORY_LANES = {
     "unit",
     "api",
@@ -186,6 +187,11 @@ def _structural_validate(contract: Any) -> list[str]:
         _enum(execution.get("complexity"), _COMPLEXITY, "execution/complexity")
         _enum(execution.get("provider"), _PROVIDERS, "execution/provider")
         _enum(execution.get("review_tier"), _REVIEW_TIERS, "execution/review_tier")
+        _enum(
+            execution.get("autonomy_tier"),
+            _AUTONOMY_TIERS,
+            "execution/autonomy_tier",
+        )  # RFC-0011
 
     tfactory = contract.get("tfactory")
     if isinstance(tfactory, dict):

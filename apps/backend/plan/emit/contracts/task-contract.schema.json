@@ -358,6 +358,15 @@
             "blocking"
           ]
         },
+        "autonomy_tier": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "hard"
+          ],
+          "description": "RFC-0011 label-driven difficulty tier (from factory:low|medium|hard). Drives model/planning/human-gate/verification/merge: low => cheap/local model (ollama->haiku), skip planning, no human, auto-merge when green; medium => sonnet, async human approval; hard => opus, PFactory planning, blocking human approval, highest verification (+equivalence lane for a rewrite). Precedence: highest wins; change_mode=migration forces hard. Absent => derived from complexity (back-compat)."
+        },
         "agents": {
           "type": "object",
           "additionalProperties": true,
