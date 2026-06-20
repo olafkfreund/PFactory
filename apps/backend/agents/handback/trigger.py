@@ -21,16 +21,12 @@ import json
 import os
 from pathlib import Path
 
+from agents.agent_infra import truthy as _truthy
+
 from .request import build_correction_request
 from .send import SendResult, send_correction
 
 __all__ = ["maybe_handback"]
-
-
-def _truthy(env_val: str | None) -> bool:
-    if env_val is None:
-        return False
-    return env_val.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _prepare_enabled() -> bool:

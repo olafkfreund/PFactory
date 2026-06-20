@@ -155,7 +155,7 @@ async def run_followup_planner(
             plan = ImplementationPlan.load(plan_file)
 
             # Check if there are any pending subtasks
-            all_subtasks = [c for p in plan.phases for c in p.subtasks]
+            all_subtasks = [st for _phase, st in iter_subtasks(plan)]
             pending_subtasks = [c for c in all_subtasks if c.status.value == "pending"]
 
             if pending_subtasks:
@@ -217,37 +217,31 @@ import json
 import logging as _logging
 import os
 import traceback
-from datetime import UTC, datetime
 from typing import Literal
+
+from agents.agent_infra import (
+    BackgroundTaskRegistry,
+    iter_subtasks,
+    now_iso,
+    read_status,
+    write_status_patch,
+)
 
 _planner_log = _logging.getLogger(__name__ + ".pfactory")
 
 
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
+# Per-agent infra is shared via agents.agent_infra (#195). These thin
+# module-level wrappers keep the historical private names + "planner" stage
+# discriminator so call sites and tests are unchanged.
+_now_iso = now_iso
 
 
 def _read_status(spec_dir: Path) -> dict:
-    """Read status.json or return an empty dict if missing/corrupt."""
-    status_path = spec_dir / "status.json"
-    if not status_path.exists():
-        return {}
-    try:
-        return json.loads(status_path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return read_status(spec_dir)
 
 
 def _write_status_patch(spec_dir: Path, **fields: object) -> None:
-    """Merge ``fields`` into status.json (atomic-ish single-file write)."""
-    status = _read_status(spec_dir)
-    status.update(fields)
-    status["updated_at"] = _now_iso()
-    (spec_dir / "status.json").write_text(json.dumps(status, indent=2))
-    # Best-effort push-based progress event (#95); no-op unless opted in.
-    from agents.stage_events import emit_stage_event
-
-    emit_stage_event(spec_dir, status, stage="planner")
+    write_status_patch(spec_dir, "planner", **fields)
 
 
 # Subtask cap — anything above is truncated post-emit with a warning.
@@ -390,56 +384,55 @@ def _validate_emitted_plan(spec_dir: Path) -> tuple[bool, str, object | None]:
         )
         return True, "", plan
 
-    for phase in plan.phases:
-        for st in phase.subtasks:
-            # Both None → v0.1 subtask; skip.
-            if st.framework is None and st.language is None:
-                continue
-            # Exactly one set → malformed.
-            if st.framework is None or st.language is None:
-                return (
-                    False,
-                    "invalid_framework",
-                    (
-                        f"subtask {st.id!r}: must set both 'language' AND 'framework', "
-                        f"or neither (got language={st.language!r}, "
-                        f"framework={st.framework!r})"
-                    ),
-                )
-            # Framework not in registry.
-            if st.framework not in registry:
-                return (
-                    False,
-                    "invalid_framework",
-                    (
-                        f"subtask {st.id!r}: framework {st.framework!r} is not in the "
-                        f"registry. Known frameworks: {sorted(registry.keys())}"
-                    ),
-                )
-            descriptor = registry[st.framework]
-            # Language mismatch.
-            if descriptor.language != st.language:
-                return (
-                    False,
-                    "invalid_framework",
-                    (
-                        f"subtask {st.id!r}: framework {st.framework!r} targets language "
-                        f"{descriptor.language!r}, but subtask declared "
-                        f"language={st.language!r}"
-                    ),
-                )
-            # Lane not supported by this framework.
-            lane_str = st.lane.value if hasattr(st.lane, "value") else str(st.lane)
-            supported = [ln.value if hasattr(ln, "value") else str(ln) for ln in descriptor.lanes]
-            if lane_str not in supported:
-                return (
-                    False,
-                    "invalid_framework",
-                    (
-                        f"subtask {st.id!r}: framework {st.framework!r} supports lanes "
-                        f"{supported}, but subtask declared lane {lane_str!r}"
-                    ),
-                )
+    for _phase, st in iter_subtasks(plan):
+        # Both None → v0.1 subtask; skip.
+        if st.framework is None and st.language is None:
+            continue
+        # Exactly one set → malformed.
+        if st.framework is None or st.language is None:
+            return (
+                False,
+                "invalid_framework",
+                (
+                    f"subtask {st.id!r}: must set both 'language' AND 'framework', "
+                    f"or neither (got language={st.language!r}, "
+                    f"framework={st.framework!r})"
+                ),
+            )
+        # Framework not in registry.
+        if st.framework not in registry:
+            return (
+                False,
+                "invalid_framework",
+                (
+                    f"subtask {st.id!r}: framework {st.framework!r} is not in the "
+                    f"registry. Known frameworks: {sorted(registry.keys())}"
+                ),
+            )
+        descriptor = registry[st.framework]
+        # Language mismatch.
+        if descriptor.language != st.language:
+            return (
+                False,
+                "invalid_framework",
+                (
+                    f"subtask {st.id!r}: framework {st.framework!r} targets language "
+                    f"{descriptor.language!r}, but subtask declared "
+                    f"language={st.language!r}"
+                ),
+            )
+        # Lane not supported by this framework.
+        lane_str = st.lane.value if hasattr(st.lane, "value") else str(st.lane)
+        supported = [ln.value if hasattr(ln, "value") else str(ln) for ln in descriptor.lanes]
+        if lane_str not in supported:
+            return (
+                False,
+                "invalid_framework",
+                (
+                    f"subtask {st.id!r}: framework {st.framework!r} supports lanes "
+                    f"{supported}, but subtask declared lane {lane_str!r}"
+                ),
+            )
 
     return True, "", plan
 
@@ -476,10 +469,8 @@ def _load_replan_request(spec_dir: Path) -> tuple[bool, str, dict | None]:
 
 def _find_subtask_by_id(plan, subtask_id: str):
     """Locate a Subtask by ID across all phases. Returns (phase, subtask) or (None, None)."""
-    for phase in plan.phases:
-        for subtask in phase.subtasks:
-            if subtask.id == subtask_id:
-                return phase, subtask
+    for phase, subtask in iter_subtasks(plan, lambda st: st.id == subtask_id):
+        return phase, subtask
     return None, None
 
 
@@ -936,10 +927,12 @@ def _advance_to_gen_functional(spec_dir: Path, project_dir: Path) -> None:
         )
 
 
-# Module-level set so asyncio.create_task'd planner runs aren't GC'd while
-# the scheduling caller returns. Each completed task is removed via the
-# `done_callback`. Auto-fire path in task_control.py uses this directly.
-_BG_PLANNER_TASKS: set[asyncio.Task] = set()
+# GC-anchor registry so asyncio.create_task'd planner runs aren't GC'd while
+# the scheduling caller returns (see agents.agent_infra). The module-level
+# `_BG_PLANNER_TASKS` alias points at the registry's live set so the
+# auto-fire path in task_control.py and existing tests are unchanged.
+_BG_PLANNER_REGISTRY = BackgroundTaskRegistry()
+_BG_PLANNER_TASKS: set[asyncio.Task] = _BG_PLANNER_REGISTRY.tasks
 
 
 def schedule_planner(
@@ -955,7 +948,4 @@ def schedule_planner(
     """
     if os.environ.get("PFACTORY_AUTO_PLAN", "1") == "0":
         return None
-    task = asyncio.create_task(run_planner(spec_dir, project_dir, mode=mode))
-    _BG_PLANNER_TASKS.add(task)
-    task.add_done_callback(_BG_PLANNER_TASKS.discard)
-    return task
+    return _BG_PLANNER_REGISTRY.schedule(run_planner(spec_dir, project_dir, mode=mode))
