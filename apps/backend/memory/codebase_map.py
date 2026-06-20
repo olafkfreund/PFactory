@@ -8,7 +8,7 @@ Functions for managing the codebase map that tracks file purposes.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .graphiti_helpers import get_graphiti_memory, is_graphiti_memory_enabled, run_async
@@ -52,7 +52,7 @@ def update_codebase_map(spec_dir: Path, discoveries: dict[str, str]) -> None:
     if "_metadata" not in codebase_map:
         codebase_map["_metadata"] = {}
 
-    codebase_map["_metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+    codebase_map["_metadata"]["last_updated"] = datetime.now(UTC).isoformat()
     codebase_map["_metadata"]["total_files"] = len(
         [k for k in codebase_map.keys() if k != "_metadata"]
     )

@@ -32,9 +32,9 @@ import logging
 import os
 import shutil
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -148,10 +148,7 @@ class DockerRunner:
         if not repo_path.is_absolute() or not scratch_path.is_absolute():
             raise DockerRunnerError("repo_path and scratch_path must be absolute")
         for host_path, container_path in (secret_files or {}).items():
-            if (
-                not Path(host_path).is_absolute()
-                or not Path(container_path).is_absolute()
-            ):
+            if not Path(host_path).is_absolute() or not Path(container_path).is_absolute():
                 raise DockerRunnerError(
                     "secret_files keys (host) and values (container) must be absolute paths"
                 )

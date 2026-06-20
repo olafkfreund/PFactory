@@ -63,6 +63,7 @@ def scrub_api_keys(env: dict[str, str], provider: str) -> dict[str, str]:
                 "%s: ignoring %s — PFactory runs agentic providers on your "
                 "subscription, not metered API keys (set PFACTORY_ALLOW_API_KEYS=1 "
                 "to override).",
-                provider, key,
+                provider,
+                key,
             )
     return scrubbed

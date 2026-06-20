@@ -25,9 +25,7 @@ from .trigger import _load_json
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m agents.handback")
-    parser.add_argument(
-        "spec_dir", help="PFactory workspace spec dir for a finished task"
-    )
+    parser.add_argument("spec_dir", help="PFactory workspace spec dir for a finished task")
     parser.add_argument(
         "--send",
         action="store_true",
@@ -40,9 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     verdicts = _load_json(findings / "verdicts.json")
     source = _load_json(spec / "context" / "source.json")
     if not verdicts or not source:
-        print(
-            f"error: missing verdicts.json or source.json under {spec}", file=sys.stderr
-        )
+        print(f"error: missing verdicts.json or source.json under {spec}", file=sys.stderr)
         return 2
     triage = _load_json(findings / "triage_report.json")
 

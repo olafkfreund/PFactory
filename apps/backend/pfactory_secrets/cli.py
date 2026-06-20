@@ -41,7 +41,7 @@ def _cmd_doctor(_args) -> int:
     for name in sorted(_BACKEND_REGISTRY):
         try:
             ok = get_secrets_backend(name).available()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             ok = f"error: {exc}"
         mark = "✅" if ok is True else ("—" if ok is False else "⚠️")
         print(f"  {mark} {name:22} available={ok}")
@@ -54,12 +54,14 @@ def _cmd_resolve(args) -> int:
     with CredentialBroker(egress_allowed=args.allow_egress) as broker:
         try:
             val = broker.resolve_ref(args.ref)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"resolve failed: {exc}", file=sys.stderr)
             return 1
     # Never print the value — only a redacted summary.
-    print(f"resolved {args.ref}  →  backend={val.backend} "
-          f"source={val.source} value=<{len(val.value)} chars>")
+    print(
+        f"resolved {args.ref}  →  backend={val.backend} "
+        f"source={val.source} value=<{len(val.value)} chars>"
+    )
     return 0
 
 
@@ -76,8 +78,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_res = sub.add_parser("resolve", help="resolve a single ref (redacted output)")
     p_res.add_argument("ref")
-    p_res.add_argument("--allow-egress", action="store_true",
-                       help="permit non-local backends to egress")
+    p_res.add_argument(
+        "--allow-egress", action="store_true", help="permit non-local backends to egress"
+    )
     p_res.set_defaults(func=_cmd_resolve)
 
     args = parser.parse_args(argv)

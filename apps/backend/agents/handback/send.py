@@ -23,15 +23,15 @@ dependency).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from .render import render_fix_request_md
 from .request import CorrectionRequest
 
-__all__ = ["SendResult", "send_correction", "default_sender"]
+__all__ = ["SendResult", "default_sender", "send_correction"]
 
 Sender = Callable[[dict], dict]
 
@@ -52,7 +52,7 @@ class SendResult:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def default_sender(payload: dict) -> dict:
@@ -80,7 +80,7 @@ def default_sender(payload: dict) -> dict:
     req = urllib.request.Request(
         url, data=body, method="POST", headers={"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 (trusted host)
+    with urllib.request.urlopen(req, timeout=30) as resp:
         raw = resp.read().decode() or "{}"
     return json.loads(raw)
 

@@ -41,7 +41,7 @@ def _get_legacy_main():  # type: ignore[return]
     """Lazy-import the legacy build CLI main to avoid import errors
     when qa_loop / deleted modules are not installed.
     """
-    from .main import main  # noqa: PLC0415
+    from .main import main
 
     return main
 

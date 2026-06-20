@@ -61,18 +61,14 @@ class AwsSecretsManagerBackend(SecretsBackend):
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
             if code in ("ResourceNotFoundException", "InvalidRequestException"):
-                raise SecretNotFoundError(
-                    f"AWS secret {ref.locator!r} not found"
-                ) from exc
+                raise SecretNotFoundError(f"AWS secret {ref.locator!r} not found") from exc
             raise SecretsError(f"AWS get_secret_value failed: {exc}") from exc
         except BotoCoreError as exc:
             raise SecretsError(f"AWS get_secret_value failed: {exc}") from exc
 
         raw = resp.get("SecretString")
         if raw is None:
-            raise SecretNotFoundError(
-                f"AWS secret {ref.locator!r} has no SecretString (binary?)"
-            )
+            raise SecretNotFoundError(f"AWS secret {ref.locator!r} has no SecretString (binary?)")
 
         value = _select(raw, ref.field, ref.locator)
         return SecretValue(

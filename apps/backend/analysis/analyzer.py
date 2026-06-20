@@ -42,8 +42,8 @@ from .analyzers import (
 
 # Re-export for backward compatibility
 __all__ = [
-    "ServiceAnalyzer",
     "ProjectAnalyzer",
+    "ServiceAnalyzer",
     "analyze_project",
     "analyze_service",
 ]

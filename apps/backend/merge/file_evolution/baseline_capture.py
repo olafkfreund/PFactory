@@ -172,9 +172,7 @@ class BaselineCapture:
                 continue
 
             # Store baseline content
-            baseline_path = self.storage.store_baseline_content(
-                rel_path, content, task_id
-            )
+            baseline_path = self.storage.store_baseline_content(rel_path, content, task_id)
             content_hash = compute_content_hash(content)
 
             # Create or update evolution
@@ -202,7 +200,5 @@ class BaselineCapture:
             evolution.add_task_snapshot(snapshot)
             captured[rel_path] = evolution
 
-        debug_success(
-            MODULE, f"Captured baselines for {len(captured)} files", task_id=task_id
-        )
+        debug_success(MODULE, f"Captured baselines for {len(captured)} files", task_id=task_id)
         return captured

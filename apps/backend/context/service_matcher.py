@@ -37,8 +37,7 @@ class ServiceMatcher:
             # Check service type relevance
             service_type = service_info.get("type", "")
             if service_type == "backend" and any(
-                kw in task_lower
-                for kw in ["api", "endpoint", "route", "database", "model"]
+                kw in task_lower for kw in ["api", "endpoint", "route", "database", "model"]
             ):
                 score += 5
             if service_type == "frontend" and any(
@@ -46,8 +45,7 @@ class ServiceMatcher:
             ):
                 score += 5
             if service_type == "worker" and any(
-                kw in task_lower
-                for kw in ["job", "task", "queue", "background", "async"]
+                kw in task_lower for kw in ["job", "task", "queue", "background", "async"]
             ):
                 score += 5
             if service_type == "scraper" and any(
@@ -74,8 +72,6 @@ class ServiceMatcher:
         for name, info in services.items():
             if info.get("type") == "backend" and "backend" not in [s for s in default]:
                 default.append(name)
-            elif info.get("type") == "frontend" and "frontend" not in [
-                s for s in default
-            ]:
+            elif info.get("type") == "frontend" and "frontend" not in [s for s in default]:
                 default.append(name)
         return default[:2] if default else list(services.keys())[:2]

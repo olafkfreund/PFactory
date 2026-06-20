@@ -100,9 +100,7 @@ def collect_followup_task(spec_dir: Path, max_retries: int = 3) -> str | None:
         if choice == "file":
             # Read from file
             print()
-            print(
-                f"{icon(Icons.DOCUMENT)} Enter the path to your task description file:"
-            )
+            print(f"{icon(Icons.DOCUMENT)} Enter the path to your task description file:")
             try:
                 file_path_str = input(f"  {icon(Icons.POINTER)} ").strip()
             except (KeyboardInterrupt, EOFError):
@@ -137,9 +135,7 @@ def collect_followup_task(spec_dir: Path, max_retries: int = 3) -> str | None:
                         continue
                 else:
                     print_status(f"File not found: {file_path}", "error")
-                    print(
-                        muted("  Check that the path is correct and the file exists.")
-                    )
+                    print(muted("  Check that the path is correct and the file exists."))
                     retry_count += 1
                     continue
             except PermissionError:
@@ -263,11 +259,7 @@ def handle_followup_command(
         completed, total = count_subtasks(spec_dir)
         pending = total - completed
         print()
-        print(
-            error(
-                f"{icon(Icons.ERROR)} Build not complete ({completed}/{total} subtasks)."
-            )
-        )
+        print(error(f"{icon(Icons.ERROR)} Build not complete ({completed}/{total} subtasks)."))
         print()
         content = [
             f"There are still {pending} pending subtask(s) to complete.",
@@ -305,11 +297,7 @@ def handle_followup_command(
             )
         )
     else:
-        print(
-            success(
-                f"{icon(Icons.SUCCESS)} Build is complete. Ready for follow-up tasks."
-            )
-        )
+        print(success(f"{icon(Icons.SUCCESS)} Build is complete. Ready for follow-up tasks."))
 
     # Collect follow-up task from user
     followup_task = collect_followup_task(spec_dir)

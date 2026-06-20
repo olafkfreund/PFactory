@@ -51,9 +51,33 @@ _IAM_RE = re.compile(r"\broles/[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*")
 # so prose like "a project" doesn't accidentally match an unrelated plan.
 _STOPWORDS = frozenset(
     {
-        "a", "an", "and", "the", "to", "of", "in", "on", "for", "with",
-        "or", "it", "is", "as", "at", "by", "be", "this", "that", "new",
-        "set", "up", "create", "add", "build", "make", "use",
+        "a",
+        "an",
+        "and",
+        "the",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "or",
+        "it",
+        "is",
+        "as",
+        "at",
+        "by",
+        "be",
+        "this",
+        "that",
+        "new",
+        "set",
+        "up",
+        "create",
+        "add",
+        "build",
+        "make",
+        "use",
     }
 )
 
@@ -83,7 +107,7 @@ def load_templates(root: str | Path | None = None) -> dict[str, Template]:
     for template_file in sorted(base.glob("*/template.yaml")):
         try:
             template = load_template(template_file)
-        except Exception:  # noqa: BLE001 - discovery must be resilient
+        except Exception:
             continue
         templates[template.metadata.name] = template
     return templates
@@ -158,9 +182,7 @@ def _collect_tags(plan: NormalizedPlan) -> list[str]:
 
     # ``key=value`` / ``key: value`` tag mentions in free text (e.g. acceptance
     # criteria that spell out the required labels).
-    text = " ".join(
-        part for part in (plan.title, plan.description, plan.raw_text) if part
-    )
+    text = " ".join(part for part in (plan.title, plan.description, plan.raw_text) if part)
     for criterion in plan.criteria:
         text += " " + criterion.text
     for match in re.finditer(r"\b([a-z][a-z0-9-]*)\s*[:=]", text.lower()):
@@ -183,9 +205,7 @@ def build_context(plan: NormalizedPlan) -> dict:
     defensively from the plan body, its acceptance criteria, and any enrichment
     findings. Missing signals simply yield empty values rather than errors.
     """
-    text_parts = [
-        part for part in (plan.title, plan.description, plan.raw_text) if part
-    ]
+    text_parts = [part for part in (plan.title, plan.description, plan.raw_text) if part]
     text_parts.extend(c.text for c in plan.criteria)
     text = "\n".join(text_parts)
 

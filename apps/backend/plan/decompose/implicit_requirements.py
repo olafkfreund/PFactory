@@ -43,8 +43,7 @@ SERVICE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
         "dependencies",
         "The service declares its runtime dependencies in a manifest "
         "(requirements.txt / package.json / go.mod / pyproject.toml).",
-        ("dependenc", "manifest", "requirements.txt", "package.json", "go.mod",
-         "pyproject"),
+        ("dependenc", "manifest", "requirements.txt", "package.json", "go.mod", "pyproject"),
     ),
     (
         "health",
@@ -63,9 +62,7 @@ SERVICE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
 _DEFAULT_HEALTH_PATH = "GET /health"
 
 
-def is_deployable_service(
-    plan: NormalizedPlan, descriptor: PlanTypeDescriptor
-) -> bool:
+def is_deployable_service(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) -> bool:
     """True when the plan describes a deployable software service.
 
     Either the plan type is explicitly ``software-service``, or it is a software
@@ -100,7 +97,7 @@ def health_path(plan: NormalizedPlan) -> str:
                 if isinstance(val, str) and val.strip():
                     path = val.strip()
                     return path if path.upper().startswith("GET") else f"GET {path}"
-    except Exception:  # noqa: BLE001 — annotation sourcing is best-effort
+    except Exception:
         pass
     return _DEFAULT_HEALTH_PATH
 

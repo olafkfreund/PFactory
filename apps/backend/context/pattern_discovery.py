@@ -54,9 +54,7 @@ class PatternDiscoverer:
 
                                 pattern_key = f"{keyword}_pattern"
                                 if pattern_key not in patterns:
-                                    patterns[pattern_key] = (
-                                        f"From {match.path}:\n{snippet[:300]}"
-                                    )
+                                    patterns[pattern_key] = f"From {match.path}:\n{snippet[:300]}"
                                 break
 
             except (OSError, UnicodeDecodeError):

@@ -211,9 +211,7 @@ def collect_k8s_core(reader: K8sReader) -> tuple[list[dict], dict, list[dict], d
     Returns ``(workloads, resources, policies, load, findings)``.
     """
     namespaces = reader.list_namespaces()
-    namespace_names = [
-        (ns.get("metadata") or {}).get("name", "") for ns in namespaces
-    ]
+    namespace_names = [(ns.get("metadata") or {}).get("name", "") for ns in namespaces]
 
     workloads: list[dict] = []
     workloads += [summarise_workload(d, "Deployment") for d in reader.list_deployments()]
@@ -356,9 +354,7 @@ class _LiveK8sReader:
         return self._to_dicts(self._apps.list_daemon_set_for_all_namespaces())
 
     def list_hpas(self) -> list[dict]:
-        return self._to_dicts(
-            self._autoscaling.list_horizontal_pod_autoscaler_for_all_namespaces()
-        )
+        return self._to_dicts(self._autoscaling.list_horizontal_pod_autoscaler_for_all_namespaces())
 
     def list_network_policies(self) -> list[dict]:
         return self._to_dicts(self._networking.list_network_policy_for_all_namespaces())
@@ -371,9 +367,7 @@ class _LiveK8sReader:
 
         custom = client.CustomObjectsApi()
         try:
-            data = custom.list_cluster_custom_object(
-                "metrics.k8s.io", "v1beta1", "pods"
-            )
+            data = custom.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "pods")
         except Exception:
             return []
         return list(data.get("items", []))

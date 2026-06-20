@@ -15,13 +15,13 @@ class SuggestedEdit(BaseModel):
     when the suggestion is document-level.
     """
 
-    anchor: str = ""           # the excerpt/heading the edit attaches to
-    anchor_line: int = 0       # 1-based line in the original, 0 = whole document
+    anchor: str = ""  # the excerpt/heading the edit attaches to
+    anchor_line: int = 0  # 1-based line in the original, 0 = whole document
     original_excerpt: str = ""
     suggestion: str
     why: str = ""
     severity: Severity = "info"
-    source: str = ""           # the originating finding's source
+    source: str = ""  # the originating finding's source
     citation: Citation | None = None
 
 
@@ -29,6 +29,6 @@ class AnnotationResult(BaseModel):
     """The full annotation of a plan document."""
 
     suggestions: list[SuggestedEdit] = Field(default_factory=list)
-    improved_markdown: str = ""        # original verbatim + cited suggestions section
+    improved_markdown: str = ""  # original verbatim + cited suggestions section
     change_log: list[dict] = Field(default_factory=list)
     original_preserved: bool = True

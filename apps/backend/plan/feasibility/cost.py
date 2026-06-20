@@ -42,14 +42,21 @@ class ResourceLine:
 _SERVICE_HINTS: list[tuple[re.Pattern[str], str, str, str]] = [
     (re.compile(r"(?i)\beks\b|kubernetes|k8s"), "aws", "eks", "cluster"),
     (re.compile(r"(?i)\brds\b|postgres|mysql|aurora"), "aws", "rds", "db.r6g.large"),
-    (re.compile(r"(?i)\belasticache\b|\bredis\b|memcached"), "aws", "elasticache", "cache.r6g.large"),
+    (
+        re.compile(r"(?i)\belasticache\b|\bredis\b|memcached"),
+        "aws",
+        "elasticache",
+        "cache.r6g.large",
+    ),
     (re.compile(r"(?i)\bs3\b|object storage|bucket"), "aws", "s3", "standard-1tb"),
     (re.compile(r"(?i)\balb\b|load balancer|nlb"), "aws", "elb", "alb"),
     (re.compile(r"(?i)\baks\b"), "azure", "aks", "cluster"),
     (re.compile(r"(?i)\bgke\b"), "gcp", "gke", "cluster"),
 ]
 # AWS instance type like m5.large, c6g.xlarge, db.r6g.large.
-_INSTANCE_RE = re.compile(r"\b((?:db\.)?[a-z][0-9][a-z]?\.[0-9]*x?(?:large|medium|small|micro|nano|metal))\b")
+_INSTANCE_RE = re.compile(
+    r"\b((?:db\.)?[a-z][0-9][a-z]?\.[0-9]*x?(?:large|medium|small|micro|nano|metal))\b"
+)
 
 
 def _plan_text(plan: NormalizedPlan) -> str:
@@ -123,8 +130,8 @@ _HOURS_PER_MONTH = 730.0
 
 # Rough monthly USD per (service, sku-or-default) — the always-available fallback.
 _STATIC_BOOK: dict[str, float] = {
-    "aws:eks:cluster": 73.0,            # control plane
-    "aws:rds:db.r6g.large": 290.0,      # Multi-AZ ballpark
+    "aws:eks:cluster": 73.0,  # control plane
+    "aws:rds:db.r6g.large": 290.0,  # Multi-AZ ballpark
     "aws:elasticache:cache.r6g.large": 180.0,
     "aws:s3:standard-1tb": 23.0,
     "aws:elb:alb": 22.0,
@@ -133,8 +140,15 @@ _STATIC_BOOK: dict[str, float] = {
 }
 # Per-vCPU/size fallback for arbitrary EC2/RDS instance types.
 _SIZE_FACTOR: dict[str, float] = {
-    "nano": 4, "micro": 8, "small": 16, "medium": 35, "large": 70,
-    "xlarge": 140, "2xlarge": 280, "4xlarge": 560, "metal": 1500,
+    "nano": 4,
+    "micro": 8,
+    "small": 16,
+    "medium": 35,
+    "large": 70,
+    "xlarge": 140,
+    "2xlarge": 280,
+    "4xlarge": 560,
+    "metal": 1500,
 }
 
 
@@ -174,9 +188,7 @@ class AwsPricingClient:
         try:  # pragma: no cover - exercised only with live AWS creds
             import boto3
 
-            client = (self._session or boto3.Session()).client(
-                "pricing", region_name="us-east-1"
-            )
+            client = (self._session or boto3.Session()).client("pricing", region_name="us-east-1")
             resp = client.get_products(
                 ServiceCode="AmazonEC2",
                 Filters=[
@@ -225,7 +237,7 @@ class AzurePricingClient:
                 "https://prices.azure.com/api/retail/prices?$filter="
                 "serviceName eq 'Azure Kubernetes Service'"
             )
-            with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310
+            with urllib.request.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
             items = data.get("Items") or []
             if items and items[0].get("retailPrice"):

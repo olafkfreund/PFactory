@@ -70,20 +70,20 @@ class Lane(str, Enum):
     """
 
     # v0.2 spine
-    UNIT = "unit"              # pytest / Jest / JUnit / xUnit / Go test — last-resort modality
-    BROWSER = "browser"        # Playwright / Cypress / Selenium — headline capability
-    API = "api"                # supertest / REST Assured / httpx / Karate — when no browser surface
+    UNIT = "unit"  # pytest / Jest / JUnit / xUnit / Go test — last-resort modality
+    BROWSER = "browser"  # Playwright / Cypress / Selenium — headline capability
+    API = "api"  # supertest / REST Assured / httpx / Karate — when no browser surface
     INTEGRATION = "integration"  # TestContainers / WireMock — cross-service + feature flag gates
-    MUTATION = "mutation"      # mutmut / Stryker / PIT — strengthens whatever else was generated
+    MUTATION = "mutation"  # mutmut / Stryker / PIT — strengthens whatever else was generated
 
 
 # v0.1 → v0.2 lane name compatibility. These names appear in old test_plan.json
 # files; we accept them on load (mapped to UNIT) with a warning. Removed in v0.3.
 _V01_LANE_ALIASES: dict[str, Lane] = {
-    "functional": Lane.UNIT,    # functional → unit (most v0.1 usage was unit tests)
-    "sast": Lane.UNIT,           # SAST is out of scope per v0.2 design; collapse to unit so old plans still parse
-    "dast": Lane.UNIT,           # same — out of scope
-    "fuzz": Lane.UNIT,           # property-based testing was rare in v0.1
+    "functional": Lane.UNIT,  # functional → unit (most v0.1 usage was unit tests)
+    "sast": Lane.UNIT,  # SAST is out of scope per v0.2 design; collapse to unit so old plans still parse
+    "dast": Lane.UNIT,  # same — out of scope
+    "fuzz": Lane.UNIT,  # property-based testing was rare in v0.1
 }
 
 
@@ -94,6 +94,7 @@ def _parse_lane_str(raw: str) -> Lane:
     directly so old test_plan.json files keep parsing through v0.2.
     """
     import warnings
+
     try:
         return Lane(raw)
     except ValueError:

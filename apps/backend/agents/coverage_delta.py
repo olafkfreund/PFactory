@@ -113,15 +113,11 @@ def parse_coverage_xml(path: Path) -> CoverageSnapshot:
     try:
         tree = ET.parse(path)
     except ET.ParseError as exc:
-        raise CoverageParseError(
-            f"failed to parse coverage XML at {path}: {exc}"
-        ) from exc
+        raise CoverageParseError(f"failed to parse coverage XML at {path}: {exc}") from exc
 
     root = tree.getroot()
     if root.tag != "coverage":
-        raise CoverageParseError(
-            f"expected <coverage> root, found <{root.tag}> at {path}"
-        )
+        raise CoverageParseError(f"expected <coverage> root, found <{root.tag}> at {path}")
 
     line_rate = float(root.attrib.get("line-rate", "0") or "0")
     covered_lines: dict[str, set[int]] = {}

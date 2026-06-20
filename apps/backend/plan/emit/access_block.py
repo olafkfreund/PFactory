@@ -74,7 +74,5 @@ def attach_access(
         verdict = validate_access(block["requirements"], env_present=lambda _name: True)
         if not verdict["ready"]:
             gaps = ", ".join(f"{i['resource']}:{i['kind']}" for i in verdict["issues"])
-            logger.warning(
-                "[access] task declares access not testable as-planned: %s", gaps
-            )
+            logger.warning("[access] task declares access not testable as-planned: %s", gaps)
     return contract

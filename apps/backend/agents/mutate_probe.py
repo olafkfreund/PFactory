@@ -40,19 +40,20 @@ The Evaluator commit-5 wiring will:
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 
 class MutationVerdict(str, Enum):
     """Outcome of running a mutated test."""
 
-    KILLED = "killed"            # mutant failed — assertion is meaningful
-    SURVIVED = "survived"        # mutant passed — assertion is tautological
+    KILLED = "killed"  # mutant failed — assertion is meaningful
+    SURVIVED = "survived"  # mutant passed — assertion is tautological
     NO_MUTATION = "no_mutation"  # nothing to mutate (no assertions found)
-    ERROR = "error"              # runner raised, or mutation broke parse
+    ERROR = "error"  # runner raised, or mutation broke parse
 
 
 class _RunResultLike(Protocol):
@@ -74,10 +75,10 @@ class MutationApplied:
     mutation to the Triager / reviewer so they can sanity-check.
     """
 
-    operator: str         # e.g., "Eq->NotEq", "Constant:1->2"
+    operator: str  # e.g., "Eq->NotEq", "Constant:1->2"
     lineno: int
-    before: str           # the original AST node's source segment
-    after: str            # the mutated AST node's source segment
+    before: str  # the original AST node's source segment
+    after: str  # the mutated AST node's source segment
 
 
 @dataclass(frozen=True)
@@ -219,7 +220,7 @@ def mutate_source(source: str) -> tuple[str | None, MutationApplied | None]:
 
     try:
         mutated = ast.unparse(tree)
-    except Exception:  # noqa: BLE001 — defensive; unparse can fail on weird ASTs
+    except Exception:
         return None, None
 
     return mutated, mutator.mutation
@@ -293,7 +294,7 @@ def run_mutate_probe(
 
     try:
         res = runner_fn(runner_target, project_dir, seed)
-    except Exception as exc:  # noqa: BLE001 — runner errors → ERROR verdict
+    except Exception as exc:
         return MutationResult(
             verdict=MutationVerdict.ERROR,
             mutation=mutation,
@@ -301,10 +302,7 @@ def run_mutate_probe(
             error_message=f"{type(exc).__name__}: {exc}"[:500],
         )
 
-    verdict = (
-        MutationVerdict.KILLED if res.returncode != 0
-        else MutationVerdict.SURVIVED
-    )
+    verdict = MutationVerdict.KILLED if res.returncode != 0 else MutationVerdict.SURVIVED
     return MutationResult(
         verdict=verdict,
         mutation=mutation,

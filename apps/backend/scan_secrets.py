@@ -1,3 +1,3 @@
 """Backward compatibility shim - import from security.scan_secrets instead."""
 
-from security.scan_secrets import *  # noqa: F403
+from security.scan_secrets import *

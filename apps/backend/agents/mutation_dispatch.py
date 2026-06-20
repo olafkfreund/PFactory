@@ -25,9 +25,12 @@ from typing import Any
 
 # Language aliases → canonical key.
 _ALIASES = {
-    "python": "python", "py": "python",
-    "typescript": "typescript", "ts": "typescript",
-    "javascript": "typescript", "js": "typescript",  # JS tests run via the Jest/TS probe
+    "python": "python",
+    "py": "python",
+    "typescript": "typescript",
+    "ts": "typescript",
+    "javascript": "typescript",
+    "js": "typescript",  # JS tests run via the Jest/TS probe
 }
 
 # Languages with a wired mutation backend. Java (PIT) / C# (Stryker.NET)
@@ -40,8 +43,9 @@ _MUTANT_EXT = {"python": "py", "typescript": "ts"}
 
 def normalize_language(language: str | None) -> str:
     """Canonicalise a language string (default ``python``)."""
-    return _ALIASES.get((language or "python").strip().lower(),
-                        (language or "python").strip().lower())
+    return _ALIASES.get(
+        (language or "python").strip().lower(), (language or "python").strip().lower()
+    )
 
 
 def is_mutation_supported(language: str | None) -> bool:
@@ -81,9 +85,7 @@ def run_language_mutation(
     if lang == "python":
         from agents.mutate_probe import run_mutate_probe
 
-        return run_mutate_probe(
-            test_file, project_dir, runner_fn, write_mutant_to=mutant_path
-        )
+        return run_mutate_probe(test_file, project_dir, runner_fn, write_mutant_to=mutant_path)
     if lang == "typescript":
         from agents.lang_typescript.mutate_probe import run_ts_mutate_probe
 

@@ -48,9 +48,9 @@ MIN_RUNS_FOR_VERDICT = 2
 class FlakyClass(str, Enum):
     """Historical flakiness classification for a test."""
 
-    NEW = "new"          # too few runs to judge
-    STABLE = "stable"    # flip_rate below threshold
-    FLAKY = "flaky"      # flip_rate at/above threshold
+    NEW = "new"  # too few runs to judge
+    STABLE = "stable"  # flip_rate below threshold
+    FLAKY = "flaky"  # flip_rate at/above threshold
 
 
 @dataclass(frozen=True)
@@ -75,20 +75,14 @@ class FlakyHistory:
         """
         if self.runs < 2:
             return 0.0
-        flips = sum(
-            1 for a, b in zip(self.outcomes, self.outcomes[1:]) if a != b
-        )
+        flips = sum(1 for a, b in zip(self.outcomes, self.outcomes[1:]) if a != b)
         return flips / (self.runs - 1)
 
     @property
     def classification(self) -> FlakyClass:
         if self.runs < MIN_RUNS_FOR_VERDICT:
             return FlakyClass.NEW
-        return (
-            FlakyClass.FLAKY
-            if self.flip_rate >= FLAKY_THRESHOLD
-            else FlakyClass.STABLE
-        )
+        return FlakyClass.FLAKY if self.flip_rate >= FLAKY_THRESHOLD else FlakyClass.STABLE
 
     def as_dict(self) -> dict[str, object]:
         """JSON-friendly summary for verdicts.json / triage report."""

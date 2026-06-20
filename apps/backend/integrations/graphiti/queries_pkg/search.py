@@ -94,9 +94,7 @@ class GraphitiSearch:
             for result in results:
                 # Extract content from result
                 content = (
-                    getattr(result, "content", None)
-                    or getattr(result, "fact", None)
-                    or str(result)
+                    getattr(result, "content", None) or getattr(result, "fact", None) or str(result)
                 )
 
                 context_items.append(
@@ -113,9 +111,7 @@ class GraphitiSearch:
                     item for item in context_items if item.get("score", 0) >= min_score
                 ]
 
-            logger.info(
-                f"Found {len(context_items)} relevant context items for: {query[:50]}..."
-            )
+            logger.info(f"Found {len(context_items)} relevant context items for: {query[:50]}...")
             return context_items
 
         except Exception as e:
@@ -146,20 +142,13 @@ class GraphitiSearch:
 
             sessions = []
             for result in results:
-                content = getattr(result, "content", None) or getattr(
-                    result, "fact", None
-                )
+                content = getattr(result, "content", None) or getattr(result, "fact", None)
                 if content and EPISODE_TYPE_SESSION_INSIGHT in str(content):
                     try:
-                        data = (
-                            json.loads(content) if isinstance(content, str) else content
-                        )
+                        data = json.loads(content) if isinstance(content, str) else content
                         if data.get("type") == EPISODE_TYPE_SESSION_INSIGHT:
                             # Filter by spec if requested
-                            if (
-                                spec_only
-                                and data.get("spec_id") != self.spec_context_id
-                            ):
+                            if spec_only and data.get("spec_id") != self.spec_context_id:
                                 continue
                             sessions.append(data)
                     except (json.JSONDecodeError, TypeError, AttributeError):
@@ -197,14 +186,10 @@ class GraphitiSearch:
 
             outcomes = []
             for result in results:
-                content = getattr(result, "content", None) or getattr(
-                    result, "fact", None
-                )
+                content = getattr(result, "content", None) or getattr(result, "fact", None)
                 if content and EPISODE_TYPE_TASK_OUTCOME in str(content):
                     try:
-                        data = (
-                            json.loads(content) if isinstance(content, str) else content
-                        )
+                        data = json.loads(content) if isinstance(content, str) else content
                         if data.get("type") == EPISODE_TYPE_TASK_OUTCOME:
                             outcomes.append(
                                 {
@@ -256,9 +241,7 @@ class GraphitiSearch:
             )
 
             for result in pattern_results:
-                content = getattr(result, "content", None) or getattr(
-                    result, "fact", None
-                )
+                content = getattr(result, "content", None) or getattr(result, "fact", None)
                 score = getattr(result, "score", 0.0)
 
                 if score < min_score:
@@ -266,9 +249,7 @@ class GraphitiSearch:
 
                 if content and EPISODE_TYPE_PATTERN in str(content):
                     try:
-                        data = (
-                            json.loads(content) if isinstance(content, str) else content
-                        )
+                        data = json.loads(content) if isinstance(content, str) else content
                         if data.get("type") == EPISODE_TYPE_PATTERN:
                             patterns.append(
                                 {
@@ -289,9 +270,7 @@ class GraphitiSearch:
             )
 
             for result in gotcha_results:
-                content = getattr(result, "content", None) or getattr(
-                    result, "fact", None
-                )
+                content = getattr(result, "content", None) or getattr(result, "fact", None)
                 score = getattr(result, "score", 0.0)
 
                 if score < min_score:
@@ -299,9 +278,7 @@ class GraphitiSearch:
 
                 if content and EPISODE_TYPE_GOTCHA in str(content):
                     try:
-                        data = (
-                            json.loads(content) if isinstance(content, str) else content
-                        )
+                        data = json.loads(content) if isinstance(content, str) else content
                         if data.get("type") == EPISODE_TYPE_GOTCHA:
                             gotchas.append(
                                 {

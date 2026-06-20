@@ -41,9 +41,7 @@ class FeasibilityLens:
                     blocking=True,
                 )
             )
-            return LensScore(
-                lens=self.name, score=0.0, findings=findings, blocking=True
-            )
+            return LensScore(lens=self.name, score=0.0, findings=findings, blocking=True)
 
         dep_problems = epic.validate_dependencies()
         if dep_problems:
@@ -60,9 +58,7 @@ class FeasibilityLens:
             )
 
         complex_children = [c for c in epic.children if c.complexity == "complex"]
-        if complex_children and (
-            len(complex_children) / len(epic.children) > _COMPLEX_RATIO_LIMIT
-        ):
+        if complex_children and (len(complex_children) / len(epic.children) > _COMPLEX_RATIO_LIMIT):
             score -= 0.15
             findings.append(
                 Finding(

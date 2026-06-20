@@ -96,9 +96,7 @@ def _epic_body(plan: NormalizedPlan, children: list[ChildIssue]) -> str:
 # ── heuristic decomposer ───────────────────────────────────────────────────
 
 
-def heuristic_decompose(
-    plan: NormalizedPlan, descriptor: PlanTypeDescriptor
-) -> EpicPlan:
+def heuristic_decompose(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) -> EpicPlan:
     """Deterministically map a plan to an epic + child issues.
 
     One ``feature`` child per acceptance criterion (keys ``C1``..``Cn``); if the

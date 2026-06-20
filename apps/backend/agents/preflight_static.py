@@ -132,12 +132,14 @@ def extract_imports(source: str) -> tuple[list[PreflightImport], str | None]:
         if isinstance(node, ast.Import):
             # `import a, b.c, d as e` → three entries
             for alias in node.names:
-                out.append(PreflightImport(
-                    module=alias.name,
-                    name=None,
-                    alias=alias.asname,
-                    lineno=node.lineno,
-                ))
+                out.append(
+                    PreflightImport(
+                        module=alias.name,
+                        name=None,
+                        alias=alias.asname,
+                        lineno=node.lineno,
+                    )
+                )
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             is_relative = node.level > 0
@@ -145,13 +147,15 @@ def extract_imports(source: str) -> tuple[list[PreflightImport], str | None]:
             if is_relative:
                 module = "." * node.level + module
             for alias in node.names:
-                out.append(PreflightImport(
-                    module=module,
-                    name=alias.name,  # may be '*'
-                    alias=alias.asname,
-                    lineno=node.lineno,
-                    is_relative=is_relative,
-                ))
+                out.append(
+                    PreflightImport(
+                        module=module,
+                        name=alias.name,  # may be '*'
+                        alias=alias.asname,
+                        lineno=node.lineno,
+                        is_relative=is_relative,
+                    )
+                )
 
     return out, None
 
@@ -211,9 +215,7 @@ def check_import(
     env = os.environ.copy()
     if project_dir is not None:
         existing = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = (
-            f"{project_dir}{os.pathsep}{existing}" if existing else str(project_dir)
-        )
+        env["PYTHONPATH"] = f"{project_dir}{os.pathsep}{existing}" if existing else str(project_dir)
 
     try:
         proc = subprocess.run(

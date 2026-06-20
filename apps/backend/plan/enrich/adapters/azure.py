@@ -63,24 +63,22 @@ def _build_reader(subscription_id: str) -> AzureReader:  # pragma: no cover
         def list_resource_groups(self) -> list[dict]:
             client = ResourceManagementClient(credential, subscription_id)
             return [
-                {"name": rg.name, "location": rg.location}
-                for rg in client.resource_groups.list()
+                {"name": rg.name, "location": rg.location} for rg in client.resource_groups.list()
             ]
 
         def list_aks_clusters(self) -> list[dict]:
             client = ContainerServiceClient(credential, subscription_id)
             out: list[dict] = []
             for c in client.managed_clusters.list():
-                node_count = sum(
-                    getattr(p, "count", 0) or 0
-                    for p in (c.agent_pool_profiles or [])
+                node_count = sum(getattr(p, "count", 0) or 0 for p in (c.agent_pool_profiles or []))
+                out.append(
+                    {
+                        "name": c.name,
+                        "location": c.location,
+                        "kubernetes_version": c.kubernetes_version,
+                        "node_count": node_count,
+                    }
                 )
-                out.append({
-                    "name": c.name,
-                    "location": c.location,
-                    "kubernetes_version": c.kubernetes_version,
-                    "node_count": node_count,
-                })
             return out
 
         def list_policy_assignments(self) -> list[dict]:
@@ -117,10 +115,7 @@ class AzureAdapter(InfraAdapter):
         subscription = self.target or os.environ.get("AZURE_SUBSCRIPTION_ID", "")
         if not subscription:
             return False
-        has_sp_creds = bool(
-            os.environ.get("AZURE_CLIENT_ID")
-            or os.environ.get("AZURE_TENANT_ID")
-        )
+        has_sp_creds = bool(os.environ.get("AZURE_CLIENT_ID") or os.environ.get("AZURE_TENANT_ID"))
         has_cli = bool(os.environ.get("AZURE_CONFIG_DIR"))
         return has_sp_creds or has_cli
 
@@ -153,18 +148,18 @@ class AzureAdapter(InfraAdapter):
                 regions.add(region)
             if c.get("public") or c.get("public_exposed"):
                 public_exposed += 1
-            workloads.append({
-                "kind": "aks_cluster",
-                "name": name,
-                "node_count": c.get("node_count", 0),
-                "kubernetes_version": version,
-                "region": region,
-            })
+            workloads.append(
+                {
+                    "kind": "aks_cluster",
+                    "name": name,
+                    "node_count": c.get("node_count", 0),
+                    "kubernetes_version": version,
+                    "region": region,
+                }
+            )
             parsed = _parse_k8s_version(version)
             if parsed is not None and parsed < _OUTDATED_K8S_BELOW:
-                findings.append(
-                    f"AKS cluster {name} runs an outdated k8s version {version}"
-                )
+                findings.append(f"AKS cluster {name} runs an outdated k8s version {version}")
 
         for rg in resource_groups:
             loc = rg.get("location") or rg.get("region")

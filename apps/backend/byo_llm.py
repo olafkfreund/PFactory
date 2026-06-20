@@ -53,24 +53,26 @@ _BASE_URL_ENV = {
 
 # Known managed OpenAI-compatible hosts — data leaves to a third party
 # even though the provider type is "openai-compatible".
-_MANAGED_OPENAI_HOSTS = frozenset({
-    "api.openai.com",
-    "openrouter.ai",
-    "api.together.xyz",
-    "api.together.ai",
-    "api.groq.com",
-    "api.mistral.ai",
-    "api.deepseek.com",
-    "api.anyscale.com",
-    "generativelanguage.googleapis.com",
-})
+_MANAGED_OPENAI_HOSTS = frozenset(
+    {
+        "api.openai.com",
+        "openrouter.ai",
+        "api.together.xyz",
+        "api.together.ai",
+        "api.groq.com",
+        "api.mistral.ai",
+        "api.deepseek.com",
+        "api.anyscale.com",
+        "generativelanguage.googleapis.com",
+    }
+)
 
 
 class EgressClass(str, Enum):
     """Where a run's prompt/code data goes for a given model + endpoint."""
 
-    LOCAL = "local"                  # localhost / private — no egress
-    SELF_HOSTED = "self_hosted"      # your own routable server
+    LOCAL = "local"  # localhost / private — no egress
+    SELF_HOSTED = "self_hosted"  # your own routable server
     MANAGED_CLOUD = "managed_cloud"  # third-party managed API
 
 
@@ -92,9 +94,7 @@ def host_is_local(host: str | None) -> bool:
         ip = ipaddress.ip_address(h)
     except ValueError:
         return False
-    return bool(
-        ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_unspecified
-    )
+    return bool(ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_unspecified)
 
 
 def resolve_base_url(model: str) -> str | None:

@@ -91,9 +91,7 @@ class GoogleLLMClient:
 
         # Create model with system instruction if provided
         if system_instruction:
-            model = self._genai.GenerativeModel(
-                self.model, system_instruction=system_instruction
-            )
+            model = self._genai.GenerativeModel(self.model, system_instruction=system_instruction)
         else:
             model = self._model
 
@@ -102,9 +100,7 @@ class GoogleLLMClient:
 
         if response_model:
             # For structured output, use JSON mode
-            generation_config = self._genai.GenerationConfig(
-                response_mime_type="application/json"
-            )
+            generation_config = self._genai.GenerationConfig(response_mime_type="application/json")
 
             response = await loop.run_in_executor(
                 None,
@@ -121,9 +117,7 @@ class GoogleLLMClient:
                 return response_model(**data)
             except json.JSONDecodeError:
                 # If JSON parsing fails, return raw text
-                logger.warning(
-                    "Failed to parse JSON response from Google AI, returning raw text"
-                )
+                logger.warning("Failed to parse JSON response from Google AI, returning raw text")
                 return response.text
         else:
             response = await loop.run_in_executor(

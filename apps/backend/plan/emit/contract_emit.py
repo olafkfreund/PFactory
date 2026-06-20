@@ -12,7 +12,7 @@ policy.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from plan.emit.access_block import attach_access
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 _HANDSHAKE_ENV = "PFACTORY_AIFACTORY_HANDSHAKE"
@@ -133,9 +133,7 @@ def assemble_contract(
     curation so ``curated: true`` lands on the contract (#86). Both optional, so
     existing callers are unaffected.
     """
-    contract = build_task_contract(
-        plan, epic, repo=repo, correlation_key=correlation_key
-    )
+    contract = build_task_contract(plan, epic, repo=repo, correlation_key=correlation_key)
     attach_execution(contract, plan, epic)
     if review is not None:
         attach_review_tier(contract, review)

@@ -26,12 +26,12 @@ from plan.recon.models import RepoMap
 from plan.recon.reconnoiter import build_repo_map, reconnoiter
 
 __all__ = [
+    "ChangeMode",
+    "LanguageReconcile",
     "RepoMap",
     "build_repo_map",
-    "reconnoiter",
-    "ChangeMode",
     "classify_change_mode",
-    "LanguageReconcile",
     "detect_spec_language",
     "reconcile_language",
+    "reconnoiter",
 ]

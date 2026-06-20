@@ -65,9 +65,7 @@ class ProviderRuntime:
 # first since that's the post-sunset binary (see providers/gemini_agentic.py).
 _REGISTRY: dict[str, ProviderRuntime] = {
     "claude": ProviderRuntime("claude", "pip", (), (), package="claude-agent-sdk"),
-    "codex": ProviderRuntime(
-        "codex", "npm", ("codex",), ("--version",), package="@openai/codex"
-    ),
+    "codex": ProviderRuntime("codex", "npm", ("codex",), ("--version",), package="@openai/codex"),
     "copilot": ProviderRuntime(
         "copilot",
         "gh",
@@ -88,9 +86,7 @@ _REGISTRY: dict[str, ProviderRuntime] = {
             "~/.gemini/antigravity-cli/bin/gemini",
         ),
     ),
-    "ollama": ProviderRuntime(
-        "ollama", "binary", ("ollama",), ("--version",), managed=False
-    ),
+    "ollama": ProviderRuntime("ollama", "binary", ("ollama",), ("--version",), managed=False),
 }
 
 
@@ -117,9 +113,7 @@ def get_runtime(name: str) -> ProviderRuntime:
     try:
         return _REGISTRY[name]
     except KeyError as exc:
-        raise KeyError(
-            f"unknown provider runtime {name!r}; known: {sorted(_REGISTRY)}"
-        ) from exc
+        raise KeyError(f"unknown provider runtime {name!r}; known: {sorted(_REGISTRY)}") from exc
 
 
 def _parse_version(text: str | None) -> str | None:
@@ -198,7 +192,7 @@ def detect_installed(rt: ProviderRuntime) -> str | None:
             from importlib.metadata import version as _pkg_version
 
             return _parse_version(_pkg_version(rt.package))
-        except Exception:  # noqa: BLE001 - not installed in *this* interpreter
+        except Exception:
             # Fallback: this module may be imported from the web-server venv,
             # which lacks the SDK — ask the backend venv instead (#121).
             return _pip_version_via(_backend_python(), rt.package)
@@ -246,10 +240,10 @@ def latest_version(rt: ProviderRuntime) -> str | None:
             import urllib.request
 
             url = f"https://pypi.org/pypi/{rt.package}/json"
-            with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
+            with urllib.request.urlopen(url, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             return _parse_version(data.get("info", {}).get("version"))
-        except Exception:  # noqa: BLE001 - network/parse best-effort
+        except Exception:
             return None
     return None
 
@@ -270,11 +264,7 @@ def _read_pins() -> dict[str, str]:
         data = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
         return {}
-    return (
-        {k: v for k, v in data.items() if isinstance(v, str)}
-        if isinstance(data, dict)
-        else {}
-    )
+    return {k: v for k, v in data.items() if isinstance(v, str)} if isinstance(data, dict) else {}
 
 
 def pinned_version(name: str) -> str | None:
@@ -369,9 +359,7 @@ class InstallResult:
     installed_version: str | None  # re-detected after the install
 
 
-def run_install(
-    name: str, version: str | None = None, *, timeout: int = 600
-) -> InstallResult:
+def run_install(name: str, version: str | None = None, *, timeout: int = 600) -> InstallResult:
     """Execute the install/update for ``name`` at ``version`` (or latest).
 
     Runs :func:`install_argv` — a **real** package install on the host. This is

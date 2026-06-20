@@ -98,7 +98,10 @@ def _map_findings(raw: object) -> list[Finding]:
             continue
         severity = _SEVERITY_MAP.get(str(item.get("severity", "medium")).lower(), "medium")
         title = str(
-            item.get("title") or item.get("category") or item.get("constraint") or "GCP policy issue"
+            item.get("title")
+            or item.get("category")
+            or item.get("constraint")
+            or "GCP policy issue"
         )
         findings.append(
             Finding(

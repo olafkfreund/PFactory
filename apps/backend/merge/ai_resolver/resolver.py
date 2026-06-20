@@ -181,8 +181,7 @@ class AIResolver:
         # Check token limit
         if context.estimated_tokens > self.max_context_tokens:
             logger.warning(
-                f"Context too large ({context.estimated_tokens} tokens), "
-                "flagging for human review"
+                f"Context too large ({context.estimated_tokens} tokens), flagging for human review"
             )
             return MergeResult(
                 decision=MergeDecision.NEEDS_HUMAN_REVIEW,
@@ -269,9 +268,7 @@ class AIResolver:
                     # Single conflict, resolve individually
                     baseline = baseline_codes.get(file_conflicts[0].location, "")
                     results.append(
-                        self.resolve_conflict(
-                            file_conflicts[0], baseline, task_snapshots
-                        )
+                        self.resolve_conflict(file_conflicts[0], baseline, task_snapshots)
                     )
                 else:
                     # Multiple conflicts in same file - batch resolve
@@ -283,9 +280,7 @@ class AIResolver:
             # Resolve each individually
             for conflict in conflicts:
                 baseline = baseline_codes.get(conflict.location, "")
-                results.append(
-                    self.resolve_conflict(conflict, baseline, task_snapshots)
-                )
+                results.append(self.resolve_conflict(conflict, baseline, task_snapshots))
 
         return results
 
@@ -323,9 +318,7 @@ class AIResolver:
             results = []
             for conflict in conflicts:
                 baseline = baseline_codes.get(conflict.location, "")
-                results.append(
-                    self.resolve_conflict(conflict, baseline, task_snapshots)
-                )
+                results.append(self.resolve_conflict(conflict, baseline, task_snapshots))
 
             # Combine results
             merged = results[0]
@@ -337,9 +330,7 @@ class AIResolver:
             return merged
 
         # Build combined prompt
-        combined_context = "\n\n---\n\n".join(
-            ctx.to_prompt_context() for ctx in all_contexts
-        )
+        combined_context = "\n\n---\n\n".join(ctx.to_prompt_context() for ctx in all_contexts)
 
         language = all_contexts[0].language if all_contexts else "text"
 
@@ -362,9 +353,7 @@ class AIResolver:
 
             for conflict in conflicts:
                 # Try to find the resolution for this location
-                code_block = extract_batch_code_blocks(
-                    response, conflict.location, language
-                )
+                code_block = extract_batch_code_blocks(response, conflict.location, language)
 
                 if code_block:
                     resolved.append(conflict)

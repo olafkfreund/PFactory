@@ -9,9 +9,7 @@ including section extraction, table parsing, and text truncation.
 import re
 
 
-def extract_section(
-    content: str, header: str, next_header_pattern: str = r"^## "
-) -> str:
+def extract_section(content: str, header: str, next_header_pattern: str = r"^## ") -> str:
     """
     Extract content from a markdown section.
 

@@ -32,8 +32,7 @@ class HttpClient(Protocol):
     records the call and returns a stub response.
     """
 
-    def post(self, url: str, *, params: dict[str, Any], json: Any) -> Any:
-        ...
+    def post(self, url: str, *, params: dict[str, Any], json: Any) -> Any: ...
 
 
 def handover_labels() -> list[str]:

@@ -28,9 +28,7 @@ class StreamingLogCapture:
     def __exit__(self, exc_type, exc_val, exc_tb):
         # End any active tool
         if self.current_tool:
-            self.logger.tool_end(
-                self.current_tool, success=exc_type is None, phase=self.phase
-            )
+            self.logger.tool_end(self.current_tool, success=exc_type is None, phase=self.phase)
             self.current_tool = None
         return False
 
@@ -56,15 +54,11 @@ class StreamingLogCapture:
         detail: str | None = None,
     ) -> None:
         """Process tool end."""
-        self.logger.tool_end(
-            tool_name, success, result, detail=detail, phase=self.phase
-        )
+        self.logger.tool_end(tool_name, success, result, detail=detail, phase=self.phase)
         if self.current_tool == tool_name:
             self.current_tool = None
 
-    def process_message(
-        self, msg, verbose: bool = False, capture_detail: bool = True
-    ) -> None:
+    def process_message(self, msg, verbose: bool = False, capture_detail: bool = True) -> None:
         """
         Process a message from the Claude SDK stream.
 

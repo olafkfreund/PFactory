@@ -70,7 +70,7 @@ def parse_ref(raw: str) -> SecretRef:
             f"Known schemes: {sorted(_SCHEME_TO_BACKEND)}"
         )
 
-    body = raw[len(scheme) + 1:]  # strip ``scheme:``
+    body = raw[len(scheme) + 1 :]  # strip ``scheme:``
 
     if scheme in _AUTHORITY_SCHEMES:
         return _parse_authority(scheme, backend, body, raw)
@@ -81,12 +81,11 @@ def parse_ref(raw: str) -> SecretRef:
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _scheme_of(raw: str) -> str:
     scheme, sep, _ = raw.strip().partition(":")
     if not sep:
-        raise InvalidSecretRefError(
-            f"Secret ref {raw!r} has no scheme (expected '<scheme>:...')"
-        )
+        raise InvalidSecretRefError(f"Secret ref {raw!r} has no scheme (expected '<scheme>:...')")
     return scheme.lower()
 
 
@@ -112,9 +111,7 @@ def _parse_locator(scheme: str, backend: str, body: str, raw: str) -> SecretRef:
 def _parse_authority(scheme: str, backend: str, body: str, raw: str) -> SecretRef:
     """``scheme://...`` family (azurekv / aws-sm / gcp-sm)."""
     if not body.startswith("//"):
-        raise InvalidSecretRefError(
-            f"Secret ref {raw!r} must use '{scheme}://...' form"
-        )
+        raise InvalidSecretRefError(f"Secret ref {raw!r} must use '{scheme}://...' form")
     rest = body[2:]
     if not rest:
         raise InvalidSecretRefError(f"Secret ref {raw!r} is missing a path")
@@ -127,9 +124,7 @@ def _parse_authority(scheme: str, backend: str, body: str, raw: str) -> SecretRe
             raise InvalidSecretRefError(
                 f"Azure Key Vault ref must be 'azurekv://<vault>/<secret>': {raw!r}"
             )
-        return SecretRef(
-            backend=backend, raw=raw, locator=name, field=fld, extra={"vault": vault}
-        )
+        return SecretRef(backend=backend, raw=raw, locator=name, field=fld, extra={"vault": vault})
 
     if scheme == "aws-sm":
         # aws-sm://<secret-name-which-may-contain-slashes>[#json-field]
@@ -148,11 +143,14 @@ def _parse_authority(scheme: str, backend: str, body: str, raw: str) -> SecretRe
         project, secret = parts[0], parts[1]
         version = parts[2] if len(parts) > 2 and parts[2] else None
         return SecretRef(
-            backend=backend, raw=raw, locator=secret, version=version,
+            backend=backend,
+            raw=raw,
+            locator=secret,
+            version=version,
             extra={"project": project},
         )
 
     raise InvalidSecretRefError(f"Unhandled authority scheme {scheme!r}")  # pragma: no cover
 
 
-__all__ = ["parse_ref", "infer_backend_from_ref"]
+__all__ = ["infer_backend_from_ref", "parse_ref"]

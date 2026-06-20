@@ -35,7 +35,9 @@ def discover_builtins() -> list[RegistryEntry]:
         for name in available_adapters():
             entries.append(
                 RegistryEntry(
-                    id=f"infra:{name}", kind="infra-adapter", title=name,
+                    id=f"infra:{name}",
+                    kind="infra-adapter",
+                    title=name,
                     capabilities=["enrich", "read-only"],
                 )
             )
@@ -52,7 +54,9 @@ def discover_builtins() -> list[RegistryEntry]:
         for name in available_connectors():
             entries.append(
                 RegistryEntry(
-                    id=f"knowledge:{name}", kind="knowledge-connector", title=name,
+                    id=f"knowledge:{name}",
+                    kind="knowledge-connector",
+                    title=name,
                     capabilities=["enrich", "read-only"],
                 )
             )

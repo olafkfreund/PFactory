@@ -16,15 +16,11 @@ except ImportError:
     def is_graphiti_enabled() -> bool:
         return False
 
-    async def get_graph_hints(
-        query: str, project_id: str, max_results: int = 10
-    ) -> list:
+    async def get_graph_hints(query: str, project_id: str, max_results: int = 10) -> list:
         return []
 
 
-async def fetch_graph_hints(
-    query: str, project_id: str, max_results: int = 5
-) -> list[dict]:
+async def fetch_graph_hints(query: str, project_id: str, max_results: int = 5) -> list[dict]:
     """
     Get historical hints from Graphiti knowledge graph.
 

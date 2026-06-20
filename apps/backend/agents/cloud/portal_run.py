@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable
 
 from . import store
 from .discovery import discover
@@ -42,9 +42,7 @@ def preflight(
     False (with ``error`` set) when credentials don't grant access — the caller
     must NOT proceed to the assessment in that case.
     """
-    inv = (discover_fn or discover)(
-        provider, profile=profile, regions=regions, services=services
-    )
+    inv = (discover_fn or discover)(provider, profile=profile, regions=regions, services=services)
     err = inv.get("error")
     return {
         "ok": not err,
@@ -86,9 +84,7 @@ def run_and_store(
         provider=provider,
         profile=profile,
         regions=list(regions or []),
-        scan=SimpleNamespace(
-            services=list(services or []), fail_on_severity=fail_on_severity
-        ),
+        scan=SimpleNamespace(services=list(services or []), fail_on_severity=fail_on_severity),
     )
     result = (run_fn or run_cloud_assessment)(spec_dir, target)
     acct = _account_from(spec_dir, account)

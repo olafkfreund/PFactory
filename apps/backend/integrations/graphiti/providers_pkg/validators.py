@@ -137,7 +137,6 @@ async def test_ollama_connection(
     Returns:
         Tuple of (success, message)
     """
-    import asyncio
 
     try:
         import aiohttp
@@ -176,7 +175,7 @@ async def test_ollama_connection(
                 if response.status == 200:
                     return True, f"Ollama is running at {url}"
                 return False, f"Ollama returned status {response.status}"
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False, f"Ollama connection timed out at {url}"
     except aiohttp.ClientError as e:
         return False, f"Cannot connect to Ollama at {url}: {e}"

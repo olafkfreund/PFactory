@@ -10,9 +10,7 @@ from .logger import TaskLogger
 _current_logger: TaskLogger | None = None
 
 
-def get_task_logger(
-    spec_dir: Path | None = None, emit_markers: bool = True
-) -> TaskLogger | None:
+def get_task_logger(spec_dir: Path | None = None, emit_markers: bool = True) -> TaskLogger | None:
     """
     Get or create a task logger for the given spec directory.
 

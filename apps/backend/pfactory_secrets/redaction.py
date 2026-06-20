@@ -69,9 +69,9 @@ class RedactingFilter(logging.Filter):
         try:
             record.msg = self._redactor.redact(str(record.getMessage()))
             record.args = ()
-        except Exception:  # noqa: BLE001 - never break logging
+        except Exception:
             pass
         return True
 
 
-__all__ = ["Redactor", "RedactingFilter", "scrub_patterns"]
+__all__ = ["RedactingFilter", "Redactor", "scrub_patterns"]

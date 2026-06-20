@@ -46,10 +46,11 @@ import json
 import logging
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -147,8 +148,7 @@ def _mutate_source(source: str) -> tuple[str | None, str | None]:
             mutated_source = "".join(mutated_lines)
 
             description = (
-                f"line {line_no + 1}: "
-                f"{original_segment.strip()} → {mutated_segment.strip()}"
+                f"line {line_no + 1}: {original_segment.strip()} → {mutated_segment.strip()}"
             )
             return mutated_source, description
 
@@ -249,9 +249,7 @@ def _build_stryker_config(
             }
         )
 
-    return tmpl.replace("$TEST_FILE", str(test_file)).replace(
-        "$RUNNER_IMAGE", runner_image
-    )
+    return tmpl.replace("$TEST_FILE", str(test_file)).replace("$RUNNER_IMAGE", runner_image)
 
 
 # ─── Public entry point ──────────────────────────────────────────────────────
@@ -351,13 +349,13 @@ def run_ts_mutate_probe(
 
         try:
             if runner_fn is None:
-                from tools.runners.docker_runner import DockerRunner  # noqa: PLC0415
+                from tools.runners.docker_runner import DockerRunner
 
                 runner = DockerRunner(image=runner_image, timeout=timeout)
                 result = runner.run(cmd, cwd=cwd)
             else:
                 result = runner_fn(cmd, cwd, image=runner_image, timeout=timeout)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Stryker runner raised: %s", exc)
             return TSMutateReport(
                 test_file=test_file,

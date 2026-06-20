@@ -283,9 +283,7 @@ def scaffold_auth_setup(spec_dir: Path | str) -> bool:
 
     targets = cfg.get("targets") or []
     creds = cfg.get("test_credentials") or {}
-    target = next(
-        (t for t in targets if (t.get("auth") or {}).get("type") == "ref"), None
-    )
+    target = next((t for t in targets if (t.get("auth") or {}).get("type") == "ref"), None)
     if not target:
         return False
     auth = target["auth"]

@@ -23,9 +23,7 @@ from plan.recon.models import RepoMap
 ChangeMode = Literal["greenfield", "modify", "migration"]
 
 
-def classify_change_mode(
-    repo_map: RepoMap | None, *, is_migration: bool = False
-) -> ChangeMode:
+def classify_change_mode(repo_map: RepoMap | None, *, is_migration: bool = False) -> ChangeMode:
     """Return the change mode for a plan grounded in ``repo_map``.
 
     ``is_migration`` is the signal from the directional migration classifier

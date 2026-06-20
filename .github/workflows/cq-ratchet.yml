@@ -1,0 +1,163 @@
+name: code-quality (ratchet)
+
+# Factory Coding Standards adoption — Phase 0 (epic Factory#154, issues #192 #196).
+#
+# Enforcement model (standards/coding-standards.md sections 0 and 4.6):
+#   - The shared strict select set is governed by the repo's root ruff.toml,
+#     which adopts the vendored hub baseline (standards/ruff.toml).
+#   - This workflow enforces it under a RATCHET: ruff + mypy run on the PR's
+#     CHANGED Python files only, so legacy hotspots stay green until touched but
+#     a changed file may not regress. These jobs are BLOCKING.
+#   - A whole-repo `ruff format --check` is also blocking (formatting is
+#     auto-applied, never reviewed — section 3.6).
+#   - A config-drift gate keeps the vendored baseline pinned to the hub.
+#
+# A whole-repo `ruff check` / `mypy --strict` strict gate is intentionally NOT
+# blocking here: the legacy violation count would make it instantly red. Legacy
+# is fixed on touch under the ratchet.
+
+on:
+  pull_request:
+    branches: [dev, main]
+
+concurrency:
+  group: cq-ratchet-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  RUFF_VERSION: "0.14.10"
+
+jobs:
+  ratchet-ruff:
+    name: ratchet ruff (changed files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff (pinned)
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install ruff
+        run: uv tool install "ruff==${RUFF_VERSION}"
+
+      - name: Compute changed Python files under apps/backend
+        id: changed
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          files="$(git diff --name-only --diff-filter=ACMR "${base}"...HEAD \
+            -- 'apps/backend/**/*.py' | tr '\n' ' ')"
+          echo "files=${files}" >> "$GITHUB_OUTPUT"
+          echo "Changed Python files: ${files:-<none>}"
+
+      - name: Ruff lint (changed files, full shared select set, blocking)
+        if: steps.changed.outputs.files != ''
+        run: ruff check --no-fix ${{ steps.changed.outputs.files }}
+
+      - name: Ruff format check (changed files, blocking)
+        if: steps.changed.outputs.files != ''
+        run: ruff format --check ${{ steps.changed.outputs.files }}
+
+  format-check:
+    name: ruff format --check (whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install ruff
+        run: uv tool install "ruff==${RUFF_VERSION}"
+
+      - name: Ruff format check (apps/backend)
+        run: ruff format --check apps/backend
+
+  ratchet-mypy:
+    name: ratchet mypy --strict (changed files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Create venv + install deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+          uv pip install mypy
+
+      - name: Compute changed Python files under apps/backend
+        id: changed
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          files="$(git diff --name-only --diff-filter=ACMR "${base}"...HEAD \
+            -- 'apps/backend/**/*.py' | tr '\n' ' ')"
+          echo "files=${files}" >> "$GITHUB_OUTPUT"
+          echo "Changed Python files: ${files:-<none>}"
+
+      - name: Mypy --strict (changed files only, blocking)
+        if: steps.changed.outputs.files != ''
+        working-directory: apps/backend
+        run: |
+          # Strip the apps/backend/ prefix so paths resolve against this package
+          # root (mypy.ini lives at the repo root).
+          rel="$(echo '${{ steps.changed.outputs.files }}' | tr ' ' '\n' \
+            | sed 's#^apps/backend/##' | tr '\n' ' ')"
+          PYTHONPATH=. .venv/bin/mypy --config-file ../../mypy.ini ${rel}
+
+  config-drift:
+    name: config drift (vendored baseline pinned to hub)
+    runs-on: ubuntu-latest
+    # The vendored standards/ copy must match the Factory hub at the pinned SHA
+    # (standards/README.md). Soft-skips on a network error fetching the hub so a
+    # GitHub outage cannot red the build.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Diff vendored baseline against pinned hub
+        env:
+          HUB_SHA: "93c3bb49ed5f3f3d3d46aae5f8a13ff601550702"
+        run: |
+          set -euo pipefail
+          base="https://raw.githubusercontent.com/olafkfreund/Factory/${HUB_SHA}/standards"
+          fail=0
+          for f in ruff.toml mypy.ini .editorconfig coding-standards.md; do
+            if ! curl -fsSL "${base}/${f}" -o "/tmp/hub-${f}"; then
+              echo "::warning::could not fetch ${f} from hub (${HUB_SHA}); skipping drift check"
+              continue
+            fi
+            if ! diff -u "/tmp/hub-${f}" "standards/${f}"; then
+              echo "::error::standards/${f} drifted from the pinned hub baseline"
+              fail=1
+            fi
+          done
+          exit $fail

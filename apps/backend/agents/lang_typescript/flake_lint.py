@@ -42,9 +42,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +121,7 @@ class TSFlakeReport:
 # ─── ESLint JSON output parser ───────────────────────────────────────────────
 
 
-def _severity_for_rule(
-    rule_id: str, eslint_severity: int
-) -> Literal["high", "medium"] | None:
+def _severity_for_rule(rule_id: str, eslint_severity: int) -> Literal["high", "medium"] | None:
     """Map an ESLint rule ID + numeric severity to a PFactory severity tier.
 
     Returns:
@@ -238,7 +237,7 @@ def run_ts_flake_lint(
     cwd = str(project_dir)
 
     if runner_fn is None:
-        from tools.runners.docker_runner import DockerRunner  # noqa: PLC0415
+        from tools.runners.docker_runner import DockerRunner
 
         runner = DockerRunner(image=runner_image, timeout=timeout)
         result = runner.run(cmd, cwd=cwd)

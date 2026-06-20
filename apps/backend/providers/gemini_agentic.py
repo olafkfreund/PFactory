@@ -60,6 +60,7 @@ def get_gemini_binary(custom_path: str | None = None) -> str:
     if shutil.which("antigravity"):
         return "antigravity"
     from pathlib import Path
+
     custom_path_default = Path.home() / ".gemini" / "antigravity-cli" / "bin" / "antigravity"
     if custom_path_default.exists():
         return str(custom_path_default)
@@ -130,8 +131,14 @@ class GeminiAgenticProvider(BaseLLMProvider):
             return
 
         resolved_binary = get_gemini_binary(self._gemini_path)
-        resolved_path = shutil.which(resolved_binary) if not resolved_binary.startswith("/") else resolved_binary
-        if resolved_path is None or (resolved_binary.startswith("/") and not Path(resolved_binary).exists()):
+        resolved_path = (
+            shutil.which(resolved_binary)
+            if not resolved_binary.startswith("/")
+            else resolved_binary
+        )
+        if resolved_path is None or (
+            resolved_binary.startswith("/") and not Path(resolved_binary).exists()
+        ):
             raise RuntimeError(
                 f"Gemini CLI executable not found: '{self._gemini_path}'. "
                 "Install the Gemini CLI or pass the correct path."
@@ -164,15 +171,13 @@ class GeminiAgenticProvider(BaseLLMProvider):
                 timeout=float(self._timeout),
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if proc is not None:
                 try:
                     proc.kill()
                 except ProcessLookupError:
                     pass
-            raise asyncio.TimeoutError(
-                f"Gemini CLI (yolo) timed out after {self._timeout}s."
-            )
+            raise TimeoutError(f"Gemini CLI (yolo) timed out after {self._timeout}s.")
 
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()

@@ -42,7 +42,9 @@ class PFactoryYmlError(Exception):
         self.errors: list[Any] = list(errors) if errors else []
         formatted = f"{path}: {message}"
         if self.errors:
-            formatted += f" ({len(self.errors)} validation error{'s' if len(self.errors) != 1 else ''})"
+            formatted += (
+                f" ({len(self.errors)} validation error{'s' if len(self.errors) != 1 else ''})"
+            )
         super().__init__(formatted)
 
     def __repr__(self) -> str:

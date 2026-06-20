@@ -146,9 +146,7 @@ class OllamaProvider(BaseLLMProvider):
                     prompt builder (may be several kB of text).
         """
         self._pending_prompt = prompt
-        logger.debug(
-            "OllamaProvider: prompt stored (length=%d)", len(prompt)
-        )
+        logger.debug("OllamaProvider: prompt stored (length=%d)", len(prompt))
 
     def receive_response(self) -> AsyncIterator[Any]:
         """Return an async generator that calls the Ollama REST API.
@@ -177,25 +175,22 @@ class OllamaProvider(BaseLLMProvider):
         """
         if not self._pending_prompt:
             logger.warning(
-                "OllamaProvider.receive_response() called before query() — "
-                "no prompt to send"
+                "OllamaProvider.receive_response() called before query() — no prompt to send"
             )
             return
 
         payload = self._build_payload(self._pending_prompt)
         url = f"{self._base_url}{_PATH_CHAT}"
 
-        logger.debug(
-            "OllamaProvider: sending request url=%r model=%r", url, self._model
-        )
+        logger.debug("OllamaProvider: sending request url=%r model=%r", url, self._model)
 
         try:
             response_data = await asyncio.wait_for(
                 asyncio.to_thread(self._http_post, url, payload),
                 timeout=float(self._timeout),
             )
-        except asyncio.TimeoutError:
-            raise asyncio.TimeoutError(
+        except TimeoutError:
+            raise TimeoutError(
                 f"Ollama API request timed out after {self._timeout}s. "
                 "Increase timeout= or reduce prompt size."
             )
@@ -265,8 +260,7 @@ class OllamaProvider(BaseLLMProvider):
             except Exception:
                 pass
             raise RuntimeError(
-                f"Ollama API HTTP error {exc.code}: {exc.reason}. "
-                f"Response body: {error_body}"
+                f"Ollama API HTTP error {exc.code}: {exc.reason}. Response body: {error_body}"
             ) from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
@@ -277,9 +271,7 @@ class OllamaProvider(BaseLLMProvider):
         try:
             return json.loads(raw.decode("utf-8", errors="replace"))
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"Ollama API returned invalid JSON: {exc}"
-            ) from exc
+            raise RuntimeError(f"Ollama API returned invalid JSON: {exc}") from exc
 
     @staticmethod
     def _extract_content(response_data: dict[str, Any]) -> str:
@@ -357,9 +349,7 @@ class OllamaProvider(BaseLLMProvider):
         Raises:
             RuntimeError: If the Ollama server cannot be reached.
         """
-        logger.debug(
-            "OllamaProvider: verifying connection to %s", self._base_url
-        )
+        logger.debug("OllamaProvider: verifying connection to %s", self._base_url)
         await asyncio.to_thread(self._verify_connection)
         logger.debug("OllamaProvider: connection verified")
         return self

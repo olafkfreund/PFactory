@@ -84,9 +84,7 @@ class FileEvolutionTracker:
 
         # Initialize modular components
         self.storage = EvolutionStorage(self.project_dir, storage_dir)
-        self.baseline_capture = BaselineCapture(
-            self.storage, extensions=self.DEFAULT_EXTENSIONS
-        )
+        self.baseline_capture = BaselineCapture(self.storage, extensions=self.DEFAULT_EXTENSIONS)
         self.modification_tracker = ModificationTracker(
             self.storage,
             semantic_analyzer=semantic_analyzer,

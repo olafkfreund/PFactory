@@ -21,7 +21,7 @@ def parse_registry(text: str | None) -> dict[str, dict]:
         return {}
     try:
         data = json.loads(text)
-    except Exception:  # noqa: BLE001 — corrupt index must not be fatal
+    except Exception:
         return {}
     return data.get("plans", {}) if isinstance(data, dict) else {}
 

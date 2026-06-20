@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from plan.recon.models import RepoMap
@@ -20,9 +20,7 @@ from pydantic import BaseModel, Field
 from spec_sources import NormalizedSpec
 
 TargetKind = Literal["software", "non-software", "undetermined"]
-SourceChannel = Literal[
-    "portal", "cli", "mcp", "github_issue", "github_discussion", "agent"
-]
+SourceChannel = Literal["portal", "cli", "mcp", "github_issue", "github_discussion", "agent"]
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -39,7 +37,7 @@ def make_plan_id(seq: int, title: str) -> str:
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class Criterion(BaseModel):
@@ -123,9 +121,7 @@ class NormalizedPlan(BaseModel):
         # repo_map) add nothing, preserving the historical hash.
         if self.repo_map is not None and self.repo_map.available:
             primary = self.repo_map.languages[0] if self.repo_map.languages else ""
-            parts.append(
-                f"recon:{self.repo_map.commit or ''}:{self.change_mode or ''}:{primary}"
-            )
+            parts.append(f"recon:{self.repo_map.commit or ''}:{self.change_mode or ''}:{primary}")
         return "\n".join(parts)
 
     def compute_hash(self) -> str:

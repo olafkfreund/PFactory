@@ -45,7 +45,7 @@ import logging as _logging
 import os
 import traceback
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -100,10 +100,9 @@ def _load_catalog_from_spec(spec_dir: Path):
 
         raw = json.loads(catalog_path.read_text(encoding="utf-8"))
         return TestsCatalog.from_dict(raw)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _triage_log.warning(
-            "triager: could not parse tests_catalog.json — "
-            "falling back to v0.1 (all CREATE): %s",
+            "triager: could not parse tests_catalog.json — falling back to v0.1 (all CREATE): %s",
             exc,
         )
         return None
@@ -236,7 +235,7 @@ def _derive_create_path(test_id: str, framework: str) -> str:
                 ext = _FRAMEWORK_EXTENSION_FALLBACK.get(framework, ".py")
             dir_prefix = "/".join(dir_parts) if dir_parts else "tests"
             return posixpath.join(dir_prefix, f"{test_id}{ext}")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
     # Fallback: derive from known extensions
@@ -354,7 +353,7 @@ def _mutate_catalog(
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _read_status(spec_dir: Path) -> dict:
@@ -479,7 +478,7 @@ def _notify_completion(spec_dir: Path, status: dict) -> None:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=timeout).close()  # noqa: S310
+        urllib.request.urlopen(req, timeout=timeout).close()
     except Exception:
         # Webhook is best-effort; never surface failures into the pipeline.
         pass
@@ -683,8 +682,7 @@ async def run_triager(
                     branch=branch,
                     files=files_to_commit,
                     commit_msg=(
-                        f"pfactory: add {len(committed)} accepted "
-                        f"+ {len(flagged)} flagged tests"
+                        f"pfactory: add {len(committed)} accepted + {len(flagged)} flagged tests"
                     ),
                 )
                 gw = write_tests_to_branch(request, dry_run=git_dry)
@@ -701,9 +699,7 @@ async def run_triager(
                 git_result_summary = {
                     "skipped": True,
                     "reason": (
-                        "no branch in source.json"
-                        if not branch
-                        else "no readable test sources"
+                        "no branch in source.json" if not branch else "no readable test sources"
                     ),
                 }
 
@@ -744,9 +740,7 @@ async def run_triager(
         all_decided = list(keepers) + list(skipped)
         source_meta_for_task = _load_source_meta(spec_dir)
         generated_by_task = (
-            source_meta_for_task.get("spec_id")
-            or source_meta_for_task.get("task_id")
-            or "unknown"
+            source_meta_for_task.get("spec_id") or source_meta_for_task.get("task_id") or "unknown"
         )
         updated_catalog = _mutate_catalog(
             catalog=catalog,
@@ -780,8 +774,7 @@ async def run_triager(
                 )
             except OSError as exc:
                 _triage_log.warning(
-                    "triager: could not update workspace tests_catalog.json "
-                    "(non-fatal): %s",
+                    "triager: could not update workspace tests_catalog.json (non-fatal): %s",
                     exc,
                 )
 
@@ -802,23 +795,18 @@ async def run_triager(
                 harvested_count = len(harvested)
                 if harvested_count:
                     _triage_log.info(
-                        "triager: harvested %d accepted test(s) into the "
-                        "reusable template library",
+                        "triager: harvested %d accepted test(s) into the reusable template library",
                         harvested_count,
                     )
-            except Exception as exc:  # noqa: BLE001 — non-fatal side-effect
-                _triage_log.warning(
-                    "triager: template harvest failed (non-fatal): %s", exc
-                )
+            except Exception as exc:
+                _triage_log.warning("triager: template harvest failed (non-fatal): %s", exc)
 
         # ── 7. Record summaries in status.json ──────────────────
         committed_count = len(committed)
         flagged_count = len(flagged)
         rejected_count = len(rejects)
         collision_count = len(dedup_result.collisions)
-        final_status = (
-            "triaged" if (committed_count or flagged_count) else "triaged_empty"
-        )
+        final_status = "triaged" if (committed_count or flagged_count) else "triaged_empty"
         _write_status_patch(
             spec_dir,
             status=final_status,

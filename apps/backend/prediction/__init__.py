@@ -31,8 +31,8 @@ from .predictor import BugPredictor
 
 __all__ = [
     "BugPredictor",
-    "PredictedIssue",
     "PreImplementationChecklist",
+    "PredictedIssue",
     "generate_subtask_checklist",
 ]
 

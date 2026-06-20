@@ -185,9 +185,7 @@ def _resolve_canonical(provider_name: str) -> str:
     canonical = _PROVIDER_ALIASES.get(normalised)
     if canonical is None:
         known = sorted(_PROVIDER_ALIASES.keys())
-        raise ValueError(
-            f"Unknown LLM provider: {provider_name!r}. Supported values: {known}"
-        )
+        raise ValueError(f"Unknown LLM provider: {provider_name!r}. Supported values: {known}")
     return canonical
 
 
@@ -196,9 +194,7 @@ def _instantiate(module_path: str, class_name: str, **kwargs: Any) -> BaseLLMPro
     try:
         module = importlib.import_module(module_path)
     except ImportError as exc:
-        raise ImportError(
-            f"Failed to import provider module '{module_path}': {exc}"
-        ) from exc
+        raise ImportError(f"Failed to import provider module '{module_path}': {exc}") from exc
 
     provider_cls = getattr(module, class_name)
     return provider_cls(**kwargs)
@@ -292,9 +288,7 @@ def get_qa_llm_provider(provider_name: str, **kwargs: Any) -> BaseLLMProvider:
     canonical = _PROVIDER_ALIASES.get(normalised)
     if canonical is None:
         known = sorted(_PROVIDER_ALIASES.keys())
-        raise ValueError(
-            f"Unknown QA LLM provider: {provider_name!r}. Supported values: {known}"
-        )
+        raise ValueError(f"Unknown QA LLM provider: {provider_name!r}. Supported values: {known}")
 
     if canonical == "github-models":
         _apply_github_models_defaults(kwargs)
@@ -394,9 +388,7 @@ def get_tool_fallback_provider(
             )
             return provider
         except (ValueError, ImportError) as exc:
-            logger.debug(
-                "get_tool_fallback_provider: %s failed: %s", provider_name, exc
-            )
+            logger.debug("get_tool_fallback_provider: %s failed: %s", provider_name, exc)
             continue
 
     logger.warning("get_tool_fallback_provider: no fallback available")
@@ -407,6 +399,6 @@ __all__ = [
     "get_provider",
     "get_qa_llm_provider",
     "get_tool_fallback_provider",
-    "list_providers",
     "list_provider_aliases",
+    "list_providers",
 ]

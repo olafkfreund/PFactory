@@ -235,9 +235,7 @@ def get_existing_build_worktree(project_dir: Path, spec_name: str) -> Path | Non
     return None
 
 
-def get_file_content_from_ref(
-    project_dir: Path, ref: str, file_path: str
-) -> str | None:
+def get_file_content_from_ref(project_dir: Path, ref: str, file_path: str) -> str | None:
     """Get file content from a git ref (branch, commit, etc.)."""
     result = subprocess.run(
         ["git", "show", f"{ref}:{file_path}"],
@@ -328,9 +326,7 @@ def is_lock_file(file_path: str) -> bool:
     return Path(file_path).name in LOCK_FILES
 
 
-def validate_merged_syntax(
-    file_path: str, content: str, project_dir: Path
-) -> tuple[bool, str]:
+def validate_merged_syntax(file_path: str, content: str, project_dir: Path) -> tuple[bool, str]:
     """
     Validate the syntax of merged code.
 
@@ -424,7 +420,7 @@ def validate_merged_syntax(
             return True, ""  # Timeout = assume ok
         except FileNotFoundError:
             return True, ""  # No esbuild = skip validation
-        except Exception as e:
+        except Exception:
             return True, ""  # Other errors = skip validation
 
     # Python validation
@@ -464,9 +460,7 @@ def create_conflict_file_with_git(
 
     try:
         # Create temp files for three-way merge
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".tmp"
-        ) as main_f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".tmp") as main_f:
             main_f.write(main_content)
             main_path = main_f.name
 
@@ -476,15 +470,11 @@ def create_conflict_file_with_git(
 
         # Use empty base if not available
         if base_content:
-            with tempfile.NamedTemporaryFile(
-                mode="w", delete=False, suffix=".tmp"
-            ) as base_f:
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".tmp") as base_f:
                 base_f.write(base_content)
                 base_path = base_f.name
         else:
-            with tempfile.NamedTemporaryFile(
-                mode="w", delete=False, suffix=".tmp"
-            ) as base_f:
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".tmp") as base_f:
                 base_f.write("")
                 base_path = base_f.name
 
@@ -512,7 +502,7 @@ def create_conflict_file_with_git(
             Path(wt_path).unlink(missing_ok=True)
             Path(base_path).unlink(missing_ok=True)
 
-    except Exception as e:
+    except Exception:
         return None, False
 
 

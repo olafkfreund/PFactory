@@ -120,9 +120,7 @@ def _tags(entity: dict[str, Any]) -> list[str]:
     return []
 
 
-def _component_for_repo(
-    entities: list[dict[str, Any]], repo: str
-) -> dict[str, Any] | None:
+def _component_for_repo(entities: list[dict[str, Any]], repo: str) -> dict[str, Any] | None:
     """Find the Component whose ``github.com/project-slug`` matches ``repo``.
 
     Match is case-insensitive on ``owner/name``.

@@ -139,9 +139,7 @@ DATABASE_PATTERNS = [
 ]
 
 # Combine all patterns
-ALL_PATTERNS = (
-    GENERIC_PATTERNS + SERVICE_PATTERNS + PRIVATE_KEY_PATTERNS + DATABASE_PATTERNS
-)
+ALL_PATTERNS = GENERIC_PATTERNS + SERVICE_PATTERNS + PRIVATE_KEY_PATTERNS + DATABASE_PATTERNS
 
 
 # =============================================================================
@@ -309,11 +307,7 @@ def is_false_positive(line: str, matched_text: str) -> bool:
 
     # Check if it's in a comment
     stripped = line.strip()
-    if (
-        stripped.startswith("#")
-        or stripped.startswith("//")
-        or stripped.startswith("*")
-    ):
+    if stripped.startswith("#") or stripped.startswith("//") or stripped.startswith("*"):
         # But still flag if there's an actual long key-like string
         if not re.search(r"[a-zA-Z0-9_-]{40,}", matched_text):
             return True
@@ -492,9 +486,7 @@ def print_json_results(matches: list[SecretMatch]) -> None:
 
 def main() -> int:
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Scan files for potential secrets before commit"
-    )
+    parser = argparse.ArgumentParser(description="Scan files for potential secrets before commit")
     parser.add_argument(
         "--staged-only",
         "-s",
@@ -502,12 +494,8 @@ def main() -> int:
         default=True,
         help="Only scan staged files (default)",
     )
-    parser.add_argument(
-        "--all-files", "-a", action="store_true", help="Scan all tracked files"
-    )
-    parser.add_argument(
-        "--path", "-p", type=str, help="Scan a specific file or directory"
-    )
+    parser.add_argument("--all-files", "-a", action="store_true", help="Scan all tracked files")
+    parser.add_argument("--path", "-p", type=str, help="Scan a specific file or directory")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
     parser.add_argument(
         "--quiet", "-q", action="store_true", help="Only output if secrets are found"
@@ -523,9 +511,7 @@ def main() -> int:
         if path.is_file():
             files = [str(path)]
         elif path.is_dir():
-            files = [
-                str(f.relative_to(project_dir)) for f in path.rglob("*") if f.is_file()
-            ]
+            files = [str(f.relative_to(project_dir)) for f in path.rglob("*") if f.is_file()]
         else:
             print(f"{RED}Error: Path not found: {args.path}{NC}", file=sys.stderr)
             return 2

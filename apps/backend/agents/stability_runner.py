@@ -29,10 +29,11 @@ spinning Docker.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 # How many times to re-run. Three is the smallest N that can yield
 # all four verdict outcomes (stable, flaky, consistent_fail, error)
@@ -138,15 +139,13 @@ def check_stability(
     a StabilityResult(verdict=ERROR, error_message=...).
     """
     if rerun_count < 2:
-        raise ValueError(
-            f"rerun_count must be at least 2 to detect flake; got {rerun_count}"
-        )
+        raise ValueError(f"rerun_count must be at least 2 to detect flake; got {rerun_count}")
 
     runs: list[StabilityRun] = []
     for _ in range(rerun_count):
         try:
             res = runner_fn(test_file, project_dir, seed)
-        except Exception as exc:  # noqa: BLE001 — bubble runner errors up
+        except Exception as exc:
             return StabilityResult(
                 verdict=StabilityVerdict.ERROR,
                 runs=tuple(runs),
@@ -154,11 +153,13 @@ def check_stability(
                 rerun_count=rerun_count,
                 error_message=f"{type(exc).__name__}: {exc}"[:500],
             )
-        runs.append(StabilityRun(
-            returncode=res.returncode,
-            stdout_tail=(res.stdout or "")[-tail_chars:],
-            stderr_tail=(res.stderr or "")[-tail_chars:],
-        ))
+        runs.append(
+            StabilityRun(
+                returncode=res.returncode,
+                stdout_tail=(res.stdout or "")[-tail_chars:],
+                stderr_tail=(res.stderr or "")[-tail_chars:],
+            )
+        )
 
     codes = {r.returncode for r in runs}
     if codes == {0}:

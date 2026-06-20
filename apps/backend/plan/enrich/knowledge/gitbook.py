@@ -87,9 +87,9 @@ class GitBookConnector(KnowledgeConnector):
         if self._http is not None:
             return self._http
         try:
-            import requests  # noqa: PLC0415 - lazy import keeps deps optional
+            import requests
         except ImportError:  # pragma: no cover - fall back to httpx
-            import httpx  # noqa: PLC0415
+            import httpx
 
             self._http = httpx.Client()
         else:
@@ -155,10 +155,7 @@ class GitBookConnector(KnowledgeConnector):
     @staticmethod
     def _matches(item: dict[str, Any], terms: set[str], snippet: str) -> int:
         """Count query-term hits across a result's text fields."""
-        haystack = " ".join(
-            str(v)
-            for v in (item.get("title", ""), snippet)
-        ).lower()
+        haystack = " ".join(str(v) for v in (item.get("title", ""), snippet)).lower()
         return sum(1 for t in terms if t in haystack)
 
     def _to_ref(self, item: dict[str, Any], score: float) -> KnowledgeRef:

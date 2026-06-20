@@ -60,9 +60,7 @@ class BestPracticesLens:
         # guidance the plan should follow, not just a count.
         knowledge = [k for k in plan.enrichment.knowledge if isinstance(k, dict)]
         if knowledge:
-            ranked = sorted(
-                knowledge, key=lambda k: float(k.get("score") or 0.0), reverse=True
-            )
+            ranked = sorted(knowledge, key=lambda k: float(k.get("score") or 0.0), reverse=True)
             citations = [
                 Citation(
                     why="Surfaced from your org's knowledge sources — the plan should follow it.",

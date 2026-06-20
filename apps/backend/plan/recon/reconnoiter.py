@@ -80,7 +80,7 @@ def _detect_versions(root: Path) -> dict[str, str]:
     return versions
 
 
-def _existing_test_command(scripts) -> str | None:  # noqa: ANN001 - CustomScripts
+def _existing_test_command(scripts) -> str | None:
     """Pick the most plausible test/check command from discovered scripts."""
     for name in scripts.npm_scripts:
         if name in ("test", "test:unit", "check"):
@@ -108,7 +108,7 @@ def _top_level_layout(root: Path) -> dict[str, list[str]]:
     return {"dirs": dirs, "files": files}
 
 
-def _conventions(stack) -> dict:  # noqa: ANN001 - TechnologyStack
+def _conventions(stack) -> dict:
     """Convention signals that should constrain generation (linters/formatters)."""
     conv: dict = {}
     if stack.code_quality_tools:
@@ -118,9 +118,7 @@ def _conventions(stack) -> dict:  # noqa: ANN001 - TechnologyStack
     return conv
 
 
-def build_repo_map(
-    root: Path, *, repo: str, base_ref: str | None, commit: str | None
-) -> RepoMap:
+def build_repo_map(root: Path, *, repo: str, base_ref: str | None, commit: str | None) -> RepoMap:
     """Build a RepoMap from an already-checked-out tree (no cloning here)."""
     stack = StackDetector(root).detect_all()
     scripts, _script_cmds, _custom = StructureAnalyzer(root).analyze()
@@ -163,10 +161,8 @@ def reconnoiter(repo: str | None, base_ref: str | None = None) -> RepoMap:
     try:
         with clone_for_recon(repo, base_ref) as c:
             if not c.ok or c.path is None:
-                return RepoMap(
-                    available=False, repo=repo, base_ref=base_ref, error=c.error
-                )
+                return RepoMap(available=False, repo=repo, base_ref=base_ref, error=c.error)
             return build_repo_map(c.path, repo=repo, base_ref=base_ref, commit=c.commit)
-    except Exception as exc:  # noqa: BLE001 - reconnaissance must never break a run
+    except Exception as exc:
         logger.warning("reconnaissance failed for %s: %s", repo, exc)
         return RepoMap(available=False, repo=repo, base_ref=base_ref, error=str(exc))

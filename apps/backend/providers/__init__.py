@@ -108,7 +108,7 @@ class BaseLLMProvider(ABC):
 # Factory (imported after BaseLLMProvider to avoid circular imports)
 # ---------------------------------------------------------------------------
 
-from .factory import (  # noqa: E402
+from .factory import (
     get_provider,
     get_qa_llm_provider,
     list_provider_aliases,

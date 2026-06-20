@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 __all__ = [
@@ -67,7 +67,7 @@ def _deadline_seconds() -> float:
 
 
 def _now_iso(now: datetime) -> str:
-    return now.astimezone(timezone.utc).isoformat(timespec="seconds")
+    return now.astimezone(UTC).isoformat(timespec="seconds")
 
 
 def _parse_iso(value: object) -> datetime | None:
@@ -79,7 +79,7 @@ def _parse_iso(value: object) -> datetime | None:
         return None
     # Our writers are tz-aware, but treat a naive timestamp as UTC just in case.
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -180,9 +180,7 @@ def mark_stalled(spec_dir: Path, verdict: StallVerdict, *, now: datetime) -> boo
     try:
         from agents.stage_events import emit_stage_event
 
-        emit_stage_event(
-            spec_dir, status, stage=_STATUS_TO_STAGE.get(prior or "", "unknown")
-        )
+        emit_stage_event(spec_dir, status, stage=_STATUS_TO_STAGE.get(prior or "", "unknown"))
     except Exception:
         pass
     return True
@@ -199,7 +197,7 @@ def check_and_mark(
     Returns the :class:`StallVerdict` so the caller can log/act. ``now``
     defaults to the current UTC time.
     """
-    when = now or datetime.now(timezone.utc)
+    when = now or datetime.now(UTC)
     verdict = evaluate_liveness(spec_dir, now=when, deadline_seconds=deadline_seconds)
     if verdict.stalled:
         mark_stalled(spec_dir, verdict, now=when)

@@ -28,10 +28,10 @@ if TYPE_CHECKING:
 
 # Import the built-in provider modules so they self-register via their
 # ``@register_provider`` decorators when this adapter is used.
-import plan.providers.aws  # noqa: E402,F401
-import plan.providers.azure  # noqa: E402,F401
-import plan.providers.gcp  # noqa: E402,F401
-import plan.providers.terraform  # noqa: E402,F401
+import plan.providers.aws
+import plan.providers.azure
+import plan.providers.gcp
+import plan.providers.terraform  # noqa: F401
 
 
 def build_context(plan: NormalizedPlan, epic: EpicPlan | None = None) -> dict:

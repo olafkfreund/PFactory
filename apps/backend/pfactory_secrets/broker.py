@@ -182,7 +182,7 @@ class CredentialBroker:
             from pfactory_secrets.wif import mint_wif
 
             creds = mint_wif(provider, entry, now=now)
-        except Exception as exc:  # noqa: BLE001 - incl. NotImplementedError (gcp/azure)
+        except Exception as exc:
             logger.warning(
                 "CredentialBroker: WIF mint for %s failed (%s); "
                 "falling back to other credential heads.",
@@ -214,9 +214,7 @@ class CredentialBroker:
         else:
             self._env[env_name] = secret.value
             source = secret.source
-        return CredentialStatus(
-            available=True, source=f"broker:{source}", env_vars=dict(self._env)
-        )
+        return CredentialStatus(available=True, source=f"broker:{source}", env_vars=dict(self._env))
 
     def materialise_credential(self, name: str, entry) -> str:
         """Resolve a `.pfactory.yml` credential entry and expose it.
@@ -224,9 +222,7 @@ class CredentialBroker:
         ``entry`` carries ``ref`` / ``as_`` (env var) / ``kind`` (``env``|``file``).
         Returns the env-var name set. Raises ``SecretsError`` on failure.
         """
-        ref = getattr(entry, "ref", None) or (
-            entry.get("ref") if isinstance(entry, dict) else None
-        )
+        ref = getattr(entry, "ref", None) or (entry.get("ref") if isinstance(entry, dict) else None)
         as_var = getattr(entry, "as_", None) or (
             entry.get("as") if isinstance(entry, dict) else None
         )
@@ -308,7 +304,7 @@ def inject_task_credentials(
         for provider in _CLOUD_PROVIDERS:
             broker.resolve_cloud(provider)
         broker.apply_to_env(env)
-    except Exception as exc:  # noqa: BLE001 - never break the agent on creds
+    except Exception as exc:
         logger.warning("CredentialBroker: credential injection skipped: %s", exc)
     return env
 
@@ -321,7 +317,7 @@ def _project_credentials(project_dir: Path | str | None) -> dict:
         from pfactory_yml.parser import load_pfactory_yml
 
         cfg = load_pfactory_yml(Path(project_dir))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
     return getattr(cfg, "credentials", None) or {} if cfg else {}
 
@@ -384,8 +380,8 @@ def reset_config_cache() -> None:
 
 
 __all__ = [
+    "CREDENTIALS_CONFIG_PATH",
     "CredentialBroker",
     "inject_task_credentials",
     "reset_config_cache",
-    "CREDENTIALS_CONFIG_PATH",
 ]

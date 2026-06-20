@@ -107,9 +107,7 @@ class ConflictResolver:
                 }
             ):
                 # Extract baseline for conflict location
-                conflict_baseline = extract_location_content(
-                    baseline_content, conflict.location
-                )
+                conflict_baseline = extract_location_content(baseline_content, conflict.location)
 
                 ai_result = self.ai_resolver.resolve_conflict(
                     conflict=conflict,
@@ -135,9 +133,7 @@ class ConflictResolver:
 
         # Determine final decision
         if not remaining:
-            decision = (
-                MergeDecision.AUTO_MERGED if ai_calls == 0 else MergeDecision.AI_MERGED
-            )
+            decision = MergeDecision.AUTO_MERGED if ai_calls == 0 else MergeDecision.AI_MERGED
         elif remaining and resolved:
             decision = MergeDecision.NEEDS_HUMAN_REVIEW
         else:

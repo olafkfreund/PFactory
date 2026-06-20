@@ -56,9 +56,7 @@ class AzureProvider(ProviderMCP):
 
     def check(self, context: dict) -> BestPracticeCheck:
         """Run a read-only Azure Policy / PSRule assessment over ``context``."""
-        target = str(
-            context.get("subscription") or context.get("resource_group") or "azure"
-        )
+        target = str(context.get("subscription") or context.get("resource_group") or "azure")
         client = self._client()
         if client is None:
             return BestPracticeCheck(

@@ -220,9 +220,7 @@ def get_tool_definitions(tool_names: list[str] | None = None) -> list[dict]:
     result = []
     for name in tool_names:
         if name not in _ALL_TOOLS:
-            raise ValueError(
-                f"Unknown tool: {name!r}. Available: {sorted(_ALL_TOOLS.keys())}"
-            )
+            raise ValueError(f"Unknown tool: {name!r}. Available: {sorted(_ALL_TOOLS.keys())}")
         result.append(_ALL_TOOLS[name])
     return result
 

@@ -21,11 +21,13 @@ def example_requirements_analysis(project_dir: Path, requirements: str) -> dict[
     """
     analyst = RequirementsAnalyst(project_dir=project_dir)
 
-    result = analyst.analyze({
-        "requirements": requirements,
-        "context": "New feature for user authentication",
-        "check_feasibility": True
-    })
+    result = analyst.analyze(
+        {
+            "requirements": requirements,
+            "context": "New feature for user authentication",
+            "check_feasibility": True,
+        }
+    )
 
     if result.success:
         print("Requirements Analysis:")
@@ -38,9 +40,9 @@ def example_requirements_analysis(project_dir: Path, requirements: str) -> dict[
             for issue in result.issues:
                 print(f"    - {issue}")
 
-        if result.data['questions']:
+        if result.data["questions"]:
             print("\n  Questions to resolve:")
-            for q in result.data['questions'][:5]:
+            for q in result.data["questions"][:5]:
                 print(f"    - {q}")
 
     return result.data
@@ -53,11 +55,9 @@ def example_codebase_exploration(project_dir: Path, task: str) -> dict[str, Any]
     """
     analyzer = CodebaseAnalyzer(project_dir=project_dir)
 
-    result = analyzer.analyze({
-        "task": task,
-        "search_terms": ["auth", "login", "user"],
-        "max_depth": 5
-    })
+    result = analyzer.analyze(
+        {"task": task, "search_terms": ["auth", "login", "user"], "max_depth": 5}
+    )
 
     if result.success:
         print("Codebase Analysis:")
@@ -65,9 +65,9 @@ def example_codebase_exploration(project_dir: Path, task: str) -> dict[str, Any]
         print(f"  Relevant Files: {len(result.data['relevant_files'])}")
         print(f"  Entry Points: {len(result.data['entry_points'])}")
 
-        if result.data['relevant_files']:
+        if result.data["relevant_files"]:
             print("\n  Top relevant files:")
-            for file in result.data['relevant_files'][:5]:
+            for file in result.data["relevant_files"][:5]:
                 print(f"    - {file}")
 
         if result.recommendations:
@@ -79,9 +79,7 @@ def example_codebase_exploration(project_dir: Path, task: str) -> dict[str, Any]
 
 
 def example_technical_evaluation(
-    project_dir: Path,
-    decision: str,
-    alternatives: list = None
+    project_dir: Path, decision: str, alternatives: list = None
 ) -> dict[str, Any]:
     """Example: Evaluate technical decision before implementation.
 
@@ -89,36 +87,38 @@ def example_technical_evaluation(
     """
     evaluator = TechnicalEvaluator(project_dir=project_dir)
 
-    result = evaluator.analyze({
-        "decision": decision,
-        "context": "Building authentication system for web application",
-        "alternatives": alternatives or [],
-        "constraints": ["Must support OAuth 2.0", "Should scale to 10k users"]
-    })
+    result = evaluator.analyze(
+        {
+            "decision": decision,
+            "context": "Building authentication system for web application",
+            "alternatives": alternatives or [],
+            "constraints": ["Must support OAuth 2.0", "Should scale to 10k users"],
+        }
+    )
 
     if result.success:
         print("Technical Evaluation:")
         print(f"  Risk Level: {result.data['risk_level']}")
         print(f"  Confidence: {result.confidence:.0%}")
 
-        if result.data['pros']:
+        if result.data["pros"]:
             print("\n  Pros:")
-            for pro in result.data['pros'][:3]:
+            for pro in result.data["pros"][:3]:
                 print(f"    + {pro}")
 
-        if result.data['cons']:
+        if result.data["cons"]:
             print("\n  Cons:")
-            for con in result.data['cons'][:3]:
+            for con in result.data["cons"][:3]:
                 print(f"    - {con}")
 
-        if result.data['security_concerns']:
+        if result.data["security_concerns"]:
             print("\n  Security Concerns:")
-            for concern in result.data['security_concerns'][:3]:
+            for concern in result.data["security_concerns"][:3]:
                 print(f"    ⚠ {concern}")
 
-        if result.data['best_practices']:
+        if result.data["best_practices"]:
             print("\n  Best Practices:")
-            for bp in result.data['best_practices'][:3]:
+            for bp in result.data["best_practices"][:3]:
                 print(f"    → {bp}")
 
     return result.data
@@ -144,7 +144,7 @@ def example_combined_workflow(project_dir: Path):
     req_result = example_requirements_analysis(project_dir, requirements)
 
     # Only proceed if requirements are good enough
-    if req_result.get('completeness_score', 0) < 0.5:
+    if req_result.get("completeness_score", 0) < 0.5:
         print("\n❌ Requirements too incomplete - stopping workflow")
         return
 
@@ -152,8 +152,7 @@ def example_combined_workflow(project_dir: Path):
     print("\n2. CODEBASE EXPLORATION")
     print("-" * 70)
     code_result = example_codebase_exploration(
-        project_dir,
-        "Add user authentication with email/password login"
+        project_dir, "Add user authentication with email/password login"
     )
 
     # Step 3: Evaluate technical decision
@@ -162,10 +161,7 @@ def example_combined_workflow(project_dir: Path):
     tech_result = example_technical_evaluation(
         project_dir,
         "Use JWT tokens for session management",
-        alternatives=[
-            "Use server-side sessions with Redis",
-            "Use cookie-based sessions"
-        ]
+        alternatives=["Use server-side sessions with Redis", "Use cookie-based sessions"],
     )
 
     # Step 4: Generate summary
@@ -205,38 +201,31 @@ class SubAgentInvoker:
         self.project_dir = project_dir
         self.spec_dir = spec_dir
 
-    def analyze_requirements(self, requirements: str, context: str = "") -> 'SubAgentResult':
+    def analyze_requirements(self, requirements: str, context: str = "") -> "SubAgentResult":
         """Analyze requirements using RequirementsAnalyst."""
         analyst = RequirementsAnalyst(self.project_dir, self.spec_dir)
-        return analyst.analyze({
-            "requirements": requirements,
-            "context": context,
-            "check_feasibility": True
-        })
+        return analyst.analyze(
+            {"requirements": requirements, "context": context, "check_feasibility": True}
+        )
 
-    def find_relevant_files(self, task: str, search_terms: list = None) -> 'SubAgentResult':
+    def find_relevant_files(self, task: str, search_terms: list = None) -> "SubAgentResult":
         """Find relevant files using CodebaseAnalyzer."""
         analyzer = CodebaseAnalyzer(self.project_dir, self.spec_dir)
-        return analyzer.analyze({
-            "task": task,
-            "search_terms": search_terms or [],
-            "max_depth": 5
-        })
+        return analyzer.analyze({"task": task, "search_terms": search_terms or [], "max_depth": 5})
 
     def evaluate_decision(
-        self,
-        decision: str,
-        context: str = "",
-        alternatives: list = None
-    ) -> 'SubAgentResult':
+        self, decision: str, context: str = "", alternatives: list = None
+    ) -> "SubAgentResult":
         """Evaluate technical decision using TechnicalEvaluator."""
         evaluator = TechnicalEvaluator(self.project_dir, self.spec_dir)
-        return evaluator.analyze({
-            "decision": decision,
-            "context": context,
-            "alternatives": alternatives or [],
-            "constraints": []
-        })
+        return evaluator.analyze(
+            {
+                "decision": decision,
+                "context": context,
+                "alternatives": alternatives or [],
+                "constraints": [],
+            }
+        )
 
 
 if __name__ == "__main__":

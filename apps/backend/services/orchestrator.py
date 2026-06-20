@@ -156,11 +156,7 @@ class ServiceOrchestrator:
                     if line.strip() == "services:":
                         in_services = True
                         continue
-                    if (
-                        in_services
-                        and line.startswith("  ")
-                        and not line.startswith("    ")
-                    ):
+                    if in_services and line.startswith("  ") and not line.startswith("    "):
                         service_name = line.strip().rstrip(":")
                         if service_name:
                             self._services.append(ServiceConfig(name=service_name))
@@ -325,7 +321,7 @@ class ServiceOrchestrator:
         except subprocess.TimeoutExpired:
             result.errors.append("docker-compose startup timed out")
         except Exception as e:
-            result.errors.append(f"Error starting services: {str(e)}")
+            result.errors.append(f"Error starting services: {e!s}")
 
         return result
 
@@ -341,16 +337,14 @@ class ServiceOrchestrator:
                     proc = subprocess.Popen(
                         shlex.split(service.startup_command),
                         shell=False,
-                        cwd=self.project_dir / service.path
-                        if service.path
-                        else self.project_dir,
+                        cwd=self.project_dir / service.path if service.path else self.project_dir,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                     )
                     self._processes[service.name] = proc
                     result.services_started.append(service.name)
                 except Exception as e:
-                    result.errors.append(f"Failed to start {service.name}: {str(e)}")
+                    result.errors.append(f"Failed to start {service.name}: {e!s}")
                     result.services_failed.append(service.name)
 
         # Wait for services to be ready

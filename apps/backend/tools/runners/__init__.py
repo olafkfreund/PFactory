@@ -30,13 +30,13 @@ from .lang_registry import (
 )
 
 __all__ = [
-    "DockerRunner",
     "DockerRunResult",
+    "DockerRunner",
     "DockerRunnerError",
     "DockerTimeoutError",
     "LaneNotImplementedError",
-    "dispatch_lane",
     "UnsupportedLanguageError",
+    "dispatch_lane",
     "get_tool_for_lane",
     "languages_supporting_lane",
 ]

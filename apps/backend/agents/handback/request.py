@@ -23,8 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 __all__ = [
-    "Failure",
     "CorrectionRequest",
+    "Failure",
     "build_correction_request",
 ]
 
@@ -159,14 +159,11 @@ def build_correction_request(
         failures.append(
             Failure(
                 test_id=test_id,
-                test_file=entry.get("test_file")
-                or entry.get("file")
-                or files.get(test_id),
+                test_file=entry.get("test_file") or entry.get("file") or files.get(test_id),
                 lane=entry.get("lane") or entry.get("modality"),
                 verdict=str(entry.get("verdict")),
                 reason=_join_reasons(entry),
-                acceptance_criterion=entry.get("acceptance_criterion")
-                or entry.get("ac"),
+                acceptance_criterion=entry.get("acceptance_criterion") or entry.get("ac"),
             )
         )
 

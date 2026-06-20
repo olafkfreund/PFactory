@@ -103,9 +103,7 @@ def _build_main_evolution_section(context: MergeContext) -> str:
 No changes have been made to main branch since this task started.
 """
 
-    lines = [
-        f"MAIN BRANCH EVOLUTION ({len(context.main_evolution)} commits since task branched)"
-    ]
+    lines = [f"MAIN BRANCH EVOLUTION ({len(context.main_evolution)} commits since task branched)"]
     lines.append("─" * 79)
     lines.append("")
 
@@ -114,9 +112,7 @@ No changes have been made to main branch since this task started.
         if event.source == "merged_task" and event.merged_from_task:
             source_label = f"MERGED FROM {event.merged_from_task}"
 
-        lines.append(
-            f'COMMIT {event.commit_hash[:12]} [{source_label}]: "{event.commit_message}"'
-        )
+        lines.append(f'COMMIT {event.commit_hash[:12]} [{source_label}]: "{event.commit_message}"')
         lines.append(f"Timestamp: {event.timestamp}")
 
         if event.diff_summary:
@@ -148,9 +144,7 @@ No other tasks are pending for this file.
         branch_point = task.get("branch_point", "unknown")[:12]
         commits_behind = task.get("commits_behind", 0)
 
-        lines.append(
-            f"• {task_id} (branched at {branch_point}, {commits_behind} commits behind)"
-        )
+        lines.append(f"• {task_id} (branched at {branch_point}, {commits_behind} commits behind)")
         lines.append(f'  Intent: "{intent}"')
         lines.append("")
 
@@ -162,9 +156,7 @@ def _build_compatibility_instructions(context: MergeContext) -> str:
     if not context.other_pending_tasks:
         return "- No other tasks pending for this file"
 
-    lines = [
-        f"- {len(context.other_pending_tasks)} other task(s) will merge after this"
-    ]
+    lines = [f"- {len(context.other_pending_tasks)} other task(s) will merge after this"]
     lines.append("   - Structure your merge to accommodate their upcoming changes:")
 
     for task in context.other_pending_tasks:
@@ -202,9 +194,7 @@ Description: {task_intent.get("description", "No description")}
         if task_intent.get("spec_summary"):
             intent_section += f"Summary: {task_intent['spec_summary']}\n"
 
-    base_section = (
-        base_content if base_content else "(File did not exist in common ancestor)"
-    )
+    base_section = base_content if base_content else "(File did not exist in common ancestor)"
 
     prompt = f"""You are a code merge expert. Merge the following conflicting versions of a file.
 
@@ -371,9 +361,7 @@ def parse_conflict_markers(content: str) -> tuple[list[dict], list[str]]:
         # Extract context (last 3 lines before conflict)
         before_lines = clean_before.rstrip().split("\n")
         context_before = (
-            "\n".join(before_lines[-3:])
-            if len(before_lines) >= 3
-            else clean_before.rstrip()
+            "\n".join(before_lines[-3:]) if len(before_lines) >= 3 else clean_before.rstrip()
         )
 
         # Extract the conflict content
@@ -545,9 +533,7 @@ def optimize_prompt_for_length(
     context.task_branch_point.content = _trim_content(
         context.task_branch_point.content, "branch point"
     )
-    context.task_worktree_content = _trim_content(
-        context.task_worktree_content, "worktree"
-    )
+    context.task_worktree_content = _trim_content(context.task_worktree_content, "worktree")
     context.current_main_content = _trim_content(context.current_main_content, "main")
 
     return context

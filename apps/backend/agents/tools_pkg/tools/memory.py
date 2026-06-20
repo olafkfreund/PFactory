@@ -8,7 +8,7 @@ gotchas, and patterns.
 
 import json
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -78,9 +78,9 @@ def create_memory_tools(
             codebase_map["discovered_files"][file_path] = {
                 "description": description,
                 "category": category,
-                "discovered_at": datetime.now(timezone.utc).isoformat(),
+                "discovered_at": datetime.now(UTC).isoformat(),
             }
-            codebase_map["last_updated"] = datetime.now(timezone.utc).isoformat()
+            codebase_map["last_updated"] = datetime.now(UTC).isoformat()
 
             with open(codebase_map_file, "w") as f:
                 json.dump(codebase_map, f, indent=2)
@@ -95,9 +95,7 @@ def create_memory_tools(
             }
 
         except Exception as e:
-            return {
-                "content": [{"type": "text", "text": f"Error recording discovery: {e}"}]
-            }
+            return {"content": [{"type": "text", "text": f"Error recording discovery: {e}"}]}
 
     tools.append(record_discovery)
 
@@ -120,7 +118,7 @@ def create_memory_tools(
         gotchas_file = memory_dir / "gotchas.md"
 
         try:
-            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
 
             entry = f"\n## [{timestamp}]\n{gotcha}"
             if context:
@@ -129,17 +127,13 @@ def create_memory_tools(
 
             with open(gotchas_file, "a") as f:
                 if not gotchas_file.exists() or gotchas_file.stat().st_size == 0:
-                    f.write(
-                        "# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n"
-                    )
+                    f.write("# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n")
                 f.write(entry)
 
             return {"content": [{"type": "text", "text": f"Recorded gotcha: {gotcha}"}]}
 
         except Exception as e:
-            return {
-                "content": [{"type": "text", "text": f"Error recording gotcha: {e}"}]
-            }
+            return {"content": [{"type": "text", "text": f"Error recording gotcha: {e}"}]}
 
     tools.append(record_gotcha)
 
@@ -191,9 +185,7 @@ def create_memory_tools(
                 if content.strip():
                     result_parts.append("\n## Gotchas")
                     # Take last 1000 chars to avoid too much context
-                    result_parts.append(
-                        content[-1000:] if len(content) > 1000 else content
-                    )
+                    result_parts.append(content[-1000:] if len(content) > 1000 else content)
             except Exception:
                 pass
 
@@ -204,18 +196,12 @@ def create_memory_tools(
                 content = patterns_file.read_text()
                 if content.strip():
                     result_parts.append("\n## Patterns")
-                    result_parts.append(
-                        content[-1000:] if len(content) > 1000 else content
-                    )
+                    result_parts.append(content[-1000:] if len(content) > 1000 else content)
             except Exception:
                 pass
 
         if not result_parts:
-            return {
-                "content": [
-                    {"type": "text", "text": "No session context available yet."}
-                ]
-            }
+            return {"content": [{"type": "text", "text": "No session context available yet."}]}
 
         return {"content": [{"type": "text", "text": "\n".join(result_parts)}]}
 
@@ -295,7 +281,7 @@ def create_memory_tools(
                 "content": [
                     {
                         "type": "text",
-                        "text": f"❌ Error testing Graphiti memory: {str(e)}",
+                        "text": f"❌ Error testing Graphiti memory: {e!s}",
                     }
                 ]
             }

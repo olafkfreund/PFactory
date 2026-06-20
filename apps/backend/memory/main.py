@@ -67,19 +67,19 @@ from memory import (
 
 # Make all functions available for import
 __all__ = [
-    "is_graphiti_memory_enabled",
-    "get_memory_dir",
-    "get_session_insights_dir",
-    "save_session_insights",
-    "load_all_insights",
-    "update_codebase_map",
-    "load_codebase_map",
     "append_gotcha",
-    "load_gotchas",
     "append_pattern",
-    "load_patterns",
-    "get_memory_summary",
     "clear_memory",
+    "get_memory_dir",
+    "get_memory_summary",
+    "get_session_insights_dir",
+    "is_graphiti_memory_enabled",
+    "load_all_insights",
+    "load_codebase_map",
+    "load_gotchas",
+    "load_patterns",
+    "save_session_insights",
+    "update_codebase_map",
 ]
 
 

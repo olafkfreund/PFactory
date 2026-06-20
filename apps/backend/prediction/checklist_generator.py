@@ -38,24 +38,18 @@ class ChecklistGenerator:
 
         # Filter to most relevant patterns
         work_types = detect_work_type(subtask)
-        relevant_patterns = self._filter_relevant_patterns(
-            known_patterns, work_types, subtask
-        )
+        relevant_patterns = self._filter_relevant_patterns(known_patterns, work_types, subtask)
         checklist.patterns_to_follow = relevant_patterns[:5]  # Top 5
 
         # Files to reference (from subtask's patterns_from)
         checklist.files_to_reference = subtask.get("patterns_from", [])
 
         # Filter to relevant gotchas
-        relevant_gotchas = self._filter_relevant_gotchas(
-            known_gotchas, work_types, subtask
-        )
+        relevant_gotchas = self._filter_relevant_gotchas(known_gotchas, work_types, subtask)
         checklist.common_mistakes = relevant_gotchas[:5]  # Top 5
 
         # Add verification reminders
-        checklist.verification_reminders = self._generate_verification_reminders(
-            subtask
-        )
+        checklist.verification_reminders = self._generate_verification_reminders(subtask)
 
         return checklist
 
@@ -83,10 +77,7 @@ class ChecklistGenerator:
             if any(wt.replace("_", " ") in pattern_lower for wt in work_types):
                 relevant_patterns.append(pattern)
             # Or if it mentions any file being modified
-            elif any(
-                f.split("/")[-1] in pattern_lower
-                for f in subtask.get("files_to_modify", [])
-            ):
+            elif any(f.split("/")[-1] in pattern_lower for f in subtask.get("files_to_modify", [])):
                 relevant_patterns.append(pattern)
 
         return relevant_patterns

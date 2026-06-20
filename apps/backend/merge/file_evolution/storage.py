@@ -83,10 +83,7 @@ class EvolutionStorage:
             evolutions: Dictionary mapping file paths to FileEvolution objects
         """
         try:
-            data = {
-                file_path: evolution.to_dict()
-                for file_path, evolution in evolutions.items()
-            }
+            data = {file_path: evolution.to_dict() for file_path, evolution in evolutions.items()}
 
             with open(self.evolution_file, "w") as f:
                 json.dump(data, f, indent=2)

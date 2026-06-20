@@ -36,8 +36,8 @@ def estimate_effort(epic: EpicPlan) -> EffortEstimate:
             assumptions=["No children to estimate."],
         )
 
-    days_high = round(points / _VELOCITY_LOW, 1)   # slow velocity → more days
-    days_low = round(points / _VELOCITY_HIGH, 1)   # fast velocity → fewer days
+    days_high = round(points / _VELOCITY_LOW, 1)  # slow velocity → more days
+    days_low = round(points / _VELOCITY_HIGH, 1)  # fast velocity → fewer days
 
     # Confidence drops as the share of "complex" (high-variance) work rises.
     complex_ratio = complex_n / n if n else 0.0

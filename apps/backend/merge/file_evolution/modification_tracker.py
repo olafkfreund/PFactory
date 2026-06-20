@@ -177,7 +177,8 @@ class ModificationTracker:
                 check=True,
             )
             changed_files = [
-                f for f in result.stdout.strip().split("\n")
+                f
+                for f in result.stdout.strip().split("\n")
                 if f
                 and Path(f).name not in IGNORED_FILES
                 and not any(f.startswith(p) for p in IGNORED_PREFIXES)
@@ -186,9 +187,7 @@ class ModificationTracker:
             debug(
                 MODULE,
                 f"Found {len(changed_files)} changed files",
-                changed_files=changed_files[:10]
-                if len(changed_files) > 10
-                else changed_files,
+                changed_files=changed_files[:10] if len(changed_files) > 10 else changed_files,
             )
 
             for file_path in changed_files:
@@ -220,9 +219,7 @@ class ModificationTracker:
                     try:
                         new_content = current_file.read_text(encoding="utf-8")
                     except UnicodeDecodeError:
-                        new_content = current_file.read_text(
-                            encoding="utf-8", errors="replace"
-                        )
+                        new_content = current_file.read_text(encoding="utf-8", errors="replace")
                 else:
                     # File was deleted
                     new_content = ""
@@ -237,9 +234,7 @@ class ModificationTracker:
                     raw_diff=diff_result.stdout,
                 )
 
-            logger.info(
-                f"Refreshed {len(changed_files)} files from worktree for task {task_id}"
-            )
+            logger.info(f"Refreshed {len(changed_files)} files from worktree for task {task_id}")
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to refresh from git: {e}")

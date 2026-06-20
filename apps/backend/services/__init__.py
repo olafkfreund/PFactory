@@ -10,7 +10,7 @@ from .orchestrator import ServiceOrchestrator
 from .recovery import RecoveryManager
 
 __all__ = [
+    "RecoveryManager",
     "ServiceContext",
     "ServiceOrchestrator",
-    "RecoveryManager",
 ]

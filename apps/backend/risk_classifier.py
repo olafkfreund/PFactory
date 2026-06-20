@@ -16,16 +16,16 @@ from analysis.risk_classifier import (
 )
 
 __all__ = [
-    "RiskClassifier",
-    "RiskAssessment",
-    "ValidationRecommendations",
+    "AssessmentFlags",
     "ComplexityAnalysis",
-    "ScopeAnalysis",
-    "IntegrationAnalysis",
     "InfrastructureAnalysis",
+    "IntegrationAnalysis",
     "KnowledgeAnalysis",
     "RiskAnalysis",
-    "AssessmentFlags",
-    "load_risk_assessment",
+    "RiskAssessment",
+    "RiskClassifier",
+    "ScopeAnalysis",
+    "ValidationRecommendations",
     "get_validation_requirements",
+    "load_risk_assessment",
 ]

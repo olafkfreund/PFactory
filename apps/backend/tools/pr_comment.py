@@ -22,9 +22,10 @@ The body is piped via stdin. The repo slug ``owner/repo`` is optional
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 
 class PRCommentError(Exception):
@@ -92,14 +93,21 @@ class PRCommentResult:
 
 
 def _default_runner_fn(
-    argv: list[str], *, cwd: Path, stdin: str | None = None,
+    argv: list[str],
+    *,
+    cwd: Path,
+    stdin: str | None = None,
 ) -> _SubprocessResultLike:
     """Default runner_fn that ACTUALLY shells out."""
     import subprocess
+
     return subprocess.run(
-        argv, cwd=str(cwd),
+        argv,
+        cwd=str(cwd),
         input=stdin if stdin is not None else None,
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -112,7 +120,7 @@ def _build_argv(request: PRCommentRequest) -> tuple[str, ...]:
     argv: list[str] = ["gh", "pr", "comment", str(request.pr_number)]
     if request.repo_slug:
         argv += ["-R", request.repo_slug]
-    argv += ["--body-file", "-"]   # read from stdin
+    argv += ["--body-file", "-"]  # read from stdin
     return tuple(argv)
 
 
@@ -139,12 +147,14 @@ def post_pr_comment(
 
     if request.pr_number <= 0:
         return PRCommentResult(
-            ok=False, dry_run=dry_run,
+            ok=False,
+            dry_run=dry_run,
             error=f"invalid PR number: {request.pr_number}",
         )
     if not request.body:
         return PRCommentResult(
-            ok=False, dry_run=dry_run,
+            ok=False,
+            dry_run=dry_run,
             error="empty body — refusing to post empty PR comment",
         )
 
@@ -153,14 +163,16 @@ def post_pr_comment(
 
     if dry_run:
         return PRCommentResult(
-            ok=True, dry_run=True,
+            ok=True,
+            dry_run=True,
             argv=argv,
             body_bytes=body_bytes,
         )
 
     if not request.repo_dir.exists():
         return PRCommentResult(
-            ok=False, dry_run=False,
+            ok=False,
+            dry_run=False,
             argv=argv,
             error=f"repo_dir does not exist: {request.repo_dir}",
         )
@@ -168,7 +180,8 @@ def post_pr_comment(
     res = runner(list(argv), cwd=request.repo_dir, stdin=request.body)
     if res.returncode != 0:
         return PRCommentResult(
-            ok=False, dry_run=False,
+            ok=False,
+            dry_run=False,
             argv=argv,
             body_bytes=body_bytes,
             error=f"gh pr comment failed: {(res.stderr or '').strip()[:300]}",
@@ -177,7 +190,8 @@ def post_pr_comment(
     # gh prints the comment URL on stdout — single line.
     url = (res.stdout or "").strip()
     return PRCommentResult(
-        ok=True, dry_run=False,
+        ok=True,
+        dry_run=False,
         argv=argv,
         body_bytes=body_bytes,
         comment_url=url,

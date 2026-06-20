@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def create_cross_encoder(
-    config: "GraphitiConfig", llm_client: Any = None
-) -> Any | None:
+def create_cross_encoder(config: "GraphitiConfig", llm_client: Any = None) -> Any | None:
     """
     Create a cross-encoder/reranker for improved search quality.
 

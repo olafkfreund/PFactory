@@ -86,9 +86,7 @@ class ConflictDetector:
         debug(MODULE, "Initializing ConflictDetector")
         self._rules = build_default_rules()
         self._rule_index = index_rules(self._rules)
-        debug_success(
-            MODULE, "ConflictDetector initialized", rule_count=len(self._rules)
-        )
+        debug_success(MODULE, "ConflictDetector initialized", rule_count=len(self._rules))
 
     def add_rule(self, rule: CompatibilityRule) -> None:
         """

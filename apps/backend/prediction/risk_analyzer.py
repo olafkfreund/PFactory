@@ -95,9 +95,7 @@ class RiskAnalyzer:
             return []
 
         subtask_desc = subtask.get("description", "").lower()
-        subtask_files = set(
-            subtask.get("files_to_modify", []) + subtask.get("files_to_create", [])
-        )
+        subtask_files = set(subtask.get("files_to_modify", []) + subtask.get("files_to_create", []))
 
         similar = []
         for attempt in attempt_history:

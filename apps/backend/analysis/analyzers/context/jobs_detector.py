@@ -34,18 +34,14 @@ class JobsDetector(BaseAnalyzer):
         jobs_info = None
 
         # Try each job system in order
-        jobs_info = (
-            self._detect_celery() or self._detect_bullmq() or self._detect_sidekiq()
-        )
+        jobs_info = self._detect_celery() or self._detect_bullmq() or self._detect_sidekiq()
 
         if jobs_info:
             self.analysis["background_jobs"] = jobs_info
 
     def _detect_celery(self) -> dict[str, Any] | None:
         """Detect Celery (Python) task queue."""
-        celery_files = list(self.path.glob("**/celery.py")) + list(
-            self.path.glob("**/tasks.py")
-        )
+        celery_files = list(self.path.glob("**/celery.py")) + list(self.path.glob("**/tasks.py"))
         if not celery_files:
             return None
 
@@ -54,7 +50,9 @@ class JobsDetector(BaseAnalyzer):
             try:
                 content = task_file.read_text()
                 # Find @celery.task or @shared_task decorators
-                task_pattern = r"@(?:celery\.task|shared_task|app\.task)\s*(?:\([^)]*\))?\s*def\s+(\w+)"
+                task_pattern = (
+                    r"@(?:celery\.task|shared_task|app\.task)\s*(?:\([^)]*\))?\s*def\s+(\w+)"
+                )
                 task_matches = re.findall(task_pattern, content)
 
                 for task_name in task_matches:

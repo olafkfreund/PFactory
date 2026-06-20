@@ -27,7 +27,7 @@ class AzureKeyVaultBackend(SecretsBackend):
 
     def available(self) -> bool:
         try:
-            import azure.identity  # noqa: F401
+            import azure.identity
             import azure.keyvault.secrets  # noqa: F401
         except ImportError:
             return False
@@ -53,7 +53,7 @@ class AzureKeyVaultBackend(SecretsBackend):
         try:
             client = SecretClient(vault_url=url, credential=DefaultAzureCredential())
             secret = client.get_secret(ref.locator)
-        except Exception as exc:  # noqa: BLE001 - azure raises various types
+        except Exception as exc:
             if exc.__class__.__name__ == "ResourceNotFoundError":
                 raise SecretNotFoundError(
                     f"Secret {ref.locator!r} not found in vault {vault!r}"
@@ -63,7 +63,9 @@ class AzureKeyVaultBackend(SecretsBackend):
             ) from exc
 
         return SecretValue(
-            value=secret.value, backend=self.name, ref=ref.raw,
+            value=secret.value,
+            backend=self.name,
+            ref=ref.raw,
             source=f"azurekv:{vault}/{ref.locator}",
         )
 

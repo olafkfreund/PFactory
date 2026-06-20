@@ -63,9 +63,7 @@ class FileTimelineTracker:
             project_path: Root directory of the project
             storage_path: Directory for timeline storage (default: .pfactory/)
         """
-        debug(
-            MODULE, "Initializing FileTimelineTracker", project_path=str(project_path)
-        )
+        debug(MODULE, "Initializing FileTimelineTracker", project_path=str(project_path))
 
         self.project_path = Path(project_path).resolve()
         self.storage_path = storage_path or (self.project_path / ".pfactory")
@@ -132,9 +130,7 @@ class FileTimelineTracker:
             timeline = self._get_or_create_timeline(file_path)
 
             # Get file content at branch point
-            content = self.git.get_file_content_at_commit(
-                file_path, branch_point_commit
-            )
+            content = self.git.get_file_content_at_commit(file_path, branch_point_commit)
             if content is None:
                 # File doesn't exist at this commit - might be created by task
                 content = ""
@@ -159,9 +155,7 @@ class FileTimelineTracker:
             timeline.add_task_view(task_view)
             self._persist_timeline(file_path)
 
-        debug_success(
-            MODULE, f"Task {task_id} registered with {len(files_to_modify)} files"
-        )
+        debug_success(MODULE, f"Task {task_id} registered with {len(files_to_modify)} files")
 
     def on_main_branch_commit(self, commit_hash: str) -> None:
         """
@@ -346,15 +340,11 @@ class FileTimelineTracker:
 
         task_view = timeline.get_task_view(task_id)
         if not task_view:
-            debug_warning(
-                MODULE, f"Task {task_id} not found in timeline for {file_path}"
-            )
+            debug_warning(MODULE, f"Task {task_id} not found in timeline for {file_path}")
             return None
 
         # Get main evolution since task branched
-        main_evolution = timeline.get_events_since_commit(
-            task_view.branch_point.commit_hash
-        )
+        main_evolution = timeline.get_events_since_commit(task_view.branch_point.commit_hash)
 
         # Get current main state
         current_main = timeline.get_current_main_state()
@@ -362,9 +352,7 @@ class FileTimelineTracker:
             current_main.content if current_main else task_view.branch_point.content
         )
         current_main_commit = (
-            current_main.commit_hash
-            if current_main
-            else task_view.branch_point.commit_hash
+            current_main.commit_hash if current_main else task_view.branch_point.commit_hash
         )
 
         # Get task's worktree content
@@ -509,9 +497,7 @@ class FileTimelineTracker:
                     try:
                         content = full_path.read_text(encoding="utf-8")
                     except UnicodeDecodeError:
-                        content = full_path.read_text(
-                            encoding="utf-8", errors="replace"
-                        )
+                        content = full_path.read_text(encoding="utf-8", errors="replace")
                     self.on_task_worktree_change(task_id, file_path, content)
 
             debug_success(MODULE, f"Captured {len(changed_files)} files from worktree")
@@ -549,9 +535,7 @@ class FileTimelineTracker:
                 return
 
             # Get changed files
-            changed_files = self.git.get_changed_files_in_worktree(
-                worktree_path, target_branch
-            )
+            changed_files = self.git.get_changed_files_in_worktree(worktree_path, target_branch)
             if not changed_files:
                 return
 
@@ -570,9 +554,7 @@ class FileTimelineTracker:
             # Calculate drift (commits behind target branch)
             # Use the detected target branch, or fall back to auto-detection
             actual_target = (
-                target_branch
-                if target_branch
-                else self.git._detect_target_branch(worktree_path)
+                target_branch if target_branch else self.git._detect_target_branch(worktree_path)
             )
             drift = self.git.count_commits_between(branch_point, actual_target)
             for file_path in changed_files:

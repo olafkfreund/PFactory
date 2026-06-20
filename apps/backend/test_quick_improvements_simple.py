@@ -21,16 +21,13 @@ def test_template_matching():
     QUICK_TEMPLATES = [
         {
             "pattern": r"(?i)(fix|correct|update)\s+(typo|spelling|text|wording)",
-            "name": "text_update"
+            "name": "text_update",
         },
         {
             "pattern": r"(?i)(change|update|modify).*(color|style|css|background)",
-            "name": "style_change"
+            "name": "style_change",
         },
-        {
-            "pattern": r"(?i)(add|remove|update).*(button|link|icon|element)",
-            "name": "ui_element"
-        },
+        {"pattern": r"(?i)(add|remove|update).*(button|link|icon|element)", "name": "ui_element"},
     ]
 
     # Test cases
@@ -157,7 +154,7 @@ Update the text as described in the task.
 
             # Show spec content
             print("\n--- spec.md preview ---")
-            lines = spec_content.split('\n')[:12]
+            lines = spec_content.split("\n")[:12]
             for line in lines:
                 print(f"  {line}")
             print("  ...")
@@ -183,12 +180,12 @@ def test_html_generation():
     # Check if jinja2 is available
     try:
         import jinja2
+
         print(f"\n✓ Jinja2 installed: version {jinja2.__version__}")
     except ImportError:
         print("\n✗ Jinja2 not installed")
         return False
 
-    import shutil
     import tempfile
 
     # Create a temp spec directory
@@ -233,16 +230,16 @@ Add dark mode toggle to the settings page with theme persistence.
                             "description": "Add toggle component to settings",
                             "status": "completed",
                             "files_to_create": [],
-                            "files_to_modify": ["src/Settings.tsx"]
+                            "files_to_modify": ["src/Settings.tsx"],
                         },
                         {
                             "id": "subtask-1-2",
                             "description": "Add dark mode CSS variables",
                             "status": "in_progress",
                             "files_to_create": [],
-                            "files_to_modify": ["src/theme.css"]
-                        }
-                    ]
+                            "files_to_modify": ["src/theme.css"],
+                        },
+                    ],
                 },
                 {
                     "phase": 2,
@@ -254,21 +251,19 @@ Add dark mode toggle to the settings page with theme persistence.
                             "description": "Save theme preference to localStorage",
                             "status": "pending",
                             "files_to_create": [],
-                            "files_to_modify": ["src/Settings.tsx"]
+                            "files_to_modify": ["src/Settings.tsx"],
                         }
-                    ]
-                }
+                    ],
+                },
             ],
             "metadata": {
                 "complexity": "simple",
                 "estimated_sessions": 1,
-                "created_at": "2026-01-08T12:00:00"
+                "created_at": "2026-01-08T12:00:00",
             },
-            "services_involved": ["frontend"]
+            "services_involved": ["frontend"],
         }
-        (temp_dir / "test_plan.json").write_text(
-            json.dumps(plan, indent=2)
-        )
+        (temp_dir / "test_plan.json").write_text(json.dumps(plan, indent=2))
 
         print(f"\n✓ Sample spec created in: {temp_dir.name}")
         print("  Files: spec.md, test_plan.json")
@@ -319,6 +314,7 @@ Add dark mode toggle to the settings page with theme persistence.
     except Exception as e:
         print(f"✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -401,6 +397,7 @@ def main():
     except Exception as e:
         print(f"\n✗ Test suite failed: {e}")
         import traceback
+
         traceback.print_exc()
 
 

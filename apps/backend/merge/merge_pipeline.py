@@ -91,9 +91,7 @@ class MergePipeline:
 
         if not conflicts:
             # No conflicts - combine all changes
-            merged = combine_non_conflicting_changes(
-                baseline_content, task_snapshots, file_path
-            )
+            merged = combine_non_conflicting_changes(baseline_content, task_snapshots, file_path)
             return MergeResult(
                 decision=MergeDecision.AUTO_MERGED,
                 file_path=file_path,

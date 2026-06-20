@@ -138,9 +138,7 @@ class OpenShiftAdapter(InfraAdapter):
         # OpenShift Projects (analogous to namespaces, with display metadata).
         projects = reader.list_projects()
         resources["projects"] = len(projects)
-        resources["project_names"] = [
-            (p.get("metadata") or {}).get("name", "") for p in projects
-        ]
+        resources["project_names"] = [(p.get("metadata") or {}).get("name", "") for p in projects]
 
         # Routes (external exposure surface).
         routes = [summarise_route(r) for r in reader.list_routes()]
@@ -205,15 +203,11 @@ class _LiveOpenShiftReader:
 
     # OpenShift-specific reads via the dynamic API (read-only list calls).
     def list_projects(self) -> list[dict]:
-        data = self._dynamic.list_cluster_custom_object(
-            "project.openshift.io", "v1", "projects"
-        )
+        data = self._dynamic.list_cluster_custom_object("project.openshift.io", "v1", "projects")
         return list(data.get("items", []))
 
     def list_routes(self) -> list[dict]:
-        data = self._dynamic.list_cluster_custom_object(
-            "route.openshift.io", "v1", "routes"
-        )
+        data = self._dynamic.list_cluster_custom_object("route.openshift.io", "v1", "routes")
         return list(data.get("items", []))
 
     def list_scc(self) -> list[dict]:

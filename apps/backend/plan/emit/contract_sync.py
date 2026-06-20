@@ -98,8 +98,16 @@ class ContractSyncState(BaseModel):
     history: list[dict[str, str]] = Field(default_factory=list)
 
     def recompute(self) -> ContractSyncState:
-        ai = classify_outcome("aifactory", self.aifactory_status) if self.aifactory_status else "in_progress"
-        tf = classify_outcome("tfactory", self.tfactory_status) if self.tfactory_status else "in_progress"
+        ai = (
+            classify_outcome("aifactory", self.aifactory_status)
+            if self.aifactory_status
+            else "in_progress"
+        )
+        tf = (
+            classify_outcome("tfactory", self.tfactory_status)
+            if self.tfactory_status
+            else "in_progress"
+        )
         if "failure" in (ai, tf):
             self.outcome = "failure"
             self.needs_handback = True

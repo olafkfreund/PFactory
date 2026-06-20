@@ -42,9 +42,7 @@ def _get_profile_mtime(project_dir: Path) -> float | None:
         return None
 
 
-def get_security_profile(
-    project_dir: Path, spec_dir: Path | None = None
-) -> SecurityProfile:
+def get_security_profile(project_dir: Path, spec_dir: Path | None = None) -> SecurityProfile:
     """
     Get the security profile for a project, using cache when possible.
 

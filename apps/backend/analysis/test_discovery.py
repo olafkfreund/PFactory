@@ -291,9 +291,7 @@ class TestDiscovery:
             return "bundler"
         return ""
 
-    def _discover_js_frameworks(
-        self, project_dir: Path, result: TestDiscoveryResult
-    ) -> None:
+    def _discover_js_frameworks(self, project_dir: Path, result: TestDiscoveryResult) -> None:
         """Discover JavaScript/TypeScript test frameworks."""
         package_json = project_dir / "package.json"
         if not package_json.exists():
@@ -330,9 +328,7 @@ class TestDiscovery:
 
                 # Determine command - prefer npm scripts if available
                 command = pattern["command"]
-                if "test" in scripts and pattern["package_key"] in scripts.get(
-                    "test", ""
-                ):
+                if "test" in scripts and pattern["package_key"] in scripts.get("test", ""):
                     command = f"{result.package_manager or 'npm'} test"
 
                 result.frameworks.append(
@@ -349,10 +345,7 @@ class TestDiscovery:
         # Check npm scripts for test commands
         if not result.frameworks and "test" in scripts:
             test_script = scripts["test"]
-            if (
-                test_script
-                and test_script != 'echo "Error: no test specified" && exit 1'
-            ):
+            if test_script and test_script != 'echo "Error: no test specified" && exit 1':
                 # Try to infer framework from script
                 framework_name = "npm_test"
                 framework_type = "unit"
@@ -379,9 +372,7 @@ class TestDiscovery:
                     )
                 )
 
-    def _discover_python_frameworks(
-        self, project_dir: Path, result: TestDiscoveryResult
-    ) -> None:
+    def _discover_python_frameworks(self, project_dir: Path, result: TestDiscoveryResult) -> None:
         """Discover Python test frameworks."""
         # Check for pytest.ini first (explicit pytest config)
         if (project_dir / "pytest.ini").exists():
@@ -403,9 +394,7 @@ class TestDiscovery:
             # Check for pytest
             if "pytest" in content:
                 if not any(f.name == "pytest" for f in result.frameworks):
-                    config_file = (
-                        "pyproject.toml" if "[tool.pytest" in content else None
-                    )
+                    config_file = "pyproject.toml" if "[tool.pytest" in content else None
                     result.frameworks.append(
                         TestFramework(
                             name="pytest",
@@ -419,9 +408,7 @@ class TestDiscovery:
         requirements = project_dir / "requirements.txt"
         if requirements.exists():
             content = requirements.read_text().lower()
-            if "pytest" in content and not any(
-                f.name == "pytest" for f in result.frameworks
-            ):
+            if "pytest" in content and not any(f.name == "pytest" for f in result.frameworks):
                 result.frameworks.append(
                     TestFramework(
                         name="pytest",
@@ -458,9 +445,7 @@ class TestDiscovery:
                     )
                 )
 
-    def _discover_rust_frameworks(
-        self, project_dir: Path, result: TestDiscoveryResult
-    ) -> None:
+    def _discover_rust_frameworks(self, project_dir: Path, result: TestDiscoveryResult) -> None:
         """Discover Rust test frameworks."""
         cargo_toml = project_dir / "Cargo.toml"
         if cargo_toml.exists():
@@ -473,9 +458,7 @@ class TestDiscovery:
                 )
             )
 
-    def _discover_go_frameworks(
-        self, project_dir: Path, result: TestDiscoveryResult
-    ) -> None:
+    def _discover_go_frameworks(self, project_dir: Path, result: TestDiscoveryResult) -> None:
         """Discover Go test frameworks."""
         go_mod = project_dir / "go.mod"
         if go_mod.exists():
@@ -488,9 +471,7 @@ class TestDiscovery:
                 )
             )
 
-    def _discover_ruby_frameworks(
-        self, project_dir: Path, result: TestDiscoveryResult
-    ) -> None:
+    def _discover_ruby_frameworks(self, project_dir: Path, result: TestDiscoveryResult) -> None:
         """Discover Ruby test frameworks."""
         gemfile = project_dir / "Gemfile"
         if not gemfile.exists():

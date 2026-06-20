@@ -173,14 +173,10 @@ def _parse_runtime(raw: Any) -> RuntimeSpec:
     Raises :class:`FrameworkDescriptorError` for any missing or malformed field.
     """
     if not isinstance(raw, dict):
-        raise FrameworkDescriptorError(
-            "runtime", f"expected mapping, got {type(raw).__name__}"
-        )
+        raise FrameworkDescriptorError("runtime", f"expected mapping, got {type(raw).__name__}")
     image_val = raw.get("image")
     if not image_val:
-        raise FrameworkDescriptorError(
-            "runtime.image", "required field is missing or empty"
-        )
+        raise FrameworkDescriptorError("runtime.image", "required field is missing or empty")
     if not isinstance(image_val, str):
         raise FrameworkDescriptorError(
             "runtime.image", f"expected str, got {type(image_val).__name__}"

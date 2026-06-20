@@ -36,6 +36,7 @@ from .state import ReviewState, get_review_status_summary
 # HTML generation (optional import)
 try:
     from .html_generator import generate_html_plan_review, open_in_browser
+
     HTML_AVAILABLE = True
 except ImportError:
     HTML_AVAILABLE = False
@@ -136,9 +137,7 @@ def display_spec_summary(spec_dir: Path) -> None:
                 f"  {icon(Icons.PENDING)} {item[:60]}{'...' if len(item) > 60 else ''}"
             )
         if len(re.findall(r"^\s*[-*]\s*\[[ x]\]\s*(.+)$", criteria, re.MULTILINE)) > 5:
-            total_count = len(
-                re.findall(r"^\s*[-*]\s*\[[ x]\]\s*(.+)$", criteria, re.MULTILINE)
-            )
+            total_count = len(re.findall(r"^\s*[-*]\s*\[[ x]\]\s*(.+)$", criteria, re.MULTILINE))
             summary_lines.append(f"  {muted(f'... and {total_count - 5} more')}")
 
     # Print the summary box
@@ -183,17 +182,12 @@ def display_plan_summary(spec_dir: Path) -> None:
     phases = plan.get("phases", [])
     total_subtasks = sum(len(p.get("subtasks", [])) for p in phases)
     completed_subtasks = sum(
-        1
-        for p in phases
-        for c in p.get("subtasks", [])
-        if c.get("status") == "completed"
+        1 for p in phases for c in p.get("subtasks", []) if c.get("status") == "completed"
     )
     services = plan.get("services_involved", [])
 
     summary_lines.append(f"{muted('Phases:')} {len(phases)}")
-    summary_lines.append(
-        f"{muted('Subtasks:')} {completed_subtasks}/{total_subtasks} completed"
-    )
+    summary_lines.append(f"{muted('Subtasks:')} {completed_subtasks}/{total_subtasks} completed")
     if services:
         summary_lines.append(f"{muted('Services:')} {', '.join(services)}")
 
@@ -240,19 +234,13 @@ def display_plan_summary(spec_dir: Path) -> None:
 
                     # Truncate description
                     desc_short = (
-                        subtask_desc[:50] + "..."
-                        if len(subtask_desc) > 50
-                        else subtask_desc
+                        subtask_desc[:50] + "..." if len(subtask_desc) > 50 else subtask_desc
                     )
-                    summary_lines.append(
-                        f"      {status_str} {muted(subtask_id)}: {desc_short}"
-                    )
+                    summary_lines.append(f"      {status_str} {muted(subtask_id)}: {desc_short}")
 
                 if len(subtasks) > 3:
                     remaining = len(subtasks) - 3
-                    summary_lines.append(
-                        f"      {muted(f'... {remaining} more subtasks')}"
-                    )
+                    summary_lines.append(f"      {muted(f'... {remaining} more subtasks')}")
 
     # Parallelism info
     summary_section = plan.get("summary", {})

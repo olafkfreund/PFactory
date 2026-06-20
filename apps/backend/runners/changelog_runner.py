@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -112,15 +112,17 @@ def _parse_commits(raw_output: str) -> list[dict[str, Any]]:
         parts = record.split("\x1f")
         if len(parts) >= 7:
             body = parts[3].strip()[:200] if parts[3].strip() else ""
-            commits.append({
-                "hash": parts[0],
-                "short_hash": parts[1],
-                "subject": parts[2],
-                "body": body,
-                "author_name": parts[4],
-                "author_email": parts[5],
-                "date": parts[6].strip()
-            })
+            commits.append(
+                {
+                    "hash": parts[0],
+                    "short_hash": parts[1],
+                    "subject": parts[2],
+                    "body": body,
+                    "author_name": parts[4],
+                    "author_email": parts[5],
+                    "date": parts[6].strip(),
+                }
+            )
 
     return commits
 
@@ -137,7 +139,7 @@ def load_git_commits(
     since_date: str | None = None,
     from_tag: str | None = None,
     to_tag: str | None = None,
-    include_merge_commits: bool = False
+    include_merge_commits: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Load git commits based on history options.
@@ -173,13 +175,7 @@ def load_git_commits(
         cmd.append("--no-merges")
 
     try:
-        result = subprocess.run(
-            cmd,
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, check=True)
 
         return _parse_commits(result.stdout)
 
@@ -189,9 +185,7 @@ def load_git_commits(
 
 
 def load_branch_diff_commits(
-    project_path: Path,
-    base_branch: str,
-    compare_branch: str
+    project_path: Path, base_branch: str, compare_branch: str
 ) -> list[dict[str, Any]]:
     """
     Load commits unique to compare branch.
@@ -205,20 +199,15 @@ def load_branch_diff_commits(
         List of commit dictionaries
     """
     cmd = [
-        "git", "log",
+        "git",
+        "log",
         f"{base_branch}..{compare_branch}",
         f"--format={_GIT_LOG_FORMAT}",
-        "--no-merges"
+        "--no-merges",
     ]
 
     try:
-        result = subprocess.run(
-            cmd,
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, check=True)
 
         return _parse_commits(result.stdout)
 
@@ -235,7 +224,7 @@ def build_changelog_prompt(
     format_type: str,
     audience: str,
     emoji_level: str | None,
-    custom_instructions: str | None
+    custom_instructions: str | None,
 ) -> str:
     """
     Build LLM prompt for changelog generation.
@@ -379,7 +368,7 @@ def generate_changelog(
     format_type: str,
     audience: str,
     emoji_level: str | None,
-    custom_instructions: str | None
+    custom_instructions: str | None,
 ) -> str:
     """
     Main generation logic.
@@ -437,7 +426,7 @@ def generate_changelog(
             since_date=git_history.get("sinceDate"),
             from_tag=git_history.get("fromTag"),
             to_tag=git_history.get("toTag"),
-            include_merge_commits=git_history.get("includeMergeCommits", False)
+            include_merge_commits=git_history.get("includeMergeCommits", False),
         )
 
     elif source_mode == "branch-diff":
@@ -447,7 +436,7 @@ def generate_changelog(
         data = load_branch_diff_commits(
             project_path,
             base_branch=branch_diff.get("baseBranch", "main"),
-            compare_branch=branch_diff.get("compareBranch", "HEAD")
+            compare_branch=branch_diff.get("compareBranch", "HEAD"),
         )
 
     # Analyzing
@@ -462,7 +451,7 @@ def generate_changelog(
         format_type=format_type,
         audience=audience,
         emoji_level=emoji_level,
-        custom_instructions=custom_instructions
+        custom_instructions=custom_instructions,
     )
 
     # Generate with LLM (based on settings)
@@ -484,9 +473,11 @@ def generate_changelog(
                 llm_config = {
                     "ollama_base_url": settings.get("llmOllamaBaseUrl", "http://localhost:11434"),
                     "ollama_model": settings.get("llmOllamaModel", "qwen3-30b-local:latest"),
-                    "anthropic_model": settings.get("llmAnthropicModel", "claude-sonnet-4-5-20250929"),
+                    "anthropic_model": settings.get(
+                        "llmAnthropicModel", "claude-sonnet-4-5-20250929"
+                    ),
                     "openai_model": settings.get("llmOpenaiModel", "gpt-4o"),
-                    "openai_base_url": settings.get("llmOpenaiBaseUrl")
+                    "openai_base_url": settings.get("llmOpenaiBaseUrl"),
                 }
 
         logger.info(f"Using LLM provider: {llm_provider}")
@@ -494,19 +485,18 @@ def generate_changelog(
         if llm_provider == "ollama":
             from openai import OpenAI
 
-            client = OpenAI(
-                base_url=f"{llm_config['ollama_base_url']}/v1",
-                api_key="ollama"
-            )
+            client = OpenAI(base_url=f"{llm_config['ollama_base_url']}/v1", api_key="ollama")
 
             response = client.chat.completions.create(
-                model=llm_config['ollama_model'],
+                model=llm_config["ollama_model"],
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=4096,
-                temperature=0.7
+                temperature=0.7,
             )
 
-            logger.info(f"API response received. Model: {response.model}, Finish reason: {response.choices[0].finish_reason}")
+            logger.info(
+                f"API response received. Model: {response.model}, Finish reason: {response.choices[0].finish_reason}"
+            )
             changelog_content = response.choices[0].message.content.strip()
 
         elif llm_provider == "anthropic":
@@ -536,12 +526,14 @@ def generate_changelog(
             client = Anthropic(api_key=api_key)
 
             response = client.messages.create(
-                model=llm_config['anthropic_model'],
+                model=llm_config["anthropic_model"],
                 max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
             )
 
-            logger.info(f"API response received. Model: {response.model}, Stop reason: {response.stop_reason}")
+            logger.info(
+                f"API response received. Model: {response.model}, Stop reason: {response.stop_reason}"
+            )
             changelog_content = response.content[0].text.strip()
 
         elif llm_provider == "openai":
@@ -549,21 +541,22 @@ def generate_changelog(
 
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
-                raise RuntimeError("OpenAI API key not found. Please set it in Settings → Integrations.")
+                raise RuntimeError(
+                    "OpenAI API key not found. Please set it in Settings → Integrations."
+                )
 
-            client = OpenAI(
-                api_key=api_key,
-                base_url=llm_config['openai_base_url']
-            )
+            client = OpenAI(api_key=api_key, base_url=llm_config["openai_base_url"])
 
             response = client.chat.completions.create(
-                model=llm_config['openai_model'],
+                model=llm_config["openai_model"],
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=4096,
-                temperature=0.7
+                temperature=0.7,
             )
 
-            logger.info(f"API response received. Model: {response.model}, Finish reason: {response.choices[0].finish_reason}")
+            logger.info(
+                f"API response received. Model: {response.model}, Finish reason: {response.choices[0].finish_reason}"
+            )
             changelog_content = response.choices[0].message.content.strip()
 
         else:
@@ -574,7 +567,7 @@ def generate_changelog(
 
     except Exception as e:
         logger.error(f"Failed to generate changelog with {llm_provider}: {e}")
-        raise RuntimeError(f"LLM generation failed: {str(e)}")
+        raise RuntimeError(f"LLM generation failed: {e!s}")
 
     # Formatting
     emit_phase(5, "FORMATTING")
@@ -599,48 +592,59 @@ def main():
 
     # Required arguments
     parser.add_argument("--project", type=str, required=True, help="Project path")
-    parser.add_argument("--source-mode", type=str, required=True,
-                        choices=["tasks", "git-history", "branch-diff"],
-                        help="Source mode")
+    parser.add_argument(
+        "--source-mode",
+        type=str,
+        required=True,
+        choices=["tasks", "git-history", "branch-diff"],
+        help="Source mode",
+    )
     parser.add_argument("--version", type=str, required=True, help="Version number")
     parser.add_argument("--date", type=str, required=True, help="Release date")
-    parser.add_argument("--format", type=str, required=True,
-                        choices=["keep-a-changelog", "simple-list", "github-release"],
-                        help="Changelog format")
-    parser.add_argument("--audience", type=str, required=True,
-                        choices=["technical", "user-facing", "marketing"],
-                        help="Target audience")
+    parser.add_argument(
+        "--format",
+        type=str,
+        required=True,
+        choices=["keep-a-changelog", "simple-list", "github-release"],
+        help="Changelog format",
+    )
+    parser.add_argument(
+        "--audience",
+        type=str,
+        required=True,
+        choices=["technical", "user-facing", "marketing"],
+        help="Target audience",
+    )
 
     # Tasks mode
     parser.add_argument("--task-ids", type=str, help="Comma-separated task IDs")
 
     # Git history mode
-    parser.add_argument("--git-history-type", type=str,
-                        choices=["recent", "since-date", "tag-range", "since-version"],
-                        help="Git history type")
-    parser.add_argument("--git-history-count", type=int, default=25,
-                        help="Number of commits for recent type")
-    parser.add_argument("--git-history-since-date", type=str,
-                        help="Date for since-date type")
-    parser.add_argument("--git-history-from-tag", type=str,
-                        help="Starting tag")
-    parser.add_argument("--git-history-to-tag", type=str,
-                        help="Ending tag")
-    parser.add_argument("--include-merge-commits", action="store_true",
-                        help="Include merge commits")
+    parser.add_argument(
+        "--git-history-type",
+        type=str,
+        choices=["recent", "since-date", "tag-range", "since-version"],
+        help="Git history type",
+    )
+    parser.add_argument(
+        "--git-history-count", type=int, default=25, help="Number of commits for recent type"
+    )
+    parser.add_argument("--git-history-since-date", type=str, help="Date for since-date type")
+    parser.add_argument("--git-history-from-tag", type=str, help="Starting tag")
+    parser.add_argument("--git-history-to-tag", type=str, help="Ending tag")
+    parser.add_argument(
+        "--include-merge-commits", action="store_true", help="Include merge commits"
+    )
 
     # Branch diff mode
-    parser.add_argument("--base-branch", type=str, default="main",
-                        help="Base branch")
-    parser.add_argument("--compare-branch", type=str, default="HEAD",
-                        help="Compare branch")
+    parser.add_argument("--base-branch", type=str, default="main", help="Base branch")
+    parser.add_argument("--compare-branch", type=str, default="HEAD", help="Compare branch")
 
     # Optional
-    parser.add_argument("--emoji-level", type=str,
-                        choices=["none", "little", "medium", "high"],
-                        help="Emoji level")
-    parser.add_argument("--custom-instructions", type=str,
-                        help="Custom instructions")
+    parser.add_argument(
+        "--emoji-level", type=str, choices=["none", "little", "medium", "high"], help="Emoji level"
+    )
+    parser.add_argument("--custom-instructions", type=str, help="Custom instructions")
 
     args = parser.parse_args()
 
@@ -669,14 +673,11 @@ def main():
                 "sinceDate": args.git_history_since_date,
                 "fromTag": args.git_history_from_tag,
                 "toTag": args.git_history_to_tag,
-                "includeMergeCommits": args.include_merge_commits
+                "includeMergeCommits": args.include_merge_commits,
             }
 
         elif args.source_mode == "branch-diff":
-            branch_diff = {
-                "baseBranch": args.base_branch,
-                "compareBranch": args.compare_branch
-            }
+            branch_diff = {"baseBranch": args.base_branch, "compareBranch": args.compare_branch}
 
         # Generate changelog
         generate_changelog(
@@ -690,7 +691,7 @@ def main():
             format_type=args.format,
             audience=args.audience,
             emoji_level=args.emoji_level,
-            custom_instructions=args.custom_instructions
+            custom_instructions=args.custom_instructions,
         )
 
     except Exception as e:

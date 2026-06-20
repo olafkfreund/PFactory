@@ -30,8 +30,8 @@ from pathlib import Path
 
 __all__ = [
     "LoopDecision",
-    "failure_signature",
     "decide_loop",
+    "failure_signature",
     "max_cycles",
     "read_loop_state",
     "record_cycle",
@@ -98,9 +98,7 @@ def decide_loop(
         return LoopDecision("passed", "no failing tests remain", cycle)
 
     if cycle >= limit:
-        return LoopDecision(
-            "stuck", f"reached the correction-cycle cap ({limit})", cycle
-        )
+        return LoopDecision("stuck", f"reached the correction-cycle cap ({limit})", cycle)
 
     if previous_failures is not None and current_failures == previous_failures:
         return LoopDecision(
@@ -132,9 +130,7 @@ def read_loop_state(spec_dir: Path | str) -> tuple[int, set[str] | None]:
     return cycle, (set(sig) if isinstance(sig, list) else None)
 
 
-def record_cycle(
-    spec_dir: Path | str, *, cycle: int, failure_signature: set[str]
-) -> None:
+def record_cycle(spec_dir: Path | str, *, cycle: int, failure_signature: set[str]) -> None:
     """Persist the new cycle count + failing signature into source.json."""
     path = _source_path(spec_dir)
     try:

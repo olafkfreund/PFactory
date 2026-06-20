@@ -56,9 +56,7 @@ def get_patterns_for_service(context: PlannerContext, service: str) -> list[str]
     return patterns[:3]  # Limit to top 3
 
 
-def create_verification(
-    context: PlannerContext, service: str, subtask_type: str
-) -> Verification:
+def create_verification(context: PlannerContext, service: str, subtask_type: str) -> Verification:
     """Create appropriate verification for a subtask."""
     service_info = context.project_index.get("services", {}).get(service, {})
     port = service_info.get("port")

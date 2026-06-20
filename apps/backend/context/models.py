@@ -29,6 +29,4 @@ class TaskContext:
     files_to_reference: list[dict]
     patterns_discovered: dict[str, str]
     service_contexts: dict[str, dict]
-    graph_hints: list[dict] = field(
-        default_factory=list
-    )  # Historical hints from Graphiti
+    graph_hints: list[dict] = field(default_factory=list)  # Historical hints from Graphiti

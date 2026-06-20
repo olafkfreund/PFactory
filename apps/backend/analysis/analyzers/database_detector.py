@@ -57,9 +57,7 @@ class DatabaseDetector(BaseAnalyzer):
                 continue
 
             # Find class definitions that inherit from Base or db.Model
-            class_pattern = (
-                r"class\s+(\w+)\([^)]*(?:Base|db\.Model|DeclarativeBase)[^)]*\):"
-            )
+            class_pattern = r"class\s+(\w+)\([^)]*(?:Base|db\.Model|DeclarativeBase)[^)]*\):"
             matches = re.finditer(class_pattern, content)
 
             for match in matches:
@@ -67,9 +65,7 @@ class DatabaseDetector(BaseAnalyzer):
 
                 # Extract table name if defined
                 table_match = re.search(r'__tablename__\s*=\s*["\'](\w+)["\']', content)
-                table_name = (
-                    table_match.group(1) if table_match else model_name.lower() + "s"
-                )
+                table_name = table_match.group(1) if table_match else model_name.lower() + "s"
 
                 # Extract columns
                 fields = {}
@@ -113,9 +109,7 @@ class DatabaseDetector(BaseAnalyzer):
     def _detect_django_models(self) -> dict:
         """Detect Django models."""
         models = {}
-        model_files = list(self.path.glob("**/models.py")) + list(
-            self.path.glob("**/models/*.py")
-        )
+        model_files = list(self.path.glob("**/models.py")) + list(self.path.glob("**/models/*.py"))
 
         for file_path in model_files:
             try:
@@ -210,9 +204,7 @@ class DatabaseDetector(BaseAnalyzer):
     def _detect_typeorm_models(self) -> dict:
         """Detect TypeORM entities."""
         models = {}
-        ts_files = list(self.path.glob("**/*.entity.ts")) + list(
-            self.path.glob("**/entities/*.ts")
-        )
+        ts_files = list(self.path.glob("**/*.entity.ts")) + list(self.path.glob("**/entities/*.ts"))
 
         for file_path in ts_files:
             try:
@@ -229,9 +221,7 @@ class DatabaseDetector(BaseAnalyzer):
 
                 # Extract columns
                 fields = {}
-                column_pattern = (
-                    r"@(PrimaryGeneratedColumn|Column)\(([^)]*)\)\s+(\w+):\s*(\w+)"
-                )
+                column_pattern = r"@(PrimaryGeneratedColumn|Column)\(([^)]*)\)\s+(\w+):\s*(\w+)"
                 column_matches = re.finditer(column_pattern, content)
 
                 for col_match in column_matches:
@@ -270,7 +260,9 @@ class DatabaseDetector(BaseAnalyzer):
                 continue
 
             # Find table definitions: export const users = pgTable('users', {...})
-            table_pattern = r'export\s+const\s+(\w+)\s*=\s*(?:pg|mysql|sqlite)Table\(["\'](\w+)["\']'
+            table_pattern = (
+                r'export\s+const\s+(\w+)\s*=\s*(?:pg|mysql|sqlite)Table\(["\'](\w+)["\']'
+            )
             matches = re.finditer(table_pattern, content)
 
             for match in matches:

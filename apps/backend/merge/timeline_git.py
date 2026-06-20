@@ -67,9 +67,7 @@ class TimelineGitHelper:
         except subprocess.CalledProcessError:
             return "unknown"
 
-    def get_file_content_at_commit(
-        self, file_path: str, commit_hash: str
-    ) -> str | None:
+    def get_file_content_at_commit(self, file_path: str, commit_hash: str) -> str | None:
         """
         Get file content at a specific commit.
 
@@ -163,9 +161,7 @@ class TimelineGitHelper:
             )
             if result.returncode == 0:
                 info["diff_summary"] = (
-                    result.stdout.strip().split("\n")[-1]
-                    if result.stdout.strip()
-                    else None
+                    result.stdout.strip().split("\n")[-1] if result.stdout.strip() else None
                 )
 
         except Exception:
@@ -185,17 +181,10 @@ class TimelineGitHelper:
             File content as string, or empty string if file doesn't exist
         """
         # Extract spec name from task_id (remove 'task-' prefix if present)
-        spec_name = (
-            task_id.replace("task-", "") if task_id.startswith("task-") else task_id
-        )
+        spec_name = task_id.replace("task-", "") if task_id.startswith("task-") else task_id
 
         worktree_path = (
-            self.project_path
-            / ".pfactory"
-            / "worktrees"
-            / "tasks"
-            / spec_name
-            / file_path
+            self.project_path / ".pfactory" / "worktrees" / "tasks" / spec_name / file_path
         )
         if worktree_path.exists():
             try:
@@ -237,9 +226,7 @@ class TimelineGitHelper:
             logger.error(f"Failed to get changed files in worktree: {e}")
             return []
 
-    def get_branch_point(
-        self, worktree_path: Path, target_branch: str | None = None
-    ) -> str | None:
+    def get_branch_point(self, worktree_path: Path, target_branch: str | None = None) -> str | None:
         """
         Get the branch point (merge-base with target branch) for a worktree.
 

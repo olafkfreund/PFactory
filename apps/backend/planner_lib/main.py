@@ -68,9 +68,7 @@ def main():
     """CLI entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Generate implementation plan from spec"
-    )
+    parser = argparse.ArgumentParser(description="Generate implementation plan from spec")
     parser.add_argument(
         "--spec-dir",
         type=Path,

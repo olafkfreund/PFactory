@@ -173,9 +173,7 @@ def render_cloud_topology(inventory: dict) -> str:
         parent = "global" if scope == "global" else f"region_{scope}"
         # Attach to scope node if it exists, else to the account.
         parent_id = _node_id(parent) if _node_id(parent) in g._nodes else "acct"
-        icon = (
-            "🔴" if sev in {"critical", "high"} else "🟠" if sev == "medium" else "🟡"
-        )
+        icon = "🔴" if sev in {"critical", "high"} else "🟠" if sev == "medium" else "🟡"
         fid = g.node(
             f"finding_{i}",
             f"{icon} {f.get('title', 'finding')} ({sev or 'n/a'})",

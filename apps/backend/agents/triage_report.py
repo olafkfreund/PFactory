@@ -32,9 +32,10 @@ network HAR for the test before trusting the AI-generated assertion.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
 
 from agents.triage_dedup import DedupCollision, TriageCandidate
 
@@ -211,13 +212,13 @@ def _collect_flaky_history(
         return {}
     try:
         from agents.flaky_history import load_history
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
     out: dict[str, dict] = {}
     for c in candidates:
         try:
             hist = load_history(store, c.test_id)
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
         if hist.runs:
             out[c.test_id] = hist.as_dict()
@@ -463,12 +464,10 @@ def render_markdown(report: TriageReport) -> str:
         for c in report.flagged
     )
     skipped_body = "\n".join(
-        _candidate_md_block(c, show_reasons=False, decisions=decisions)
-        for c in report.skipped
+        _candidate_md_block(c, show_reasons=False, decisions=decisions) for c in report.skipped
     )
     rejected_body = "\n".join(
-        _candidate_md_block(c, flaky=flaky_by_id.get(c.test_id))
-        for c in report.rejected
+        _candidate_md_block(c, flaky=flaky_by_id.get(c.test_id)) for c in report.rejected
     )
     collisions_body = "\n".join(
         f"- **{coll.kind}**: kept `{coll.representative.test_id}`, "

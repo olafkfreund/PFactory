@@ -96,46 +96,57 @@ def _render_document(
 
     # Base stages, always present.
     stages: list[tuple[str, str]] = [
-        ("lint", "Static analysis and formatting checks; fail fast on style or "
-                 "type errors."),
-        ("test", "Run the full automated test suite; require all lanes green and "
-                 "publish the coverage report."),
-        ("build", "Compile / bundle the application and produce versioned build "
-                  "artifacts."),
+        ("lint", "Static analysis and formatting checks; fail fast on style or type errors."),
+        (
+            "test",
+            "Run the full automated test suite; require all lanes green and "
+            "publish the coverage report.",
+        ),
+        ("build", "Compile / bundle the application and produce versioned build artifacts."),
     ]
 
     if wants_container:
-        stages.append((
-            "containerise",
-            "Build and tag a container image from the build artifacts, then push "
-            "it to the registry.",
-        ))
+        stages.append(
+            (
+                "containerise",
+                "Build and tag a container image from the build artifacts, then push "
+                "it to the registry.",
+            )
+        )
 
-    stages.append((
-        "security scan",
-        "Scan dependencies and (if built) the container image for known "
-        "vulnerabilities; fail on findings above the agreed threshold.",
-    ))
+    stages.append(
+        (
+            "security scan",
+            "Scan dependencies and (if built) the container image for known "
+            "vulnerabilities; fail on findings above the agreed threshold.",
+        )
+    )
 
     if wants_terraform:
-        stages.append((
-            "infra plan/apply (gated)",
-            "Run `terraform plan` on every change for review, and `terraform "
-            "apply` only after manual approval on the protected branch.",
-        ))
+        stages.append(
+            (
+                "infra plan/apply (gated)",
+                "Run `terraform plan` on every change for review, and `terraform "
+                "apply` only after manual approval on the protected branch.",
+            )
+        )
 
     if wants_container:
-        stages.append((
-            "deploy to cluster",
-            "Roll out the new image to the Kubernetes/OpenShift cluster (Helm "
-            "release or manifests), then verify readiness and health probes.",
-        ))
+        stages.append(
+            (
+                "deploy to cluster",
+                "Roll out the new image to the Kubernetes/OpenShift cluster (Helm "
+                "release or manifests), then verify readiness and health probes.",
+            )
+        )
     else:
-        stages.append((
-            "deploy",
-            "Promote the build artifacts to the target environment after manual "
-            "approval; verify the deployment is healthy.",
-        ))
+        stages.append(
+            (
+                "deploy",
+                "Promote the build artifacts to the target environment after manual "
+                "approval; verify the deployment is healthy.",
+            )
+        )
 
     for i, (name, desc) in enumerate(stages, 1):
         lines.append(f"{i}. **{name}** — {desc}")
@@ -145,8 +156,7 @@ def _render_document(
         "## Gating",
         "",
         "- Each stage depends on a green result from the previous stage.",
-        "- Deploy stages require manual approval and run only on the default "
-        "branch.",
+        "- Deploy stages require manual approval and run only on the default branch.",
     ]
     if wants_terraform:
         lines.append("- `terraform apply` is a protected, manually-approved step.")
@@ -181,14 +191,9 @@ def _build_child(
         "Deploy stages are gated on a green build and require manual approval.",
     ]
     if wants_container:
-        acceptance.append(
-            "A container image is built, scanned, and deployed to the cluster."
-        )
+        acceptance.append("A container image is built, scanned, and deployed to the cluster.")
     if wants_terraform:
-        acceptance.append(
-            "Infra changes run `terraform plan` on PRs and a gated `apply` on "
-            "merge."
-        )
+        acceptance.append("Infra changes run `terraform plan` on PRs and a gated `apply` on merge.")
 
     body = (
         f"Implement the CI/CD pipeline specified in "

@@ -125,9 +125,7 @@ def save_catalog(repo_root: Path, catalog: TestsCatalog) -> Path:
     final_path = _catalog_path(repo_root)
     tmp_path = _catalog_tmp_path(repo_root)
 
-    payload = json.dumps(
-        catalog.to_dict(), indent=2, sort_keys=True, ensure_ascii=False
-    )
+    payload = json.dumps(catalog.to_dict(), indent=2, sort_keys=True, ensure_ascii=False)
 
     tmp_path.write_text(payload, encoding="utf-8")
     os.replace(tmp_path, final_path)

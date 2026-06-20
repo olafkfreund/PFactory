@@ -26,12 +26,15 @@ _BACKEND_REGISTRY: dict[str, tuple[str, str]] = {
     "env": ("pfactory_secrets.backends.env", "EnvBackend"),
     "localfile": ("pfactory_secrets.backends.localfile", "LocalFileBackend"),
     "vault": ("pfactory_secrets.backends.vault", "VaultBackend"),
-    "azure_keyvault": (
-        "pfactory_secrets.backends.azure_keyvault", "AzureKeyVaultBackend"),
+    "azure_keyvault": ("pfactory_secrets.backends.azure_keyvault", "AzureKeyVaultBackend"),
     "aws_secrets_manager": (
-        "pfactory_secrets.backends.aws_secrets_manager", "AwsSecretsManagerBackend"),
+        "pfactory_secrets.backends.aws_secrets_manager",
+        "AwsSecretsManagerBackend",
+    ),
     "gcp_secret_manager": (
-        "pfactory_secrets.backends.gcp_secret_manager", "GcpSecretManagerBackend"),
+        "pfactory_secrets.backends.gcp_secret_manager",
+        "GcpSecretManagerBackend",
+    ),
 }
 
 # Recognised backends whose implementation lands in a later child issue.
@@ -70,10 +73,7 @@ def resolve_canonical(name: str) -> str:
     """Resolve a backend name/alias to its canonical name."""
     canonical = _ALIASES.get(name.strip().lower())
     if canonical is None:
-        raise ValueError(
-            f"Unknown secrets backend {name!r}. "
-            f"Supported: {sorted(set(_ALIASES))}"
-        )
+        raise ValueError(f"Unknown secrets backend {name!r}. Supported: {sorted(set(_ALIASES))}")
     return canonical
 
 

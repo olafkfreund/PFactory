@@ -55,9 +55,7 @@ def create_claude_resolver() -> AIResolver:
     # Get model settings from environment (passed from frontend)
     model, thinking_budget = get_utility_model_config()
 
-    logger.info(
-        f"Merge resolver using model={model}, thinking_budget={thinking_budget}"
-    )
+    logger.info(f"Merge resolver using model={model}, thinking_budget={thinking_budget}")
 
     def call_claude(system: str, user: str) -> str:
         """Call Claude using the Agent SDK for merge resolution."""

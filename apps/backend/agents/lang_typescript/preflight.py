@@ -43,9 +43,10 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ def _default_runner(
     Returns:
         A DockerRunResult with .returncode, .stdout, .stderr.
     """
-    from tools.runners.docker_runner import DockerRunner  # noqa: PLC0415
+    from tools.runners.docker_runner import DockerRunner
 
     runner = DockerRunner(image=image, timeout=timeout)
     return runner.run(cmd, cwd=cwd)
@@ -264,7 +265,7 @@ def run_ts_preflight(
             other_errors=("tsc invocation timed out",),
             raw_output="",
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("tsc runner raised: %s", exc)
         return TSPreflightReport(
             test_file=test_file,

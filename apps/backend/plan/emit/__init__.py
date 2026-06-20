@@ -10,9 +10,9 @@ from plan.emit.github_emitter import EmitResult, emit_to_github
 
 __all__ = [
     "EmitResult",
-    "emit_to_github",
     "build_requirements",
-    "write_requirements",
-    "trigger_api",
+    "emit_to_github",
     "handover_labels",
+    "trigger_api",
+    "write_requirements",
 ]

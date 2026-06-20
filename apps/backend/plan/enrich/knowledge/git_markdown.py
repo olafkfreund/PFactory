@@ -62,11 +62,7 @@ def _best_snippet(body: str, query_terms: set[str]) -> str:
         return ""
     lowered = body.lower()
     # Find positions of any query term; centre a window on the densest cluster.
-    positions = [
-        m.start()
-        for m in _WORD_RE.finditer(lowered)
-        if m.group(0) in query_terms
-    ]
+    positions = [m.start() for m in _WORD_RE.finditer(lowered) if m.group(0) in query_terms]
     if not positions:
         return body[:_SNIPPET_WINDOW].strip()
     half = _SNIPPET_WINDOW // 2

@@ -177,7 +177,9 @@ class Story:
         description = subtask_data["description"]
 
         # Generate basic user story from description
-        user_story = f"As a developer, I want to {description.lower()} so that the feature works correctly"
+        user_story = (
+            f"As a developer, I want to {description.lower()} so that the feature works correctly"
+        )
 
         # Generate basic acceptance criteria
         acceptance_criteria = [

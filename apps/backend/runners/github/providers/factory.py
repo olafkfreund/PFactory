@@ -81,10 +81,12 @@ def get_provider(
 
     if provider_type == ProviderType.GITLAB:
         from .gitlab_provider import GitLabProvider
+
         return GitLabProvider(_repo=repo, **kwargs)
 
     if provider_type == ProviderType.AZURE_DEVOPS:
         from .azure_devops_provider import AzureDevOpsProvider
+
         return AzureDevOpsProvider(_repo=repo, **kwargs)
 
     # Future providers (not yet implemented)

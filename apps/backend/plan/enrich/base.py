@@ -69,13 +69,17 @@ class InfraAdapter(abc.ABC):
         try:
             if not self.available():
                 return InfraSnapshot(
-                    adapter=self.name, target=self.target, available=False,
+                    adapter=self.name,
+                    target=self.target,
+                    available=False,
                     error="adapter not available (missing config/credentials)",
                 ).model_dump()
             return self.discover().model_dump()
         except Exception as exc:  # never let enrichment break the pipeline
             return InfraSnapshot(
-                adapter=self.name, target=self.target, available=False,
+                adapter=self.name,
+                target=self.target,
+                available=False,
                 error=f"{type(exc).__name__}: {exc}",
             ).model_dump()
 

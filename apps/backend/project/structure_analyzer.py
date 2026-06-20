@@ -97,9 +97,7 @@ class StructureAnalyzer:
 
         # PEP 621 scripts
         if "project" in toml and "scripts" in toml["project"]:
-            self.custom_scripts.poetry_scripts.extend(
-                list(toml["project"]["scripts"].keys())
-            )
+            self.custom_scripts.poetry_scripts.extend(list(toml["project"]["scripts"].keys()))
 
     def _detect_shell_scripts(self) -> None:
         """Detect shell scripts in root directory."""

@@ -99,14 +99,10 @@ class PlanReview(BaseModel):
         carries a blocking finding. The aggregate is the mean lens score.
         """
         if self.lenses:
-            self.aggregate_score = round(
-                sum(ls.score for ls in self.lenses) / len(self.lenses), 4
-            )
+            self.aggregate_score = round(sum(ls.score for ls in self.lenses) / len(self.lenses), 4)
         else:
             self.aggregate_score = 0.0
-        all_pass = bool(self.lenses) and all(
-            ls.score >= self.threshold for ls in self.lenses
-        )
+        all_pass = bool(self.lenses) and all(ls.score >= self.threshold for ls in self.lenses)
         no_blockers = not any(ls.has_blocking_finding() for ls in self.lenses)
         self.gates_passed = all_pass and no_blockers
         return self
@@ -123,11 +119,7 @@ class PlanReview(BaseModel):
         :class:`ReadinessReport` is attached, any unwaived hard failure blocks
         emission; with no report attached, behaviour is unchanged.
         """
-        base = (
-            self.gates_passed
-            and self.human_approval.approved
-            and self.human_approval.valid
-        )
+        base = self.gates_passed and self.human_approval.approved and self.human_approval.valid
         if self.readiness is None:
             return base
         return base and self.readiness.is_ready(plan)
@@ -136,6 +128,6 @@ class PlanReview(BaseModel):
 # Resolve the forward-referenced ``readiness`` field. Imported at module end (not
 # top) to break the cycle: readiness.models imports Citation/Severity from here,
 # which are defined above before this runs.
-from plan.review.readiness.models import ReadinessReport  # noqa: E402
+from plan.review.readiness.models import ReadinessReport
 
 PlanReview.model_rebuild()

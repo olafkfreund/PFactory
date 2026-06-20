@@ -37,9 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from integrations.graphiti.config import GraphitiConfig
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -184,9 +182,7 @@ class EmbeddingMigrator:
                 name=episode["name"],
                 episode_body=episode["content"] or "",
                 source=episode_type,
-                source_description=episode.get(
-                    "source_description", "Migrated episode"
-                ),
+                source_description=episode.get("source_description", "Migrated episode"),
                 reference_time=valid_at,
                 group_id=episode.get("group_id", "default"),
             )
@@ -279,9 +275,7 @@ async def interactive_migration():
     source_config = GraphitiConfig.from_env()
     source_config.embedder_provider = source_provider
     # Use the source provider's signature for the database name
-    source_config.database = source_config.get_provider_specific_database_name(
-        "magestic_ai_memory"
-    )
+    source_config.database = source_config.get_provider_specific_database_name("magestic_ai_memory")
 
     print(f"\nSource: {source_provider}")
     print(f"Target: {current_config.embedder_provider}")
@@ -289,9 +283,7 @@ async def interactive_migration():
         f"\nThis will migrate all episodes from {source_provider} "
         f"to {current_config.embedder_provider}"
     )
-    print(
-        "Re-embedding may take several minutes depending on the number of episodes.\n"
-    )
+    print("Re-embedding may take several minutes depending on the number of episodes.\n")
 
     confirm = input("Continue? (yes/no): ").strip().lower()
     if confirm != "yes":
@@ -374,9 +366,7 @@ async def automatic_migration(args):
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Migrate Graphiti embeddings between providers"
-    )
+    parser = argparse.ArgumentParser(description="Migrate Graphiti embeddings between providers")
     parser.add_argument(
         "--from-provider",
         choices=["openai", "ollama", "voyage", "google", "azure_openai"],
@@ -392,9 +382,7 @@ def main():
         action="store_true",
         help="Show what would be migrated without actually migrating",
     )
-    parser.add_argument(
-        "--auto-confirm", action="store_true", help="Skip confirmation prompts"
-    )
+    parser.add_argument("--auto-confirm", action="store_true", help="Skip confirmation prompts")
 
     args = parser.parse_args()
 

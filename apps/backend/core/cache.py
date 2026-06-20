@@ -94,9 +94,7 @@ def _make_cache_control(ttl: Literal["ephemeral", "1h"]) -> dict[str, str]:
             guard exists for callers that bypass type checking.
     """
     if ttl not in _VALID_TTLS:
-        raise ValueError(
-            f"Invalid ttl {ttl!r}; must be one of {sorted(_VALID_TTLS)}"
-        )
+        raise ValueError(f"Invalid ttl {ttl!r}; must be one of {sorted(_VALID_TTLS)}")
     if ttl == "1h":
         return {"type": "ephemeral", "ttl": "1h"}
     return {"type": "ephemeral"}
@@ -290,7 +288,9 @@ def build_cached_system_str(
             logger.warning(
                 "Prompt-cache prefix below floor for model %r — "
                 "got ~%d tokens, need ≥%d. Caching will not engage.",
-                model, prefix_tokens, floor,
+                model,
+                prefix_tokens,
+                floor,
             )
 
     # ---------- Mid-process hash-change warning ----------
@@ -298,14 +298,11 @@ def build_cached_system_str(
     # project. A change implies the next API call will be a cache miss
     # (CLAUDE.md edited, project context regenerated, etc.).
     if project_dir is not None and static_parts:
-        prefix_hash = hashlib.sha256(
-            "\n\n".join(static_parts).encode("utf-8")
-        ).hexdigest()
+        prefix_hash = hashlib.sha256("\n\n".join(static_parts).encode("utf-8")).hexdigest()
         prev = _PREFIX_HASHES.get(project_dir)
         if prev is not None and prev != prefix_hash:
             logger.warning(
-                "Prompt-cache prefix changed for %s — cache will be cold "
-                "on the next API call.",
+                "Prompt-cache prefix changed for %s — cache will be cold on the next API call.",
                 project_dir,
             )
         _PREFIX_HASHES[project_dir] = prefix_hash

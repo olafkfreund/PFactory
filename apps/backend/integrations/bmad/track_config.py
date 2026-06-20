@@ -19,6 +19,7 @@ except ImportError:
 @dataclass
 class TrackConfig:
     """Configuration for a planning track."""
+
     track: Track
     display_name: str
     description: str
@@ -34,23 +35,15 @@ QUICK_FLOW_CONFIG = TrackConfig(
     track=Track.QUICK_FLOW,
     display_name="Quick Flow",
     description="Fast iteration for simple tasks (bugs, small features)",
-    phase_pipeline=[
-        "discovery",
-        "tech_spec",
-        "validate"
-    ],
+    phase_pipeline=["discovery", "tech_spec", "validate"],
     estimated_time="5-15 minutes",
     use_cases=[
         "Bug fixes",
         "Small UI changes",
         "Simple feature additions",
-        "Configuration updates"
+        "Configuration updates",
     ],
-    includes=[
-        "Quick discovery of requirements",
-        "Minimal tech spec",
-        "Rapid validation"
-    ]
+    includes=["Quick discovery of requirements", "Minimal tech spec", "Rapid validation"],
 )
 
 STANDARD_CONFIG = TrackConfig(
@@ -64,22 +57,22 @@ STANDARD_CONFIG = TrackConfig(
         "context",
         "spec_writing",
         "planning",
-        "validation"
+        "validation",
     ],
     estimated_time="Hours to days",
     use_cases=[
         "New features",
         "Multi-component changes",
         "Complex systems (with architecture)",
-        "Service integrations"
+        "Service integrations",
     ],
     includes=[
         "Requirements gathering",
         "Architecture design (Level 3+)",
         "Comprehensive spec",
         "Story-based implementation plan",
-        "Validation checks"
-    ]
+        "Validation checks",
+    ],
 )
 
 ENTERPRISE_CONFIG = TrackConfig(
@@ -95,14 +88,14 @@ ENTERPRISE_CONFIG = TrackConfig(
         "spec_writing",
         "planning",
         "devops_planning",
-        "validation"
+        "validation",
     ],
     estimated_time="Days to weeks",
     use_cases=[
         "Enterprise-scale systems",
         "Multi-product platforms",
         "Compliance-heavy projects",
-        "Critical infrastructure"
+        "Critical infrastructure",
     ],
     includes=[
         "Full requirements analysis",
@@ -110,8 +103,8 @@ ENTERPRISE_CONFIG = TrackConfig(
         "Security & compliance checks",
         "DevOps planning",
         "Comprehensive documentation",
-        "Thorough validation"
-    ]
+        "Thorough validation",
+    ],
 )
 
 
@@ -119,7 +112,7 @@ ENTERPRISE_CONFIG = TrackConfig(
 TRACK_REGISTRY = {
     Track.QUICK_FLOW: QUICK_FLOW_CONFIG,
     Track.STANDARD: STANDARD_CONFIG,
-    Track.ENTERPRISE: ENTERPRISE_CONFIG
+    Track.ENTERPRISE: ENTERPRISE_CONFIG,
 }
 
 
@@ -219,7 +212,9 @@ def compare_tracks() -> str:
     comparison += "| **DevOps Planning** | No | No | Yes |\n"
 
     # Best For
-    comparison += "| **Best For** | Bugs, small changes | Features, systems | Enterprise, compliance |\n"
+    comparison += (
+        "| **Best For** | Bugs, small changes | Features, systems | Enterprise, compliance |\n"
+    )
 
     return comparison
 

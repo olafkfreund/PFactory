@@ -77,9 +77,9 @@ class BackstageConnector(KnowledgeConnector):
         if self._http is not None:
             return self._http
         try:
-            import requests  # noqa: PLC0415 - lazy import keeps deps optional
+            import requests
         except ImportError:  # pragma: no cover - fall back to httpx
-            import httpx  # noqa: PLC0415
+            import httpx
 
             self._http = httpx.Client()
         else:

@@ -225,16 +225,18 @@ class CodexAgenticProvider(BaseLLMProvider):
 
         # Send initialize
         init_id = self._next_id()
-        await self._send_message({
-            "jsonrpc": "2.0",
-            "id": init_id,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": _MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": _CLIENT_INFO,
-            },
-        })
+        await self._send_message(
+            {
+                "jsonrpc": "2.0",
+                "id": init_id,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": _MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": _CLIENT_INFO,
+                },
+            }
+        )
 
         response = await self._read_response(init_id)
         server_info = response.get("result", {}).get("serverInfo", {})
@@ -257,7 +259,7 @@ class CodexAgenticProvider(BaseLLMProvider):
                     self._proc.stdin.close()
                 self._proc.terminate()
                 await asyncio.wait_for(self._proc.wait(), timeout=5.0)
-            except (ProcessLookupError, asyncio.TimeoutError):
+            except (TimeoutError, ProcessLookupError):
                 try:
                     self._proc.kill()
                 except ProcessLookupError:
@@ -303,15 +305,17 @@ class CodexAgenticProvider(BaseLLMProvider):
             arguments["threadId"] = self._thread_id
 
         call_id = self._next_id()
-        await self._send_message({
-            "jsonrpc": "2.0",
-            "id": call_id,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arguments,
-            },
-        })
+        await self._send_message(
+            {
+                "jsonrpc": "2.0",
+                "id": call_id,
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments,
+                },
+            }
+        )
 
         logger.info(
             "CodexAgenticProvider: sent %s call (id=%d, model=%s, cwd=%s)",

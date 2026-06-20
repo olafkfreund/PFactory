@@ -171,9 +171,7 @@ class TaskFileView:
         return {
             "task_id": self.task_id,
             "branch_point": self.branch_point.to_dict(),
-            "worktree_state": self.worktree_state.to_dict()
-            if self.worktree_state
-            else None,
+            "worktree_state": self.worktree_state.to_dict() if self.worktree_state else None,
             "task_intent": self.task_intent.to_dict(),
             "commits_behind_main": self.commits_behind_main,
             "status": self.status,
@@ -193,9 +191,7 @@ class TaskFileView:
             else TaskIntent("", ""),
             commits_behind_main=data.get("commits_behind_main", 0),
             status=data.get("status", "active"),
-            merged_at=datetime.fromisoformat(data["merged_at"])
-            if data.get("merged_at")
-            else None,
+            merged_at=datetime.fromisoformat(data["merged_at"]) if data.get("merged_at") else None,
         )
 
 

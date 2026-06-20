@@ -80,8 +80,9 @@ def package_run(
                 shutil.copy2(src, shots / dst_name)
                 rel = f"screenshots/{dst_name}"
         placed.append(
-            StepResult(n=step.n, label=step.label, state=step.state,
-                       screenshot=rel, error=step.error)
+            StepResult(
+                n=step.n, label=step.label, state=step.state, screenshot=rel, error=step.error
+            )
         )
 
     # Copy the recording, re-pointing meta to the run-relative paths.
@@ -89,8 +90,13 @@ def package_run(
     trace_rel = _copy_if(evidence, meta.trace, rec, "trace.zip")
 
     placed_meta = RunMeta(
-        id=meta.id, target=meta.target, created_at=meta.created_at,
-        steps=placed, video=video_rel, trace=trace_rel, verdict=meta.verdict,
+        id=meta.id,
+        target=meta.target,
+        created_at=meta.created_at,
+        steps=placed,
+        video=video_rel,
+        trace=trace_rel,
+        verdict=meta.verdict,
     )
 
     meta_json = run_dir / "meta.json"

@@ -82,18 +82,18 @@ logger = logging.getLogger(__name__)
 class FlakeRiskHit:
     """A single flake-risk pattern occurrence."""
 
-    pattern: str          # one of the 5 pattern keys below
-    severity: str         # 'high' or 'medium'
+    pattern: str  # one of the 5 pattern keys below
+    severity: str  # 'high' or 'medium'
     lineno: int
-    detail: str           # short human-readable explanation
-    snippet: str = ""     # the offending source line (best effort)
+    detail: str  # short human-readable explanation
+    snippet: str = ""  # the offending source line (best effort)
 
 
 @dataclass
 class FlakeRiskResult:
     """Aggregate scan outcome."""
 
-    ok: bool              # True only if no 'high' severity hits
+    ok: bool  # True only if no 'high' severity hits
     hits: list[FlakeRiskHit] = field(default_factory=list)
     syntax_error: str | None = None
 
@@ -129,26 +129,47 @@ _PATTERN_SEVERITY = {
 
 # Imports/symbols that signal "the test froze time" — presence of any of
 # these in the source bypasses the datetime_now check.
-_FREEZE_IMPORTS = frozenset({
-    "freezegun",
-    "freeze_time",
-    "time_machine",
-    "freezer",     # pytest-freezer
-})
+_FREEZE_IMPORTS = frozenset(
+    {
+        "freezegun",
+        "freeze_time",
+        "time_machine",
+        "freezer",  # pytest-freezer
+    }
+)
 
 # Imports/symbols that signal "the test seeded random" — presence bypasses
 # the random_no_seed check. A direct call to random.seed() is also a bypass.
-_SEED_HINTS = frozenset({
-    "pytest_randomly",   # pytest plugin that auto-seeds
-})
+_SEED_HINTS = frozenset(
+    {
+        "pytest_randomly",  # pytest plugin that auto-seeds
+    }
+)
 
 # random.* methods that consume entropy (we flag these without a seed).
-_RANDOM_ENTROPY_METHODS = frozenset({
-    "random", "uniform", "randint", "randrange", "choice", "choices",
-    "sample", "shuffle", "getrandbits", "betavariate", "expovariate",
-    "gammavariate", "gauss", "lognormvariate", "normalvariate",
-    "paretovariate", "triangular", "vonmisesvariate", "weibullvariate",
-})
+_RANDOM_ENTROPY_METHODS = frozenset(
+    {
+        "random",
+        "uniform",
+        "randint",
+        "randrange",
+        "choice",
+        "choices",
+        "sample",
+        "shuffle",
+        "getrandbits",
+        "betavariate",
+        "expovariate",
+        "gammavariate",
+        "gauss",
+        "lognormvariate",
+        "normalvariate",
+        "paretovariate",
+        "triangular",
+        "vonmisesvariate",
+        "weibullvariate",
+    }
+)
 
 
 # ─── The visitor ─────────────────────────────────────────────────────────
@@ -177,13 +198,15 @@ class _FlakeRiskVisitor(ast.NodeVisitor):
         return ""
 
     def _hit(self, pattern: str, lineno: int, detail: str) -> None:
-        self.hits.append(FlakeRiskHit(
-            pattern=pattern,
-            severity=_PATTERN_SEVERITY[pattern],
-            lineno=lineno,
-            detail=detail,
-            snippet=self._snippet(lineno),
-        ))
+        self.hits.append(
+            FlakeRiskHit(
+                pattern=pattern,
+                severity=_PATTERN_SEVERITY[pattern],
+                lineno=lineno,
+                detail=detail,
+                snippet=self._snippet(lineno),
+            )
+        )
 
     # ─── Pattern 1+2: dict / set iteration order ─────────────────────────
 
@@ -218,9 +241,7 @@ class _FlakeRiskVisitor(ast.NodeVisitor):
                     f"sort both sides or use sets",
                 )
 
-    def _maybe_flag_dict_via_list_call(
-        self, side: ast.AST, other: ast.AST, lineno: int
-    ) -> None:
+    def _maybe_flag_dict_via_list_call(self, side: ast.AST, other: ast.AST, lineno: int) -> None:
         """`list(d) == [...]`, `list(d.keys()) == [...]`, `tuple(s) == (...)` etc."""
         if not isinstance(side, ast.Call):
             return
@@ -312,14 +333,11 @@ class _FlakeRiskVisitor(ast.NodeVisitor):
             chain = func.value
             # Accept Name('datetime') OR Attribute(datetime, datetime) i.e.
             # `datetime.datetime.now()`.
-            is_datetime_chain = (
-                (isinstance(chain, ast.Name) and chain.id == "datetime")
-                or (
-                    isinstance(chain, ast.Attribute)
-                    and isinstance(chain.value, ast.Name)
-                    and chain.value.id == "datetime"
-                    and chain.attr == "datetime"
-                )
+            is_datetime_chain = (isinstance(chain, ast.Name) and chain.id == "datetime") or (
+                isinstance(chain, ast.Attribute)
+                and isinstance(chain.value, ast.Name)
+                and chain.value.id == "datetime"
+                and chain.attr == "datetime"
             )
             if is_datetime_chain:
                 self._hit(
@@ -382,9 +400,7 @@ def _has_random_seed_call(tree: ast.AST) -> bool:
             ):
                 return True
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            names_module = (
-                getattr(node, "module", None) or ""
-            ).split(".")[0]
+            names_module = (getattr(node, "module", None) or "").split(".")[0]
             if names_module in _SEED_HINTS:
                 return True
             for alias in getattr(node, "names", []):

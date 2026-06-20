@@ -150,9 +150,7 @@ def select_menu(
                 content.append(muted(f"      {opt.description}"))
 
         content.append("")
-        nav_hint = muted(
-            f"{icon(Icons.ARROW_UP)}{icon(Icons.ARROW_DOWN)} Navigate  Enter Select"
-        )
+        nav_hint = muted(f"{icon(Icons.ARROW_UP)}{icon(Icons.ARROW_DOWN)} Navigate  Enter Select")
         if allow_quit:
             nav_hint += muted("  q Quit")
         content.append(nav_hint)
@@ -173,18 +171,14 @@ def select_menu(
 
         if key == "UP" or key == "k":
             # Find previous valid option
-            current_idx = (
-                valid_options.index(selected) if selected in valid_options else 0
-            )
+            current_idx = valid_options.index(selected) if selected in valid_options else 0
             if current_idx > 0:
                 selected = valid_options[current_idx - 1]
                 render()
 
         elif key == "DOWN" or key == "j":
             # Find next valid option
-            current_idx = (
-                valid_options.index(selected) if selected in valid_options else 0
-            )
+            current_idx = valid_options.index(selected) if selected in valid_options else 0
             if current_idx < len(valid_options) - 1:
                 selected = valid_options[current_idx + 1]
                 render()

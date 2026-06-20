@@ -9,6 +9,7 @@ from pathlib import Path
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+
 def test_template_matching():
     """Test template pattern matching."""
     print("=" * 60)
@@ -71,9 +72,7 @@ def test_quick_spec_generation():
         print(f"  Generating spec in: {temp_dir}")
 
         # Generate spec and plan
-        spec_file, plan_file = create_quick_spec_from_template(
-            temp_dir, task, template
-        )
+        spec_file, plan_file = create_quick_spec_from_template(temp_dir, task, template)
 
         # Verify files exist
         if spec_file.exists() and plan_file.exists():
@@ -84,10 +83,10 @@ def test_quick_spec_generation():
             # Show spec content
             print("\n--- spec.md preview ---")
             spec_content = spec_file.read_text()
-            lines = spec_content.split('\n')[:15]
+            lines = spec_content.split("\n")[:15]
             for line in lines:
                 print(f"  {line}")
-            if len(spec_content.split('\n')) > 15:
+            if len(spec_content.split("\n")) > 15:
                 print("  ...")
 
             print("\n✓ Quick spec generated in < 0.1 seconds")
@@ -157,27 +156,25 @@ Add dark mode toggle to the settings page.
                             "description": "Add toggle component to settings",
                             "status": "completed",
                             "files_to_create": [],
-                            "files_to_modify": ["src/Settings.tsx"]
+                            "files_to_modify": ["src/Settings.tsx"],
                         },
                         {
                             "id": "subtask-1-2",
                             "description": "Add dark mode CSS variables",
                             "status": "in_progress",
                             "files_to_create": [],
-                            "files_to_modify": ["src/theme.css"]
-                        }
-                    ]
+                            "files_to_modify": ["src/theme.css"],
+                        },
+                    ],
                 }
             ],
             "metadata": {
                 "complexity": "simple",
                 "estimated_sessions": 1,
-                "created_at": "2026-01-08T12:00:00"
-            }
+                "created_at": "2026-01-08T12:00:00",
+            },
         }
-        (temp_dir / "test_plan.json").write_text(
-            json.dumps(plan, indent=2)
-        )
+        (temp_dir / "test_plan.json").write_text(json.dumps(plan, indent=2))
 
         print(f"\n✓ Sample spec created in: {temp_dir}")
         print("  Files: spec.md, test_plan.json")
@@ -207,6 +204,7 @@ Add dark mode toggle to the settings page.
     except Exception as e:
         print(f"✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
 
     finally:
@@ -270,6 +268,7 @@ def main():
     except Exception as e:
         print(f"\n✗ Test suite failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

@@ -62,8 +62,14 @@ def assess_feasibility(plan: NormalizedPlan, epic: EpicPlan) -> FeasibilityResul
                 ),
                 severity="info",
                 source="feasibility-cost",
-                citations=[Citation(why="Cost must be weighed before committing infra work.",
-                                    uri=_PRICING_DOCS, title="Cloud pricing", source=cost.source or "pricing")],
+                citations=[
+                    Citation(
+                        why="Cost must be weighed before committing infra work.",
+                        uri=_PRICING_DOCS,
+                        title="Cloud pricing",
+                        source=cost.source or "pricing",
+                    )
+                ],
             )
         )
         budget = _budget_threshold()
@@ -78,8 +84,14 @@ def assess_feasibility(plan: NormalizedPlan, epic: EpicPlan) -> FeasibilityResul
                     severity="high",
                     source="feasibility-cost",
                     blocking=False,
-                    citations=[Citation(why="Spending above the agreed budget needs sign-off.",
-                                        uri=_PRICING_DOCS, title="Cloud pricing", source="budget-policy")],
+                    citations=[
+                        Citation(
+                            why="Spending above the agreed budget needs sign-off.",
+                            uri=_PRICING_DOCS,
+                            title="Cloud pricing",
+                            source="budget-policy",
+                        )
+                    ],
                 )
             )
 

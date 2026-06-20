@@ -48,9 +48,7 @@ def handle_batch_create_command(batch_file: str, project_dir: str) -> bool:
 
     # Find next spec ID
     existing_specs = [d.name for d in specs_dir.iterdir() if d.is_dir()]
-    next_id = (
-        max([int(s.split("-")[0]) for s in existing_specs if s[0].isdigit()] or [0]) + 1
-    )
+    next_id = max([int(s.split("-")[0]) for s in existing_specs if s[0].isdigit()] or [0]) + 1
 
     created_specs = []
 
@@ -91,9 +89,7 @@ def handle_batch_create_command(batch_file: str, project_dir: str) -> bool:
             }
         )
 
-        print_status(
-            f"[{idx}/{len(tasks)}] Created {spec_id} - {task_title}", "success"
-        )
+        print_status(f"[{idx}/{len(tasks)}] Created {spec_id} - {task_title}", "success")
         next_id += 1
 
     print()

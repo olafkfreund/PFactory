@@ -64,7 +64,7 @@ class VaultBackend(SecretsBackend):
         client = hvac.Client(url=self._addr, token=self._token or None)
         try:
             resp = client.read(ref.locator)
-        except Exception as exc:  # noqa: BLE001 - hvac raises various types
+        except Exception as exc:
             raise SecretsError(f"Vault read of {ref.locator!r} failed: {exc}") from exc
         if not resp:
             raise SecretNotFoundError(f"Vault path not found: {ref.locator}")
@@ -88,9 +88,7 @@ def _select(data: dict, field: str | None, path: str) -> str:
     # No field: if there's exactly one key, return it; else require a field.
     if len(data) == 1:
         return str(next(iter(data.values())))
-    raise SecretsError(
-        f"Vault path {path} has multiple keys {sorted(data)}; specify '#<field>'."
-    )
+    raise SecretsError(f"Vault path {path} has multiple keys {sorted(data)}; specify '#<field>'.")
 
 
 def _host_of(addr: str) -> str | None:

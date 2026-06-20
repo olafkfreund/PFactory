@@ -45,9 +45,7 @@ def debug_memory_system_status() -> None:
     debug(
         "memory",
         "Memory system configuration",
-        primary_system="Graphiti"
-        if graphiti_status.get("available")
-        else "File-based (fallback)",
+        primary_system="Graphiti" if graphiti_status.get("available") else "File-based (fallback)",
         graphiti_enabled=graphiti_status.get("enabled"),
         graphiti_available=graphiti_status.get("available"),
     )
@@ -205,9 +203,7 @@ async def get_graphiti_context(
                 gotcha_text = g.get("gotcha", "")
                 solution = g.get("solution", "")
                 if solution:
-                    sections.append(
-                        f"- **Gotcha**: {gotcha_text}\n  _Solution:_ {solution}\n"
-                    )
+                    sections.append(f"- **Gotcha**: {gotcha_text}\n  _Solution:_ {solution}\n")
                 else:
                     sections.append(f"- **Gotcha**: {gotcha_text}\n")
 
@@ -223,9 +219,7 @@ async def get_graphiti_context(
                     sections.append("")
 
         if is_debug_enabled():
-            debug_success(
-                "memory", "Graphiti context formatted", total_sections=len(sections)
-            )
+            debug_success("memory", "Graphiti context formatted", total_sections=len(sections))
 
         return "\n".join(sections)
 
@@ -354,9 +348,7 @@ async def save_session_memory(
                 await memory.close()
 
                 if result:
-                    logger.info(
-                        f"Session {session_num} insights saved to Graphiti (primary)"
-                    )
+                    logger.info(f"Session {session_num} insights saved to Graphiti (primary)")
                     if is_debug_enabled():
                         debug_success(
                             "memory",
@@ -366,21 +358,13 @@ async def save_session_memory(
                         )
                     return True, "graphiti"
                 else:
-                    logger.warning(
-                        "Graphiti save returned False, falling back to file-based"
-                    )
+                    logger.warning("Graphiti save returned False, falling back to file-based")
                     if is_debug_enabled():
-                        debug_warning(
-                            "memory", "Graphiti save returned False, using FALLBACK"
-                        )
+                        debug_warning("memory", "Graphiti save returned False, using FALLBACK")
             else:
-                logger.warning(
-                    "Graphiti memory not enabled, falling back to file-based"
-                )
+                logger.warning("Graphiti memory not enabled, falling back to file-based")
                 if is_debug_enabled():
-                    debug_warning(
-                        "memory", "GraphitiMemory.is_enabled=False, using FALLBACK"
-                    )
+                    debug_warning("memory", "GraphitiMemory.is_enabled=False, using FALLBACK")
 
         except ImportError as e:
             logger.debug("Graphiti packages not installed, falling back to file-based")
@@ -409,9 +393,7 @@ async def save_session_memory(
             )
 
         save_file_based_memory(spec_dir, session_num, insights)
-        logger.info(
-            f"Session {session_num} insights saved to file-based memory (fallback)"
-        )
+        logger.info(f"Session {session_num} insights saved to file-based memory (fallback)")
 
         if is_debug_enabled():
             debug_success(

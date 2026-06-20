@@ -53,9 +53,7 @@ def main():
     """CLI entry point for manual review."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Human review checkpoint for pfactory specs"
-    )
+    parser = argparse.ArgumentParser(description="Human review checkpoint for pfactory specs")
     parser.add_argument(
         "--spec-dir",
         type=str,

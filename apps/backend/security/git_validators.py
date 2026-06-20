@@ -135,6 +135,7 @@ def validate_git_commit(command_string: str) -> ValidationResult:
             # Still scan staged files for secrets
             try:
                 from scan_secrets import get_staged_files, scan_files
+
                 staged_files = get_staged_files()
                 if staged_files:
                     matches = scan_files(staged_files, Path.cwd())
@@ -155,9 +156,7 @@ def validate_git_commit(command_string: str) -> ValidationResult:
     # Defense-in-depth: auto-unstage any .pfactory/ spec artifacts
     unstaged = _unstage_spec_artifacts()
     if unstaged:
-        logger.info(
-            "Removed %d spec artifact(s) from staging before commit", len(unstaged)
-        )
+        logger.info("Removed %d spec artifact(s) from staging before commit", len(unstaged))
 
     # Import the secret scanner
     try:

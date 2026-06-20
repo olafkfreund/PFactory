@@ -10,7 +10,7 @@ before the plan can be emitted.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from plan.models import NormalizedPlan
@@ -23,7 +23,7 @@ class ApprovalError(RuntimeError):
 
 def _utcnow_iso() -> str:
     """Return the current UTC time as an ISO-8601 string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _plan_hash(plan: NormalizedPlan) -> str:
@@ -58,9 +58,7 @@ def approve(
         ApprovalError: If ``review.gates_passed`` is False.
     """
     if not review.gates_passed:
-        raise ApprovalError(
-            "cannot approve a plan that failed the automated review gates"
-        )
+        raise ApprovalError("cannot approve a plan that failed the automated review gates")
     if review.readiness is not None:
         unwaived = review.readiness.unwaived_hard_failures(plan)
         if unwaived:
@@ -121,11 +119,7 @@ def is_valid(review: PlanReview, plan: NormalizedPlan) -> bool:
     False (hash invalidation).
     """
     approval = review.human_approval
-    return (
-        approval.approved
-        and approval.valid
-        and approval.plan_hash == plan.compute_hash()
-    )
+    return approval.approved and approval.valid and approval.plan_hash == plan.compute_hash()
 
 
 def revalidate(review: PlanReview, plan: NormalizedPlan) -> PlanReview:

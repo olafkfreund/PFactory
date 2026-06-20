@@ -57,7 +57,11 @@ def default_lenses() -> list[Lens]:
     )
 
     order = [
-        "feasibility", "architecture", "security", "best-practices", "completeness",
+        "feasibility",
+        "architecture",
+        "security",
+        "best-practices",
+        "completeness",
     ]
     seen = list(order)
     seen.extend(n for n in _REGISTRY if n not in order)

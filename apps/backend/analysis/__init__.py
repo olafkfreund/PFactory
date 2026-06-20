@@ -29,13 +29,13 @@ from .test_discovery import TestDiscovery
 # Import it directly when needed: from analysis import insight_extractor
 
 __all__ = [
-    "ProjectAnalyzer",
+    "CIDiscovery",
     "ModularProjectAnalyzer",
-    "ServiceAnalyzer",
-    "analyze_project",
-    "analyze_service",
+    "ProjectAnalyzer",
     "RiskClassifier",
     "SecurityScanner",
-    "CIDiscovery",
+    "ServiceAnalyzer",
     "TestDiscovery",
+    "analyze_project",
+    "analyze_service",
 ]

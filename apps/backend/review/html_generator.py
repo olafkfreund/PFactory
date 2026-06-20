@@ -40,7 +40,9 @@ def extract_overview_from_spec(spec_content: str) -> str:
         return first_para
 
     # Fallback: try to extract from first heading content
-    first_content = re.search(r"^#[^#].*?\n\n(.*?)(?=\n##|\Z)", spec_content, re.DOTALL | re.MULTILINE)
+    first_content = re.search(
+        r"^#[^#].*?\n\n(.*?)(?=\n##|\Z)", spec_content, re.DOTALL | re.MULTILINE
+    )
     if first_content:
         text = first_content.group(1).strip()
         if len(text) > 300:
@@ -63,28 +65,18 @@ def extract_success_criteria(spec_content: str) -> list[str]:
 
     # Find Success Criteria section
     criteria_match = re.search(
-        r"## Success Criteria\s*\n(.*?)(?=\n##|\Z)",
-        spec_content,
-        re.DOTALL | re.IGNORECASE
+        r"## Success Criteria\s*\n(.*?)(?=\n##|\Z)", spec_content, re.DOTALL | re.IGNORECASE
     )
 
     if criteria_match:
         criteria_text = criteria_match.group(1)
         # Extract checkbox items or list items
-        checkbox_items = re.findall(
-            r"^\s*[-*]\s*\[[ x]\]\s*(.+)$",
-            criteria_text,
-            re.MULTILINE
-        )
+        checkbox_items = re.findall(r"^\s*[-*]\s*\[[ x]\]\s*(.+)$", criteria_text, re.MULTILINE)
         if checkbox_items:
             criteria = checkbox_items
         else:
             # Try regular list items
-            list_items = re.findall(
-                r"^\s*[-*]\s+(.+)$",
-                criteria_text,
-                re.MULTILINE
-            )
+            list_items = re.findall(r"^\s*[-*]\s+(.+)$", criteria_text, re.MULTILINE)
             criteria = list_items
 
     return criteria[:10]  # Limit to first 10
@@ -99,11 +91,7 @@ def extract_workflow_type(spec_content: str) -> str:
     Returns:
         Workflow type string or "standard"
     """
-    workflow_match = re.search(
-        r"\*\*Type\*\*:\s*(\w+)",
-        spec_content,
-        re.IGNORECASE
-    )
+    workflow_match = re.search(r"\*\*Type\*\*:\s*(\w+)", spec_content, re.IGNORECASE)
     if workflow_match:
         return workflow_match.group(1).lower()
     return "standard"
@@ -127,10 +115,7 @@ def calculate_progress(plan: dict) -> int:
         return 0
 
     completed_subtasks = sum(
-        1
-        for p in phases
-        for c in p.get("subtasks", [])
-        if c.get("status") == "completed"
+        1 for p in phases for c in p.get("subtasks", []) if c.get("status") == "completed"
     )
 
     return int((completed_subtasks / total_subtasks) * 100)
@@ -215,10 +200,7 @@ def generate_html_plan_review(spec_dir: Path, output_path: Path | None = None) -
     total_phases = len(phases)
     total_subtasks = sum(len(p.get("subtasks", [])) for p in phases)
     completed_subtasks = sum(
-        1
-        for p in phases
-        for c in p.get("subtasks", [])
-        if c.get("status") == "completed"
+        1 for p in phases for c in p.get("subtasks", []) if c.get("status") == "completed"
     )
 
     # Add status to each phase

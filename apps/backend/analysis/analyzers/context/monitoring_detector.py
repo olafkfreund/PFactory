@@ -67,9 +67,7 @@ class MonitoringDetector(BaseAnalyzer):
     def _detect_prometheus(self) -> dict[str, str] | None:
         """Detect Prometheus metrics endpoint."""
         # Look for actual Prometheus imports/usage, not just keywords
-        all_files = (
-            list(self.path.glob("**/*.py"))[:30] + list(self.path.glob("**/*.js"))[:30]
-        )
+        all_files = list(self.path.glob("**/*.py"))[:30] + list(self.path.glob("**/*.js"))[:30]
 
         for file_path in all_files:
             # Skip analyzer files to avoid self-detection
@@ -100,10 +98,7 @@ class MonitoringDetector(BaseAnalyzer):
 
     def _get_apm_tools(self) -> list[str] | None:
         """Get APM tools from existing services analysis."""
-        if (
-            "services" not in self.analysis
-            or "monitoring" not in self.analysis["services"]
-        ):
+        if "services" not in self.analysis or "monitoring" not in self.analysis["services"]:
             return None
 
         return [s["type"] for s in self.analysis["services"]["monitoring"]]

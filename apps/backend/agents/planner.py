@@ -179,9 +179,7 @@ async def run_followup_planner(
                 return True
             else:
                 print()
-                print_status(
-                    "Warning: No pending subtasks found after planning", "warning"
-                )
+                print_status("Warning: No pending subtasks found after planning", "warning")
                 print(muted("The planner may not have added new subtasks."))
                 print(muted("Check test_plan.json manually."))
                 status_manager.update(state=BuildState.PAUSED)
@@ -219,14 +217,14 @@ import json
 import logging as _logging
 import os
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 _planner_log = _logging.getLogger(__name__ + ".pfactory")
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _read_status(spec_dir: Path) -> dict:
@@ -346,9 +344,7 @@ async def _invoke_session(
     from task_logger import LogPhase
 
     async with client:
-        return await run_agent_session(
-            client, prompt, spec_dir, verbose, phase=LogPhase.PLANNING
-        )
+        return await run_agent_session(client, prompt, spec_dir, verbose, phase=LogPhase.PLANNING)
 
 
 def _validate_emitted_plan(spec_dir: Path) -> tuple[bool, str, object | None]:
@@ -434,9 +430,7 @@ def _validate_emitted_plan(spec_dir: Path) -> tuple[bool, str, object | None]:
                 )
             # Lane not supported by this framework.
             lane_str = st.lane.value if hasattr(st.lane, "value") else str(st.lane)
-            supported = [
-                ln.value if hasattr(ln, "value") else str(ln) for ln in descriptor.lanes
-            ]
+            supported = [ln.value if hasattr(ln, "value") else str(ln) for ln in descriptor.lanes]
             if lane_str not in supported:
                 return (
                     False,
@@ -598,9 +592,7 @@ async def run_planner(
         return await _run_planner_replan(spec_dir, project_dir, verbose)
 
     try:
-        _write_status_patch(
-            spec_dir, status="planning", phase="planner_initial_started"
-        )
+        _write_status_patch(spec_dir, status="planning", phase="planner_initial_started")
 
         # Build the system prompt (loads planner.md + prepends SPEC CONTEXT)
         from prompts_pkg.prompts import get_pfactory_planner_prompt
@@ -611,9 +603,7 @@ async def run_planner(
         client = await _resolve_planner_client(spec_dir, project_dir)
 
         # Run the agent session — agent's Write tool emits test_plan.json
-        session_status, _response, _err = await _invoke_session(
-            client, prompt, spec_dir, verbose
-        )
+        session_status, _response, _err = await _invoke_session(client, prompt, spec_dir, verbose)
         if session_status == "error":
             _write_status_patch(
                 spec_dir,
@@ -679,8 +669,7 @@ async def run_planner(
             subtask_count = _HARD_SUBTASK_CAP
         elif subtask_count > _SOFT_SUBTASK_WARN:
             warnings.append(
-                f"emitted {subtask_count} subtasks "
-                f"(soft warning above {_SOFT_SUBTASK_WARN})"
+                f"emitted {subtask_count} subtasks (soft warning above {_SOFT_SUBTASK_WARN})"
             )
 
         if subtask_count == 0:
@@ -689,9 +678,7 @@ async def run_planner(
                 status="planned_empty",
                 phase="planner_initial_complete",
                 planner_warnings=warnings
-                + [
-                    "agent emitted 0 subtasks — downstream pipeline will have nothing to do"
-                ],
+                + ["agent emitted 0 subtasks — downstream pipeline will have nothing to do"],
                 subtask_count=0,
             )
             _advance_to_gen_functional(spec_dir, project_dir)
@@ -773,9 +760,7 @@ async def _run_planner_replan(
 
         prompt = get_pfactory_planner_replan_prompt(spec_dir, project_dir)
         client = await _resolve_planner_client(spec_dir, project_dir)
-        session_status, _response, _err = await _invoke_session(
-            client, prompt, spec_dir, verbose
-        )
+        session_status, _response, _err = await _invoke_session(client, prompt, spec_dir, verbose)
         if session_status == "error":
             _write_status_patch(
                 spec_dir,
@@ -794,9 +779,7 @@ async def _run_planner_replan(
                 err_kind,
                 plan_after,
             )
-            retry_prompt = _build_retry_prompt(
-                prompt, err_kind, str(plan_after or "")[:300]
-            )
+            retry_prompt = _build_retry_prompt(prompt, err_kind, str(plan_after or "")[:300])
             client_retry = await _resolve_planner_client(spec_dir, project_dir)
             retry_status, _r, _re = await _invoke_session(
                 client_retry, retry_prompt, spec_dir, verbose
@@ -815,16 +798,12 @@ async def _run_planner_replan(
                     spec_dir,
                     status="planner_failed",
                     phase=f"planner_replan_invalid_{err_kind}_after_retry",
-                    planner_error=(
-                        f"after retry: {err_kind} — {str(plan_after or '')[:200]}"
-                    ),
+                    planner_error=(f"after retry: {err_kind} — {str(plan_after or '')[:200]}"),
                 )
                 return False
 
         # 5. Verify the agent preserved existing phases (didn't rewrite the plan).
-        preserve_ok, preserve_err = _check_existing_phases_preserved(
-            plan_before, plan_after
-        )
+        preserve_ok, preserve_err = _check_existing_phases_preserved(plan_before, plan_after)
         if not preserve_ok:
             _write_status_patch(
                 spec_dir,

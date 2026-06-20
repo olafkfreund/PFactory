@@ -187,9 +187,7 @@ def print_progress_summary(spec_dir: Path, show_next: bool = True) -> None:
             print("\nPhases:")
             for phase in plan.get("phases", []):
                 phase_subtasks = phase.get("subtasks", [])
-                phase_completed = sum(
-                    1 for s in phase_subtasks if s.get("status") == "completed"
-                )
+                phase_completed = sum(1 for s in phase_subtasks if s.get("status") == "completed")
                 phase_total = len(phase_subtasks)
                 phase_name = phase.get("name", phase.get("id", "Unknown"))
 
@@ -207,9 +205,7 @@ def print_progress_summary(spec_dir: Path, show_next: bool = True) -> None:
                         for p in plan.get("phases", []):
                             if p.get("id") == dep_id or p.get("phase") == dep_id:
                                 p_subtasks = p.get("subtasks", [])
-                                if not all(
-                                    s.get("status") == "completed" for s in p_subtasks
-                                ):
+                                if not all(s.get("status") == "completed" for s in p_subtasks):
                                     all_deps_complete = False
                                 break
                     status = "pending" if all_deps_complete else "blocked"
@@ -225,9 +221,7 @@ def print_progress_summary(spec_dir: Path, show_next: bool = True) -> None:
                     next_desc = next_subtask.get("description", "")
                     if len(next_desc) > 60:
                         next_desc = next_desc[:57] + "..."
-                    print(
-                        f"  {icon(Icons.ARROW_RIGHT)} Next: {highlight(next_id)} - {next_desc}"
-                    )
+                    print(f"  {icon(Icons.ARROW_RIGHT)} Next: {highlight(next_id)} - {next_desc}")
 
         except (OSError, json.JSONDecodeError):
             pass
@@ -387,9 +381,7 @@ def get_current_phase(spec_dir: Path) -> dict | None:
                     "id": phase.get("id"),
                     "phase": phase.get("phase"),
                     "name": phase.get("name"),
-                    "completed": sum(
-                        1 for s in subtasks if s.get("status") == "completed"
-                    ),
+                    "completed": sum(1 for s in subtasks if s.get("status") == "completed"),
                     "total": len(subtasks),
                 }
 
@@ -425,9 +417,7 @@ def get_next_subtask(spec_dir: Path) -> dict | None:
         for phase in phases:
             phase_id = phase.get("id") or phase.get("phase")
             subtasks = phase.get("subtasks", [])
-            phase_complete[phase_id] = all(
-                s.get("status") == "completed" for s in subtasks
-            )
+            phase_complete[phase_id] = all(s.get("status") == "completed" for s in subtasks)
 
         # Find next available subtask
         for phase in phases:

@@ -24,13 +24,25 @@ class _FakeBackstage:
         return self._entities
 
 
-def _component(repo: str, *, techdocs: str | None = None, tags=None, lifecycle="production", spec_type="service"):
+def _component(
+    repo: str,
+    *,
+    techdocs: str | None = None,
+    tags=None,
+    lifecycle="production",
+    spec_type="service",
+):
     annotations = {"github.com/project-slug": repo}
     if techdocs:
         annotations["backstage.io/techdocs-ref"] = techdocs
     return {
         "kind": "Component",
-        "metadata": {"name": "svc", "namespace": "default", "annotations": annotations, "tags": tags or []},
+        "metadata": {
+            "name": "svc",
+            "namespace": "default",
+            "annotations": annotations,
+            "tags": tags or [],
+        },
         "spec": {"type": spec_type, "lifecycle": lifecycle},
     }
 
@@ -44,7 +56,12 @@ def _template(name: str, tags: list[str]):
 
 
 def _contract(repo: str | None = "olafkfreund/AIFactory", conventions=None) -> dict[str, Any]:
-    c: dict[str, Any] = {"contract_version": "2", "feature": "x", "workflow_type": "feature", "phases": []}
+    c: dict[str, Any] = {
+        "contract_version": "2",
+        "feature": "x",
+        "workflow_type": "feature",
+        "phases": [],
+    }
     if repo:
         c["provenance"] = {"source": "pfactory", "repo": repo}
     if conventions is not None:
@@ -55,6 +72,7 @@ def _contract(repo: str | None = "olafkfreund/AIFactory", conventions=None) -> d
 # --------------------------------------------------------------------------- #
 # baseline source (RFC-0010 conventions, always offline)
 # --------------------------------------------------------------------------- #
+
 
 def test_baseline_conventions_surfaced_with_hash():
     c = _contract(repo=None, conventions={"linter": "ruff", "test_layout": "tests/"})
@@ -78,8 +96,8 @@ def test_baseline_hash_is_stable_and_content_bound():
     def h(c):
         return c["epic_context"]["house_standards"]["sources"][0]["content_hash"]
 
-    assert h(c1) == h(c2)        # same content -> same hash
-    assert h(c1) != h(c3)        # different content -> different hash
+    assert h(c1) == h(c2)  # same content -> same hash
+    assert h(c1) != h(c3)  # different content -> different hash
 
 
 def test_no_conventions_no_backstage_marks_unavailable():
@@ -95,9 +113,14 @@ def test_no_conventions_no_backstage_marks_unavailable():
 # backstage source (catalog mocked)
 # --------------------------------------------------------------------------- #
 
+
 def test_backstage_component_matched_by_project_slug():
     entities = [
-        _component("olafkfreund/AIFactory", techdocs="url:https://github.com/olafkfreund/AIFactory/tree/dev", tags=["rust"]),
+        _component(
+            "olafkfreund/AIFactory",
+            techdocs="url:https://github.com/olafkfreund/AIFactory/tree/dev",
+            tags=["rust"],
+        ),
         _component("someone/else"),
     ]
     c = _contract(repo="olafkfreund/AIFactory")
@@ -115,7 +138,9 @@ def test_backstage_match_is_case_insensitive():
     entities = [_component("OlafKFreund/AIFactory")]
     c = _contract(repo="olafkfreund/aifactory")
     attach_house_standards(c, backstage=_FakeBackstage(entities))
-    assert any(s.get("kind") == "component" for s in c["epic_context"]["house_standards"]["sources"])
+    assert any(
+        s.get("kind") == "component" for s in c["epic_context"]["house_standards"]["sources"]
+    )
 
 
 def test_golden_path_template_matched_by_tag_intersection():
@@ -126,7 +151,9 @@ def test_golden_path_template_matched_by_tag_intersection():
     ]
     c = _contract(repo="olafkfreund/AIFactory")
     attach_house_standards(c, backstage=_FakeBackstage(entities))
-    templates = [s for s in c["epic_context"]["house_standards"]["sources"] if s.get("kind") == "template"]
+    templates = [
+        s for s in c["epic_context"]["house_standards"]["sources"] if s.get("kind") == "template"
+    ]
     assert len(templates) == 1
     assert templates[0]["entity_ref"] == "template:default/rust-service"
 
@@ -145,6 +172,7 @@ def test_no_matching_component_records_error_but_keeps_baseline():
 # --------------------------------------------------------------------------- #
 # best-effort: never raises, degrades cleanly
 # --------------------------------------------------------------------------- #
+
 
 def test_backstage_failure_degrades_to_baseline_never_raises():
     c = _contract(repo="olafkfreund/AIFactory", conventions={"linter": "ruff"})

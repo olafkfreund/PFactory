@@ -91,9 +91,7 @@ def _iac_resource_files(repo_map: RepoMap, text: str) -> set[str]:
     return out
 
 
-def _referenced(
-    text: str, paths: set[str], repo_map: RepoMap
-) -> tuple[list[str], list[str]]:
+def _referenced(text: str, paths: set[str], repo_map: RepoMap) -> tuple[list[str], list[str]]:
     """Return (modified, created) file paths referenced by ``text``."""
     low = text.lower()
     by_base: dict[str, str] = {}
@@ -122,15 +120,11 @@ def _patterns_from(modify: list[str], paths: set[str]) -> list[str]:
     if not modify:
         return []
     exts = {("." + m.rsplit(".", 1)[-1]) for m in modify if "." in m}
-    out = [
-        p for p in sorted(paths) if p not in modify and any(p.endswith(e) for e in exts)
-    ]
+    out = [p for p in sorted(paths) if p not in modify and any(p.endswith(e) for e in exts)]
     return out[:2]
 
 
-def compute_footprints(
-    plan: NormalizedPlan, epic: EpicPlan
-) -> dict[str, dict[str, list[str]]]:
+def compute_footprints(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, dict[str, list[str]]]:
     """Per-child footprints keyed by child.key. Empty when no RepoMap."""
     rm = plan.repo_map
     if rm is None or not rm.available:
@@ -166,16 +160,12 @@ def blast_radius(
     footprints: dict[str, dict[str, list[str]]], repo_map: RepoMap | None
 ) -> dict[str, Any]:
     """Union of touched files + a destructive-IaC advisory list (best-effort)."""
-    touched = sorted(
-        {f for fp in footprints.values() for f in fp.get("files_to_modify", [])}
-    )
+    touched = sorted({f for fp in footprints.values() for f in fp.get("files_to_modify", [])})
     destructive: list[str] = []
     if repo_map is not None:
         tf = (repo_map.iac_resources or {}).get("terraform") or {}
         cluster_files = {
-            r["file"]
-            for r in tf.get("resources", []) or []
-            if "cluster" in r.get("type", "")
+            r["file"] for r in tf.get("resources", []) or [] if "cluster" in r.get("type", "")
         }
         # Modifying a cluster-defining file is the classic force-replace risk.
         destructive = sorted(cluster_files & set(touched))

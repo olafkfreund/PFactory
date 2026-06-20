@@ -68,7 +68,7 @@ def apply_requires_auth_from_config(plan, project_dir: Path | str | None) -> int
         from pfactory_yml.parser import load_pfactory_yml
 
         config = load_pfactory_yml(Path(project_dir))
-    except Exception:  # noqa: BLE001 - config errors must not break planning
+    except Exception:
         return 0
     if config is None:
         return 0

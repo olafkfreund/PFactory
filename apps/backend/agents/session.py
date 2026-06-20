@@ -8,7 +8,7 @@ memory updates and recovery tracking.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeSDKClient
@@ -131,10 +131,10 @@ async def post_session_processing(
             "info",
         )
         subtask["status"] = "completed"
-        subtask["updated_at"] = datetime.now(timezone.utc).isoformat()
+        subtask["updated_at"] = datetime.now(UTC).isoformat()
         subtask["notes"] = f"Auto-completed: {new_commits} commit(s) detected"
         plan_file = spec_dir / "test_plan.json"
-        plan["last_updated"] = datetime.now(timezone.utc).isoformat()
+        plan["last_updated"] = datetime.now(UTC).isoformat()
         with open(plan_file, "w") as f:
             json.dump(plan, f, indent=2)
         sync_plan_to_source(spec_dir, source_spec_dir)
@@ -204,9 +204,7 @@ async def post_session_processing(
                 if storage_type == "graphiti":
                     print_status("Session saved to Graphiti memory", "success")
                 else:
-                    print_status(
-                        "Session saved to file-based memory (fallback)", "info"
-                    )
+                    print_status("Session saved to file-based memory (fallback)", "info")
             else:
                 print_status("Failed to save session memory", "warning")
         except Exception as e:
@@ -235,9 +233,7 @@ async def post_session_processing(
         # Still record commit if one was made (partial progress)
         if commit_after and commit_after != commit_before:
             recovery_manager.record_good_commit(commit_after, subtask_id)
-            print_status(
-                f"Recorded partial progress commit: {commit_after[:8]}", "info"
-            )
+            print_status(f"Recorded partial progress commit: {commit_after[:8]}", "info")
 
         # Extract insights even from failed sessions (valuable for future attempts)
         try:
@@ -273,9 +269,7 @@ async def post_session_processing(
 
     else:
         # Subtask still pending or failed
-        print_status(
-            f"Subtask {subtask_id} not completed (status: {subtask_status})", "error"
-        )
+        print_status(f"Subtask {subtask_id} not completed (status: {subtask_status})", "error")
 
         recovery_manager.record_attempt(
             subtask_id=subtask_id,
@@ -519,9 +513,7 @@ async def run_agent_session(
                                 ):
                                     result_str = str(result_content)
                                     # Only store if not too large (detail truncation happens in logger)
-                                    if (
-                                        len(result_str) < 50000
-                                    ):  # 50KB max before truncation
+                                    if len(result_str) < 50000:  # 50KB max before truncation
                                         detail_content = result_str
                                 task_logger.tool_end(
                                     current_tool,

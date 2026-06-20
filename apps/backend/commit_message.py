@@ -94,9 +94,7 @@ def _get_spec_context(spec_dir: Path) -> dict:
                 context["title"] = title_match.group(1).strip()
 
             # Look for overview/description section
-            overview_match = re.search(
-                r"## Overview\s*\n(.+?)(?=\n##|\Z)", content, re.DOTALL
-            )
+            overview_match = re.search(r"## Overview\s*\n(.+?)(?=\n##|\Z)", content, re.DOTALL)
             if overview_match:
                 context["description"] = overview_match.group(1).strip()[:200]
         except Exception as e:
@@ -127,9 +125,7 @@ def _get_spec_context(spec_dir: Path) -> dict:
                 context["github_issue"] = metadata["githubIssueNumber"]
             # Fallback title
             if not context["title"]:
-                context["title"] = plan_data.get("feature") or plan_data.get(
-                    "title", ""
-                )
+                context["title"] = plan_data.get("feature") or plan_data.get("title", "")
         except Exception as e:
             logger.debug(f"Could not read test_plan.json: {e}")
 
@@ -142,9 +138,7 @@ def _build_prompt(
     files_changed: list[str],
 ) -> str:
     """Build the prompt for Claude."""
-    commit_type = CATEGORY_TO_COMMIT_TYPE.get(
-        spec_context.get("category", "").lower(), "chore"
-    )
+    commit_type = CATEGORY_TO_COMMIT_TYPE.get(spec_context.get("category", "").lower(), "chore")
 
     github_ref = ""
     if spec_context.get("github_issue"):
@@ -153,13 +147,10 @@ def _build_prompt(
     # Truncate file list if too long
     if len(files_changed) > 20:
         files_display = (
-            "\n".join(files_changed[:20])
-            + f"\n... and {len(files_changed) - 20} more files"
+            "\n".join(files_changed[:20]) + f"\n... and {len(files_changed) - 20} more files"
         )
     else:
-        files_display = (
-            "\n".join(files_changed) if files_changed else "(no files listed)"
-        )
+        files_display = "\n".join(files_changed) if files_changed else "(no files listed)"
 
     prompt = f"""Generate a commit message for this change.
 
@@ -211,9 +202,7 @@ async def _call_claude(prompt: str) -> str:
     # Get model settings from environment (passed from frontend)
     model, thinking_budget = get_utility_model_config()
 
-    logger.info(
-        f"Commit message using model={model}, thinking_budget={thinking_budget}"
-    )
+    logger.info(f"Commit message using model={model}, thinking_budget={thinking_budget}")
 
     client = create_simple_client(
         agent_type="commit_message",
@@ -309,9 +298,7 @@ def generate_commit_message_sync(
         logger.error(f"Failed to generate commit message: {e}")
 
     # Fallback message
-    commit_type = CATEGORY_TO_COMMIT_TYPE.get(
-        spec_context.get("category", "").lower(), "chore"
-    )
+    commit_type = CATEGORY_TO_COMMIT_TYPE.get(spec_context.get("category", "").lower(), "chore")
     title = spec_context.get("title", spec_name)
     fallback = f"{commit_type}: {title}"
 
@@ -370,9 +357,7 @@ async def generate_commit_message(
         logger.error(f"Failed to generate commit message: {e}")
 
     # Fallback message
-    commit_type = CATEGORY_TO_COMMIT_TYPE.get(
-        spec_context.get("category", "").lower(), "chore"
-    )
+    commit_type = CATEGORY_TO_COMMIT_TYPE.get(spec_context.get("category", "").lower(), "chore")
     title = spec_context.get("title", spec_name)
     fallback = f"{commit_type}: {title}"
 

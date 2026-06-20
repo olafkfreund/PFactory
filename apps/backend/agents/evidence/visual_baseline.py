@@ -50,9 +50,7 @@ def _safe_component(value: str, *, kind: str) -> str:
     if not value or not value.strip():
         raise VisualBaselineError(f"{kind} must not be empty")
     if value != value.strip():
-        raise VisualBaselineError(
-            f"{kind} {value!r} must not have surrounding whitespace"
-        )
+        raise VisualBaselineError(f"{kind} {value!r} must not have surrounding whitespace")
     if "/" in value or "\\" in value or value in {".", ".."} or "\x00" in value:
         raise VisualBaselineError(f"{kind} {value!r} is not a safe path component")
     return value
@@ -72,12 +70,7 @@ class BaselineEntry:
 
 def baseline_dir(spec_dir: Path, target: str) -> Path:
     """Directory holding ``target``'s baselines (not created)."""
-    return (
-        Path(spec_dir)
-        / "findings"
-        / _BASELINES_SUBDIR
-        / _safe_component(target, kind="target")
-    )
+    return Path(spec_dir) / "findings" / _BASELINES_SUBDIR / _safe_component(target, kind="target")
 
 
 def baseline_path(spec_dir: Path, target: str, snapshot: str) -> Path:
@@ -142,9 +135,7 @@ def accept_baseline(
 # ── status ───────────────────────────────────────────────────────────────────
 
 
-def baseline_status(
-    spec_dir: Path, target: str, captured_snapshots: list[str]
-) -> dict[str, str]:
+def baseline_status(spec_dir: Path, target: str, captured_snapshots: list[str]) -> dict[str, str]:
     """Classify each captured snapshot against the stored baselines.
 
     Returns a ``{snapshot: status}`` map where status is:

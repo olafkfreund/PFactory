@@ -42,9 +42,7 @@ def create_azure_openai_embedder(config: "GraphitiConfig") -> Any:
     if not config.azure_openai_base_url:
         raise ProviderError("Azure OpenAI embedder requires AZURE_OPENAI_BASE_URL")
     if not config.azure_openai_embedding_deployment:
-        raise ProviderError(
-            "Azure OpenAI embedder requires AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
-        )
+        raise ProviderError("Azure OpenAI embedder requires AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
 
     azure_client = AsyncOpenAI(
         base_url=config.azure_openai_base_url,

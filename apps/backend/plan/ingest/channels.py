@@ -35,10 +35,10 @@ from plan.models import NormalizedPlan, SourceChannel
 from spec_sources import SpecFormat
 
 __all__ = [
-    "ingest_path",
-    "ingest_text",
     "ingest_bytes",
     "ingest_github_body",
+    "ingest_path",
+    "ingest_text",
 ]
 
 

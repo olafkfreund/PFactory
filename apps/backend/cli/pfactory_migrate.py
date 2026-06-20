@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +41,7 @@ import click
 
 
 def _now_z() -> str:
-    return datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _load_json_safe(path: Path) -> Any:
@@ -217,9 +217,7 @@ def _run_v0_1_catalog_migration(
             spec_count += 1
             entry_count += added
 
-            click.echo(
-                f"  spec {spec_dir.name!s:40s} → +{added} entries  (repo: {repo_root})"
-            )
+            click.echo(f"  spec {spec_dir.name!s:40s} → +{added} entries  (repo: {repo_root})")
 
     if spec_count == 0:
         click.echo("No v0.1 test directories found — nothing to migrate.")

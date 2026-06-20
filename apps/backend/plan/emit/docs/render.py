@@ -131,9 +131,7 @@ def _render_markdown(session: PlanSession, deps: list[str]) -> str:
         if epic.access_requirements:
             parts.append("\n" + _h(2, "Access requirements"))
             for ar in epic.access_requirements:
-                bits = " · ".join(
-                    b for b in [ar.provider, ar.action, ar.resource, ar.region] if b
-                )
+                bits = " · ".join(b for b in [ar.provider, ar.action, ar.resource, ar.region] if b)
                 parts.append(f"- {bits}{(' — ' + ar.detail) if ar.detail else ''}\n")
 
     # Governance / review
@@ -149,10 +147,7 @@ def _render_markdown(session: PlanSession, deps: list[str]) -> str:
             who = f" by {ha.approved_by}" if ha.approved_by else ""
             parts.append(f"- **Human approval:** approved{who}\n")
         blocking = [
-            f
-            for lens in (review.lenses or [])
-            for f in (lens.findings or [])
-            if f.blocking
+            f for lens in (review.lenses or []) for f in (lens.findings or []) if f.blocking
         ]
         if blocking:
             parts.append("\n**Blocking findings:**\n")

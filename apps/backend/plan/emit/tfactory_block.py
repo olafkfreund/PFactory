@@ -50,23 +50,15 @@ def build_tfactory(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, Any]:
     # RFC-0010: when reconnaissance read the repo, its actual language wins over
     # the plan-text guess (fixes the #585 wrong-language trap at the source).
     repo_map = getattr(plan, "repo_map", None)
-    if (
-        repo_map is not None
-        and getattr(repo_map, "available", False)
-        and repo_map.languages
-    ):
+    if repo_map is not None and getattr(repo_map, "available", False) and repo_map.languages:
         primary = repo_map.languages[0]
         python_ish = primary == "python"
         node_ish = primary in ("typescript", "javascript")
     api = _any(text, ("api", "endpoint", "rest", "fastapi", "express", "graphql")) or (
         "area:api" in labels or "service:api" in labels
     )
-    browser = _any(
-        text, ("frontend", "react", "playwright", "browser", "vue", "svelte", "next")
-    )
-    integration = _any(
-        text, ("integration", "docker", "compose", "database", "postgres", "redis")
-    )
+    browser = _any(text, ("frontend", "react", "playwright", "browser", "vue", "svelte", "next"))
+    integration = _any(text, ("integration", "docker", "compose", "database", "postgres", "redis"))
 
     lanes = ["unit"]
     if api:

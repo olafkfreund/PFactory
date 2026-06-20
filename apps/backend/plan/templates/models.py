@@ -65,26 +65,36 @@ class Template(BaseModel):
         tags = set(context.get("tags") or [])
         for required in self.policy.required_tags:
             if required not in tags:
-                findings.append(Finding(
-                    title=f"missing required tag '{required}'",
-                    detail=f"template '{self.metadata.name}' requires tag '{required}'",
-                    severity="medium", source=f"template:{self.metadata.name}",
-                ))
+                findings.append(
+                    Finding(
+                        title=f"missing required tag '{required}'",
+                        detail=f"template '{self.metadata.name}' requires tag '{required}'",
+                        severity="medium",
+                        source=f"template:{self.metadata.name}",
+                    )
+                )
 
         region = context.get("region")
         if self.policy.allowed_regions and region and region not in self.policy.allowed_regions:
-            findings.append(Finding(
-                title=f"region '{region}' not allowed",
-                detail=f"allowed: {', '.join(self.policy.allowed_regions)}",
-                severity="high", source=f"template:{self.metadata.name}", blocking=True,
-            ))
+            findings.append(
+                Finding(
+                    title=f"region '{region}' not allowed",
+                    detail=f"allowed: {', '.join(self.policy.allowed_regions)}",
+                    severity="high",
+                    source=f"template:{self.metadata.name}",
+                    blocking=True,
+                )
+            )
 
         iam = set(context.get("iam") or [])
         for required in self.policy.required_iam:
             if required not in iam:
-                findings.append(Finding(
-                    title=f"missing required IAM '{required}'",
-                    severity="high", source=f"template:{self.metadata.name}",
-                ))
+                findings.append(
+                    Finding(
+                        title=f"missing required IAM '{required}'",
+                        severity="high",
+                        source=f"template:{self.metadata.name}",
+                    )
+                )
 
         return findings

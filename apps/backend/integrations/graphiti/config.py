@@ -164,9 +164,7 @@ class GraphitiConfig:
 
         # Provider selection
         llm_provider = os.environ.get("GRAPHITI_LLM_PROVIDER", "openai").lower()
-        embedder_provider = os.environ.get(
-            "GRAPHITI_EMBEDDER_PROVIDER", "openai"
-        ).lower()
+        embedder_provider = os.environ.get("GRAPHITI_EMBEDDER_PROVIDER", "openai").lower()
 
         # Database settings (LadybugDB - embedded)
         database = os.environ.get("GRAPHITI_DATABASE", DEFAULT_DATABASE)
@@ -175,23 +173,17 @@ class GraphitiConfig:
         # OpenAI settings
         openai_api_key = os.environ.get("OPENAI_API_KEY", "")
         openai_model = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
-        openai_embedding_model = os.environ.get(
-            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
-        )
+        openai_embedding_model = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
         # Anthropic settings
         anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        anthropic_model = os.environ.get(
-            "GRAPHITI_ANTHROPIC_MODEL", "claude-sonnet-4-5"
-        )
+        anthropic_model = os.environ.get("GRAPHITI_ANTHROPIC_MODEL", "claude-sonnet-4-5")
 
         # Azure OpenAI settings
         azure_openai_api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
         azure_openai_base_url = os.environ.get("AZURE_OPENAI_BASE_URL", "")
         azure_openai_llm_deployment = os.environ.get("AZURE_OPENAI_LLM_DEPLOYMENT", "")
-        azure_openai_embedding_deployment = os.environ.get(
-            "AZURE_OPENAI_EMBEDDING_DEPLOYMENT", ""
-        )
+        azure_openai_embedding_deployment = os.environ.get("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "")
 
         # Voyage AI settings
         voyage_api_key = os.environ.get("VOYAGE_API_KEY", "")
@@ -200,18 +192,12 @@ class GraphitiConfig:
         # Google AI settings
         google_api_key = os.environ.get("GOOGLE_API_KEY", "")
         google_llm_model = os.environ.get("GOOGLE_LLM_MODEL", "gemini-2.0-flash")
-        google_embedding_model = os.environ.get(
-            "GOOGLE_EMBEDDING_MODEL", "text-embedding-004"
-        )
+        google_embedding_model = os.environ.get("GOOGLE_EMBEDDING_MODEL", "text-embedding-004")
 
         # OpenRouter settings
         openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "")
-        openrouter_base_url = os.environ.get(
-            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
-        )
-        openrouter_llm_model = os.environ.get(
-            "OPENROUTER_LLM_MODEL", "anthropic/claude-3.5-sonnet"
-        )
+        openrouter_base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        openrouter_llm_model = os.environ.get("OPENROUTER_LLM_MODEL", "anthropic/claude-3.5-sonnet")
         openrouter_embedding_model = os.environ.get(
             "OPENROUTER_EMBEDDING_MODEL", "openai/text-embedding-3-small"
         )
@@ -315,31 +301,23 @@ class GraphitiConfig:
                 errors.append("Voyage embedder provider requires VOYAGE_API_KEY")
         elif self.embedder_provider == "azure_openai":
             if not self.azure_openai_api_key:
-                errors.append(
-                    "Azure OpenAI embedder provider requires AZURE_OPENAI_API_KEY"
-                )
+                errors.append("Azure OpenAI embedder provider requires AZURE_OPENAI_API_KEY")
             if not self.azure_openai_base_url:
-                errors.append(
-                    "Azure OpenAI embedder provider requires AZURE_OPENAI_BASE_URL"
-                )
+                errors.append("Azure OpenAI embedder provider requires AZURE_OPENAI_BASE_URL")
             if not self.azure_openai_embedding_deployment:
                 errors.append(
                     "Azure OpenAI embedder provider requires AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
                 )
         elif self.embedder_provider == "ollama":
             if not self.ollama_embedding_model:
-                errors.append(
-                    "Ollama embedder provider requires OLLAMA_EMBEDDING_MODEL"
-                )
+                errors.append("Ollama embedder provider requires OLLAMA_EMBEDDING_MODEL")
             # Note: OLLAMA_EMBEDDING_DIM is optional - auto-detected for known models
         elif self.embedder_provider == "google":
             if not self.google_api_key:
                 errors.append("Google embedder provider requires GOOGLE_API_KEY")
         elif self.embedder_provider == "openrouter":
             if not self.openrouter_api_key:
-                errors.append(
-                    "OpenRouter embedder provider requires OPENROUTER_API_KEY"
-                )
+                errors.append("OpenRouter embedder provider requires OPENROUTER_API_KEY")
         else:
             errors.append(f"Unknown embedder provider: {self.embedder_provider}")
 

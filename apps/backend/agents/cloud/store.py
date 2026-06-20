@@ -72,7 +72,7 @@ def _slug(value: str) -> str:
 
 def new_assessment_id(provider: str, account: str | None, *, now=None) -> str:
     """A sortable, filesystem-safe id: ``<provider>-<account>-<UTC timestamp>``."""
-    ts = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y%m%d%H%M%S")
+    ts = (now or datetime.datetime.now(datetime.UTC)).strftime("%Y%m%d%H%M%S")
     return f"{_slug(provider)}-{_slug(account or 'unknown')}-{ts}"
 
 
@@ -172,14 +172,22 @@ def _render_pdf(d: Path, md_name: str) -> Path | None:
         html = Path(tmp) / "doc.html"
         subprocess.run(
             [pandoc, str(md), "-f", "gfm", "-t", "html", "-s", "-o", str(html)],
-            capture_output=True, timeout=60,
+            capture_output=True,
+            timeout=60,
         )
         if not html.is_file():
             return None
         subprocess.run(
-            [chrome, "--headless", "--no-sandbox", "--disable-gpu",
-             f"--print-to-pdf={pdf}", f"file://{html}"],
-            capture_output=True, timeout=120,
+            [
+                chrome,
+                "--headless",
+                "--no-sandbox",
+                "--disable-gpu",
+                f"--print-to-pdf={pdf}",
+                f"file://{html}",
+            ],
+            capture_output=True,
+            timeout=120,
         )
     return pdf if pdf.is_file() else None
 

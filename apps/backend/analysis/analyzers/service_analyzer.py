@@ -73,17 +73,13 @@ class ServiceAnalyzer(BaseAnalyzer):
             self.analysis["type"] = "frontend"
         elif any(kw in name_lower for kw in ["backend", "api", "server", "service"]):
             self.analysis["type"] = "backend"
-        elif any(
-            kw in name_lower for kw in ["worker", "job", "queue", "task", "celery"]
-        ):
+        elif any(kw in name_lower for kw in ["worker", "job", "queue", "task", "celery"]):
             self.analysis["type"] = "worker"
         elif any(kw in name_lower for kw in ["scraper", "crawler", "spider"]):
             self.analysis["type"] = "scraper"
         elif any(kw in name_lower for kw in ["proxy", "gateway", "router"]):
             self.analysis["type"] = "proxy"
-        elif any(
-            kw in name_lower for kw in ["lib", "shared", "common", "core", "utils"]
-        ):
+        elif any(kw in name_lower for kw in ["lib", "shared", "common", "core", "utils"]):
             self.analysis["type"] = "library"
         else:
             # Try to infer from language and content if name doesn't match
@@ -97,8 +93,7 @@ class ServiceAnalyzer(BaseAnalyzer):
 
                 # Check for agent/automation framework patterns
                 has_agent_files = any(
-                    (self.path / f).exists()
-                    for f in ["agent.py", "agents", "runner.py", "runners"]
+                    (self.path / f).exists() for f in ["agent.py", "agents", "runner.py", "runners"]
                 )
 
                 if has_run_py or has_main_py or has_main_module or has_agent_files:
@@ -262,12 +257,8 @@ class ServiceAnalyzer(BaseAnalyzer):
             self.analysis["api"] = {
                 "routes": routes,
                 "total_routes": len(routes),
-                "methods": list(
-                    set(method for r in routes for method in r.get("methods", []))
-                ),
-                "protected_routes": [
-                    r["path"] for r in routes if r.get("requires_auth")
-                ],
+                "methods": list(set(method for r in routes for method in r.get("methods", []))),
+                "protected_routes": [r["path"] for r in routes if r.get("requires_auth")],
             }
 
     def _detect_database_models(self) -> None:

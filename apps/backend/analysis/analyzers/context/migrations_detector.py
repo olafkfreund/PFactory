@@ -52,9 +52,7 @@ class MigrationsDetector(BaseAnalyzer):
 
         return {
             "tool": "alembic",
-            "directory": "alembic/versions"
-            if self._exists("alembic/versions")
-            else "alembic",
+            "directory": "alembic/versions" if self._exists("alembic/versions") else "alembic",
             "config_file": "alembic.ini",
             "commands": {
                 "upgrade": "alembic upgrade head",

@@ -17,20 +17,31 @@ from plan.synthesize.models import SynthesizedArtifact
 
 # Coverage targets per lane (deterministic; tuned per plan type if desired).
 _COVERAGE_TARGETS: list[tuple[str, str, str]] = [
-    ("unit", "80% line / 70% branch", "Pure functions, modules, and edge cases "
-                                      "in isolation."),
-    ("integration", "Critical paths covered", "Component boundaries, persistence, "
-                                              "and external collaborators (stubbed "
-                                              "or containerised)."),
-    ("e2e", "All happy paths + key failures", "End-to-end user / API journeys "
-                                              "against a running stack."),
+    ("unit", "80% line / 70% branch", "Pure functions, modules, and edge cases in isolation."),
+    (
+        "integration",
+        "Critical paths covered",
+        "Component boundaries, persistence, and external collaborators (stubbed or containerised).",
+    ),
+    (
+        "e2e",
+        "All happy paths + key failures",
+        "End-to-end user / API journeys against a running stack.",
+    ),
 ]
 
 # Keyword → suggested test lane for acceptance-criterion mapping.
 _E2E_HINTS = ("user", "ui", "page", "flow", "login", "screen", "browser", "click")
 _INTEGRATION_HINTS = (
-    "api", "endpoint", "database", "persist", "store", "queue", "webhook",
-    "integration", "service",
+    "api",
+    "endpoint",
+    "database",
+    "persist",
+    "store",
+    "queue",
+    "webhook",
+    "integration",
+    "service",
 )
 
 

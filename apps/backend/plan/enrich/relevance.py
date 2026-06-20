@@ -16,9 +16,26 @@ if TYPE_CHECKING:
 
 # Keywords that signal the plan touches cloud / cluster infrastructure.
 CLOUD_KEYWORDS: tuple[str, ...] = (
-    "aws", "eks", "ecs", "lambda", "s3", "rds", "kubernetes", "k8s",
-    "openshift", "azure", "aks", "gcp", "gke", "cloud", "helm",
-    "terraform", "redis", "deploy", "ingress", "microservice",
+    "aws",
+    "eks",
+    "ecs",
+    "lambda",
+    "s3",
+    "rds",
+    "kubernetes",
+    "k8s",
+    "openshift",
+    "azure",
+    "aks",
+    "gcp",
+    "gke",
+    "cloud",
+    "helm",
+    "terraform",
+    "redis",
+    "deploy",
+    "ingress",
+    "microservice",
 )
 
 # Plan types that are inherently infra-relevant regardless of wording.
@@ -35,6 +52,4 @@ def plan_text(plan: NormalizedPlan) -> str:
 def is_cloud_relevant(plan: NormalizedPlan) -> bool:
     """True when the plan targets cloud/cluster infra (keywords or plan_type)."""
     low = plan_text(plan).lower()
-    return any(k in low for k in CLOUD_KEYWORDS) or (
-        plan.plan_type in _CLOUD_PLAN_TYPES
-    )
+    return any(k in low for k in CLOUD_KEYWORDS) or (plan.plan_type in _CLOUD_PLAN_TYPES)

@@ -124,15 +124,11 @@ def _no_plaintext_secrets(plan: NormalizedPlan, epic: EpicPlan) -> list[Finding]
 
 
 @rule("infra-change-needs-rollback")
-def _infra_change_needs_rollback(
-    plan: NormalizedPlan, epic: EpicPlan
-) -> list[Finding]:
+def _infra_change_needs_rollback(plan: NormalizedPlan, epic: EpicPlan) -> list[Finding]:
     """Infra-change plans must mention a rollback / revert strategy."""
     if (plan.plan_type or "").lower() != "infra-change":
         return []
-    haystack = "\n".join(
-        [_plan_text(plan), epic.epic_body, *(c.body for c in epic.children)]
-    )
+    haystack = "\n".join([_plan_text(plan), epic.epic_body, *(c.body for c in epic.children)])
     if _ROLLBACK_RE.search(haystack):
         return []
     return [
@@ -150,22 +146,24 @@ def _infra_change_needs_rollback(
 
 
 @rule("k8s-workloads-need-limits")
-def _k8s_workloads_need_limits(
-    plan: NormalizedPlan, epic: EpicPlan
-) -> list[Finding]:
+def _k8s_workloads_need_limits(plan: NormalizedPlan, epic: EpicPlan) -> list[Finding]:
     """Kubernetes workloads in enrichment.infra must declare resource limits."""
     findings: list[Finding] = []
     for entry in plan.enrichment.infra:
         if not isinstance(entry, dict):
             continue
         kind = str(entry.get("kind", "")).lower()
-        is_workload = kind in {
-            "deployment",
-            "statefulset",
-            "daemonset",
-            "pod",
-            "workload",
-        } or entry.get("workload") is True
+        is_workload = (
+            kind
+            in {
+                "deployment",
+                "statefulset",
+                "daemonset",
+                "pod",
+                "workload",
+            }
+            or entry.get("workload") is True
+        )
         if not is_workload:
             continue
         if not entry.get("limits") and not entry.get("resources"):

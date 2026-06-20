@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -230,7 +230,7 @@ def _build_docker_compose_target(
 
 def _now_z() -> str:
     """Return the current time as an ISO-8601 UTC string with Z suffix."""
-    return datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _create_empty_catalog(catalog_path: Path) -> None:
@@ -276,9 +276,7 @@ def _create_empty_catalog(catalog_path: Path) -> None:
     default=None,
     help="Target type (non-interactive).",
 )
-@click.option(
-    "--base-url", default=None, help="Base URL for http target (non-interactive)."
-)
+@click.option("--base-url", default=None, help="Base URL for http target (non-interactive).")
 @click.option(
     "--compose-file",
     default="docker-compose.yml",
@@ -346,14 +344,10 @@ def init_command(
     if non_interactive:
         # Validate required flags
         if not target_name:
-            click.echo(
-                "error: --target-name is required in non-interactive mode.", err=True
-            )
+            click.echo("error: --target-name is required in non-interactive mode.", err=True)
             sys.exit(1)
         if not target_type:
-            click.echo(
-                "error: --target-type is required in non-interactive mode.", err=True
-            )
+            click.echo("error: --target-type is required in non-interactive mode.", err=True)
             sys.exit(1)
 
         # Build auth
@@ -361,9 +355,7 @@ def init_command(
         if auth_type and auth_type != "none":
             if auth_type == "bearer":
                 if not auth_token_env:
-                    click.echo(
-                        "error: --auth-token-env is required for bearer auth.", err=True
-                    )
+                    click.echo("error: --auth-token-env is required for bearer auth.", err=True)
                     sys.exit(1)
                 resolved_auth = {"type": "bearer", "token_env": auth_token_env}
             elif auth_type == "basic":
@@ -386,9 +378,7 @@ def init_command(
                 sys.exit(1)
             target_dict = _build_http_target(target_name, base_url, resolved_auth)
         elif target_type == "docker_compose":
-            services_list = [
-                s.strip() for s in (compose_services or "app").split(",") if s.strip()
-            ]
+            services_list = [s.strip() for s in (compose_services or "app").split(",") if s.strip()]
             target_dict = _build_docker_compose_target(
                 target_name, compose_file, services_list, None
             )
@@ -425,9 +415,7 @@ def init_command(
                 t_wait or None,
             )
         else:
-            click.echo(
-                f"Minimal scaffold for {t_type} target — edit .pfactory.yml to complete."
-            )
+            click.echo(f"Minimal scaffold for {t_type} target — edit .pfactory.yml to complete.")
             target_dict = {"name": t_name, "type": t_type}
 
     # ── Step 4: render .pfactory.yml ─────────────────────────────────
@@ -457,7 +445,7 @@ def init_command(
     except ImportError:
         # Validation skipped — pfactory_yml not on PYTHONPATH in this invocation
         click.echo("note: pfactory_yml package not found; skipping parse validation.")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         click.echo(f"warning: validation error: {exc}", err=True)
 
     # ── Step 6: create empty tests-catalog.json ───────────────────────

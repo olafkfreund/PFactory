@@ -6,7 +6,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .models import LogEntry, LogPhase
@@ -73,9 +73,7 @@ class LogStorage:
             self.spec_dir.mkdir(parents=True, exist_ok=True)
             # Write to temp file first, then atomic rename to prevent corruption
             # when the UI reads mid-write
-            fd, tmp_path = tempfile.mkstemp(
-                dir=self.spec_dir, prefix=".task_logs_", suffix=".tmp"
-            )
+            fd, tmp_path = tempfile.mkstemp(dir=self.spec_dir, prefix=".task_logs_", suffix=".tmp")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(self._data, f, indent=2, ensure_ascii=False)
@@ -91,7 +89,7 @@ class LogStorage:
 
     def _timestamp(self) -> str:
         """Get current timestamp in ISO format."""
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
     def add_entry(self, entry: LogEntry) -> None:
         """
@@ -114,9 +112,7 @@ class LogStorage:
         self._data["phases"][phase_key]["entries"].append(entry.to_dict())
         self.save()
 
-    def update_phase_status(
-        self, phase: str, status: str, completed_at: str | None = None
-    ) -> None:
+    def update_phase_status(self, phase: str, status: str, completed_at: str | None = None) -> None:
         """
         Update phase status.
 

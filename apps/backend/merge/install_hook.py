@@ -114,9 +114,7 @@ def install_hook(project_path: Path) -> bool:
         print(f"Created new hook at {hook_path}")
 
     # Make executable
-    hook_path.chmod(
-        hook_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-    )
+    hook_path.chmod(hook_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     print("Hook is now executable")
 
     return True
@@ -156,9 +154,7 @@ def uninstall_hook(project_path: Path) -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Install/uninstall FileTimelineTracker git hook"
-    )
+    parser = argparse.ArgumentParser(description="Install/uninstall FileTimelineTracker git hook")
     parser.add_argument(
         "--project-path",
         type=Path,

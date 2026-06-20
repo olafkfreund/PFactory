@@ -21,9 +21,7 @@ class ChecklistFormatter:
         """
         lines = []
 
-        lines.append(
-            f"## Pre-Implementation Checklist: {checklist.subtask_description}"
-        )
+        lines.append(f"## Pre-Implementation Checklist: {checklist.subtask_description}")
         lines.append("")
 
         # Predicted issues
@@ -126,9 +124,7 @@ class ChecklistFormatter:
         lines.append("### Before You Start Implementing")
         lines.append("")
         lines.append("- [ ] I have read and understood all predicted issues above")
-        lines.append(
-            "- [ ] I have reviewed the reference files to understand existing patterns"
-        )
+        lines.append("- [ ] I have reviewed the reference files to understand existing patterns")
         lines.append("- [ ] I know how to prevent the high-likelihood issues")
         lines.append("- [ ] I understand the verification requirements")
         lines.append("")

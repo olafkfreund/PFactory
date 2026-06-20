@@ -76,9 +76,7 @@ def get_provider(name: str, **kwargs: object) -> ProviderMCP:
     try:
         cls = _REGISTRY[name]
     except KeyError:
-        raise KeyError(
-            f"unknown provider '{name}'; registered: {available_providers()}"
-        ) from None
+        raise KeyError(f"unknown provider '{name}'; registered: {available_providers()}") from None
     return cls(**kwargs)
 
 

@@ -60,9 +60,7 @@ def _rel(fp: Path, root: Path) -> str:
 
 def _is_test(rel: str) -> bool:
     base = rel.rsplit("/", 1)[-1]
-    return (
-        base.startswith("test_") or base.endswith("_test.py") or "/tests/" in f"/{rel}"
-    )
+    return base.startswith("test_") or base.endswith("_test.py") or "/tests/" in f"/{rel}"
 
 
 def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
@@ -91,9 +89,7 @@ def _module_name(rel: str) -> str:
     return mod[: -len(".__init__")] if mod.endswith(".__init__") else mod
 
 
-def build_behavioral_contract(
-    root: Path, language: str = "python"
-) -> BehavioralContract:
+def build_behavioral_contract(root: Path, language: str = "python") -> BehavioralContract:
     """Statically extract the behavioral contract from ``root``.
 
     Never executes code. Non-Python languages get a module listing only.
@@ -136,24 +132,18 @@ def build_behavioral_contract(
                     PublicSymbol(rel, node.name, "function", _signature(node))
                 )
             elif isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
-                contract.public_api.append(
-                    PublicSymbol(rel, node.name, "class", f"{node.name}")
-                )
+                contract.public_api.append(PublicSymbol(rel, node.name, "class", f"{node.name}"))
 
         # Module graph: edges to other local modules (intra-repo imports only).
         edges: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module:
-                if any(
-                    node.module == m or node.module.startswith(m + ".")
-                    for m in local_modules
-                ):
+                if any(node.module == m or node.module.startswith(m + ".") for m in local_modules):
                     edges.add(node.module)
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     if any(
-                        alias.name == m or alias.name.startswith(m + ".")
-                        for m in local_modules
+                        alias.name == m or alias.name.startswith(m + ".") for m in local_modules
                     ):
                         edges.add(alias.name)
         if edges:
@@ -162,16 +152,12 @@ def build_behavioral_contract(
     contract.modules.sort()
     contract.test_files.sort()
     contract.public_api.sort(key=lambda s: (s.module, s.name))
-    func_module = {
-        s.name: s.module for s in contract.public_api if s.kind == "function"
-    }
+    func_module = {s.name: s.module for s in contract.public_api if s.kind == "function"}
     contract.input_vectors = _extract_vectors(test_trees, func_module)
     return contract
 
 
-def _extract_vectors(
-    test_trees: list[ast.Module], func_module: dict[str, str]
-) -> list[dict]:
+def _extract_vectors(test_trees: list[ast.Module], func_module: dict[str, str]) -> list[dict]:
     """Mine concrete input vectors from literal-arg calls to public functions.
 
     Walks the test ASTs for ``func(<literals>)`` calls to a public function and
@@ -220,9 +206,7 @@ def _extract_vectors(
     return vectors
 
 
-def inspect_source(
-    repo: str, base_ref: str | None, language: str
-) -> BehavioralContract | None:
+def inspect_source(repo: str, base_ref: str | None, language: str) -> BehavioralContract | None:
     """Clone ``repo`` read-only and extract its behavioral contract.
 
     Never raises — a clone/parse failure yields ``None`` and the migration plan
@@ -236,6 +220,6 @@ def inspect_source(
             if not c.ok or c.path is None:
                 return None
             return build_behavioral_contract(c.path, language)
-    except Exception as exc:  # noqa: BLE001 - planning must never break
+    except Exception as exc:
         logger.warning("source inspection failed for %s: %s", repo, exc)
         return None

@@ -208,7 +208,7 @@ class SecurityScanner:
                 )
 
         except Exception as e:
-            result.scan_errors.append(f"Secrets scan error: {str(e)}")
+            result.scan_errors.append(f"Secrets scan error: {e!s}")
 
     def _run_sast_scans(self, project_dir: Path, result: SecurityScanResult) -> None:
         """Run SAST tools based on project type."""
@@ -229,10 +229,7 @@ class SecurityScanner:
             src_dirs = []
             for candidate in ["src", "app", project_dir.name, "."]:
                 candidate_path = project_dir / candidate
-                if (
-                    candidate_path.exists()
-                    and (candidate_path / "__init__.py").exists()
-                ):
+                if candidate_path.exists() and (candidate_path / "__init__.py").exists():
                     src_dirs.append(str(candidate_path))
 
             if not src_dirs:
@@ -291,11 +288,9 @@ class SecurityScanner:
         except FileNotFoundError:
             result.scan_errors.append("Bandit not found")
         except Exception as e:
-            result.scan_errors.append(f"Bandit error: {str(e)}")
+            result.scan_errors.append(f"Bandit error: {e!s}")
 
-    def _run_dependency_audits(
-        self, project_dir: Path, result: SecurityScanResult
-    ) -> None:
+    def _run_dependency_audits(self, project_dir: Path, result: SecurityScanResult) -> None:
         """Run dependency vulnerability audits."""
         # npm audit for JavaScript projects
         if (project_dir / "package.json").exists():
@@ -340,11 +335,8 @@ class SecurityScanner:
                                 severity=severity,
                                 source="npm_audit",
                                 title=f"Vulnerable dependency: {pkg_name}",
-                                description=vuln_info.get("via", [{}])[0].get(
-                                    "title", ""
-                                )
-                                if isinstance(vuln_info.get("via"), list)
-                                and vuln_info.get("via")
+                                description=vuln_info.get("via", [{}])[0].get("title", "")
+                                if isinstance(vuln_info.get("via"), list) and vuln_info.get("via")
                                 else str(vuln_info.get("via", "")),
                                 file="package.json",
                             )
@@ -357,7 +349,7 @@ class SecurityScanner:
         except FileNotFoundError:
             pass  # npm not available
         except Exception as e:
-            result.scan_errors.append(f"npm audit error: {str(e)}")
+            result.scan_errors.append(f"npm audit error: {e!s}")
 
     def _run_pip_audit(self, project_dir: Path, result: SecurityScanResult) -> None:
         """Run pip-audit for Python projects (if available)."""
@@ -384,9 +376,7 @@ class SecurityScanner:
                                 source="pip_audit",
                                 title=f"Vulnerable package: {vuln.get('name')}",
                                 description=vuln.get("description", ""),
-                                cwe=vuln.get("aliases", [""])[0]
-                                if vuln.get("aliases")
-                                else None,
+                                cwe=vuln.get("aliases", [""])[0] if vuln.get("aliases") else None,
                             )
                         )
                 except json.JSONDecodeError:
@@ -465,15 +455,9 @@ class SecurityScanner:
                 "critical_count": sum(
                     1 for v in result.vulnerabilities if v.severity == "critical"
                 ),
-                "high_count": sum(
-                    1 for v in result.vulnerabilities if v.severity == "high"
-                ),
-                "medium_count": sum(
-                    1 for v in result.vulnerabilities if v.severity == "medium"
-                ),
-                "low_count": sum(
-                    1 for v in result.vulnerabilities if v.severity == "low"
-                ),
+                "high_count": sum(1 for v in result.vulnerabilities if v.severity == "high"),
+                "medium_count": sum(1 for v in result.vulnerabilities if v.severity == "medium"),
+                "low_count": sum(1 for v in result.vulnerabilities if v.severity == "low"),
             },
         }
 
@@ -554,9 +538,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run security scans")
     parser.add_argument("project_dir", type=Path, help="Path to project root")
     parser.add_argument("--spec-dir", type=Path, help="Path to spec directory")
-    parser.add_argument(
-        "--secrets-only", action="store_true", help="Only scan for secrets"
-    )
+    parser.add_argument("--secrets-only", action="store_true", help="Only scan for secrets")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     args = parser.parse_args()

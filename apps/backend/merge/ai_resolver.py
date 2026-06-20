@@ -32,8 +32,8 @@ from .ai_resolver import (
 from .ai_resolver.resolver import AICallFunction
 
 __all__ = [
+    "AICallFunction",
     "AIResolver",
     "ConflictContext",
     "create_claude_resolver",
-    "AICallFunction",
 ]

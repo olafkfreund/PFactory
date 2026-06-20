@@ -10,7 +10,7 @@ approval.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from plan.models import NormalizedPlan
 from plan.review.models import PlanReview
@@ -22,7 +22,7 @@ class WaiverError(RuntimeError):
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def waive(
@@ -67,9 +67,7 @@ def waive(
         if result is None:
             raise WaiverError(f"unknown readiness check '{cid}'")
         if not result.is_hard_failure():
-            raise WaiverError(
-                f"check '{cid}' is not a hard failure — there is nothing to waive"
-            )
+            raise WaiverError(f"check '{cid}' is not a hard failure — there is nothing to waive")
         if not result.waivable:
             raise WaiverError(f"check '{cid}' is not waivable")
 

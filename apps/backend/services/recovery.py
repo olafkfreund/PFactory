@@ -17,7 +17,7 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 
@@ -83,8 +83,8 @@ class RecoveryManager:
             "subtasks": {},
             "stuck_subtasks": [],
             "metadata": {
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
             },
         }
         with open(self.attempt_history_file, "w", encoding="utf-8") as f:
@@ -95,8 +95,8 @@ class RecoveryManager:
             "commits": [],
             "last_good_commit": None,
             "metadata": {
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
             },
         }
         with open(self.build_commits_file, "w", encoding="utf-8") as f:
@@ -112,7 +112,7 @@ class RecoveryManager:
                 return json.load(f)
 
     def _save_attempt_history(self, data: dict) -> None:
-        data["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+        data["metadata"]["last_updated"] = datetime.now(UTC).isoformat()
         with open(self.attempt_history_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
@@ -126,7 +126,7 @@ class RecoveryManager:
                 return json.load(f)
 
     def _save_build_commits(self, data: dict) -> None:
-        data["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+        data["metadata"]["last_updated"] = datetime.now(UTC).isoformat()
         with open(self.build_commits_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
@@ -134,16 +134,24 @@ class RecoveryManager:
         error_lower = error.lower()
 
         build_errors = [
-            "syntax error", "compilation error", "module not found",
-            "import error", "cannot find module", "unexpected token",
-            "indentation error", "parse error",
+            "syntax error",
+            "compilation error",
+            "module not found",
+            "import error",
+            "cannot find module",
+            "unexpected token",
+            "indentation error",
+            "parse error",
         ]
         if any(be in error_lower for be in build_errors):
             return FailureType.BROKEN_BUILD
 
         verification_errors = [
-            "verification failed", "expected", "assertion",
-            "test failed", "status code",
+            "verification failed",
+            "expected",
+            "assertion",
+            "test failed",
+            "status code",
         ]
         if any(ve in error_lower for ve in verification_errors):
             return FailureType.VERIFICATION_FAILED
@@ -163,18 +171,14 @@ class RecoveryManager:
         subtask_data = history["subtasks"].get(subtask_id, {})
         attempts = subtask_data.get("attempts", [])
 
-        cutoff_time = datetime.now(timezone.utc) - timedelta(
-            seconds=ATTEMPT_WINDOW_SECONDS
-        )
+        cutoff_time = datetime.now(UTC) - timedelta(seconds=ATTEMPT_WINDOW_SECONDS)
         cutoff_time_naive = datetime.now() - timedelta(seconds=ATTEMPT_WINDOW_SECONDS)
 
         recent_count = 0
         for attempt in attempts:
             try:
                 attempt_time = datetime.fromisoformat(attempt["timestamp"])
-                cutoff = (
-                    cutoff_time_naive if attempt_time.tzinfo is None else cutoff_time
-                )
+                cutoff = cutoff_time_naive if attempt_time.tzinfo is None else cutoff_time
                 if attempt_time >= cutoff:
                     recent_count += 1
             except (KeyError, ValueError):
@@ -197,7 +201,7 @@ class RecoveryManager:
 
         attempt = {
             "session": session,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "approach": approach,
             "success": success,
             "error": error,
@@ -211,9 +215,7 @@ class RecoveryManager:
             history["subtasks"][subtask_id]["attempts"] = attempts[
                 -MAX_ATTEMPT_HISTORY_PER_SUBTASK:
             ]
-            logger.debug(
-                f"Trimmed {trimmed_count} old attempts for subtask {subtask_id}"
-            )
+            logger.debug(f"Trimmed {trimmed_count} old attempts for subtask {subtask_id}")
 
         if success:
             history["subtasks"][subtask_id]["status"] = "completed"
@@ -233,8 +235,20 @@ class RecoveryManager:
         recent_attempts = attempts[-3:] if len(attempts) >= 3 else attempts
 
         stop_words = {
-            "with", "using", "the", "a", "an", "and", "or", "but",
-            "in", "on", "at", "to", "for", "trying",
+            "with",
+            "using",
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "trying",
         }
         current_keywords = set(
             word for word in current_approach.lower().split() if word not in stop_words
@@ -243,9 +257,7 @@ class RecoveryManager:
         similar_count = 0
         for attempt in recent_attempts:
             attempt_keywords = set(
-                word
-                for word in attempt["approach"].lower().split()
-                if word not in stop_words
+                word for word in attempt["approach"].lower().split() if word not in stop_words
             )
 
             overlap = len(current_keywords & attempt_keywords)
@@ -330,7 +342,7 @@ class RecoveryManager:
         commit_record = {
             "hash": commit_hash,
             "subtask_id": subtask_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         commits["commits"].append(commit_record)
@@ -358,13 +370,11 @@ class RecoveryManager:
         stuck_entry = {
             "subtask_id": subtask_id,
             "reason": reason,
-            "escalated_at": datetime.now(timezone.utc).isoformat(),
+            "escalated_at": datetime.now(UTC).isoformat(),
             "attempt_count": self.get_attempt_count(subtask_id),
         }
 
-        existing = [
-            s for s in history["stuck_subtasks"] if s["subtask_id"] == subtask_id
-        ]
+        existing = [s for s in history["stuck_subtasks"] if s["subtask_id"] == subtask_id]
         if not existing:
             history["stuck_subtasks"].append(stuck_entry)
 
@@ -388,7 +398,9 @@ class RecoveryManager:
                             stuck_note = f"Marked as stuck: {reason}"
                             existing_output = subtask.get("actual_output", "")
                             subtask["actual_output"] = (
-                                f"{stuck_note}\n{existing_output}" if existing_output else stuck_note
+                                f"{stuck_note}\n{existing_output}"
+                                if existing_output
+                                else stuck_note
                             )
                             updated = True
                             break
@@ -398,9 +410,7 @@ class RecoveryManager:
                 if updated:
                     write_json_atomic(plan_file, plan, indent=2)
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
-            logger.warning(
-                f"Failed to update test_plan.json for stuck subtask {subtask_id}: {e}"
-            )
+            logger.warning(f"Failed to update test_plan.json for stuck subtask {subtask_id}: {e}")
 
     def get_stuck_subtasks(self) -> list[dict]:
         history = self._load_attempt_history()
@@ -408,9 +418,7 @@ class RecoveryManager:
 
     def get_subtask_history(self, subtask_id: str) -> dict:
         history = self._load_attempt_history()
-        return history["subtasks"].get(
-            subtask_id, {"attempts": [], "status": "pending"}
-        )
+        return history["subtasks"].get(subtask_id, {"attempts": [], "status": "pending"})
 
     def get_recovery_hints(self, subtask_id: str) -> list[str]:
         subtask_history = self.get_subtask_history(subtask_id)
@@ -430,9 +438,7 @@ class RecoveryManager:
                 hints.append(f"  Error: {attempt['error'][:100]}")
 
         if len(attempts) >= 2:
-            hints.append(
-                "\nIMPORTANT: Try a DIFFERENT approach than previous attempts"
-            )
+            hints.append("\nIMPORTANT: Try a DIFFERENT approach than previous attempts")
             hints.append(
                 "Consider: different library, different pattern, or simpler implementation"
             )
@@ -458,6 +464,7 @@ class RecoveryManager:
 
 
 # Module-level utility functions
+
 
 def check_and_recover(
     spec_dir: Path, project_dir: Path, subtask_id: str, error: str | None = None

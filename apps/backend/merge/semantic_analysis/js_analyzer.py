@@ -116,9 +116,7 @@ def extract_js_elements(
                 # Recurse into class body
                 body = child.child_by_field_name("body")
                 if body:
-                    extract_js_elements(
-                        body, elements, get_text, get_line, ext, parent=name
-                    )
+                    extract_js_elements(body, elements, get_text, get_line, ext, parent=name)
 
         elif child.type == "method_definition":
             name_node = child.child_by_field_name("name")

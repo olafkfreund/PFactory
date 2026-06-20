@@ -29,9 +29,7 @@ class ConflictContext:
     file_path: str
     location: str
     baseline_code: str  # The code before any task modified it
-    task_changes: list[
-        tuple[str, str, list[SemanticChange]]
-    ]  # (task_id, intent, changes)
+    task_changes: list[tuple[str, str, list[SemanticChange]]]  # (task_id, intent, changes)
     conflict_description: str
     language: str = "unknown"
 

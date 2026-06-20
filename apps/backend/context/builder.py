@@ -95,14 +95,10 @@ class ContextBuilder:
             )
 
         # Categorize matches
-        files_to_modify, files_to_reference = self.categorizer.categorize_matches(
-            all_matches, task
-        )
+        files_to_modify, files_to_reference = self.categorizer.categorize_matches(all_matches, task)
 
         # Discover patterns from reference files
-        patterns = self.pattern_discoverer.discover_patterns(
-            files_to_reference, keywords
-        )
+        patterns = self.pattern_discoverer.discover_patterns(files_to_reference, keywords)
 
         # Get graph hints (synchronously wrap async call)
         graph_hints = []
@@ -116,9 +112,7 @@ class ContextBuilder:
                     graph_hints = []
                 except RuntimeError:
                     # No event loop running - create one
-                    graph_hints = asyncio.run(
-                        fetch_graph_hints(task, str(self.project_dir))
-                    )
+                    graph_hints = asyncio.run(fetch_graph_hints(task, str(self.project_dir)))
             except Exception:
                 # Graphiti is optional - fail gracefully
                 graph_hints = []
@@ -126,9 +120,7 @@ class ContextBuilder:
         return TaskContext(
             task_description=task,
             scoped_services=services,
-            files_to_modify=[
-                asdict(f) if isinstance(f, FileMatch) else f for f in files_to_modify
-            ],
+            files_to_modify=[asdict(f) if isinstance(f, FileMatch) else f for f in files_to_modify],
             files_to_reference=[
                 asdict(f) if isinstance(f, FileMatch) else f for f in files_to_reference
             ],
@@ -190,14 +182,10 @@ class ContextBuilder:
             )
 
         # Categorize matches
-        files_to_modify, files_to_reference = self.categorizer.categorize_matches(
-            all_matches, task
-        )
+        files_to_modify, files_to_reference = self.categorizer.categorize_matches(all_matches, task)
 
         # Discover patterns from reference files
-        patterns = self.pattern_discoverer.discover_patterns(
-            files_to_reference, keywords
-        )
+        patterns = self.pattern_discoverer.discover_patterns(files_to_reference, keywords)
 
         # Get graph hints asynchronously
         graph_hints = []
@@ -207,9 +195,7 @@ class ContextBuilder:
         return TaskContext(
             task_description=task,
             scoped_services=services,
-            files_to_modify=[
-                asdict(f) if isinstance(f, FileMatch) else f for f in files_to_modify
-            ],
+            files_to_modify=[asdict(f) if isinstance(f, FileMatch) else f for f in files_to_modify],
             files_to_reference=[
                 asdict(f) if isinstance(f, FileMatch) else f for f in files_to_reference
             ],

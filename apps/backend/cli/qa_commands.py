@@ -61,11 +61,7 @@ def handle_review_status_command(spec_dir: Path) -> None:
     if review_state.is_approval_valid(spec_dir):
         print(success(f"{icon(Icons.SUCCESS)} Ready to build - approval is valid."))
     elif review_state.approved:
-        print(
-            warning(
-                f"{icon(Icons.WARNING)} Spec changed since approval - re-review required."
-            )
-        )
+        print(warning(f"{icon(Icons.WARNING)} Spec changed since approval - re-review required."))
     else:
         print(info(f"{icon(Icons.INFO)} Review required before building."))
     print()

@@ -45,7 +45,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ def _default_api_url() -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------------------
@@ -233,9 +233,7 @@ def snapshot_aifactory_spec(
             else:
                 result.warnings.append(diff_err or "git diff failed (unknown reason)")
         else:
-            result.warnings.append(
-                f"project_root_path {repo} not a directory; git context skipped"
-            )
+            result.warnings.append(f"project_root_path {repo} not a directory; git context skipped")
     else:
         result.warnings.append("project_root_path not provided; git context skipped")
 
@@ -249,15 +247,11 @@ def snapshot_aifactory_spec(
             try:
                 cfg = load_pfactory_yml(repo)
             except PFactoryYmlError as exc:
-                result.warnings.append(
-                    f".pfactory.yml present but unparseable: {exc.message}"
-                )
+                result.warnings.append(f".pfactory.yml present but unparseable: {exc.message}")
                 cfg = None
             if cfg is not None:
                 dst = context_dir / "pfactory_yml.json"
-                dst.write_text(
-                    json.dumps(cfg.model_dump(mode="json"), indent=2, sort_keys=True)
-                )
+                dst.write_text(json.dumps(cfg.model_dump(mode="json"), indent=2, sort_keys=True))
                 dst.chmod(_SNAPSHOT_MODE)
                 result.has_pfactory_yml = True
 
@@ -271,9 +265,7 @@ def snapshot_aifactory_spec(
             try:
                 cat = load_catalog(repo)
             except CatalogError as exc:
-                result.warnings.append(
-                    f"tests-catalog.json present but unparseable: {exc.reason}"
-                )
+                result.warnings.append(f"tests-catalog.json present but unparseable: {exc.reason}")
                 cat = None
             if cat is not None:
                 dst = context_dir / "tests_catalog.json"
@@ -309,9 +301,7 @@ def _git_rev_parse(repo: Path, ref: str) -> str | None:
     return proc.stdout.strip() or None
 
 
-def _git_diff(
-    repo: Path, base_ref: str, branch: str
-) -> tuple[str | None, str | None, str | None]:
+def _git_diff(repo: Path, base_ref: str, branch: str) -> tuple[str | None, str | None, str | None]:
     """Return (patch_text, stat_summary, error_message). Any may be None."""
     try:
         diff_proc = subprocess.run(
@@ -328,10 +318,7 @@ def _git_diff(
         return (
             None,
             None,
-            (
-                f"git diff {base_ref}..{branch} failed: "
-                f"{(diff_proc.stderr or '').strip()[:200]}"
-            ),
+            (f"git diff {base_ref}..{branch} failed: {(diff_proc.stderr or '').strip()[:200]}"),
         )
 
     # Stat summary is cheap and helps the Planner / report skim the diff size.

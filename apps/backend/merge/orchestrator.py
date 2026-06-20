@@ -167,9 +167,7 @@ class MergeOrchestrator:
         self.merge_output_dir = self.storage_dir / "merge_output"
         self.reports_dir = self.storage_dir / "merge_reports"
 
-        debug_success(
-            MODULE, "MergeOrchestrator initialized", storage_dir=str(self.storage_dir)
-        )
+        debug_success(MODULE, "MergeOrchestrator initialized", storage_dir=str(self.storage_dir))
 
     @property
     def ai_resolver(self) -> AIResolver:
@@ -292,9 +290,7 @@ class MergeOrchestrator:
             report.error = str(e)
 
         report.completed_at = datetime.now()
-        report.stats.duration_seconds = (
-            report.completed_at - start_time
-        ).total_seconds()
+        report.stats.duration_seconds = (report.completed_at - start_time).total_seconds()
 
         # Save report
         if not self.dry_run:
@@ -385,9 +381,7 @@ class MergeOrchestrator:
             report.error = str(e)
 
         report.completed_at = datetime.now()
-        report.stats.duration_seconds = (
-            report.completed_at - start_time
-        ).total_seconds()
+        report.stats.duration_seconds = (report.completed_at - start_time).total_seconds()
 
         # Save report
         if not self.dry_run:
@@ -425,9 +419,7 @@ class MergeOrchestrator:
         baseline_content = self.evolution_tracker.get_baseline_content(file_path)
         if baseline_content is None:
             # Try to get from target branch
-            baseline_content = get_file_from_branch(
-                self.project_dir, file_path, target_branch
-            )
+            baseline_content = get_file_from_branch(self.project_dir, file_path, target_branch)
 
         if baseline_content is None:
             # File is new - created by task(s)
@@ -545,9 +537,7 @@ class MergeOrchestrator:
                         "tasks": c.tasks_involved,
                         "severity": c.severity.value,
                         "can_auto_merge": c.can_auto_merge,
-                        "strategy": c.merge_strategy.value
-                        if c.merge_strategy
-                        else None,
+                        "strategy": c.merge_strategy.value if c.merge_strategy else None,
                         "reason": c.reason,
                     }
                 )
@@ -556,9 +546,7 @@ class MergeOrchestrator:
             "total_files": len(file_tasks),
             "conflict_files": len(conflicting),
             "total_conflicts": len(preview["conflicts"]),
-            "auto_mergeable": sum(
-                1 for c in preview["conflicts"] if c["can_auto_merge"]
-            ),
+            "auto_mergeable": sum(1 for c in preview["conflicts"] if c["can_auto_merge"]),
         }
 
         debug_success(MODULE, "Preview complete", summary=preview["summary"])
@@ -635,9 +623,7 @@ class MergeOrchestrator:
         stats.files_processed += 1
         stats.ai_calls_made += result.ai_calls_made
         stats.estimated_tokens_used += result.tokens_used
-        stats.conflicts_detected += len(result.conflicts_resolved) + len(
-            result.conflicts_remaining
-        )
+        stats.conflicts_detected += len(result.conflicts_resolved) + len(result.conflicts_remaining)
         stats.conflicts_auto_resolved += len(result.conflicts_resolved)
 
         if result.decision == MergeDecision.AUTO_MERGED:

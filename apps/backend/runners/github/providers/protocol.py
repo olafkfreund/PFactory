@@ -296,9 +296,7 @@ class GitProvider(Protocol):
         """
         ...
 
-    async def fetch_issues(
-        self, filters: IssueFilters | None = None
-    ) -> list[IssueData]:
+    async def fetch_issues(self, filters: IssueFilters | None = None) -> list[IssueData]:
         """
         Fetch issues with optional filters.
 

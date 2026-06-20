@@ -35,9 +35,9 @@ from __future__ import annotations
 
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
 
@@ -162,9 +162,7 @@ class AppRuntime:
             compose_stderr=cp.stderr or "",
         )
         if cp.returncode != 0:
-            raise AppRuntimeError(
-                f"docker compose up failed (exit {cp.returncode}): {cp.stderr}"
-            )
+            raise AppRuntimeError(f"docker compose up failed (exit {cp.returncode}): {cp.stderr}")
         self._started = True
         return result
 
@@ -224,8 +222,7 @@ class AppRuntime:
         unhealthy = [r for r in results if not r.healthy]
         if unhealthy:
             details = ", ".join(
-                f"{r.url} (last_status={r.last_status}, err={r.last_error!r})"
-                for r in unhealthy
+                f"{r.url} (last_status={r.last_status}, err={r.last_error!r})" for r in unhealthy
             )
             raise AppRuntimeError(f"app_not_healthy: {details}")
         return results

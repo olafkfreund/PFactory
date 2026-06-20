@@ -64,10 +64,7 @@ def _dependency_levels(epic: EpicPlan) -> dict[str, int]:
     those); cycles are broken defensively so this never recurses forever.
     """
     keys = {c.key for c in epic.children}
-    deps = {
-        c.key: [d for d in c.depends_on if d in keys and d != c.key]
-        for c in epic.children
-    }
+    deps = {c.key: [d for d in c.depends_on if d in keys and d != c.key] for c in epic.children}
     level: dict[str, int] = {}
 
     def resolve(key: str, seen: frozenset[str]) -> int:
@@ -153,10 +150,7 @@ def build_phases(
         subtasks = [_subtask(c, all_keys, footprints.get(c.key)) for c in children]
         # phase depends on the (1-based) phase numbers holding any child's deps.
         dep_levels = {
-            levels[d]
-            for c in children
-            for d in c.depends_on
-            if d in levels and d != c.key
+            levels[d] for c in children for d in c.depends_on if d in levels and d != c.key
         }
         phase = {
             "phase": level + 1,
@@ -219,9 +213,7 @@ def build_task_contract(
     # subtasks carry real files_to_modify/create instead of empty lists.
     footprints = compute_footprints(plan, epic)
     phases = build_phases(epic, footprints)
-    services = sorted(
-        {s for ph in phases for st in ph["subtasks"] if (s := st.get("service"))}
-    )
+    services = sorted({s for ph in phases for st in ph["subtasks"] if (s := st.get("service"))})
     rm = plan.repo_map
     provenance: dict[str, Any] = {
         "source": "pfactory",

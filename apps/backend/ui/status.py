@@ -151,9 +151,7 @@ class StatusManager:
 
             if debug:
                 write_duration = (time.time() - write_start) * 1000
-                print(
-                    f"[StatusManager] Batched write completed in {write_duration:.2f}ms"
-                )
+                print(f"[StatusManager] Batched write completed in {write_duration:.2f}ms")
         except OSError as e:
             print(warning(f"Could not write status file: {e}"))
 
@@ -167,20 +165,14 @@ class StatusManager:
             if self._write_timer is not None:
                 self._write_timer.cancel()
                 if debug:
-                    print(
-                        "[StatusManager] Cancelled pending write, batching with new update"
-                    )
+                    print("[StatusManager] Cancelled pending write, batching with new update")
 
             self._write_pending = True
-            self._write_timer = threading.Timer(
-                self._WRITE_DEBOUNCE_MS / 1000.0, self._do_write
-            )
+            self._write_timer = threading.Timer(self._WRITE_DEBOUNCE_MS / 1000.0, self._do_write)
             self._write_timer.start()
 
         if debug:
-            print(
-                f"[StatusManager] Scheduled batched write in {self._WRITE_DEBOUNCE_MS}ms"
-            )
+            print(f"[StatusManager] Scheduled batched write in {self._WRITE_DEBOUNCE_MS}ms")
 
     def write(self, status: BuildStatus | None = None, immediate: bool = False) -> None:
         """Write status to file.
