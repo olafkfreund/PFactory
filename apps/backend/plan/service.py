@@ -237,6 +237,29 @@ def _attach_deployment(plan: NormalizedPlan, epic: EpicPlan) -> list:
     return deployment_findings(block)
 
 
+def _template_findings(session: PlanSession, plan: NormalizedPlan, descriptor: object) -> list:
+    """Template-policy findings (#E). OPT-IN: only a user-selected template gates.
+
+    Records the auto-matched template as a non-gating suggestion, defaults the
+    category, and runs the selected template's policy check. Best-effort — docs
+    must never break emit, so any failure degrades to no findings.
+    """
+    from plan.templates import build_context, load_templates, select_template
+
+    try:
+        suggested = select_template(plan)
+        session.suggested_template = suggested.metadata.name if suggested else ""
+        if not session.selected_category:
+            session.selected_category = getattr(descriptor, "category", "")
+        if session.selected_template:
+            tmpl = load_templates().get(session.selected_template)
+            if tmpl is not None:
+                return tmpl.check(build_context(plan))
+    except Exception:  # noqa: BLE001 — docs must never break emit
+        return []
+    return []
+
+
 class PlanServiceError(RuntimeError):
     """Raised for invalid session ids or out-of-order stage calls."""
 
@@ -518,22 +541,8 @@ class PlanService:
         # Template policy (#E). Enforcement is OPT-IN: a template's embedded policy
         # (required tags / allowed regions / IAM / baselines) gates review only when
         # the user explicitly selected it at intake — auto-matching is recorded as a
-        # non-gating suggestion (help, never override). Default the category from the
-        # selection, else the detected plan-type's category.
-        from plan.templates import build_context, load_templates, select_template
-
-        template_findings: list = []
-        try:
-            suggested = select_template(plan)
-            session.suggested_template = suggested.metadata.name if suggested else ""
-            if not session.selected_category:
-                session.selected_category = descriptor.category
-            if session.selected_template:
-                tmpl = load_templates().get(session.selected_template)
-                if tmpl is not None:
-                    template_findings = tmpl.check(build_context(plan))
-        except Exception:  # noqa: BLE001 — docs must never break emit
-            template_findings = []
+        # non-gating suggestion (help, never override).
+        template_findings = _template_findings(session, plan, descriptor)
 
         def _composed_runner(p, e):
             out = list(external_runner(p, e)) if external_runner else []
