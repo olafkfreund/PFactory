@@ -43,6 +43,16 @@ Task 8 additions (Browser-lane AppRuntime status transitions):
   injection) lives in ``tools/runners/app_runtime.py`` and
   ``tools/runners/lane_dispatch.py``.  The Evaluator only owns the
   *status.json* side-effects.
+
+Lane pipeline (issue #193):
+
+  The per-lane evaluation logic (subtask selection, runner_fn construction,
+  signal-bundle assembly) lives in the ``agents.lanes`` package — one module
+  per lane (unit/api/browser/jest) plus shared ``common`` + ``signals``
+  modules.  This file is the thin orchestrator: it resolves the SDK seams,
+  fans completed subtasks out to the lane builders, invokes the LLM, and
+  validates verdicts.json.  The symbols below are re-exported for backward
+  compatibility (tests and ``gen_functional`` import them from here).
 """
 
 from __future__ import annotations
@@ -53,40 +63,71 @@ import logging as _logging
 import os
 import traceback
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Literal
+
+# ── Lane pipeline (issue #193) — extracted helpers, re-exported here so the
+#    existing public import surface (``agents.evaluator.<symbol>``) keeps working.
+from agents.lanes.api import _build_api_signal_bundle, _completed_api_subtasks
+from agents.lanes.browser import (
+    _build_browser_signal_bundle,
+    _completed_browser_subtasks,
+    _resolve_browser_runner_fn,
+    _run_browser_subtask_with_runtime,
+    _stage_browser_test,
+)
+from agents.lanes.common import (
+    _PYTEST_IMAGE,
+    _browser_target_url,
+    _kube_runtime_for,
+    _now_iso,
+    _resolve_target,
+    _RunResultLike,
+    _test_credential_specs,
+    _write_status_patch,
+)
+from agents.lanes.jest import (
+    _build_jest_signal_bundle,
+    _completed_jest_subtasks,
+    _resolve_jest_runner_fn,
+)
+from agents.lanes.signals import (
+    EvaluatorSignals,
+    _coverage_delta_for_subtask,
+    _flaky_history_for_subtask,  # noqa: F401 — re-export for back-compat
+    _framework_coverage_strategy,
+    _lint_promotion_for_subtask,  # noqa: F401 — re-export for back-compat
+    _mutation_for_subtask,  # noqa: F401 — re-export for back-compat
+    _stability_for_subtask,  # noqa: F401 — re-export for back-compat
+)
+from agents.lanes.unit import _build_signal_bundle, _completed_functional_subtasks
+
+__all__ = [
+    "EvaluatorSignals",
+    "_browser_target_url",
+    "_build_api_signal_bundle",
+    "_build_browser_signal_bundle",
+    "_build_jest_signal_bundle",
+    "_build_signal_bundle",
+    "_completed_api_subtasks",
+    "_completed_browser_subtasks",
+    "_completed_functional_subtasks",
+    "_completed_jest_subtasks",
+    "_coverage_delta_for_subtask",
+    "_framework_coverage_strategy",
+    "_kube_runtime_for",
+    "_resolve_browser_runner_fn",
+    "_resolve_jest_runner_fn",
+    "_resolve_target",
+    "_run_browser_subtask_with_runtime",
+    "_stage_browser_test",
+    "_test_credential_specs",
+    "_validate_verdicts",
+    "run_evaluator",
+    "schedule_evaluator",
+]
 
 _eval_log = _logging.getLogger(__name__)
-
-
-# ─── Workspace helpers (local copy — same pattern as planner/gen_functional)
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _read_status(spec_dir: Path) -> dict:
-    status_path = spec_dir / "status.json"
-    if not status_path.exists():
-        return {}
-    try:
-        return json.loads(status_path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def _write_status_patch(spec_dir: Path, **fields: object) -> None:
-    status = _read_status(spec_dir)
-    status.update(fields)
-    status["updated_at"] = _now_iso()
-    (spec_dir / "status.json").write_text(json.dumps(status, indent=2))
-    # Best-effort push-based progress event (#95); no-op unless opted in.
-    from agents.stage_events import emit_stage_event
-
-    emit_stage_event(spec_dir, status, stage="evaluator")
 
 
 # ─── SDK seams (mockable in tests) ──────────────────────────────────────
@@ -158,21 +199,7 @@ async def _invoke_session(
         )
 
 
-# ─── Runner-fn seam for stability + mutation primitives ─────────────────
-
-
-class _RunResultLike(Protocol):
-    """Same duck-type as stability_runner/mutate_probe expect."""
-
-    @property
-    def returncode(self) -> int: ...
-    @property
-    def stdout(self) -> str: ...
-    @property
-    def stderr(self) -> str: ...
-
-
-_PYTEST_IMAGE = "pfactory-runner-pytest:latest"
+# ─── Runner-fn seam for stability + mutation primitives (pytest lanes) ───
 
 
 def _resolve_runner_fn(
@@ -295,802 +322,6 @@ def _resolve_runner_fn(
             _sh.rmtree(scratch, ignore_errors=True)
 
     return _run
-
-
-# ─── Per-test signal bundle ─────────────────────────────────────────────
-
-
-@dataclass
-class EvaluatorSignals:
-    """Per-test bundle of the four pre-computed signals plus identity.
-
-    The fifth signal (semantic relevance) is the LLM's call — it
-    doesn't live in this dataclass.
-
-    Any of the four signal fields can be ``None`` if the primitive
-    couldn't run (e.g., coverage XML not emitted by the Executor for
-    this test). The prompt helper renders missing signals as
-    "not computed" rather than crashing.
-
-    ``coverage_delta`` is explicitly ``None`` (not zero) when the
-    framework's ``coverage_strategy == "skip"`` (Decision 11 — Browser
-    lane).  This prevents the Evaluator prompt from seeing "0% coverage"
-    and issuing a spurious reject for Playwright tests.  A ``None``
-    value is rendered as "N/A (browser lane)" by
-    ``_format_evaluator_per_test_block``.
-    """
-
-    test_id: str
-    test_file: Path
-    target: str
-    rationale: str
-    coverage_delta: Any = None  # CoverageDelta | None  (None = skip-coverage lane)
-    stability: Any = None  # StabilityResult | None
-    mutation: Any = None  # MutationResult | None
-    lint_promotion: Any = None  # PromotionResult | None
-    flaky_history: Any = None  # FlakyHistory | None  (cross-run flip-rate, #37)
-
-
-# ─── Signal-bundle assembly ─────────────────────────────────────────────
-
-
-def _completed_functional_subtasks(plan: dict) -> list[dict]:
-    """Pick subtasks that Gen-Functional successfully generated
-    (status='completed', lane in {'unit','functional'}, has files_to_create).
-
-    Accepts both the v0.2 'unit' lane and the v0.1 deprecated 'functional'
-    alias so old test_plan.json files still process. v0.3 removes the
-    'functional' alias.
-    """
-    out = []
-    for phase in plan.get("phases", []):
-        for st in phase.get("subtasks", []):
-            # The pytest runner only handles Python. A unit-lane subtask in
-            # another language (e.g. Jest/TypeScript) needs its own runner
-            # image — skip it here rather than feeding a .test.ts to pytest.
-            if (
-                st.get("status") == "completed"
-                and st.get("lane") in ("unit", "functional")
-                and (st.get("language") in (None, "python"))
-                and st.get("files_to_create")
-            ):
-                out.append(st)
-    return out
-
-
-def _framework_coverage_strategy(subtask: dict) -> str | None:
-    """Look up the framework descriptor's coverage_strategy for a subtask.
-
-    Returns the strategy string ("lcov", "cobertura", "skip") or None
-    if the subtask has no ``framework`` field or the registry lookup
-    fails (e.g. unknown framework name — v0.1 back-compat).
-
-    Failures are swallowed and logged at DEBUG level so a registry
-    misconfiguration never blocks the Evaluator.
-    """
-    framework_name = subtask.get("framework")
-    if not framework_name:
-        return None
-    try:
-        from framework_registry import load_registry
-
-        registry = load_registry()
-        desc = registry.get(framework_name)
-        if desc is None:
-            _eval_log.debug(
-                "coverage_strategy: framework %r not in registry; treating as numeric",
-                framework_name,
-            )
-            return None
-        return desc.coverage_strategy
-    except Exception as exc:  # noqa: BLE001 — never block the Evaluator
-        _eval_log.debug(
-            "coverage_strategy lookup failed for framework %r: %s",
-            framework_name,
-            exc,
-        )
-        return None
-
-
-# ─── Browser-lane AppRuntime status transitions (Task 8 / #24) ──────────
-
-
-def _run_browser_subtask_with_runtime(
-    spec_dir: Path,
-    subtask: dict,
-    runner_fn=None,
-    *,
-    target=None,
-    repo_root: Path | None = None,
-) -> tuple[bool, str | None]:
-    """Execute a Browser-lane subtask wrapped in an AppRuntime lifecycle.
-
-    Writes status.json phase transitions visible to the portal:
-
-      ``executor_app_running`` — docker-compose is up + healthy; Playwright
-                                  container is executing.
-      ``app_not_healthy``      — health-poll timed out; the error message
-                                  includes the last observed status code per
-                                  URL.
-
-    This function is intentionally side-effect-light — it owns ONLY the
-    ``status.json`` writes.  The actual docker-compose / HTTP-poll / container
-    execution lives in ``tools.runners.app_runtime`` and
-    ``tools.runners.lane_dispatch``.
-
-    Args:
-        spec_dir: PFactory workspace spec directory.
-        subtask: A subtask dict from test_plan.json (lane == "browser" or
-            "integration").
-        runner_fn: Injectable subprocess.run replacement for tests.
-        target: A ``DockerComposeTarget`` instance.  When ``None`` this
-            function is a no-op and returns ``(False, "no_target")``.
-        repo_root: Absolute path to the AIFactory project root (required
-            when ``target`` is not None).
-
-    Returns:
-        ``(success, error_phase)`` — where ``success=True`` means the
-        Playwright container ran (its exit code is separate), and
-        ``error_phase`` is set when AppRuntime itself failed (e.g.
-        ``"app_not_healthy"``).
-    """
-    if target is None:
-        # No DockerComposeTarget — Browser subtask with a static base_url;
-        # skip AppRuntime lifecycle entirely.
-        return False, "no_target"
-
-    from tools.runners.app_runtime import AppRuntime, AppRuntimeError
-
-    _write_status_patch(
-        spec_dir,
-        phase="executor_app_running",
-        browser_subtask_id=subtask.get("id", ""),
-    )
-
-    runtime_kwargs: dict = {}
-    if runner_fn is not None:
-        runtime_kwargs["runner_fn"] = runner_fn
-
-    try:
-        with AppRuntime(target, repo_root, **runtime_kwargs) as runtime:
-            try:
-                runtime.wait_for_healthy()
-            except AppRuntimeError as exc:
-                _eval_log.error(
-                    "app_not_healthy for subtask %s: %s",
-                    subtask.get("id", ""),
-                    exc,
-                )
-                _write_status_patch(
-                    spec_dir,
-                    phase="app_not_healthy",
-                    app_runtime_error=str(exc)[:500],
-                    browser_subtask_id=subtask.get("id", ""),
-                )
-                return False, "app_not_healthy"
-            # App is healthy — caller proceeds with the test run.
-            return True, None
-    except AppRuntimeError as exc:
-        # start() itself failed (compose up returned non-zero).
-        _eval_log.error(
-            "app_runtime start failed for subtask %s: %s",
-            subtask.get("id", ""),
-            exc,
-        )
-        _write_status_patch(
-            spec_dir,
-            phase="app_not_healthy",
-            app_runtime_error=str(exc)[:500],
-            browser_subtask_id=subtask.get("id", ""),
-        )
-        return False, "app_not_healthy"
-
-
-def _coverage_delta_for_subtask(
-    spec_dir: Path,
-    subtask: dict,
-):
-    """Try to compute coverage delta for one test.
-
-    Returns ``None`` in two distinct cases:
-
-    1. **Skip-coverage lane** (Decision 11): the subtask's framework has
-       ``coverage_strategy == "skip"`` (e.g. Playwright Browser lane).
-       The Evaluator prompt renders this as "N/A (browser lane)" and does
-       NOT penalise the test for zero coverage.
-
-    2. **Coverage XML absent**: baseline or per-test coverage.xml are
-       missing — the LLM will see "not computed" (pre-existing behaviour).
-
-    Looks for ``spec_dir/findings/baseline_coverage.xml`` and
-    ``spec_dir/findings/runs/<test_id>/coverage.xml`` for case (2).
-    """
-    # Case 1: framework explicitly opted out of coverage measurement.
-    strategy = _framework_coverage_strategy(subtask)
-    if strategy == "skip":
-        _eval_log.debug(
-            "coverage_delta: framework %r uses skip strategy — returning None",
-            subtask.get("framework"),
-        )
-        return None
-
-    # Case 2: try to parse XML coverage artefacts.
-    from agents.coverage_delta import compute_delta_from_paths
-
-    baseline = spec_dir / "findings" / "baseline_coverage.xml"
-    after = spec_dir / "findings" / "runs" / subtask["id"] / "coverage.xml"
-    if not baseline.exists() or not after.exists():
-        return None
-    try:
-        return compute_delta_from_paths(baseline, after)
-    except Exception as exc:  # noqa: BLE001 — defensive
-        _eval_log.warning(
-            "coverage_delta failed for %s: %s",
-            subtask["id"],
-            exc,
-        )
-        return None
-
-
-def _stability_for_subtask(
-    spec_dir: Path,
-    project_dir: Path,
-    subtask: dict,
-    runner_fn,
-):
-    """Run the 3× stability check for one test."""
-    from agents.stability_runner import check_stability
-
-    test_file = spec_dir / subtask["files_to_create"][0]
-    if not test_file.exists():
-        return None
-    try:
-        return check_stability(test_file, project_dir, runner_fn)
-    except Exception as exc:  # noqa: BLE001
-        _eval_log.warning(
-            "stability check failed for %s: %s",
-            subtask["id"],
-            exc,
-        )
-        return None
-
-
-def _flaky_history_for_subtask(spec_dir: Path, subtask: dict, stability):
-    """Record this run's pass/fail outcome into the project-level flaky
-    history store and return the updated FlakyHistory (#37).
-
-    The outcome is derived from the 3× stability verdict: ``STABLE`` is a
-    clean pass; anything else (flaky / consistent-fail / error) is a fail.
-    Returns ``None`` when stability couldn't run, so we don't pollute the
-    history with a phantom outcome. The store lives one level above the
-    spec dir (``<workspace>/<project>/test_history.json``) so it persists
-    across separate spec runs of the same project.
-    """
-    if stability is None:
-        return None
-    from agents.flaky_history import record_outcome
-    from agents.stability_runner import StabilityVerdict
-
-    try:
-        store = spec_dir.parent.parent / "test_history.json"
-        passed = stability.verdict == StabilityVerdict.STABLE
-        return record_outcome(store, subtask["id"], passed)
-    except Exception as exc:  # noqa: BLE001
-        _eval_log.warning(
-            "flaky-history record failed for %s: %s",
-            subtask["id"],
-            exc,
-        )
-        return None
-
-
-def _mutation_for_subtask(
-    spec_dir: Path,
-    project_dir: Path,
-    subtask: dict,
-    runner_fn,
-):
-    """Run the mutate-and-check probe for one test, dispatched by language.
-
-    Routes to the Python (mutmut-style AST) or TypeScript (Stryker) backend
-    via ``mutation_dispatch`` (#41). Writes the mutant to
-    ``spec_dir/findings/mutants/<test_id>.<ext>`` so the original test file
-    stays clean. Returns ``None`` for languages with no wired backend.
-    """
-    from agents.mutation_dispatch import (
-        is_mutation_supported,
-        mutant_extension,
-        run_language_mutation,
-    )
-
-    language = subtask.get("language")
-    if not is_mutation_supported(language):
-        return None
-    test_file = spec_dir / subtask["files_to_create"][0]
-    if not test_file.exists():
-        return None
-    ext = mutant_extension(language)
-    mutant_path = spec_dir / "findings" / "mutants" / f"{subtask['id']}.{ext}"
-    try:
-        return run_language_mutation(
-            language, test_file, project_dir, runner_fn, mutant_path=mutant_path
-        )
-    except Exception as exc:  # noqa: BLE001
-        _eval_log.warning(
-            "mutate probe failed for %s: %s",
-            subtask["id"],
-            exc,
-        )
-        return None
-
-
-def _lint_promotion_for_subtask(spec_dir: Path, subtask: dict):
-    """Run flake_risk_lint + promote findings for one test."""
-    from agents.flake_risk_lint import flake_risk_lint
-    from agents.lint_promotion import promote_flake_findings
-
-    test_file = spec_dir / subtask["files_to_create"][0]
-    if not test_file.exists():
-        return None
-    try:
-        source = test_file.read_text()
-    except OSError:
-        return None
-    result = flake_risk_lint(source)
-    return promote_flake_findings(result, source)
-
-
-def _build_signal_bundle(
-    spec_dir: Path,
-    project_dir: Path,
-    subtask: dict,
-    runner_fn,
-) -> EvaluatorSignals:
-    """Run every available signal primitive against ``subtask`` and
-    return a bundle the prompt helper can format."""
-    stability = _stability_for_subtask(spec_dir, project_dir, subtask, runner_fn)
-    return EvaluatorSignals(
-        test_id=subtask["id"],
-        test_file=spec_dir / subtask["files_to_create"][0],
-        target=subtask.get("target") or "?",
-        rationale=subtask.get("rationale") or "?",
-        coverage_delta=_coverage_delta_for_subtask(spec_dir, subtask),
-        stability=stability,
-        mutation=_mutation_for_subtask(spec_dir, project_dir, subtask, runner_fn),
-        lint_promotion=_lint_promotion_for_subtask(spec_dir, subtask),
-        flaky_history=_flaky_history_for_subtask(spec_dir, subtask, stability),
-    )
-
-
-# ─── Browser-lane signal computation (static base_url path) ─────────────
-#
-# Wires the browser lane into run_evaluator for the common static-URL case
-# (an http target in .pfactory.yml — e.g. a deployed Pages site). The
-# docker-compose AppRuntime path (_run_browser_subtask_with_runtime) remains
-# for local-app targets; this path runs the generated Playwright test in the
-# playwright runner image against the remote URL with --network=bridge and
-# PFACTORY_TARGET_URL injected.
-
-_PLAYWRIGHT_IMAGE = "pfactory-runner-playwright:latest"
-
-
-def _completed_browser_subtasks(plan: dict) -> list[dict]:
-    """Completed Playwright/browser subtasks Gen-Functional generated."""
-    out = []
-    for phase in plan.get("phases", []):
-        for st in phase.get("subtasks", []):
-            if (
-                st.get("status") == "completed"
-                and st.get("lane") == "browser"
-                and st.get("files_to_create")
-            ):
-                out.append(st)
-    return out
-
-
-def _browser_target_url(spec_dir: Path, subtask: dict) -> str | None:
-    """Resolve the base_url for the subtask's target from the snapshotted
-    .pfactory.yml (context/pfactory_yml.json). Falls back to the default
-    target when the subtask has no target_name.
-
-    The trailing slash is stripped: the parser normalises base_url to end in
-    ``/``, but api tests build URLs as ``f"{base_url}/api/..."`` — a trailing
-    slash would produce ``//api/...`` (a different path → spurious 404s). A
-    bare origin is also valid for Playwright ``page.goto``.
-    """
-    ctx = spec_dir / "context" / "pfactory_yml.json"
-    if not ctx.exists():
-        return None
-    try:
-        cfg = json.loads(ctx.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-    targets = cfg.get("targets") or []
-    want = subtask.get("target_name") or cfg.get("default_target")
-
-    def _norm(u: str) -> str:
-        # Strip a single trailing slash from the origin/path, but never reduce
-        # to empty (keep at least the scheme+host).
-        return u[:-1] if (u.endswith("/") and not u.endswith("://")) else u
-
-    for t in targets:
-        if t.get("name") == want and t.get("base_url"):
-            return _norm(t["base_url"])
-    # last resort: first http target with a base_url
-    for t in targets:
-        if t.get("base_url"):
-            return _norm(t["base_url"])
-    return None
-
-
-def _resolve_target(spec_dir: Path, subtask: dict) -> dict | None:
-    """Resolve the subtask's *target object* from the snapshotted .pfactory.yml.
-
-    Like :func:`_browser_target_url` but returns the whole target dict (so the
-    caller can branch on ``type``), preferring the subtask's ``target_name``,
-    then the config ``default_target``, then the first target.
-    """
-    ctx = spec_dir / "context" / "pfactory_yml.json"
-    if not ctx.exists():
-        return None
-    try:
-        cfg = json.loads(ctx.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-    targets = cfg.get("targets") or []
-    want = subtask.get("target_name") or cfg.get("default_target")
-    for t in targets:
-        if t.get("name") == want:
-            return t
-    return targets[0] if targets else None
-
-
-def _kube_runtime_for(target: dict | None, *, runtime_cls=None):
-    """A ``KubernetesRuntime`` for a kubernetes port-forward target, else None (#108).
-
-    When the resolved target is ``type: kubernetes`` with ``port_forward: true``,
-    the api/browser lane has no static ``base_url`` — the URL only exists while a
-    ``kubectl port-forward`` is live. The caller uses the returned runtime as a
-    context manager so the forward is up during the test run and torn down after
-    (on success *and* failure). Auth rides the materialised read-only kubeconfig
-    (``KUBECONFIG``). Returns None for non-k8s targets (the static-URL path).
-    """
-    if not target or target.get("type") != "kubernetes" or not target.get("port_forward"):
-        return None
-    from types import SimpleNamespace
-
-    from tools.runners.kubernetes_runtime import KubernetesRuntime
-
-    cls = runtime_cls or KubernetesRuntime
-    t = SimpleNamespace(
-        name=target.get("name"),
-        context=target.get("context"),
-        namespace=target.get("namespace"),
-        service=target.get("service"),
-        port=target.get("port"),
-        # KubernetesRuntime.start() reads target.port_forward — without it the
-        # real runtime AttributeErrors (the mocked dispatch test never hits
-        # start(), so this only surfaces live). #108.
-        port_forward=target.get("port_forward"),
-    )
-    return cls(t, kubeconfig=os.environ.get("KUBECONFIG"))
-
-
-def _test_credential_specs(spec_dir: Path, subtask: dict | None) -> list:
-    """TargetCredentialSpec list for a subtask's ``ref``-auth target (#107).
-
-    Reads the snapshotted .pfactory.yml: when the subtask's target uses
-    ``auth: {type: ref}``, turn the referenced ``test_credentials`` entry into a
-    resolver spec (``resolve_test_target_credentials`` injects it as login env).
-    Empty list when there is no ref-auth / no matching credential.
-    """
-    if subtask is None:
-        return []
-    from tools.runners.sandbox_credentials import TargetCredentialSpec
-
-    target = _resolve_target(spec_dir, subtask)
-    auth = (target or {}).get("auth") or {}
-    if auth.get("type") != "ref" or not auth.get("ref"):
-        return []
-    ctx = spec_dir / "context" / "pfactory_yml.json"
-    try:
-        cfg = json.loads(ctx.read_text())
-    except (OSError, json.JSONDecodeError, ValueError):
-        return []
-    entry = (cfg.get("test_credentials") or {}).get(auth["ref"])
-    if not entry:
-        return []
-    return [
-        TargetCredentialSpec(
-            name=auth["ref"],
-            ref=entry["ref"],
-            as_secret=entry["as_secret"],
-            as_username=entry.get("as_username"),
-            username_ref=entry.get("username_ref"),
-        )
-    ]
-
-
-def _stage_browser_test(spec_dir: Path, project_dir: Path, subtask: dict) -> None:
-    """Copy the generated test from the workspace into the project checkout so
-    the playwright runner (which mounts project_dir at /repo) can see it."""
-    import shutil as _sh
-
-    rel = subtask["files_to_create"][0]
-    src = spec_dir / rel
-    dst = Path(project_dir) / rel
-    if src.exists():
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        _sh.copy2(src, dst)
-
-
-def _resolve_browser_runner_fn(
-    target_url: str | None,
-    image: str = _PLAYWRIGHT_IMAGE,
-    *,
-    spec_dir: Path | None = None,
-    subtask: dict | None = None,
-):
-    """Return a runner_fn(test_file, project_dir, seed) -> DockerRunResult that
-    runs ONE Playwright spec in the runner image against ``target_url``.
-
-    Mirrors the proven invocation: world-writable scratch, copy /repo→/scratch,
-    symlink node_modules to the image's global install, --network=bridge, and
-    PFACTORY_TARGET_URL injected so the spec hits the deployed site. When the
-    target uses ``auth: {type: ref}`` (#107), the login credential is resolved
-    and injected as env so the spec's login fixture can authenticate.
-    """
-    import shutil as _sh
-    import tempfile as _tmp
-
-    from tools.runners.docker_runner import DockerRunner, DockerRunResult
-
-    def _run(test_file: Path, project_dir_arg: Path, seed: int) -> DockerRunResult:
-        # relative path of the spec inside the project checkout
-        try:
-            rel = str(Path(test_file).resolve().relative_to(Path(project_dir_arg).resolve()))
-        except ValueError:
-            # test_file lives in the workspace, not the checkout — use its
-            # path relative to the workspace tests/ layout instead.
-            rel = "/".join(Path(test_file).parts[-3:])
-        scratch = Path(_tmp.mkdtemp(prefix="tf-pw-"))
-        try:
-            scratch.chmod(0o777)
-            runner = DockerRunner(image=image, network="host", read_only_rootfs=False)
-            # DockerRunner mounts the checkout read-only at /work and a
-            # writable scratch at /scratch (the workdir). Stage the project
-            # into scratch so node_modules (symlinked to the image's global
-            # install) resolves and Playwright can write artifacts.
-            staged = (
-                "cp -r /work/. /scratch/ 2>/dev/null; "
-                "ln -sfn /usr/lib/node_modules /scratch/node_modules; "
-                "cd /scratch && "
-                f"npx playwright test {rel} --reporter=junit "
-                "--output=/scratch/pw-artifacts; "
-                "echo __PW_EXIT=$?"
-            )
-            extra_env = {}
-            if target_url:
-                extra_env["PFACTORY_TARGET_URL"] = target_url
-                extra_env["APP_URL"] = target_url
-            # Test-target login credentials (#107): inject the ref-auth
-            # target's username/secret so the spec's login fixture can sign in.
-            # network="host" here, so the egress-gated resolver runs.
-            from tools.runners.sandbox_credentials import (
-                resolve_test_target_credentials,
-            )
-
-            test_creds = resolve_test_target_credentials(
-                _test_credential_specs(spec_dir, subtask) if spec_dir else [],
-                project_dir_arg,
-                spec_dir,
-                "host",
-            )
-            extra_env.update(test_creds.env)
-            try:
-                res = runner.run(
-                    repo_path=Path(project_dir_arg).resolve(),
-                    scratch_path=scratch.resolve(),
-                    command=["sh", "-c", staged],
-                    extra_env=extra_env,
-                    timeout_sec=300,
-                )
-            finally:
-                test_creds.wipe()
-            # The wrapper shell always exits 0; recover the real playwright exit
-            # from the __PW_EXIT marker so stability sees the true pass/fail.
-            code = res.returncode
-            marker = None
-            for line in (res.stdout or "").splitlines():
-                if line.startswith("__PW_EXIT="):
-                    try:
-                        marker = int(line.split("=", 1)[1])
-                    except ValueError:
-                        marker = None
-            if marker is not None:
-                code = marker
-            return DockerRunResult(
-                returncode=code, stdout=res.stdout, stderr=res.stderr, argv=res.argv
-            )
-        finally:
-            _sh.rmtree(scratch, ignore_errors=True)
-
-    return _run
-
-
-def _build_browser_signal_bundle(
-    spec_dir: Path, project_dir: Path, subtask: dict, runner_fn
-) -> EvaluatorSignals:
-    """Signal bundle for a Browser-lane subtask: 3× stability via Playwright,
-    coverage skipped (Decision 11), mutation skipped (no TS mutation in the
-    browser path)."""
-    stability = _stability_for_subtask(spec_dir, project_dir, subtask, runner_fn)
-    return EvaluatorSignals(
-        test_id=subtask["id"],
-        test_file=spec_dir / subtask["files_to_create"][0],
-        target=subtask.get("target") or "?",
-        rationale=subtask.get("rationale") or "?",
-        coverage_delta=None,  # browser lane — coverage_strategy == "skip"
-        stability=stability,
-        mutation=None,  # mutation not run for the browser lane
-        lint_promotion=_lint_promotion_for_subtask(spec_dir, subtask),
-        flaky_history=_flaky_history_for_subtask(spec_dir, subtask, stability),
-    )
-
-
-# ─── API-lane signal computation (httpx against a host-served app) ──────
-
-
-def _completed_api_subtasks(plan: dict) -> list[dict]:
-    """Completed api-lane subtasks (httpx tests) Gen-Functional generated."""
-    out = []
-    for phase in plan.get("phases", []):
-        for st in phase.get("subtasks", []):
-            if (
-                st.get("status") == "completed"
-                and st.get("lane") == "api"
-                and st.get("files_to_create")
-            ):
-                out.append(st)
-    return out
-
-
-def _build_api_signal_bundle(
-    spec_dir: Path, project_dir: Path, subtask: dict, runner_fn
-) -> EvaluatorSignals:
-    """Signal bundle for an api-lane subtask: 3× stability via pytest/httpx
-    against the host-served app, coverage skipped (the SUT runs out-of-process),
-    mutation skipped."""
-    stability = _stability_for_subtask(spec_dir, project_dir, subtask, runner_fn)
-    return EvaluatorSignals(
-        test_id=subtask["id"],
-        test_file=spec_dir / subtask["files_to_create"][0],
-        target=subtask.get("target") or "?",
-        rationale=subtask.get("rationale") or "?",
-        coverage_delta=None,  # api lane hits a running service — no line coverage
-        stability=stability,
-        mutation=None,
-        lint_promotion=_lint_promotion_for_subtask(spec_dir, subtask),
-        flaky_history=_flaky_history_for_subtask(spec_dir, subtask, stability),
-    )
-
-
-# ─── Jest-lane signal computation (TypeScript unit tests) ───────────────
-
-_JEST_IMAGE = "pfactory-runner-jest:latest"
-
-
-def _completed_jest_subtasks(plan: dict) -> list[dict]:
-    """Completed unit-lane TypeScript (Jest) subtasks Gen-Functional generated.
-
-    These sit in the unit lane like pytest, but are TypeScript — so they need
-    the Jest runner, not pytest.
-    """
-    out = []
-    for phase in plan.get("phases", []):
-        for st in phase.get("subtasks", []):
-            if (
-                st.get("status") == "completed"
-                and st.get("lane") in ("unit", "functional")
-                and st.get("language") == "typescript"
-                and st.get("files_to_create")
-            ):
-                out.append(st)
-    return out
-
-
-def _resolve_jest_runner_fn(image: str = _JEST_IMAGE):
-    """Return a runner_fn(test_file, project_dir, seed) -> DockerRunResult that
-    runs ONE Jest/TypeScript spec in the runner image.
-
-    The SUT (.ts modules + jest.config + tsconfig) and the test are flattened
-    into a writable scratch dir so the test's relative ``./module`` import
-    resolves; node_modules is symlinked to the image's global install and
-    NODE_PATH spans jest's nested deps (ts-jest requires jest-util).
-    """
-    import shutil as _sh
-    import tempfile as _tmp
-
-    from tools.runners.docker_runner import DockerRunner, DockerRunResult
-
-    def _run(test_file: Path, project_dir_arg: Path, seed: int) -> DockerRunResult:
-        scratch = Path(_tmp.mkdtemp(prefix="tf-jest-"))
-        try:
-            # Copy the SUT (.ts modules + jest/ts config) into scratch root, then
-            # place the test at its ORIGINAL relative path (e.g. tests/x.test.ts)
-            # so its relative import (`../slugify` from a tests/ subdir, or
-            # `./slugify` from the root) resolves the same way it was authored.
-            for item in Path(project_dir_arg).iterdir():
-                if item.name in (".git", "node_modules"):
-                    continue
-                dst = scratch / item.name
-                if item.is_dir():
-                    _sh.copytree(item, dst, dirs_exist_ok=True)
-                else:
-                    _sh.copy2(item, dst)
-            tparts = Path(test_file).parts
-            if "tests" in tparts:
-                rel = Path(*tparts[tparts.index("tests") :])  # tests/<...>/x.test.ts
-            else:
-                rel = Path(Path(test_file).name)
-            dst_test = scratch / rel
-            dst_test.parent.mkdir(parents=True, exist_ok=True)
-            _sh.copy2(test_file, dst_test)
-            for p in scratch.rglob("*"):
-                try:
-                    p.chmod(0o777)
-                except OSError:
-                    pass
-            scratch.chmod(0o777)
-
-            runner = DockerRunner(image=image, network="none", read_only_rootfs=False)
-            node_path = "/usr/local/lib/node_modules:/usr/local/lib/node_modules/jest/node_modules"
-            cmd = (
-                "ln -sfn /usr/local/lib/node_modules /scratch/node_modules; "
-                "cd /scratch && "
-                f"npx jest --ci --forceExit {rel.as_posix()} 2>&1; "
-                "echo __JEST_EXIT=$?"
-            )
-            res = runner.run(
-                repo_path=Path(project_dir_arg).resolve(),
-                scratch_path=scratch.resolve(),
-                command=["sh", "-c", cmd],
-                extra_env={"NODE_PATH": node_path},
-                timeout_sec=300,
-            )
-            code = res.returncode
-            for line in (res.stdout or "").splitlines():
-                if line.startswith("__JEST_EXIT="):
-                    try:
-                        code = int(line.split("=", 1)[1])
-                    except ValueError:
-                        pass
-            return DockerRunResult(
-                returncode=code, stdout=res.stdout, stderr=res.stderr, argv=res.argv
-            )
-        finally:
-            _sh.rmtree(scratch, ignore_errors=True)
-
-    return _run
-
-
-def _build_jest_signal_bundle(
-    spec_dir: Path, project_dir: Path, subtask: dict, runner_fn
-) -> EvaluatorSignals:
-    """Signal bundle for a Jest (TypeScript unit) subtask: 3× stability via
-    Jest; coverage + mutation skipped in the demo path."""
-    stability = _stability_for_subtask(spec_dir, project_dir, subtask, runner_fn)
-    return EvaluatorSignals(
-        test_id=subtask["id"],
-        test_file=spec_dir / subtask["files_to_create"][0],
-        target=subtask.get("target") or "?",
-        rationale=subtask.get("rationale") or "?",
-        coverage_delta=None,
-        stability=stability,
-        mutation=None,
-        lint_promotion=_lint_promotion_for_subtask(spec_dir, subtask),
-        flaky_history=_flaky_history_for_subtask(spec_dir, subtask, stability),
-    )
 
 
 # ─── Verdicts.json validation ───────────────────────────────────────────
