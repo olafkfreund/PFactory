@@ -1,0 +1,77 @@
+name: factory-github drift
+
+# Factory#157 (epic Factory#154): the GitHub/VCS runner layer under
+# apps/backend/runners/github/ (gh_client.py, rate_limiter.py, providers/*) is a
+# vendored copy of the canonical that lives in the Factory hub at
+# shared/factory-github/. This gate fetches the hub's drift checker AND the
+# canonical tree at a PINNED hub SHA and fails the build if this repo's copy has
+# drifted byte-for-byte. Reconcile by re-vendoring from the hub canonical (do NOT
+# edit the copy to silence the gate — fix the hub canonical first; see
+# shared/factory-github/README.md).
+
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - "apps/backend/runners/github/**"
+      - ".github/workflows/factory-github-drift.yml"
+  push:
+    branches: [dev, main]
+    paths:
+      - "apps/backend/runners/github/**"
+      - ".github/workflows/factory-github-drift.yml"
+
+concurrency:
+  group: factory-github-drift-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned Factory hub commit that holds the canonical factory-github layer +
+  # the drift checker. Bump this (and re-vendor runners/github/) when the
+  # canonical changes. See shared/factory-github/README.md in the hub.
+  HUB_REPO: "olafkfreund/Factory"
+  HUB_SHA: "9035c1d94fe0083b7a262512d8ed067873b2fc5f"
+
+jobs:
+  drift:
+    name: factory-github canonical drift (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch hub drift checker + canonical tree (pinned SHA)
+        run: |
+          set -euo pipefail
+          raw="https://raw.githubusercontent.com/${HUB_REPO}/${HUB_SHA}"
+          mkdir -p /tmp/hub/canonical/providers
+          curl -fsSL "${raw}/scripts/check_factory_github_drift.py" \
+            -o /tmp/hub/check_factory_github_drift.py
+          for f in \
+            gh_client.py \
+            rate_limiter.py \
+            providers/__init__.py \
+            providers/protocol.py \
+            providers/factory.py \
+            providers/github_provider.py \
+            providers/gitlab_provider.py \
+            providers/azure_devops_provider.py; do
+            curl -fsSL "${raw}/shared/factory-github/${f}" \
+              -o "/tmp/hub/canonical/${f}"
+          done
+
+      - name: Verify the checker's own self-test passes
+        run: python /tmp/hub/check_factory_github_drift.py --self-test
+
+      - name: Check this repo's copy against the pinned hub canonical (blocking)
+        run: |
+          python /tmp/hub/check_factory_github_drift.py \
+            --canonical /tmp/hub/canonical \
+            --service apps/backend/runners/github

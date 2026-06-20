@@ -15,6 +15,26 @@
 
 extend = "standards/ruff.toml"
 
+# The factory-github VCS-client layer under apps/backend/runners/github/ is a
+# VENDORED MIRROR of the Factory hub canonical (shared/factory-github/,
+# Factory#157). Its formatting is owned by the hub (the hub formats it at the
+# fleet root width of 88; PFactory's adopted standards baseline is 100), and its
+# byte-exact fidelity is enforced by .github/workflows/factory-github-drift.yml,
+# NOT by the local linter/formatter. Exclude exactly the 8 canonical files (the
+# service-specific files alongside them stay gated) so the local
+# `ruff format --check` cannot fight the drift gate. Do NOT edit these files to
+# satisfy ruff — fix the hub canonical and re-vendor (see the drift workflow).
+extend-exclude = [
+    "apps/backend/runners/github/gh_client.py",
+    "apps/backend/runners/github/rate_limiter.py",
+    "apps/backend/runners/github/providers/__init__.py",
+    "apps/backend/runners/github/providers/protocol.py",
+    "apps/backend/runners/github/providers/factory.py",
+    "apps/backend/runners/github/providers/github_provider.py",
+    "apps/backend/runners/github/providers/gitlab_provider.py",
+    "apps/backend/runners/github/providers/azure_devops_provider.py",
+]
+
 [lint.per-file-ignores]
 # NOTE: ruff `extend` does not deep-merge per-file-ignores; defining this table
 # here replaces the baseline's table, so the shared test carve-outs are repeated

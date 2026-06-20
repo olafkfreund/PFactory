@@ -112,7 +112,11 @@ def list_available_providers() -> list[ProviderType]:
     Returns:
         List of available ProviderType values
     """
-    available = [ProviderType.GITHUB, ProviderType.GITLAB, ProviderType.AZURE_DEVOPS]  # Built-in
+    available = [
+        ProviderType.GITHUB,
+        ProviderType.GITLAB,
+        ProviderType.AZURE_DEVOPS,
+    ]  # Built-in
 
     # Add registered providers
     for provider_type in _PROVIDER_REGISTRY:

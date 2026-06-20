@@ -28,10 +28,12 @@ Exit code 0 if no changed file regressed; 1 otherwise.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections import Counter
 from pathlib import Path
 
@@ -42,6 +44,49 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
+def _ruff_excludes() -> list[str]:
+    """Exclude globs from the repo ruff config (root ``ruff.toml`` + ``extend``).
+
+    The ratchet writes each changed file to a temp path before checking, so
+    ruff's own path-based ``extend-exclude`` never matches. Vendored mirrors
+    (e.g. the factory-github layer, whose fidelity is enforced by its own
+    drift gate, not the local linter) are excluded in ruff.toml; honour that
+    here so the ratchet does not gate files ruff is configured to skip.
+    """
+    patterns: list[str] = []
+    root = Path("ruff.toml")
+    seen: set[str] = set()
+    stack = [root]
+    while stack:
+        cfg = stack.pop()
+        if not cfg.is_file() or str(cfg) in seen:
+            continue
+        seen.add(str(cfg))
+        try:
+            data = tomllib.loads(cfg.read_text())
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        for key in ("exclude", "extend-exclude"):
+            val = data.get(key)
+            if isinstance(val, list):
+                patterns.extend(str(x) for x in val)
+        extend = data.get("extend")
+        if isinstance(extend, str):
+            stack.append(cfg.parent / extend)
+    return patterns
+
+
+def _is_excluded(path: str, patterns: list[str]) -> bool:
+    for pat in patterns:
+        # Match the full relative path or the basename, mirroring ruff's
+        # behaviour for both directory and file globs.
+        if fnmatch.fnmatch(path, pat) or fnmatch.fnmatch(path, f"*/{pat}"):
+            return True
+        if path == pat or path.endswith("/" + pat):
+            return True
+    return False
+
+
 def changed_python_files(base: str, package: str) -> list[str]:
     """Python files under *package* changed (added/modified) vs *base*."""
     res = _run(["git", "diff", "--name-only", "--diff-filter=AM", f"{base}...HEAD"])
@@ -49,10 +94,15 @@ def changed_python_files(base: str, package: str) -> list[str]:
         sys.stderr.write(res.stderr)
         sys.exit(2)
     pkg = Path(package)
+    excludes = _ruff_excludes()
     out: list[str] = []
     for line in res.stdout.splitlines():
         path = Path(line)
         if path.suffix != ".py" or not path.exists():
+            continue
+        # Skip files the repo ruff config excludes (e.g. vendored mirrors gated
+        # by their own drift check, not the local linter).
+        if _is_excluded(str(path), excludes):
             continue
         # Accept files inside the package dir, or the package dir itself if it is
         # a flat directory (e.g. scripts/).

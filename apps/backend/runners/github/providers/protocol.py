@@ -280,6 +280,28 @@ class GitProvider(Protocol):
         """
         ...
 
+    async def enable_auto_merge(
+        self,
+        pr_number: int,
+        merge_method: str = "squash",
+    ) -> bool:
+        """
+        Enable auto-merge on a PR (RFC-0011 low tier: auto-merge-when-green).
+
+        The PR merges automatically once the host's required checks pass — the
+        provider-native equivalent of the RFC-0009 merge gate. Implementations
+        that don't support auto-merge should raise ``NotImplementedError`` with
+        a clear message.
+
+        Args:
+            pr_number: PR number
+            merge_method: merge, squash, or rebase
+
+        Returns:
+            True if auto-merge was enabled
+        """
+        ...
+
     # -------------------------------------------------------------------------
     # Issue Operations
     # -------------------------------------------------------------------------
@@ -296,7 +318,9 @@ class GitProvider(Protocol):
         """
         ...
 
-    async def fetch_issues(self, filters: IssueFilters | None = None) -> list[IssueData]:
+    async def fetch_issues(
+        self, filters: IssueFilters | None = None
+    ) -> list[IssueData]:
         """
         Fetch issues with optional filters.
 
