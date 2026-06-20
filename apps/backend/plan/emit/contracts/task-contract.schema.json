@@ -567,6 +567,9 @@
     "baseline": {
       "$ref": "#/$defs/baseline"
     },
+    "verification": {
+      "$ref": "#/$defs/verification"
+    },
     "epic_context": {
       "type": "object",
       "additionalProperties": true,
@@ -576,9 +579,6 @@
           "$ref": "#/$defs/house_standards"
         }
       }
-    },
-    "verification": {
-      "$ref": "#/$defs/verification"
     }
   },
   "$defs": {
@@ -592,7 +592,10 @@
           "description": "false when the standards could not be retrieved (Backstage unreachable, no matching entity). A baseline-only manifest may still be available=true."
         },
         "error": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Why retrieval was unavailable, when available=false."
         },
         "sources": {
@@ -601,11 +604,17 @@
           "items": {
             "type": "object",
             "additionalProperties": true,
-            "required": ["source", "content_hash"],
+            "required": [
+              "source",
+              "content_hash"
+            ],
             "properties": {
               "source": {
                 "type": "string",
-                "enum": ["baseline", "backstage"],
+                "enum": [
+                  "baseline",
+                  "backstage"
+                ],
                 "description": "'baseline' = RFC-0010 repo conventions (always offline-available); 'backstage' = pulled from the live catalog."
               },
               "kind": {
@@ -622,7 +631,9 @@
               },
               "techdocs_refs": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "TechDocs ref URIs the agents must consult (refs only, not inlined bodies)."
               },
               "conventions": {
@@ -640,7 +651,9 @@
               },
               "tags": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Catalog/template tags (used to match the golden-path stack)."
               }
             }

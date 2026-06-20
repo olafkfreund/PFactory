@@ -184,6 +184,37 @@ class PlanSession(BaseModel):
         }
 
 
+# RFC-0011 tier precedence (highest wins). hard > medium > low.
+_TIER_RANK = {"low": 0, "medium": 1, "hard": 2}
+
+
+def _carry_tier(plan: NormalizedPlan, tier: str | None) -> NormalizedPlan:
+    """Stamp a normalized RFC-0011 tier onto the plan (no-op for unknown)."""
+    from plan.emit.tier_profile import normalize_tier
+
+    canonical = normalize_tier(tier)
+    if canonical is None:
+        return plan
+    return plan.model_copy(update={"autonomy_tier": canonical})
+
+
+def _route_tier(current: str | None, *, is_migration: bool) -> str | None:
+    """Resolve the final tier for a plan (RFC-0011, #182).
+
+    ``change_mode == migration`` (a rewrite) forces ``hard``; otherwise the
+    highest of the carried tier wins. Returns ``None`` only when no tier was
+    carried and it is not a migration (back-compat: emit derives from complexity).
+    """
+    from plan.emit.tier_profile import normalize_tier
+
+    carried = normalize_tier(current)
+    forced = "hard" if is_migration else None
+    candidates = [t for t in (carried, forced) if t is not None]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda t: _TIER_RANK[t])
+
+
 class PlanServiceError(RuntimeError):
     """Raised for invalid session ids or out-of-order stage calls."""
 
@@ -334,10 +365,14 @@ class PlanService:
         template: str = "",
         repo: str | None = None,
         base_ref: str | None = None,
+        autonomy_tier: str | None = None,
     ) -> PlanSession:
         plan = ingest_text(
             text, source_channel=channel, title=title, seq=self._next_seq()
         )
+        # RFC-0011: carry the label-driven difficulty tier from intake so process()
+        # can route hard and emit can override the contract blocks (#182).
+        plan = _carry_tier(plan, autonomy_tier)
         session = self._store(plan)
         session.selected_category = category
         session.selected_template = template
@@ -357,6 +392,7 @@ class PlanService:
         template: str = "",
         repo: str | None = None,
         base_ref: str | None = None,
+        autonomy_tier: str | None = None,
     ) -> PlanSession:
         plan = ingest_bytes(
             data,
@@ -365,6 +401,7 @@ class PlanService:
             title=title,
             seq=self._next_seq(),
         )
+        plan = _carry_tier(plan, autonomy_tier)  # RFC-0011 (#182)
         session = self._store(plan)
         session.original_filename = filename  # preserve for honouring the doc (#D)
         session.selected_category = category
@@ -419,6 +456,18 @@ class PlanService:
         # plan-type selection, decomposition and the language used at emit.
         detected = detect_apply(session.plan)
         detected = self._reconnoiter(session, detected)
+        # RFC-0011 (#182): resolve the final difficulty tier now that recon has
+        # set change_mode. A migration (rewrite) forces `hard` — opus, full
+        # decompose (PFactory never skips planning in process — the wave executor
+        # skip only applies downstream in AIFactory), blocking human approval.
+        # Highest of {carried, forced} wins. Stamped on the plan so the emit-time
+        # tier_profile (#181) overrides execution/review_tier/tfactory accordingly.
+        resolved_tier = _route_tier(
+            detected.autonomy_tier,
+            is_migration=detected.change_mode == "migration",
+        )
+        if resolved_tier is not None and resolved_tier != detected.autonomy_tier:
+            detected = detected.model_copy(update={"autonomy_tier": resolved_tier})
         plan = self._enrich(plan_type_apply(detected))
         descriptor = select_for(plan)
         usage_sink: list[PlanUsage] = []
@@ -775,6 +824,20 @@ class PlanService:
         session = self.get(session_id)
         if session.epic is None:
             raise PlanServiceError("process the plan before emitting a contract")
+        # RFC-0011 (#182): a `hard` tier means blocking — a live contract emit is
+        # HELD until a human approves. (low/medium and dry-runs are unaffected.)
+        # The GitHub epic emit is already gated by review.ready_to_emit; the
+        # contract fast-path needs the same human gate so opus/migration work
+        # cannot skip sign-off.
+        if (
+            not dry_run
+            and session.plan.autonomy_tier == "hard"
+            and session.status != "approved"
+        ):
+            raise PlanServiceError(
+                "tier=hard requires human approval before emitting the contract: "
+                f"approve session '{session_id}' first (status={session.status!r})"
+            )
         base = base_url or os.environ.get(
             "PFACTORY_AIFACTORY_API_URL", "http://localhost:3101"
         )
