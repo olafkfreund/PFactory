@@ -102,6 +102,34 @@ cd apps/frontend-web && npm run lint && npx tsc --noEmit
 
 Add coverage with the change. Bug fixes need a regression test.
 
+## Concurrency / execution model
+
+PFactory runs `process()` (the planning pipeline) as a **bounded pooled worker**,
+not a k8s Job-per-task. This is the deliberate Phase-2 execution model under
+[RFC-0016](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0016-horizontal-concurrent-execution.md)
+§5(c) — issue #218.
+
+- `process_async` offloads the blocking pipeline off the event loop with
+  `asyncio.to_thread` (#219), so the single uvicorn loop keeps serving
+  `/api/health` and other sessions while a plan is processed.
+- Concurrency is bounded by an admission cap (`PFACTORY_MAX_CONCURRENT_PLANS`,
+  default 4) whose state is **durable in Postgres** and granted via a
+  `SELECT ... FOR UPDATE` slot transaction, so the cap holds **across replicas**
+  and survives a restart (#220). With `DATABASE_URL` unset it degrades to an
+  in-process semaphore and logs that it is not multi-replica safe.
+
+**Why not a Job per plan?** Default planning is deterministic and sub-second
+(no LLM). A k8s Job's spin-up (image pull, pod schedule, warm nix-store mount)
+costs seconds — far more than the work it would run — so Job-per-plan would make
+planning slower with no isolation benefit. The two hazards a Job would solve
+(event-loop starvation, unbounded fan-out) are already solved above.
+
+If a genuinely heavy or governed (LLM) planning path is ever added, wire an
+**opt-in, env-gated** Job path for *that path only* using the shared
+`scripts/job_dispatch.py` builder and `apis/concurrency-conventions.md` §3 in the
+[Factory](https://github.com/olafkfreund/Factory) repo. Do not put sub-second
+deterministic planning behind a Job pod.
+
 ## PR checklist
 
 The full template lives in `.github/PULL_REQUEST_TEMPLATE.md` — TL;DR:
