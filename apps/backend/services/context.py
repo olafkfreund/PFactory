@@ -19,8 +19,11 @@ Usage:
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -379,7 +382,7 @@ class ServiceContextGenerator:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(markdown)
 
-        print(f"Generated SERVICE_CONTEXT.md for {service_name}: {output_path}")
+        logger.info("Generated SERVICE_CONTEXT.md for %s: %s", service_name, output_path)
         return output_path
 
 
@@ -394,8 +397,8 @@ def generate_all_contexts(project_dir: Path, project_index: dict | None = None):
         try:
             path = generator.generate_and_save(service_name)
             generated.append((service_name, str(path)))
-        except Exception as e:
-            print(f"Failed to generate context for {service_name}: {e}")
+        except Exception:
+            logger.exception("Failed to generate context for %s", service_name)
 
     return generated
 
@@ -445,13 +448,13 @@ def main():
 
     if args.all:
         generated = generate_all_contexts(args.project_dir, project_index)
-        print(f"\nGenerated {len(generated)} SERVICE_CONTEXT.md files")
+        print(f"\nGenerated {len(generated)} SERVICE_CONTEXT.md files")  # noqa: T201  CLI output
     elif args.service:
         generator = ServiceContextGenerator(args.project_dir, project_index)
         generator.generate_and_save(args.service, args.output)
     else:
         parser.print_help()
-        print("\nError: Specify --service or --all")
+        print("\nError: Specify --service or --all")  # noqa: T201  CLI output
         exit(1)
 
 
