@@ -248,4 +248,13 @@ def build_task_contract(
         contract["deployment"] = epic.deployment
     if correlation_key:
         contract["correlation_key"] = correlation_key
+    # An explicit, ALWAYS-scalar epic reference for downstream task descriptions
+    # (e.g. AIFactory's "Correlation epic #<id>"). Consumers must read this, never
+    # the ``epic`` object on the emitted session — str()-ing that whole EpicPlan
+    # is what produced the cockpit "wall of text" (the description embedded the
+    # full plan dict). Prefer the GitHub issue number (when correlation_key is the
+    # numeric issue#), else the short plan_id (e.g. "016-fastapi-api-gateway").
+    contract["epic_ref"] = (
+        correlation_key if (correlation_key and correlation_key.isdigit()) else plan.plan_id
+    )
     return contract
