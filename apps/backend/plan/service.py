@@ -30,6 +30,11 @@ from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply
 from plan.detect.target_classifier import classify_plan
+from plan.feasibility.deployment import (
+    assess_deployment_readiness,
+    deployment_findings,
+    inject_deployment_acs,
+)
 from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import NormalizedPlan
 from plan.plan_types import apply as plan_type_apply
@@ -211,6 +216,48 @@ def _route_tier(current: str | None, *, is_migration: bool) -> str | None:
     if not candidates:
         return None
     return max(candidates, key=lambda t: _TIER_RANK[t])
+
+
+def _attach_deployment(plan: NormalizedPlan, epic: EpicPlan) -> list:
+    """Derive + attach the RFC-0013 deployment block; return its review findings.
+
+    Stamps ``epic.deployment`` and injects the deployment ACs when a deployment
+    dimension exists. Additive + safe: returns ``[]`` (and leaves the epic
+    untouched) when there is no deployment surface or analysis fails — deployment
+    analysis must never break a plan run.
+    """
+    try:
+        block = assess_deployment_readiness(plan, epic)
+    except Exception:  # noqa: BLE001 — deployment analysis must never break a run
+        return []
+    if block is None:
+        return []
+    epic.deployment = block
+    inject_deployment_acs(epic, block)
+    return deployment_findings(block)
+
+
+def _template_findings(session: PlanSession, plan: NormalizedPlan, descriptor: object) -> list:
+    """Template-policy findings (#E). OPT-IN: only a user-selected template gates.
+
+    Records the auto-matched template as a non-gating suggestion, defaults the
+    category, and runs the selected template's policy check. Best-effort — docs
+    must never break emit, so any failure degrades to no findings.
+    """
+    from plan.templates import build_context, load_templates, select_template
+
+    try:
+        suggested = select_template(plan)
+        session.suggested_template = suggested.metadata.name if suggested else ""
+        if not session.selected_category:
+            session.selected_category = getattr(descriptor, "category", "")
+        if session.selected_template:
+            tmpl = load_templates().get(session.selected_template)
+            if tmpl is not None:
+                return tmpl.check(build_context(plan))
+    except Exception:  # noqa: BLE001 — docs must never break emit
+        return []
+    return []
 
 
 class PlanServiceError(RuntimeError):
@@ -483,29 +530,24 @@ class PlanService:
         epic.effort_estimate = feasibility.effort
         epic.access_requirements = feasibility.access
 
+        # Deployment-aware planning (RFC-0013, #190): derive the `deployment`
+        # block — CI/deploy surface, risk/scan/gate policy, best-effort DORA
+        # context, deploy readiness — from reconnaissance + blast radius. Runs
+        # BETWEEN feasibility and gates so the deployment ACs + readiness gaps it
+        # injects are seen and enforced by review. Additive: yields no block/no
+        # findings when there is no deployment dimension. Never raises.
+        deployment_review_findings = _attach_deployment(plan, epic)
+
         # Template policy (#E). Enforcement is OPT-IN: a template's embedded policy
         # (required tags / allowed regions / IAM / baselines) gates review only when
         # the user explicitly selected it at intake — auto-matching is recorded as a
-        # non-gating suggestion (help, never override). Default the category from the
-        # selection, else the detected plan-type's category.
-        from plan.templates import build_context, load_templates, select_template
-
-        template_findings: list = []
-        try:
-            suggested = select_template(plan)
-            session.suggested_template = suggested.metadata.name if suggested else ""
-            if not session.selected_category:
-                session.selected_category = descriptor.category
-            if session.selected_template:
-                tmpl = load_templates().get(session.selected_template)
-                if tmpl is not None:
-                    template_findings = tmpl.check(build_context(plan))
-        except Exception:  # noqa: BLE001 — docs must never break emit
-            template_findings = []
+        # non-gating suggestion (help, never override).
+        template_findings = _template_findings(session, plan, descriptor)
 
         def _composed_runner(p, e):
             out = list(external_runner(p, e)) if external_runner else []
             out.extend(feasibility.findings)
+            out.extend(deployment_review_findings)
             out.extend(template_findings)
             return out
 

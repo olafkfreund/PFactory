@@ -241,6 +241,11 @@ def build_task_contract(
         baseline = rm.to_baseline_block()
         baseline["blast_radius"] = blast_radius(footprints, rm)
         contract["baseline"] = baseline
+    # RFC-0013: attach the deployment-aware planning block derived during
+    # process() (CI/deploy surface + risk/scan/gate policy + DORA + readiness).
+    # Additive and optional: absent => the contract has no deployment dimension.
+    if epic.deployment:
+        contract["deployment"] = epic.deployment
     if correlation_key:
         contract["correlation_key"] = correlation_key
     return contract

@@ -43,6 +43,21 @@ class RepoMap(BaseModel):
     cloud_providers: list[str] = Field(default_factory=list)
     iac: list[str] = Field(default_factory=list)  # terraform/helm/kubernetes/...
     iac_resources: dict[str, Any] = Field(default_factory=dict)
+    # ── delivery surface (RFC-0013): how this repo ships ────────────────
+    # CI provider detected, e.g. "github-actions" | "gitlab-ci" |
+    # "azure-pipelines" | "none". None => recon never ran a CI probe (older
+    # snapshot / non-software plan) and the deployment dimension is unknown.
+    ci_system: str | None = None
+    ci_pipeline_paths: list[str] = Field(default_factory=list)
+    # Deploy mechanism, e.g. "argocd" | "helm" | "terraform" | "kubectl" |
+    # "unknown" | "none". None => recon never ran a deploy probe.
+    deploy_system: str | None = None
+    # Discovered deploy manifests keyed by kind (argocd_applications, helm_charts,
+    # terraform_files, dockerfiles, k8s_manifests), each a list of repo paths.
+    deploy_manifests: dict[str, Any] = Field(default_factory=dict)
+    # Environments the change can reach, inferred from manifest paths, e.g.
+    # ["dev", "staging", "production"]. Empty => unknown (never fabricated).
+    deploy_environments: list[str] = Field(default_factory=list)
     layout: dict[str, Any] = Field(default_factory=dict)
     existing_test_command: str | None = None
     entrypoints: list[str] = Field(default_factory=list)
@@ -73,6 +88,11 @@ class RepoMap(BaseModel):
             "cloud_providers",
             "iac",
             "iac_resources",
+            "ci_system",
+            "ci_pipeline_paths",
+            "deploy_system",
+            "deploy_manifests",
+            "deploy_environments",
             "layout",
             "existing_test_command",
             "entrypoints",

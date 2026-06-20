@@ -18,6 +18,7 @@ import logging
 import re
 from pathlib import Path
 
+from plan.recon.ci_probe import infer_environments, probe_ci, probe_deploy
 from plan.recon.clone import clone_for_recon
 from plan.recon.iac_probe import iac_tools, probe_iac
 from plan.recon.models import RepoMap
@@ -125,6 +126,11 @@ def build_repo_map(root: Path, *, repo: str, base_ref: str | None, commit: str |
     frameworks = FrameworkDetector(root).detect_all()
     inventory = probe_iac(root)
     iac = iac_tools(inventory)
+    # RFC-0013: the delivery surface — which CI runs it and how it deploys. Pure
+    # static scans (reuse the IaC inventory for helm/tf/k8s to avoid a re-walk).
+    ci = probe_ci(root)
+    deploy = probe_deploy(root, inventory)
+    environments = infer_environments(deploy)
     # An IaC-only repo (e.g. pure Terraform) has no code "language" by the stack
     # detector, but a change to it still has a grounded language — the IaC tool.
     # Fold it in so environment.language / change classification aren't blank.
@@ -144,6 +150,11 @@ def build_repo_map(root: Path, *, repo: str, base_ref: str | None, commit: str |
         cloud_providers=list(stack.cloud_providers),
         iac=iac,
         iac_resources=inventory,
+        ci_system=ci["system"],
+        ci_pipeline_paths=ci["paths"],
+        deploy_system=deploy["system"],
+        deploy_manifests=deploy["manifests"],
+        deploy_environments=environments,
         layout=_top_level_layout(root),
         existing_test_command=_existing_test_command(scripts),
         conventions=_conventions(stack),
