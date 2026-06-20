@@ -20,9 +20,7 @@ MAX_SUBTASK_RETRIES = 5  # Maximum attempts before marking subtask as stuck
 
 # Retry configuration for 400 tool concurrency errors
 MAX_CONCURRENCY_RETRIES = 5  # Maximum number of retries for tool concurrency errors
-INITIAL_RETRY_DELAY_SECONDS = (
-    2  # Initial retry delay (doubles each retry: 2s, 4s, 8s, 16s, 32s)
-)
+INITIAL_RETRY_DELAY_SECONDS = 2  # Initial retry delay (doubles each retry: 2s, 4s, 8s, 16s, 32s)
 MAX_RETRY_DELAY_SECONDS = 32  # Cap retry delay at 32 seconds
 
 # Pause file constants for intelligent error recovery
@@ -64,17 +62,13 @@ def sanitize_error_message(error_message: str, max_length: int = 500) -> str:
 
     # Redact patterns that look like API keys or tokens
     # Pattern: sk-... (OpenAI/Anthropic keys like sk-ant-api03-...)
-    sanitized = re.sub(
-        r"\bsk-[a-zA-Z0-9._\-]{20,}\b", "[REDACTED_API_KEY]", error_message
-    )
+    sanitized = re.sub(r"\bsk-[a-zA-Z0-9._\-]{20,}\b", "[REDACTED_API_KEY]", error_message)
 
     # Pattern: key-... (generic API keys)
     sanitized = re.sub(r"\bkey-[a-zA-Z0-9._\-]{20,}\b", "[REDACTED_API_KEY]", sanitized)
 
     # Pattern: Bearer ... (bearer tokens)
-    sanitized = re.sub(
-        r"\bBearer\s+[a-zA-Z0-9._\-]{20,}\b", "Bearer [REDACTED_TOKEN]", sanitized
-    )
+    sanitized = re.sub(r"\bBearer\s+[a-zA-Z0-9._\-]{20,}\b", "Bearer [REDACTED_TOKEN]", sanitized)
 
     # Pattern: token= or token: followed by long strings
     sanitized = re.sub(

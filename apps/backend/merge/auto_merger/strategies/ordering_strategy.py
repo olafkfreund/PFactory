@@ -28,9 +28,7 @@ class OrderByDependencyStrategy(MergeStrategyHandler):
             if change.content_after:
                 if change.change_type == ChangeType.ADD_HOOK_CALL:
                     func_name = (
-                        change.target.split(".")[-1]
-                        if "." in change.target
-                        else change.target
+                        change.target.split(".")[-1] if "." in change.target else change.target
                     )
                     hook_call = MergeHelpers.extract_hook_call(change)
                     if hook_call:
@@ -41,9 +39,7 @@ class OrderByDependencyStrategy(MergeStrategyHandler):
                     wrapper = MergeHelpers.extract_jsx_wrapper(change)
                     if wrapper:
                         func_name = (
-                            change.target.split(".")[-1]
-                            if "." in change.target
-                            else change.target
+                            change.target.split(".")[-1] if "." in change.target else change.target
                         )
                         content = MergeHelpers.wrap_function_return(
                             content, func_name, wrapper[0], wrapper[1]

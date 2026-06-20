@@ -68,17 +68,17 @@ def _public_detail(sg: dict) -> tuple[list[str], list[str]]:
     for rule in sg.get("ip_permissions", []) or []:
         world = any(
             r.get("cidr_ip") in _PUBLIC_CIDRS for r in rule.get("ip_ranges", []) or []
-        ) or any(
-            r.get("cidr_ipv6") in _PUBLIC_CIDRS for r in rule.get("ipv6_ranges", []) or []
-        )
+        ) or any(r.get("cidr_ipv6") in _PUBLIC_CIDRS for r in rule.get("ipv6_ranges", []) or [])
         if not world:
             continue
         cidrs.extend(
-            r.get("cidr_ip") for r in rule.get("ip_ranges", []) or []
+            r.get("cidr_ip")
+            for r in rule.get("ip_ranges", []) or []
             if r.get("cidr_ip") in _PUBLIC_CIDRS
         )
         cidrs.extend(
-            r.get("cidr_ipv6") for r in rule.get("ipv6_ranges", []) or []
+            r.get("cidr_ipv6")
+            for r in rule.get("ipv6_ranges", []) or []
             if r.get("cidr_ipv6") in _PUBLIC_CIDRS
         )
         fp, tp = rule.get("from_port"), rule.get("to_port")
@@ -104,12 +104,14 @@ def _build_reader(region: str | None) -> AwsReader:  # pragma: no cover
             out: list[dict] = []
             for res in ec2.describe_instances().get("Reservations", []):
                 for inst in res.get("Instances", []):
-                    out.append({
-                        "instance_id": inst.get("InstanceId"),
-                        "instance_type": inst.get("InstanceType"),
-                        "state": inst.get("State", {}).get("Name"),
-                        "region": region,
-                    })
+                    out.append(
+                        {
+                            "instance_id": inst.get("InstanceId"),
+                            "instance_type": inst.get("InstanceType"),
+                            "state": inst.get("State", {}).get("Name"),
+                            "region": region,
+                        }
+                    )
             return out
 
         def list_eks_clusters(self) -> list[dict]:
@@ -118,40 +120,43 @@ def _build_reader(region: str | None) -> AwsReader:  # pragma: no cover
             out: list[dict] = []
             for name in names:
                 desc = eks.describe_cluster(name=name).get("cluster", {})
-                out.append({
-                    "name": desc.get("name", name),
-                    "version": desc.get("version"),
-                    "status": desc.get("status"),
-                    "region": region,
-                })
+                out.append(
+                    {
+                        "name": desc.get("name", name),
+                        "version": desc.get("version"),
+                        "status": desc.get("status"),
+                        "region": region,
+                    }
+                )
             return out
 
         def list_security_groups(self) -> list[dict]:
             ec2 = session.client("ec2")
             out: list[dict] = []
             for sg in ec2.describe_security_groups().get("SecurityGroups", []):
-                out.append({
-                    "group_id": sg.get("GroupId"),
-                    "group_name": sg.get("GroupName"),
-                    "ip_permissions": [
-                        {
-                            # normalise boto3 PascalCase -> snake_case so the
-                            # public-exposure detectors work on live data
-                            "ip_ranges": [
-                                {"cidr_ip": r.get("CidrIp")}
-                                for r in p.get("IpRanges", [])
-                            ],
-                            "ipv6_ranges": [
-                                {"cidr_ipv6": r.get("CidrIpv6")}
-                                for r in p.get("Ipv6Ranges", [])
-                            ],
-                            "from_port": p.get("FromPort"),
-                            "to_port": p.get("ToPort"),
-                            "protocol": p.get("IpProtocol"),
-                        }
-                        for p in sg.get("IpPermissions", [])
-                    ],
-                })
+                out.append(
+                    {
+                        "group_id": sg.get("GroupId"),
+                        "group_name": sg.get("GroupName"),
+                        "ip_permissions": [
+                            {
+                                # normalise boto3 PascalCase -> snake_case so the
+                                # public-exposure detectors work on live data
+                                "ip_ranges": [
+                                    {"cidr_ip": r.get("CidrIp")} for r in p.get("IpRanges", [])
+                                ],
+                                "ipv6_ranges": [
+                                    {"cidr_ipv6": r.get("CidrIpv6")}
+                                    for r in p.get("Ipv6Ranges", [])
+                                ],
+                                "from_port": p.get("FromPort"),
+                                "to_port": p.get("ToPort"),
+                                "protocol": p.get("IpProtocol"),
+                            }
+                            for p in sg.get("IpPermissions", [])
+                        ],
+                    }
+                )
             return out
 
     return _SdkReader()
@@ -179,8 +184,7 @@ class AwsAdapter(InfraAdapter):
         if self._reader is not None:
             return True
         has_keys = bool(
-            os.environ.get("AWS_ACCESS_KEY_ID")
-            and os.environ.get("AWS_SECRET_ACCESS_KEY")
+            os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY")
         )
         has_profile = bool(os.environ.get("AWS_PROFILE"))
         return has_keys or has_profile
@@ -189,8 +193,7 @@ class AwsAdapter(InfraAdapter):
         return (
             str(self.options.get("region"))
             if self.options.get("region")
-            else os.environ.get("AWS_REGION")
-            or os.environ.get("AWS_DEFAULT_REGION")
+            else os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
         )
 
     def _reader_or_build(self) -> AwsReader:
@@ -226,30 +229,26 @@ class AwsAdapter(InfraAdapter):
             region = c.get("region")
             if region:
                 regions.add(region)
-            workloads.append({
-                "kind": "eks_cluster",
-                "name": name,
-                "version": version,
-                "status": c.get("status"),
-                "region": region,
-            })
+            workloads.append(
+                {
+                    "kind": "eks_cluster",
+                    "name": name,
+                    "version": version,
+                    "status": c.get("status"),
+                    "region": region,
+                }
+            )
             parsed = _parse_k8s_version(version)
             if parsed is not None and parsed < _OUTDATED_K8S_BELOW:
-                findings.append(
-                    f"EKS cluster {name} runs an outdated k8s version {version}"
-                )
+                findings.append(f"EKS cluster {name} runs an outdated k8s version {version}")
 
         public_sgs = [sg for sg in security_groups if _sg_is_public(sg)]
 
         if instances:
             findings.append(f"{len(instances)} EC2 instances")
         if public_sgs:
-            names = ", ".join(
-                str(sg.get("group_id") or sg.get("group_name")) for sg in public_sgs
-            )
-            findings.append(
-                f"{len(public_sgs)} security groups open to the world ({names})"
-            )
+            names = ", ".join(str(sg.get("group_id") or sg.get("group_name")) for sg in public_sgs)
+            findings.append(f"{len(public_sgs)} security groups open to the world ({names})")
 
         resources = {
             "ec2_instance_count": len(instances),
@@ -261,14 +260,16 @@ class AwsAdapter(InfraAdapter):
         policies = []
         for sg in public_sgs:
             cidrs, ports = _public_detail(sg)
-            policies.append({
-                "kind": "security-group",
-                "group_id": sg.get("group_id"),
-                "group_name": sg.get("group_name"),
-                "public": True,
-                "open_cidrs": cidrs or ["0.0.0.0/0"],
-                "open_ports": ports or ["?"],
-            })
+            policies.append(
+                {
+                    "kind": "security-group",
+                    "group_id": sg.get("group_id"),
+                    "group_name": sg.get("group_name"),
+                    "public": True,
+                    "open_cidrs": cidrs or ["0.0.0.0/0"],
+                    "open_ports": ports or ["?"],
+                }
+            )
 
         return InfraSnapshot(
             adapter=self.name,

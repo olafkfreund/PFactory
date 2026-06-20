@@ -15,12 +15,22 @@ permissions:
   contents: read
   models: read   # free GitHub Models inference for github-models/* (epic #87 / #88)
 
+env:
+  # Shared lint baseline pin (matches standards/ + the hub baseline SHA). The
+  # whole-repo strict select set has ~6.5k legacy violations, so ruff is enforced
+  # under a no-regression RATCHET (scripts/ratchet_lint.py), never as a whole-repo
+  # blocking `ruff check`. Keep this in lockstep with cq-ratchet.yml.
+  RUFF_VERSION: "0.15.17"
+
 jobs:
   backend-lint-test:
     name: backend (ruff + pytest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need history back to the PR base for the diff-scoped ruff ratchet.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -39,10 +49,26 @@ jobs:
           uv pip install -r requirements.txt
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
-          uv pip install ruff
+          uv pip install "ruff==${RUFF_VERSION}"
 
-      - name: Ruff lint
-        run: apps/backend/.venv/bin/ruff check apps/backend tests
+      - name: Ruff ratchet (diff-scoped, blocks net-new violations)
+        # The shared strict select set (root ruff.toml -> standards/ruff.toml) has
+        # ~6.5k legacy violations whole-repo, so a blocking whole-repo `ruff check`
+        # would be permanently red at adoption. Instead enforce the strict bar on
+        # the PR's CHANGED apps/backend Python files only: a changed file may not
+        # GAIN ruff violations vs the PR base (coding-standards.md sections 0/4.6).
+        # Pure formatting/cleanup can't increase the count, so this PR stays green;
+        # legacy is fixed on touch. Vendored from CFactory (cross-service reuse).
+        run: |
+          # Put the venv's pinned ruff first on PATH so the ratchet shells out to
+          # it (the ratchet invokes `ruff` and `git` as plain commands).
+          export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            base="HEAD~1"
+          fi
+          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${base}" --package apps/backend
 
       - name: Schema-drift guard (RFC-0010)
         # Fail if the vendored Task Contract schema drifts from the canonical
@@ -67,6 +93,9 @@ jobs:
     # protection so it gates merges.
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need history back to the PR base for the diff-scoped ruff ratchet.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -85,10 +114,20 @@ jobs:
           uv pip install -r requirements.txt
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
-          uv pip install ruff
+          uv pip install "ruff==${RUFF_VERSION}"
 
-      - name: Ruff lint
-        run: apps/backend/.venv/bin/ruff check apps/backend tests
+      - name: Ruff ratchet (diff-scoped, blocks net-new violations)
+        # Same no-regression ratchet as the full backend job (see its comment):
+        # the strict bar is enforced on changed apps/backend files only, never as
+        # a whole-repo blocking gate (~6.5k legacy violations at adoption).
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            base="HEAD~1"
+          fi
+          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${base}" --package apps/backend
 
       - name: Pytest (critical lane only)
         env:

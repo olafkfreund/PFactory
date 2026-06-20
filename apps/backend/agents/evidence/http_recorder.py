@@ -41,7 +41,7 @@ import json
 import threading
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -133,7 +133,7 @@ def _make_urllib_patch(original_urlopen):  # type: ignore[no-untyped-def]
     """Return a patched ``urlopen`` that records req/resp into ``_entries``."""
 
     def _patched_urlopen(url, data=None, timeout=None, **kwargs):  # type: ignore[no-untyped-def]
-        started = datetime.now(timezone.utc)
+        started = datetime.now(UTC)
         t0 = time.perf_counter()
 
         # Normalise URL
@@ -212,7 +212,7 @@ def _make_httpx_patch(original_send):  # type: ignore[no-untyped-def]
     """Return a patched ``httpx.Client.send`` that records req/resp."""
 
     def _patched_send(self_client, request, **kwargs):  # type: ignore[no-untyped-def]
-        started = datetime.now(timezone.utc)
+        started = datetime.now(UTC)
         t0 = time.perf_counter()
 
         req_headers = dict(request.headers)

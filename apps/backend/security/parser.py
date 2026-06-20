@@ -36,9 +36,12 @@ def split_command_segments(command_string: str) -> list[str]:
 
 # When enabled, command strings bashlex cannot parse are denied (fail closed)
 # instead of falling back to the lenient legacy tokenizer.
-_STRICT_PARSING = os.environ.get(
-    "PFACTORY_STRICT_COMMAND_PARSING", ""
-).strip().lower() in {"1", "true", "yes", "on"}
+_STRICT_PARSING = os.environ.get("PFACTORY_STRICT_COMMAND_PARSING", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 # A name that can never appear in any allowlist, so strict-mode unparseable
 # input is denied by the caller rather than silently allowed.

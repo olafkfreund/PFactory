@@ -12,7 +12,7 @@ the plan always renders. Mirrors the evaluator's LLM-with-fallback split.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from .model import RunMeta
 
@@ -40,7 +40,7 @@ def build_correction_prompt(meta: RunMeta) -> str:
         "Failed steps:",
     ]
     for s in fails:
-        lines.append(f"- Step {s.n} \"{s.label}\": {s.error or 'assertion failed'}")
+        lines.append(f'- Step {s.n} "{s.label}": {s.error or "assertion failed"}')
     lines += [
         "",
         "For each failure give: the likely root cause, the concrete fix, and how to "
@@ -71,7 +71,7 @@ def _deterministic_plan(meta: RunMeta) -> str:
             f"### Step {s.n} — {s.label}",
             "",
             f"- **What broke:** {s.error or 'the step assertion failed'}",
-            f"- **Where:** verification step {s.n} (\"{s.label}\"); "
+            f'- **Where:** verification step {s.n} ("{s.label}"); '
             f"see `screenshots/` + `recording/trace.zip`.",
             "- **Likely cause:** a changed/missing element, a slow async update, or "
             "a regression in this step's behaviour.",
@@ -90,9 +90,7 @@ def _deterministic_plan(meta: RunMeta) -> str:
     return "\n".join(out) + "\n"
 
 
-def render_correction_plan(
-    meta: RunMeta, *, generate: Callable[[str], str] | None = None
-) -> str:
+def render_correction_plan(meta: RunMeta, *, generate: Callable[[str], str] | None = None) -> str:
     """Render the correction plan. Uses ``generate(prompt)`` (the LLM seam) when
     provided + non-empty; otherwise the deterministic fallback. Never raises —
     a failing/empty generator degrades to the fallback so the artifact always

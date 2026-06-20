@@ -17,8 +17,8 @@ import os
 import shlex
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .discovery import discover
 from .report import assess_and_write
@@ -71,8 +71,9 @@ def build_prowler_command(
     return cmd
 
 
-def _docker_argv(provider: str, profile: str | None, scratch_host: str,
-                 prowler_cmd: list[str]) -> list[str]:
+def _docker_argv(
+    provider: str, profile: str | None, scratch_host: str, prowler_cmd: list[str]
+) -> list[str]:
     """Full ``docker run`` argv wrapping the Prowler command (read-only creds)."""
     argv = ["docker", "run", "--rm", "--network=bridge"]
     mount = _CRED_MOUNTS.get(provider)
@@ -85,16 +86,23 @@ def _docker_argv(provider: str, profile: str | None, scratch_host: str,
     elif provider == "gcp":
         # Read 0600 ADC as the host uid; point gcloud + ADC at the mount.
         argv += [
-            "--user", f"{os.getuid()}:{os.getgid()}",
-            "-e", "HOME=/scratch",
-            "-e", "CLOUDSDK_CONFIG=/gcloud",
-            "-e", "GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json",
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+            "-e",
+            "HOME=/scratch",
+            "-e",
+            "CLOUDSDK_CONFIG=/gcloud",
+            "-e",
+            "GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json",
         ]
     elif provider == "azure":
         argv += [
-            "--user", f"{os.getuid()}:{os.getgid()}",
-            "-e", "HOME=/scratch",
-            "-e", "AZURE_CONFIG_DIR=/scratch/azure-cfg",
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+            "-e",
+            "HOME=/scratch",
+            "-e",
+            "AZURE_CONFIG_DIR=/scratch/azure-cfg",
         ]
     if provider == "azure":
         # Wrap in a shell so az gets a writable config copy before Prowler runs.
@@ -115,9 +123,7 @@ def _run_prowler(target, *, timeout: int = 1800) -> str:
     Path(scratch).chmod(0o777)  # the container's non-root user writes here
     # For GCP, ``profile`` carries the project id (else ADC's default project).
     project_id = profile if provider == "gcp" else None
-    cmd = build_prowler_command(
-        provider, regions=regions, services=services, project_id=project_id
-    )
+    cmd = build_prowler_command(provider, regions=regions, services=services, project_id=project_id)
     argv = _docker_argv(provider, profile, scratch, cmd)
     # Prowler exits non-zero when it finds failures — that's expected, not an error.
     subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
@@ -150,10 +156,6 @@ def run_cloud_assessment(
     services = list(getattr(scan, "services", []) or [])
     fail_on = getattr(scan, "fail_on_severity", "high")
 
-    inv = (discover_fn or discover)(
-        provider, profile=profile, regions=regions, services=services
-    )
+    inv = (discover_fn or discover)(provider, profile=profile, regions=regions, services=services)
     ocsf = (prowler_fn or _run_prowler)(target)
-    return assess_and_write(
-        spec_dir, inventory=inv, ocsf=ocsf, fail_on_severity=fail_on
-    )
+    return assess_and_write(spec_dir, inventory=inv, ocsf=ocsf, fail_on_severity=fail_on)

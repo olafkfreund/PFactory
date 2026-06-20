@@ -28,9 +28,10 @@ The git workflow this module orchestrates:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 
 class GitWriterError(Exception):
@@ -40,6 +41,7 @@ class GitWriterError(Exception):
 
 class _SubprocessResultLike(Protocol):
     """Duck-type for subprocess.CompletedProcess."""
+
     @property
     def returncode(self) -> int: ...
     @property
@@ -128,15 +130,22 @@ def _validate_relative_path(rel_path: str) -> Path:
 
 
 def _default_runner_fn(
-    argv: list[str], *, cwd: Path, stdin: str | None = None,
+    argv: list[str],
+    *,
+    cwd: Path,
+    stdin: str | None = None,
 ) -> _SubprocessResultLike:
     """Default runner_fn that ACTUALLY shells out. Only used outside
     tests; commit 5's wiring passes this through unchanged."""
     import subprocess
+
     return subprocess.run(
-        argv, cwd=str(cwd),
+        argv,
+        cwd=str(cwd),
         input=stdin if stdin is not None else None,
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -168,54 +177,56 @@ def write_tests_to_branch(
     # 1. Pre-flight validation (path safety + repo existence).
     if not dry_run and not request.repo_dir.exists():
         return GitWriteResult(
-            ok=False, dry_run=False,
+            ok=False,
+            dry_run=False,
             error=f"repo_dir does not exist: {request.repo_dir}",
         )
     try:
-        validated = [
-            (_validate_relative_path(rp), contents)
-            for rp, contents in request.files
-        ]
+        validated = [(_validate_relative_path(rp), contents) for rp, contents in request.files]
     except GitWriterError as exc:
         return GitWriteResult(
-            ok=False, dry_run=dry_run,
+            ok=False,
+            dry_run=dry_run,
             error=str(exc),
         )
 
     # 2. Branch existence check.
     verify_argv = (
-        "git", "-C", str(request.repo_dir),
-        "rev-parse", "--verify", request.branch,
+        "git",
+        "-C",
+        str(request.repo_dir),
+        "rev-parse",
+        "--verify",
+        request.branch,
     )
     argv_log.append(verify_argv)
     if not dry_run:
         res = runner(list(verify_argv), cwd=request.repo_dir)
         if res.returncode != 0:
             return GitWriteResult(
-                ok=False, dry_run=False,
+                ok=False,
+                dry_run=False,
                 argv_log=tuple(argv_log),
-                error=(
-                    f"branch {request.branch!r} not found: "
-                    f"{(res.stderr or '').strip()[:200]}"
-                ),
+                error=(f"branch {request.branch!r} not found: {(res.stderr or '').strip()[:200]}"),
             )
 
     # 3. Checkout.
     checkout_argv = (
-        "git", "-C", str(request.repo_dir),
-        "checkout", request.branch,
+        "git",
+        "-C",
+        str(request.repo_dir),
+        "checkout",
+        request.branch,
     )
     argv_log.append(checkout_argv)
     if not dry_run:
         res = runner(list(checkout_argv), cwd=request.repo_dir)
         if res.returncode != 0:
             return GitWriteResult(
-                ok=False, dry_run=False,
+                ok=False,
+                dry_run=False,
                 argv_log=tuple(argv_log),
-                error=(
-                    f"checkout {request.branch!r} failed: "
-                    f"{(res.stderr or '').strip()[:200]}"
-                ),
+                error=(f"checkout {request.branch!r} failed: {(res.stderr or '').strip()[:200]}"),
             )
 
     # 4. Write files. (Dry-run: skip; record paths only.)
@@ -232,14 +243,19 @@ def write_tests_to_branch(
     if not committed_paths:
         # Nothing to commit — empty request. Return success-with-no-op.
         return GitWriteResult(
-            ok=True, dry_run=dry_run,
+            ok=True,
+            dry_run=dry_run,
             argv_log=tuple(argv_log),
             committed_paths=(),
         )
 
     # 5. git add.
     add_argv = (
-        "git", "-C", str(request.repo_dir), "add", "--",
+        "git",
+        "-C",
+        str(request.repo_dir),
+        "add",
+        "--",
         *committed_paths,
     )
     argv_log.append(add_argv)
@@ -247,26 +263,33 @@ def write_tests_to_branch(
         res = runner(list(add_argv), cwd=request.repo_dir)
         if res.returncode != 0:
             return GitWriteResult(
-                ok=False, dry_run=False,
+                ok=False,
+                dry_run=False,
                 argv_log=tuple(argv_log),
                 error=f"git add failed: {(res.stderr or '').strip()[:200]}",
             )
 
     # 6. git commit.
     commit_argv = [
-        "git", "-C", str(request.repo_dir),
-        "commit", "-m", request.commit_msg or "pfactory: add generated tests",
+        "git",
+        "-C",
+        str(request.repo_dir),
+        "commit",
+        "-m",
+        request.commit_msg or "pfactory: add generated tests",
     ]
     if request.author_name and request.author_email:
         commit_argv += [
-            "--author", f"{request.author_name} <{request.author_email}>",
+            "--author",
+            f"{request.author_name} <{request.author_email}>",
         ]
     argv_log.append(tuple(commit_argv))
     if not dry_run:
         res = runner(commit_argv, cwd=request.repo_dir)
         if res.returncode != 0:
             return GitWriteResult(
-                ok=False, dry_run=False,
+                ok=False,
+                dry_run=False,
                 argv_log=tuple(argv_log),
                 error=f"git commit failed: {(res.stderr or '').strip()[:200]}",
             )
@@ -274,7 +297,11 @@ def write_tests_to_branch(
     # 7. Capture new HEAD sha.
     sha = ""
     rev_parse_argv = (
-        "git", "-C", str(request.repo_dir), "rev-parse", "HEAD",
+        "git",
+        "-C",
+        str(request.repo_dir),
+        "rev-parse",
+        "HEAD",
     )
     argv_log.append(rev_parse_argv)
     if not dry_run:
@@ -332,7 +359,9 @@ def write_paths_to_branch(
             res = runner(list(argv), cwd=repo_dir)
             if res.returncode != 0:
                 return GitWriteResult(
-                    ok=False, dry_run=False, argv_log=tuple(argv_log),
+                    ok=False,
+                    dry_run=False,
+                    argv_log=tuple(argv_log),
                     error=f"{argv[3]} failed: {(res.stderr or '').strip()[:200]}",
                 )
 
@@ -344,6 +373,9 @@ def write_paths_to_branch(
         sha = (res.stdout or "").strip()
 
     return GitWriteResult(
-        ok=True, dry_run=dry_run, committed_paths=tuple(rels),
-        commit_sha=sha, argv_log=tuple(argv_log),
+        ok=True,
+        dry_run=dry_run,
+        committed_paths=tuple(rels),
+        commit_sha=sha,
+        argv_log=tuple(argv_log),
     )

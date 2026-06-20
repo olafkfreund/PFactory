@@ -2,7 +2,7 @@
 Main TaskLogger class for logging task execution.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.debug import debug, debug_error, debug_info, debug_success, is_debug_enabled
@@ -54,7 +54,7 @@ class TaskLogger:
 
     def _timestamp(self) -> str:
         """Get current timestamp in ISO format."""
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
     def _emit(self, marker_type: str, data: dict) -> None:
         """Emit a streaming marker to stdout for UI consumption."""
@@ -138,9 +138,7 @@ class TaskLogger:
         for other_phase_key, phase_data in self._data["phases"].items():
             if other_phase_key != phase_key and phase_data.get("status") == "active":
                 # Auto-close stale phase from previous interrupted run
-                self.storage.update_phase_status(
-                    other_phase_key, "completed", self._timestamp()
-                )
+                self.storage.update_phase_status(other_phase_key, "completed", self._timestamp())
                 # Add a log entry noting the auto-close
                 auto_close_entry = LogEntry(
                     timestamp=self._timestamp(),
@@ -176,9 +174,7 @@ class TaskLogger:
         if message:
             print(message, flush=True)
 
-    def end_phase(
-        self, phase: LogPhase, success: bool = True, message: str | None = None
-    ) -> None:
+    def end_phase(self, phase: LogPhase, success: bool = True, message: str | None = None) -> None:
         """
         End a phase.
 
@@ -200,9 +196,7 @@ class TaskLogger:
         )
 
         # Add phase end entry
-        phase_message = (
-            message or f"{'Completed' if success else 'Failed'} {phase_key} phase"
-        )
+        phase_message = message or f"{'Completed' if success else 'Failed'} {phase_key} phase"
         entry = LogEntry(
             timestamp=self._timestamp(),
             type=LogEntryType.PHASE_END.value,
@@ -381,9 +375,7 @@ class TaskLogger:
         )
 
         # Debug log (when DEBUG=true)
-        self._debug_log(
-            f"Starting {subphase}", LogEntryType.INFO, phase_key, subphase=subphase
-        )
+        self._debug_log(f"Starting {subphase}", LogEntryType.INFO, phase_key, subphase=subphase)
 
         if print_to_console:
             print(f"\n--- {subphase} ---", flush=True)
@@ -476,8 +468,7 @@ class TaskLogger:
         stored_detail = detail
         if stored_detail and len(stored_detail) > 10240:
             stored_detail = (
-                stored_detail[:10240]
-                + f"\n\n... [truncated - full output was {len(detail)} chars]"
+                stored_detail[:10240] + f"\n\n... [truncated - full output was {len(detail)} chars]"
             )
 
         entry = LogEntry(

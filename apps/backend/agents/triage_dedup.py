@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 # ─── Data shapes ────────────────────────────────────────────────────────
 
@@ -42,9 +42,9 @@ class TriageCandidate:
     """
 
     test_id: str
-    test_file: str           # relative path, e.g., "tests/test_x.py"
-    verdict: dict            # the verdicts.json entry, verbatim
-    source: str              # the test file's literal text
+    test_file: str  # relative path, e.g., "tests/test_x.py"
+    verdict: dict  # the verdicts.json entry, verbatim
+    source: str  # the test file's literal text
 
     @property
     def verdict_label(self) -> str:
@@ -62,7 +62,7 @@ class DedupCollision:
     ``members[0]``; the rest are dropped.
     """
 
-    kind: str                # 'byte_identical' | 'whitespace_normalised'
+    kind: str  # 'byte_identical' | 'whitespace_normalised'
     representative: TriageCandidate
     dropped: tuple[TriageCandidate, ...]
 
@@ -157,11 +157,13 @@ def dedup_candidates(candidates: Iterable[TriageCandidate]) -> DedupResult:
             after_byte.append(group[0])
             continue
         after_byte.append(group[0])  # keep first occurrence
-        collisions.append(DedupCollision(
-            kind="byte_identical",
-            representative=group[0],
-            dropped=tuple(group[1:]),
-        ))
+        collisions.append(
+            DedupCollision(
+                kind="byte_identical",
+                representative=group[0],
+                dropped=tuple(group[1:]),
+            )
+        )
 
     # Pass 2: whitespace-normalised (over the byte-pass survivors).
     norm_groups: dict[str, list[TriageCandidate]] = {}
@@ -179,11 +181,13 @@ def dedup_candidates(candidates: Iterable[TriageCandidate]) -> DedupResult:
         group = norm_groups[n]
         kept.append(group[0])
         if len(group) > 1:
-            collisions.append(DedupCollision(
-                kind="whitespace_normalised",
-                representative=group[0],
-                dropped=tuple(group[1:]),
-            ))
+            collisions.append(
+                DedupCollision(
+                    kind="whitespace_normalised",
+                    representative=group[0],
+                    dropped=tuple(group[1:]),
+                )
+            )
 
     return DedupResult(
         kept=tuple(kept),
@@ -203,7 +207,7 @@ _MUTATION_PRIORITY = {
     "no_mutation": 1,
     "error": 2,
     "survived": 3,  # shouldn't reach Triager (Evaluator rejects them),
-                    # but if it slips through, last in rank
+    # but if it slips through, last in rank
 }
 
 # Lower number = better stability signal.

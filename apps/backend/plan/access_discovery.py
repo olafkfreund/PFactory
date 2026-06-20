@@ -64,9 +64,7 @@ def detect_interactive_mfa(spec_text: str) -> list[str]:
 
 def _env_names(auth: dict) -> list[str]:
     """Env-var names the auth references (any ``*_env`` field)."""
-    return sorted(
-        v for k, v in auth.items() if k.endswith("_env") and isinstance(v, str)
-    )
+    return sorted(v for k, v in auth.items() if k.endswith("_env") and isinstance(v, str))
 
 
 def _credential_ref(auth: dict) -> str | None:
@@ -92,9 +90,7 @@ def classify_target(target: dict, *, interactive_mfa: bool = False) -> dict:
     if ttype in _EPHEMERAL_TARGET_TYPES:
         cls = "C-ephemeral-target"
     else:
-        cls = _AUTH_CLASS.get(
-            atype, "B-bootstrap-once"
-        )  # unknown auth -> conservative B
+        cls = _AUTH_CLASS.get(atype, "B-bootstrap-once")  # unknown auth -> conservative B
 
     req: dict = {
         "resource": target.get("name") or ttype or "unknown",
@@ -158,7 +154,7 @@ def validate_access(
     if env_present is None:
         import os
 
-        def env_present(name: str) -> bool:  # noqa: ANN001
+        def env_present(name: str) -> bool:
             return bool(os.environ.get(name))
 
     issues: list[dict] = []
@@ -229,7 +225,7 @@ def curation_status(requirements: list[dict] | None, *, ref_exists=None) -> dict
     """
     if ref_exists is None:
 
-        def ref_exists(_ref):  # noqa: ANN001 - default: undeterminable
+        def ref_exists(_ref):
             return None
 
     out = [

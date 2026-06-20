@@ -75,9 +75,7 @@ class ImplementationPlan:
             workflow_type = WorkflowType(workflow_type_str)
         except ValueError:
             # Unknown workflow type - default to FEATURE
-            print(
-                f"Warning: Unknown workflow_type '{workflow_type_str}', defaulting to 'feature'"
-            )
+            print(f"Warning: Unknown workflow_type '{workflow_type_str}', defaulting to 'feature'")
             workflow_type = WorkflowType.FEATURE
 
         # Support both 'feature' and 'title' fields for task name
@@ -87,10 +85,7 @@ class ImplementationPlan:
             feature=feature_name,
             workflow_type=workflow_type,
             services_involved=data.get("services_involved", []),
-            phases=[
-                Phase.from_dict(p, idx + 1)
-                for idx, p in enumerate(data.get("phases", []))
-            ],
+            phases=[Phase.from_dict(p, idx + 1) for idx, p in enumerate(data.get("phases", []))],
             final_acceptance=data.get("final_acceptance", []),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
@@ -135,13 +130,9 @@ class ImplementationPlan:
                 self.planStatus = "pending"
             return
 
-        completed_count = sum(
-            1 for s in all_subtasks if s.status == SubtaskStatus.COMPLETED
-        )
+        completed_count = sum(1 for s in all_subtasks if s.status == SubtaskStatus.COMPLETED)
         failed_count = sum(1 for s in all_subtasks if s.status == SubtaskStatus.FAILED)
-        in_progress_count = sum(
-            1 for s in all_subtasks if s.status == SubtaskStatus.IN_PROGRESS
-        )
+        in_progress_count = sum(1 for s in all_subtasks if s.status == SubtaskStatus.IN_PROGRESS)
         total_count = len(all_subtasks)
 
         # Determine status based on subtask states
@@ -206,16 +197,10 @@ class ImplementationPlan:
         """Get overall progress statistics."""
         total_subtasks = sum(len(p.subtasks) for p in self.phases)
         done_subtasks = sum(
-            1
-            for p in self.phases
-            for s in p.subtasks
-            if s.status == SubtaskStatus.COMPLETED
+            1 for p in self.phases for s in p.subtasks if s.status == SubtaskStatus.COMPLETED
         )
         failed_subtasks = sum(
-            1
-            for p in self.phases
-            for s in p.subtasks
-            if s.status == SubtaskStatus.FAILED
+            1 for p in self.phases for s in p.subtasks if s.status == SubtaskStatus.FAILED
         )
 
         completed_phases = sum(1 for p in self.phases if p.is_complete())
@@ -243,9 +228,7 @@ class ImplementationPlan:
         ]
 
         if progress["failed_subtasks"] > 0:
-            lines.append(
-                f"Failed: {progress['failed_subtasks']} subtasks need attention"
-            )
+            lines.append(f"Failed: {progress['failed_subtasks']} subtasks need attention")
 
         if progress["is_complete"]:
             lines.append("Status: COMPLETE - Ready for final acceptance testing")
@@ -253,9 +236,7 @@ class ImplementationPlan:
             next_work = self.get_next_subtask()
             if next_work:
                 phase, subtask = next_work
-                lines.append(
-                    f"Next: Phase {phase.phase} ({phase.name}) - {subtask.description}"
-                )
+                lines.append(f"Next: Phase {phase.phase} ({phase.name}) - {subtask.description}")
             else:
                 lines.append("Status: BLOCKED - No available subtasks")
 
@@ -350,8 +331,7 @@ class ImplementationPlan:
 
         # Check if plan is actually in a completed/reviewable state
         is_completed = (
-            self.status in completed_statuses
-            or self.planStatus in completed_plan_statuses
+            self.status in completed_statuses or self.planStatus in completed_plan_statuses
         )
 
         # Also check if all subtasks are actually completed

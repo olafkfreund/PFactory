@@ -122,9 +122,7 @@ def cmd_show_context(args):
 
     print(f"\n--- Main Evolution ({len(context.main_evolution)} events) ---")
     for event in context.main_evolution:
-        print(
-            f"  {event.commit_hash[:8]} ({event.source}): {event.commit_message[:50]}..."
-        )
+        print(f"  {event.commit_hash[:8]} ({event.source}): {event.commit_message[:50]}...")
 
 
 def cmd_list_files(args):
@@ -140,9 +138,7 @@ def cmd_list_files(args):
 
     for file_path in sorted(tracker._timelines.keys()):
         timeline = tracker._timelines[file_path]
-        active_tasks = len(
-            [tv for tv in timeline.task_views.values() if tv.status == "active"]
-        )
+        active_tasks = len([tv for tv in timeline.task_views.values() if tv.status == "active"])
         main_events = len(timeline.main_branch_history)
         print(f"  {file_path}: {active_tasks} active tasks, {main_events} main events")
 
@@ -183,18 +179,12 @@ def main():
     notify_parser.set_defaults(func=cmd_notify_commit)
 
     # show-timeline
-    timeline_parser = subparsers.add_parser(
-        "show-timeline", help="Show the timeline for a file"
-    )
-    timeline_parser.add_argument(
-        "file_path", help="The file path (relative to project)"
-    )
+    timeline_parser = subparsers.add_parser("show-timeline", help="Show the timeline for a file")
+    timeline_parser.add_argument("file_path", help="The file path (relative to project)")
     timeline_parser.set_defaults(func=cmd_show_timeline)
 
     # show-drift
-    drift_parser = subparsers.add_parser(
-        "show-drift", help="Show commits-behind-main for a task"
-    )
+    drift_parser = subparsers.add_parser("show-drift", help="Show commits-behind-main for a task")
     drift_parser.add_argument("task_id", help="The task ID")
     drift_parser.set_defaults(func=cmd_show_drift)
 

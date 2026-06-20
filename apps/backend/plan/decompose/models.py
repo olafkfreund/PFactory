@@ -13,9 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ChildKind = Literal[
-    "feature", "task", "testing", "cicd", "docs", "infra", "research", "chore"
-]
+ChildKind = Literal["feature", "task", "testing", "cicd", "docs", "infra", "research", "chore"]
 Complexity = Literal["simple", "standard", "complex"]
 Confidence = Literal["low", "medium", "high"]
 # How an EpicPlan was produced — recorded so the readiness gate can detect a

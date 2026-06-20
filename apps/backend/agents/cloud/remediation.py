@@ -72,9 +72,7 @@ def _group_fails(findings: list[CloudFinding]) -> OrderedDict[str, dict]:
     return OrderedDict((it["check_id"], it) for it in ordered)
 
 
-def render_remediation_plan(
-    findings: list[CloudFinding], *, fail_on_severity: str = "high"
-) -> str:
+def render_remediation_plan(findings: list[CloudFinding], *, fail_on_severity: str = "high") -> str:
     """Render a prioritised remediation plan (Markdown) from the findings."""
     items = list(_group_fails(findings).values())
     lines: list[str] = ["# Cloud Remediation Plan", ""]
@@ -102,9 +100,7 @@ def render_remediation_plan(
             n += 1
             regions = ", ".join(sorted(it["regions"])) if it["regions"] else "global"
             lines.append(f"### {n}. {it['title']}")
-            lines.append(
-                f"_{it['severity']} · {it['count']} affected · {regions}_"
-            )
+            lines.append(f"_{it['severity']} · {it['count']} affected · {regions}_")
             if it["resources"]:
                 more = "" if it["count"] <= len(it["resources"]) else " …"
                 lines.append(f"- **Affected:** {', '.join(it['resources'])}{more}")

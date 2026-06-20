@@ -1,0 +1,58 @@
+# Factory fleet shared ruff baseline (single source of truth).
+# Per-service configs MUST extend this and may only TIGHTEN, never loosen.
+# See standards/coding-standards.md section 1.
+#
+# Usage (per service pyproject.toml):
+#   [tool.ruff]
+#   extend = "<pinned path to this file>"
+#   # service-specific tightening only
+
+target-version = "py311"
+line-length = 100
+
+[lint]
+# Explicit, reviewable select set (standards section 1.1). Do not replace with a
+# bare default and do not blanket-ignore categories.
+select = [
+    "E", "F", "W",      # pycodestyle + pyflakes
+    "I",                # isort
+    "N",                # pep8-naming
+    "UP",               # pyupgrade
+    "B",                # flake8-bugbear
+    "C4",               # comprehensions
+    "S",                # flake8-bandit (security sinks, section 1.4)
+    "SIM",              # flake8-simplify
+    "RUF",              # ruff-specific
+    "PTH",              # use pathlib (section 1.9)
+    "TID",              # tidy imports
+    "ASYNC",            # async correctness
+    "A",                # shadowing builtins
+    "DTZ",              # tz-aware datetimes (section 1.9)
+    "T20",              # no print() in service code (section 1.9)
+    "ARG",              # unused arguments (section 1.10)
+    "ERA",              # no commented-out code (section 1.10)
+    "BLE",              # no blind except (section 1.6)
+    "PGH",              # no blanket noqa / type: ignore (section 1.3)
+    "PL",               # pylint subset, curated below
+]
+
+# Curated complexity caps (standards section 1.8). These are the program defaults;
+# services may lower the numbers, never raise them.
+[lint.pylint]
+max-args = 5
+max-branches = 12
+max-statements = 50
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.per-file-ignores]
+# Tests may use assert and need not be import-tidy; they still get the security
+# and dead-code rules.
+"**/test_*.py" = ["S101", "PLR2004"]
+"**/*_test.py" = ["S101", "PLR2004"]
+"**/tests/**" = ["S101", "PLR2004"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

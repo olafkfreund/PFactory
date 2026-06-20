@@ -89,16 +89,12 @@ def format_compact(status: BuildStatus) -> str:
     # Subtasks progress
     if status.subtasks_total > 0:
         subtask_icon = icon(Icons.SUBTASK)
-        parts.append(
-            f"{subtask_icon} {status.subtasks_completed}/{status.subtasks_total}"
-        )
+        parts.append(f"{subtask_icon} {status.subtasks_completed}/{status.subtasks_total}")
 
     # Current phase
     if status.phase_current:
         phase_icon = icon(Icons.PHASE)
-        phase_status = (
-            icon(Icons.ARROW_RIGHT) if status.state == BuildState.BUILDING else ""
-        )
+        phase_status = icon(Icons.ARROW_RIGHT) if status.state == BuildState.BUILDING else ""
         parts.append(f"{phase_icon} {status.phase_current} {phase_status}".strip())
 
     # Workers (only in parallel mode)
@@ -145,9 +141,7 @@ def format_full(status: BuildStatus) -> str:
             lines.append(f"Failed: {status.subtasks_failed}")
 
     if status.phase_current:
-        lines.append(
-            f"Phase: {status.phase_current} ({status.phase_id}/{status.phase_total})"
-        )
+        lines.append(f"Phase: {status.phase_current} ({status.phase_id}/{status.phase_total})")
 
     if status.workers_max > 1:
         lines.append(f"Workers: {status.workers_active}/{status.workers_max}")

@@ -44,10 +44,10 @@ from agents.flake_risk_lint import FlakeRiskHit, FlakeRiskResult
 class PromotionDecision:
     """One promotion decision per medium-severity FlakeRiskHit."""
 
-    pattern: str          # e.g., "time_sleep", "datetime_now_no_freeze"
+    pattern: str  # e.g., "time_sleep", "datetime_now_no_freeze"
     lineno: int
-    promoted: bool        # True if this medium should be treated as a reject
-    reason: str           # short human-readable justification
+    promoted: bool  # True if this medium should be treated as a reject
+    reason: str  # short human-readable justification
 
     @property
     def label(self) -> str:
@@ -68,9 +68,9 @@ class PromotionResult:
     """
 
     decisions: list[PromotionDecision] = field(default_factory=list)
-    high_count: int = 0           # pre-existing high-severity hits
-    medium_count: int = 0         # input medium hits
-    promoted_count: int = 0       # decisions where promoted=True
+    high_count: int = 0  # pre-existing high-severity hits
+    medium_count: int = 0  # input medium hits
+    promoted_count: int = 0  # decisions where promoted=True
 
     @property
     def should_reject(self) -> bool:
@@ -96,7 +96,11 @@ class PromotionResult:
 _FREEZE_HINTS = ("freezegun", "freeze_time", "time_machine", "pytest_freezer")
 _ASYNC_HINTS = ("asyncio", "anyio", "trio", "async def", "await ")
 _CLOCK_INJECTION_HINTS = (
-    "monkeypatch", "freeze_time", "fake_clock", "Clock(", "mock_clock",
+    "monkeypatch",
+    "freeze_time",
+    "fake_clock",
+    "Clock(",
+    "mock_clock",
 )
 
 
@@ -241,29 +245,35 @@ def promote_flake_findings(
     for hit in result.flagged:
         rule = _PROMOTION_RULES.get(hit.pattern)
         if rule is None:
-            decisions.append(PromotionDecision(
-                pattern=hit.pattern,
-                lineno=hit.lineno,
-                promoted=False,
-                reason="no promotion rule registered for this pattern",
-            ))
+            decisions.append(
+                PromotionDecision(
+                    pattern=hit.pattern,
+                    lineno=hit.lineno,
+                    promoted=False,
+                    reason="no promotion rule registered for this pattern",
+                )
+            )
             continue
         try:
             promote, reason = rule(hit, source)
         except Exception as exc:  # noqa: BLE001 — defensive
-            decisions.append(PromotionDecision(
+            decisions.append(
+                PromotionDecision(
+                    pattern=hit.pattern,
+                    lineno=hit.lineno,
+                    promoted=False,
+                    reason=f"rule errored: {type(exc).__name__}: {exc}",
+                )
+            )
+            continue
+        decisions.append(
+            PromotionDecision(
                 pattern=hit.pattern,
                 lineno=hit.lineno,
-                promoted=False,
-                reason=f"rule errored: {type(exc).__name__}: {exc}",
-            ))
-            continue
-        decisions.append(PromotionDecision(
-            pattern=hit.pattern,
-            lineno=hit.lineno,
-            promoted=promote,
-            reason=reason,
-        ))
+                promoted=promote,
+                reason=reason,
+            )
+        )
         if promote:
             promoted_count += 1
 

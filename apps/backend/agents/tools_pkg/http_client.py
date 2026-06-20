@@ -116,16 +116,12 @@ def _read_token() -> str:
         try:
             token = mcp_key_path.read_text().strip()
         except OSError as exc:
-            raise MCPHTTPError(
-                f"Cannot read PFactory MCP key at {mcp_key_path}: {exc}"
-            ) from exc
+            raise MCPHTTPError(f"Cannot read PFactory MCP key at {mcp_key_path}: {exc}") from exc
         if token:
             return token
 
     # 3-4. Legacy admin token fallback.
-    token_path = Path(
-        os.environ.get("PFACTORY_API_TOKEN_FILE", DEFAULT_TOKEN_FILE)
-    ).expanduser()
+    token_path = Path(os.environ.get("PFACTORY_API_TOKEN_FILE", DEFAULT_TOKEN_FILE)).expanduser()
     if not token_path.exists():
         raise MCPHTTPError(
             f"PFactory MCP key not found — set $PFACTORY_MCP_KEY, write "
@@ -135,13 +131,9 @@ def _read_token() -> str:
     try:
         token = token_path.read_text().strip()
     except OSError as exc:
-        raise MCPHTTPError(
-            f"Cannot read PFactory token at {token_path}: {exc}"
-        ) from exc
+        raise MCPHTTPError(f"Cannot read PFactory token at {token_path}: {exc}") from exc
     if not token:
-        raise MCPHTTPError(
-            f"PFactory token at {token_path} is empty — regenerate via the web UI"
-        )
+        raise MCPHTTPError(f"PFactory token at {token_path} is empty — regenerate via the web UI")
     return token
 
 
@@ -161,8 +153,7 @@ async def request(method: str, path: str, **kwargs: Any) -> dict[str, Any] | lis
     """
     if not HTTPX_AVAILABLE:
         raise MCPHTTPError(
-            "httpx not installed in the MCP subprocess venv — "
-            "install it with: pip install httpx"
+            "httpx not installed in the MCP subprocess venv — install it with: pip install httpx"
         )
 
     token = _read_token()
@@ -173,7 +164,7 @@ async def request(method: str, path: str, **kwargs: Any) -> dict[str, Any] | lis
     # hits the scope-gated proxy. Paths already under the proxy prefix
     # pass through unchanged (allows future direct callers / tests).
     if path.startswith("/api/") and not path.startswith(f"{MCP_PROXY_PREFIX}/"):
-        path = MCP_PROXY_PREFIX + path[len("/api"):]
+        path = MCP_PROXY_PREFIX + path[len("/api") :]
 
     client = await _state.get_client()
     base = _state.base_url()
@@ -182,8 +173,7 @@ async def request(method: str, path: str, **kwargs: Any) -> dict[str, Any] | lis
         response = await client.request(method, path, headers=headers, **kwargs)
     except httpx.ConnectError as exc:
         raise MCPHTTPError(
-            f"PFactory web-server not reachable at {base} — "
-            "start it with: python -m server.main"
+            f"PFactory web-server not reachable at {base} — start it with: python -m server.main"
         ) from exc
     except httpx.TimeoutException as exc:
         raise MCPHTTPError(
@@ -206,19 +196,13 @@ async def request(method: str, path: str, **kwargs: Any) -> dict[str, Any] | lis
     if response.status_code == 404:
         # Tools may want to differentiate "no such resource" from other
         # errors; surface a structured message but stay a single line.
-        raise MCPHTTPError(
-            f"Resource not found at {method} {path} (HTTP 404)"
-        )
+        raise MCPHTTPError(f"Resource not found at {method} {path} (HTTP 404)")
     if response.status_code >= 500:
         body = response.text[:500]
-        raise MCPHTTPError(
-            f"PFactory web-server returned HTTP {response.status_code}: {body}"
-        )
+        raise MCPHTTPError(f"PFactory web-server returned HTTP {response.status_code}: {body}")
     if response.status_code >= 400:
         body = response.text[:500]
-        raise MCPHTTPError(
-            f"PFactory web-server returned HTTP {response.status_code}: {body}"
-        )
+        raise MCPHTTPError(f"PFactory web-server returned HTTP {response.status_code}: {body}")
 
     if not response.content:
         return {}

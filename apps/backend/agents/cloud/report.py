@@ -45,9 +45,7 @@ def cloud_findings_paths(spec_dir: Path) -> dict[str, Path]:
     }
 
 
-def dedup_findings_for_diagram(
-    findings: list[CloudFinding], *, limit: int = 8
-) -> list[dict]:
+def dedup_findings_for_diagram(findings: list[CloudFinding], *, limit: int = 8) -> list[dict]:
     """Collapse failing findings by (severity, scope, title) → ``title ×N``.
 
     Sorted worst-severity-then-count; capped at ``limit`` so the diagram stays
@@ -69,9 +67,7 @@ def render_report_markdown(
     """Render the human-readable cloud assessment report."""
     a = assessment
     lines: list[str] = []
-    lines.append(
-        f"# PFactory Cloud Assessment — {str(inventory.get('provider', 'cloud')).upper()}"
-    )
+    lines.append(f"# PFactory Cloud Assessment — {str(inventory.get('provider', 'cloud')).upper()}")
     acct = inventory.get("account", "?")
     ident = inventory.get("identity")
     sub = f"> Account `{acct}`"

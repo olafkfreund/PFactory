@@ -56,10 +56,7 @@ class SecurityProfile:
     def get_all_allowed_commands(self) -> set[str]:
         """Get the complete set of allowed commands."""
         return (
-            self.base_commands
-            | self.stack_commands
-            | self.script_commands
-            | self.custom_commands
+            self.base_commands | self.stack_commands | self.script_commands | self.custom_commands
         )
 
     def to_dict(self) -> dict:

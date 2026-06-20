@@ -24,7 +24,7 @@ See project_analyzer.py for the detection logic.
 """
 
 # Import everything from the security module to maintain backward compatibility
-from security import *  # noqa: F401, F403
+from security import *  # noqa: F403
 
 # Explicitly import commonly used items for clarity
 from security import (
@@ -44,18 +44,18 @@ from security import (
 
 # Re-export for backward compatibility
 __all__ = [
-    "bash_security_hook",
-    "validate_command",
-    "get_security_profile",
-    "reset_profile_cache",
-    "extract_commands",
-    "split_command_segments",
-    "get_command_for_validation",
+    "BASE_COMMANDS",
     "VALIDATORS",
     "SecurityProfile",
+    "bash_security_hook",
+    "extract_commands",
+    "get_command_for_validation",
+    "get_security_profile",
     "is_command_allowed",
     "needs_validation",
-    "BASE_COMMANDS",
+    "reset_profile_cache",
+    "split_command_segments",
+    "validate_command",
 ]
 
 

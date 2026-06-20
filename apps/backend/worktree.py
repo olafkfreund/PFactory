@@ -39,4 +39,4 @@ sys.modules["core.worktree"] = _worktree_module
 _spec.loader.exec_module(_worktree_module)
 
 # Re-export everything from core.worktree
-from core.worktree import *  # noqa: F401, F403
+from core.worktree import *  # noqa: F403

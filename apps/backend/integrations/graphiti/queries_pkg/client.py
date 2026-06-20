@@ -7,7 +7,7 @@ Uses LadybugDB as the embedded graph database (no Docker required, Python 3.12+)
 
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from graphiti_config import GraphitiConfig, GraphitiState
 
@@ -111,9 +111,7 @@ class GraphitiClient:
             # Create providers using factory pattern
             try:
                 self._llm_client = create_llm_client(self.config)
-                logger.info(
-                    f"Created LLM client for provider: {self.config.llm_provider}"
-                )
+                logger.info(f"Created LLM client for provider: {self.config.llm_provider}")
             except ProviderNotInstalled as e:
                 logger.warning(f"LLM provider packages not installed: {e}")
                 return False
@@ -123,9 +121,7 @@ class GraphitiClient:
 
             try:
                 self._embedder = create_embedder(self.config)
-                logger.info(
-                    f"Created embedder for provider: {self.config.embedder_provider}"
-                )
+                logger.info(f"Created embedder for provider: {self.config.embedder_provider}")
             except ProviderNotInstalled as e:
                 logger.warning(f"Embedder provider packages not installed: {e}")
                 return False
@@ -153,9 +149,7 @@ class GraphitiClient:
                 try:
                     self._driver = create_patched_kuzu_driver(db=str(db_path))
                 except (OSError, PermissionError) as e:
-                    logger.warning(
-                        f"Failed to initialize LadybugDB driver at {db_path}: {e}"
-                    )
+                    logger.warning(f"Failed to initialize LadybugDB driver at {db_path}: {e}")
                     return False
                 except Exception as e:
                     logger.warning(
@@ -183,14 +177,13 @@ class GraphitiClient:
                     state.indices_built = True
                     state.initialized = True
                     state.database = self.config.database
-                    state.created_at = datetime.now(timezone.utc).isoformat()
+                    state.created_at = datetime.now(UTC).isoformat()
                     state.llm_provider = self.config.llm_provider
                     state.embedder_provider = self.config.embedder_provider
 
             self._initialized = True
             logger.info(
-                f"Graphiti client initialized "
-                f"(providers: {self.config.get_provider_summary()})"
+                f"Graphiti client initialized (providers: {self.config.get_provider_summary()})"
             )
             return True
 

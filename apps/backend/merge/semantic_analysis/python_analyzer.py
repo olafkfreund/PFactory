@@ -92,9 +92,7 @@ def extract_python_elements(
                 # Recurse into class body for methods
                 body = child.child_by_field_name("body")
                 if body:
-                    extract_python_elements(
-                        body, elements, get_text, get_line, parent=name
-                    )
+                    extract_python_elements(body, elements, get_text, get_line, parent=name)
 
         elif child.type == "decorated_definition":
             # Handle decorated functions/classes

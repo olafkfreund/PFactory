@@ -311,4 +311,4 @@ class SemanticAnalyzer:
 
 
 # Re-export ExtractedElement for backwards compatibility
-__all__ = ["SemanticAnalyzer", "ExtractedElement"]
+__all__ = ["ExtractedElement", "SemanticAnalyzer"]

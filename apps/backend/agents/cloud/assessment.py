@@ -95,9 +95,7 @@ def _one(rec: dict) -> CloudFinding:
     refs = rem.get("references") or []
 
     return CloudFinding(
-        check_id=str(
-            fi.get("uid") or meta.get("event_code") or rec.get("type_name") or "?"
-        ),
+        check_id=str(fi.get("uid") or meta.get("event_code") or rec.get("type_name") or "?"),
         title=str(fi.get("title") or rec.get("message") or "finding"),
         severity=sev,
         status=str(rec.get("status_code") or rec.get("status") or "").strip().lower(),
@@ -121,9 +119,7 @@ def parse_ocsf(data: list | dict | str) -> list[CloudFinding]:
 # ── assess (the verdict gate) ────────────────────────────────────────────────
 
 
-def assess(
-    findings: list[CloudFinding], *, fail_on_severity: str = "high"
-) -> CloudAssessment:
+def assess(findings: list[CloudFinding], *, fail_on_severity: str = "high") -> CloudAssessment:
     """Map findings to a verdict via the ``fail_on_severity`` gate.
 
     - any FAIL at or above ``fail_on_severity`` → ``reject``
@@ -163,9 +159,7 @@ def assess(
 # ── diagram findings ─────────────────────────────────────────────────────────
 
 
-def to_inventory_findings(
-    findings: list[CloudFinding], *, limit: int = 20
-) -> list[dict]:
+def to_inventory_findings(findings: list[CloudFinding], *, limit: int = 20) -> list[dict]:
     """The failing findings as the ``findings`` list ``render_cloud_topology`` flags.
 
     Sorted worst-severity first; capped at ``limit`` so the diagram stays legible.

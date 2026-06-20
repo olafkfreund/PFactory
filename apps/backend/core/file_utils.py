@@ -50,9 +50,7 @@ def atomic_write(
     actual_encoding = None if "b" in mode else encoding
 
     # Create temp file in same directory for atomic rename
-    fd, tmp_path = tempfile.mkstemp(
-        dir=filepath.parent, prefix=f".{filepath.name}.tmp.", suffix=""
-    )
+    fd, tmp_path = tempfile.mkstemp(dir=filepath.parent, prefix=f".{filepath.name}.tmp.", suffix="")
 
     try:
         f = os.fdopen(fd, mode, encoding=actual_encoding)

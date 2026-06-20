@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -160,10 +161,8 @@ class GHClient:
 
                 # Wait for completion with timeout
                 try:
-                    stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(), timeout=timeout
-                    )
-                except asyncio.TimeoutError:
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                except TimeoutError:
                     # Kill the hung process
                     try:
                         proc.kill()
@@ -217,11 +216,7 @@ class GHClient:
 
                     # Check for rate limit errors (403/429)
                     error_lower = stderr_str.lower()
-                    if (
-                        "403" in stderr_str
-                        or "429" in stderr_str
-                        or "rate limit" in error_lower
-                    ):
+                    if "403" in stderr_str or "429" in stderr_str or "rate limit" in error_lower:
                         if self.enable_rate_limiting:
                             self._rate_limiter.record_github_error()
                         raise RateLimitExceeded(
@@ -247,7 +242,7 @@ class GHClient:
                 # Unexpected error
                 logger.error(f"Unexpected error in gh command: {e}")
                 if attempt == self.max_retries:
-                    raise GHCommandError(f"gh {args[0]} failed: {str(e)}")
+                    raise GHCommandError(f"gh {args[0]} failed: {e!s}")
                 else:
                     # Retry on unexpected errors too
                     backoff_delay = 2 ** (attempt - 1)
@@ -326,9 +321,7 @@ class GHClient:
         result = await self.run(args)
         return json.loads(result.stdout)
 
-    async def pr_get(
-        self, pr_number: int, json_fields: list[str] | None = None
-    ) -> dict[str, Any]:
+    async def pr_get(self, pr_number: int, json_fields: list[str] | None = None) -> dict[str, Any]:
         """
         Get PR data by number.
 
@@ -387,10 +380,7 @@ class GHClient:
         except GHCommandError as e:
             # Check if error is due to PR being too large
             error_msg = str(e)
-            if (
-                "diff exceeded the maximum number of lines" in error_msg
-                or "HTTP 406" in error_msg
-            ):
+            if "diff exceeded the maximum number of lines" in error_msg or "HTTP 406" in error_msg:
                 raise PRTooLargeError(
                     f"PR #{pr_number} exceeds GitHub's 20,000 line diff limit. "
                     "Consider splitting into smaller PRs or review files individually."
@@ -698,7 +688,9 @@ class GHClient:
         """
         # Fetch inline review comments
         # Use query string syntax - the -f flag sends POST body fields, not query params
-        review_endpoint = f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/comments?since={since_timestamp}"
+        review_endpoint = (
+            f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/comments?since={since_timestamp}"
+        )
         review_args = ["api", "--method", "GET", review_endpoint]
         review_result = await self.run(review_args, raise_on_error=False)
 
@@ -711,7 +703,9 @@ class GHClient:
 
         # Fetch general issue comments
         # Use query string syntax - the -f flag sends POST body fields, not query params
-        issue_endpoint = f"repos/{{owner}}/{{repo}}/issues/{pr_number}/comments?since={since_timestamp}"
+        issue_endpoint = (
+            f"repos/{{owner}}/{{repo}}/issues/{pr_number}/comments?since={since_timestamp}"
+        )
         issue_args = ["api", "--method", "GET", issue_endpoint]
         issue_result = await self.run(issue_args, raise_on_error=False)
 
@@ -727,9 +721,7 @@ class GHClient:
             "issue_comments": issue_comments,
         }
 
-    async def get_reviews_since(
-        self, pr_number: int, since_timestamp: str
-    ) -> list[dict]:
+    async def get_reviews_since(self, pr_number: int, since_timestamp: str) -> list[dict]:
         """
         Get all PR reviews (formal review submissions) since a timestamp.
 
@@ -764,26 +756,22 @@ class GHClient:
             try:
                 all_reviews = json.loads(reviews_result.stdout)
                 # Filter reviews submitted after the timestamp
-                from datetime import datetime, timezone
+                from datetime import datetime
 
                 # Parse since_timestamp, handling both naive and aware formats
-                since_dt = datetime.fromisoformat(
-                    since_timestamp.replace("Z", "+00:00")
-                )
+                since_dt = datetime.fromisoformat(since_timestamp.replace("Z", "+00:00"))
                 # Ensure since_dt is timezone-aware (assume UTC if naive)
                 if since_dt.tzinfo is None:
-                    since_dt = since_dt.replace(tzinfo=timezone.utc)
+                    since_dt = since_dt.replace(tzinfo=UTC)
 
                 for review in all_reviews:
                     submitted_at = review.get("submitted_at", "")
                     if submitted_at:
                         try:
-                            review_dt = datetime.fromisoformat(
-                                submitted_at.replace("Z", "+00:00")
-                            )
+                            review_dt = datetime.fromisoformat(submitted_at.replace("Z", "+00:00"))
                             # Ensure review_dt is also timezone-aware
                             if review_dt.tzinfo is None:
-                                review_dt = review_dt.replace(tzinfo=timezone.utc)
+                                review_dt = review_dt.replace(tzinfo=UTC)
                             if review_dt > since_dt:
                                 reviews.append(review)
                         except ValueError:
@@ -902,7 +890,9 @@ class GHClient:
         per_page = 100
 
         while True:
-            endpoint = f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/files?page={page}&per_page={per_page}"
+            endpoint = (
+                f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/files?page={page}&per_page={per_page}"
+            )
             args = ["api", "--method", "GET", endpoint]
 
             result = await self.run(args, timeout=60.0)
@@ -921,9 +911,7 @@ class GHClient:
 
             # Safety limit to prevent infinite loops
             if page > 50:
-                logger.warning(
-                    f"PR #{pr_number} has more than 5000 files, stopping pagination"
-                )
+                logger.warning(f"PR #{pr_number} has more than 5000 files, stopping pagination")
                 break
 
         return files
@@ -973,9 +961,7 @@ class GHClient:
 
             # Safety limit
             if page > 10:
-                logger.warning(
-                    f"PR #{pr_number} has more than 1000 commits, stopping pagination"
-                )
+                logger.warning(f"PR #{pr_number} has more than 1000 commits, stopping pagination")
                 break
 
         return commits
@@ -1019,9 +1005,7 @@ class GHClient:
         # Use minimum 7-char prefix comparison (git's default short SHA length)
         base_index = -1
         min_prefix_len = 7
-        base_prefix = (
-            base_sha[:min_prefix_len] if len(base_sha) >= min_prefix_len else base_sha
-        )
+        base_prefix = base_sha[:min_prefix_len] if len(base_sha) >= min_prefix_len else base_sha
         for i, commit in enumerate(pr_commits):
             commit_prefix = commit["sha"][:min_prefix_len]
             if commit_prefix == base_prefix:
@@ -1077,7 +1061,6 @@ class GHClient:
 
         # No blob data available - return all files and commits
         logger.warning(
-            "No reviewed_file_blobs available for blob comparison. "
-            "Returning all PR files."
+            "No reviewed_file_blobs available for blob comparison. Returning all PR files."
         )
         return pr_files, pr_commits

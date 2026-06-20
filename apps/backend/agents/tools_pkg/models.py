@@ -242,8 +242,7 @@ AGENT_CONFIGS = {
         "thinking_default": "high",
     },
     "pr_followup_parallel": {
-        "tools": BASE_READ_TOOLS
-        + WEB_TOOLS,  # Read-only for parallel followup reviewer
+        "tools": BASE_READ_TOOLS + WEB_TOOLS,  # Read-only for parallel followup reviewer
         "mcp_servers": ["context7"],
         "pfactory_tools": [],
         "thinking_default": "high",
@@ -313,15 +312,12 @@ def get_agent_config(agent_type: str) -> dict:
     """
     if agent_type not in AGENT_CONFIGS:
         raise ValueError(
-            f"Unknown agent type: '{agent_type}'. "
-            f"Valid types: {sorted(AGENT_CONFIGS.keys())}"
+            f"Unknown agent type: '{agent_type}'. Valid types: {sorted(AGENT_CONFIGS.keys())}"
         )
     return AGENT_CONFIGS[agent_type]
 
 
-def _map_mcp_server_name(
-    name: str, custom_server_ids: list[str] | None = None
-) -> str | None:
+def _map_mcp_server_name(name: str, custom_server_ids: list[str] | None = None) -> str | None:
     """
     Map user-friendly MCP server names to internal identifiers.
     Also accepts custom server IDs directly.
@@ -471,9 +467,7 @@ def get_required_mcp_servers(
 
     # Process additions
     if add_key in mcp_config:
-        additions = [
-            s.strip() for s in str(mcp_config[add_key]).split(",") if s.strip()
-        ]
+        additions = [s.strip() for s in str(mcp_config[add_key]).split(",") if s.strip()]
         for server in additions:
             mapped = _map_mcp_server_name(server, custom_server_ids)
             if mapped and mapped not in servers:
@@ -481,9 +475,7 @@ def get_required_mcp_servers(
 
     # Process removals (but never remove pfactory)
     if remove_key in mcp_config:
-        removals = [
-            s.strip() for s in str(mcp_config[remove_key]).split(",") if s.strip()
-        ]
+        removals = [s.strip() for s in str(mcp_config[remove_key]).split(",") if s.strip()]
         for server in removals:
             mapped = _map_mcp_server_name(server, custom_server_ids)
             if mapped and mapped != "pfactory":  # pfactory cannot be removed

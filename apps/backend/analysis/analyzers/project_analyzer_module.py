@@ -49,15 +49,11 @@ class ProjectAnalyzer:
         for indicator in monorepo_indicators:
             if (self.project_dir / indicator).exists():
                 self.index["project_type"] = "monorepo"
-                self.index["monorepo_tool"] = indicator.replace(".json", "").replace(
-                    ".yaml", ""
-                )
+                self.index["monorepo_tool"] = indicator.replace(".json", "").replace(".yaml", "")
                 return
 
         # Check for packages/apps directories
-        if (self.project_dir / "packages").exists() or (
-            self.project_dir / "apps"
-        ).exists():
+        if (self.project_dir / "packages").exists() or (self.project_dir / "apps").exists():
             self.index["project_type"] = "monorepo"
             return
 
@@ -106,14 +102,10 @@ class ProjectAnalyzer:
                     has_root_file = any((item / f).exists() for f in SERVICE_ROOT_FILES)
                     is_service_name = item.name.lower() in SERVICE_INDICATORS
 
-                    if has_root_file or (
-                        location == self.project_dir and is_service_name
-                    ):
+                    if has_root_file or (location == self.project_dir and is_service_name):
                         analyzer = ServiceAnalyzer(item, item.name)
                         service_info = analyzer.analyze()
-                        if service_info.get(
-                            "language"
-                        ):  # Only include if we detected something
+                        if service_info.get("language"):  # Only include if we detected something
                             services[item.name] = service_info
         else:
             # Single project - analyze root
@@ -149,9 +141,7 @@ class ProjectAnalyzer:
             )
             if dockerfiles:
                 infra["docker_directory"] = "docker/"
-                infra["dockerfiles"] = [
-                    str(f.relative_to(self.project_dir)) for f in dockerfiles
-                ]
+                infra["dockerfiles"] = [str(f.relative_to(self.project_dir)) for f in dockerfiles]
 
         # CI/CD
         if (self.project_dir / ".github" / "workflows").exists():

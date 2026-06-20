@@ -309,9 +309,7 @@ class ProjectAnalyzer:
         """Detect code quality tools (backward compatibility)."""
         detector = StackDetector(self.project_dir)
         detector.detect_code_quality_tools()
-        self.profile.detected_stack.code_quality_tools = (
-            detector.stack.code_quality_tools
-        )
+        self.profile.detected_stack.code_quality_tools = detector.stack.code_quality_tools
 
     def _detect_version_managers(self) -> None:
         """Detect version managers (backward compatibility)."""

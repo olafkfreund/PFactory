@@ -9,9 +9,9 @@ from services.recovery import (
 )
 
 __all__ = [
-    "RecoveryManager",
     "FailureType",
     "RecoveryAction",
+    "RecoveryManager",
     "check_and_recover",
     "get_recovery_context",
 ]

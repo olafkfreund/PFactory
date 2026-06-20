@@ -146,14 +146,10 @@ class CIDiscovery:
         """Parse GitHub Actions workflow files."""
         result = CIConfig(ci_system="github_actions")
 
-        workflow_files = list(workflows_dir.glob("*.yml")) + list(
-            workflows_dir.glob("*.yaml")
-        )
+        workflow_files = list(workflows_dir.glob("*.yml")) + list(workflows_dir.glob("*.yaml"))
 
         for wf_file in workflow_files:
-            result.config_files.append(
-                str(wf_file.relative_to(workflows_dir.parent.parent))
-            )
+            result.config_files.append(str(wf_file.relative_to(workflows_dir.parent.parent)))
 
             try:
                 content = wf_file.read_text()
@@ -266,8 +262,7 @@ class CIDiscovery:
                                 self._extract_test_commands(cmd, result)
 
                         if any(
-                            kw in str(step).lower()
-                            for kw in ["test", "pytest", "jest", "coverage"]
+                            kw in str(step).lower() for kw in ["test", "pytest", "jest", "coverage"]
                         ):
                             test_related = True
 
@@ -306,9 +301,7 @@ class CIDiscovery:
                 steps.append(cmd)
                 self._extract_test_commands(cmd, result)
 
-                if any(
-                    kw in cmd.lower() for kw in ["test", "pytest", "jest", "coverage"]
-                ):
+                if any(kw in cmd.lower() for kw in ["test", "pytest", "jest", "coverage"]):
                     test_related = True
 
             # Extract stage names
@@ -354,11 +347,7 @@ class CIDiscovery:
                 result.coverage_command = cmd.strip()
 
         # Node.js test commands
-        if (
-            "npm test" in cmd_lower
-            or "yarn test" in cmd_lower
-            or "pnpm test" in cmd_lower
-        ):
+        if "npm test" in cmd_lower or "yarn test" in cmd_lower or "pnpm test" in cmd_lower:
             if "unit" not in result.test_commands:
                 result.test_commands["unit"] = cmd.strip()
 

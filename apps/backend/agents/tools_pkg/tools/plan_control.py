@@ -58,18 +58,28 @@ def create_plan_tools() -> list:
                 "text": {"type": "string", "description": "Inline plan text"},
                 "path": {"type": "string", "description": "Path to a plan document"},
                 "title": {"type": "string"},
-                "category": {"type": "string", "description": "Intake category (see plan_categories)"},
-                "template": {"type": "string", "description": "Selected template (its policy is enforced)"},
+                "category": {
+                    "type": "string",
+                    "description": "Intake category (see plan_categories)",
+                },
+                "template": {
+                    "type": "string",
+                    "description": "Selected template (its policy is enforced)",
+                },
             },
         },
     )
     async def plan_ingest(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            return _ok(agent_api.plan_ingest(
-                text=args.get("text"), path=args.get("path"),
-                title=args.get("title"), category=args.get("category", ""),
-                template=args.get("template", ""),
-            ))
+            return _ok(
+                agent_api.plan_ingest(
+                    text=args.get("text"),
+                    path=args.get("path"),
+                    title=args.get("title"),
+                    category=args.get("category", ""),
+                    template=args.get("template", ""),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
@@ -80,8 +90,11 @@ def create_plan_tools() -> list:
         "Run PFactory's pipeline for a session: enrich (cloud + provider MCPs) → "
         "feasibility (cost/time/access) → decompose → review gates. Returns the "
         "review summary with cited findings + cost/effort estimates.",
-        {"type": "object", "properties": {"session_id": {"type": "string"}},
-         "required": ["session_id"]},
+        {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
     )
     async def plan_process(args: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -95,8 +108,11 @@ def create_plan_tools() -> list:
         "plan_status",
         "Lightweight status for a session: status, board column "
         "(backlog/in_progress/ai_review/human_review/done), and gate result.",
-        {"type": "object", "properties": {"session_id": {"type": "string"}},
-         "required": ["session_id"]},
+        {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
     )
     async def plan_status(args: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -110,8 +126,11 @@ def create_plan_tools() -> list:
         "plan_get",
         "Fuller view of a session: summary + review lenses/findings (with "
         "citations) + cost/effort estimates.",
-        {"type": "object", "properties": {"session_id": {"type": "string"}},
-         "required": ["session_id"]},
+        {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
     )
     async def plan_get(args: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -121,8 +140,11 @@ def create_plan_tools() -> list:
 
     tools.append(plan_get)
 
-    @tool("plan_list", "List all PFactory plan sessions (summaries).",
-          {"type": "object", "properties": {}})
+    @tool(
+        "plan_list",
+        "List all PFactory plan sessions (summaries).",
+        {"type": "object", "properties": {}},
+    )
     async def plan_list(args: dict[str, Any]) -> dict[str, Any]:
         try:
             return _ok(agent_api.plan_list())
@@ -163,10 +185,13 @@ def create_plan_tools() -> list:
     )
     async def plan_approve(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            return _ok(agent_api.plan_approve(
-                args["session_id"], approver=args["approver"],
-                feedback=args.get("feedback"),
-            ))
+            return _ok(
+                agent_api.plan_approve(
+                    args["session_id"],
+                    approver=args["approver"],
+                    feedback=args.get("feedback"),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
@@ -191,9 +216,12 @@ def create_plan_tools() -> list:
     )
     async def plan_export_audit_pack(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            return _ok(agent_api.plan_export_audit_pack(
-                args["session_id"], fmt=args.get("format", "json"),
-            ))
+            return _ok(
+                agent_api.plan_export_audit_pack(
+                    args["session_id"],
+                    fmt=args.get("format", "json"),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 

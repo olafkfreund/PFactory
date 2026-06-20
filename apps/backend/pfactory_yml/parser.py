@@ -114,16 +114,12 @@ def load_pfactory_yml(repo_root: Path) -> PFactoryConfig | None:
     except ValidationError as exc:
         # Re-raise with file path context so callers get a useful error.
         errors = exc.errors(include_url=False)
-        lines = [
-            f"  [{' → '.join(str(loc) for loc in e['loc'])}] {e['msg']}" for e in errors
-        ]
+        lines = [f"  [{' → '.join(str(loc) for loc in e['loc'])}] {e['msg']}" for e in errors]
         message = f"{len(errors)} validation error(s):\n" + "\n".join(lines)
         raise PFactoryYmlError(path, message, errors=errors) from exc
 
 
-def load_pfactory_yml_text(
-    text: str, *, source_path: Path | None = None
-) -> PFactoryConfig:
+def load_pfactory_yml_text(text: str, *, source_path: Path | None = None) -> PFactoryConfig:
     """Parse and validate raw YAML *text* as a ``.pfactory.yml`` config.
 
     Useful for in-process testing and template rendering where the content is
@@ -165,8 +161,6 @@ def load_pfactory_yml_text(
         return PFactoryConfig.model_validate(raw_data)
     except ValidationError as exc:
         errors = exc.errors(include_url=False)
-        lines = [
-            f"  [{' → '.join(str(loc) for loc in e['loc'])}] {e['msg']}" for e in errors
-        ]
+        lines = [f"  [{' → '.join(str(loc) for loc in e['loc'])}] {e['msg']}" for e in errors]
         message = f"{len(errors)} validation error(s):\n" + "\n".join(lines)
         raise PFactoryYmlError(path, message, errors=errors) from exc

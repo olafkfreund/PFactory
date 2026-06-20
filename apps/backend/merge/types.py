@@ -330,9 +330,7 @@ class ConflictRegion:
             "change_types": [ct.value for ct in self.change_types],
             "severity": self.severity.value,
             "can_auto_merge": self.can_auto_merge,
-            "merge_strategy": self.merge_strategy.value
-            if self.merge_strategy
-            else None,
+            "merge_strategy": self.merge_strategy.value if self.merge_strategy else None,
             "reason": self.reason,
         }
 
@@ -387,9 +385,7 @@ class TaskSnapshot:
             "task_id": self.task_id,
             "task_intent": self.task_intent,
             "started_at": self.started_at.isoformat(),
-            "completed_at": self.completed_at.isoformat()
-            if self.completed_at
-            else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "content_hash_before": self.content_hash_before,
             "content_hash_after": self.content_hash_after,
             "semantic_changes": [c.to_dict() for c in self.semantic_changes],
@@ -459,9 +455,7 @@ class FileEvolution:
             baseline_captured_at=datetime.fromisoformat(data["baseline_captured_at"]),
             baseline_content_hash=data["baseline_content_hash"],
             baseline_snapshot_path=data["baseline_snapshot_path"],
-            task_snapshots=[
-                TaskSnapshot.from_dict(ts) for ts in data.get("task_snapshots", [])
-            ],
+            task_snapshots=[TaskSnapshot.from_dict(ts) for ts in data.get("task_snapshots", [])],
         )
 
     def get_task_snapshot(self, task_id: str) -> TaskSnapshot | None:
@@ -474,9 +468,7 @@ class FileEvolution:
     def add_task_snapshot(self, snapshot: TaskSnapshot) -> None:
         """Add or update a task snapshot."""
         # Remove existing snapshot for this task if present
-        self.task_snapshots = [
-            ts for ts in self.task_snapshots if ts.task_id != snapshot.task_id
-        ]
+        self.task_snapshots = [ts for ts in self.task_snapshots if ts.task_id != snapshot.task_id]
         self.task_snapshots.append(snapshot)
         # Keep sorted by start time
         self.task_snapshots.sort(key=lambda ts: ts.started_at)
@@ -540,8 +532,7 @@ class MergeResult:
     def needs_human_review(self) -> bool:
         """Check if human review is needed."""
         return (
-            len(self.conflicts_remaining) > 0
-            or self.decision == MergeDecision.NEEDS_HUMAN_REVIEW
+            len(self.conflicts_remaining) > 0 or self.decision == MergeDecision.NEEDS_HUMAN_REVIEW
         )
 
 

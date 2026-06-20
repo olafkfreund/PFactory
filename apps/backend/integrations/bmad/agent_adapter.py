@@ -17,8 +17,15 @@ from pathlib import Path
 class AgentPersona:
     """Represents a BMad-style agent persona with identity, principles, and communication style."""
 
-    def __init__(self, name: str, role: str, identity: str, communication_style: str,
-                 principles: list[str], critical_actions: list[str]):
+    def __init__(
+        self,
+        name: str,
+        role: str,
+        identity: str,
+        communication_style: str,
+        principles: list[str],
+        critical_actions: list[str],
+    ):
         self.name = name
         self.role = role
         self.identity = identity
@@ -87,7 +94,7 @@ class AgentAdapter:
 
     def _parse_persona_markdown(self, content: str) -> AgentPersona | None:
         """Parse persona markdown content into AgentPersona object."""
-        lines = content.split('\n')
+        lines = content.split("\n")
 
         # Extract persona name and role from first header
         # Format: "# [Role] Persona: [Name]"
@@ -111,7 +118,9 @@ class AgentAdapter:
         principles = self._extract_list_section(content, "## YOUR PRINCIPLES")
 
         # Extract critical actions (bullet list under ## CRITICAL ACTIONS)
-        critical_actions = self._extract_list_section(content, "## CRITICAL ACTIONS YOU ALWAYS TAKE")
+        critical_actions = self._extract_list_section(
+            content, "## CRITICAL ACTIONS YOU ALWAYS TAKE"
+        )
 
         if not name:
             return None
@@ -122,12 +131,12 @@ class AgentAdapter:
             identity=identity,
             communication_style=communication_style,
             principles=principles,
-            critical_actions=critical_actions
+            critical_actions=critical_actions,
         )
 
     def _extract_section(self, content: str, header: str) -> str:
         """Extract content from a markdown section."""
-        lines = content.split('\n')
+        lines = content.split("\n")
         in_section = False
         section_lines = []
 
@@ -136,16 +145,16 @@ class AgentAdapter:
                 in_section = True
                 continue
             if in_section:
-                if line.startswith('##'):  # Next section
+                if line.startswith("##"):  # Next section
                     break
                 if line.strip():
                     section_lines.append(line.strip())
 
-        return '\n'.join(section_lines)
+        return "\n".join(section_lines)
 
     def _extract_list_section(self, content: str, header: str) -> list[str]:
         """Extract a list from a markdown section."""
-        lines = content.split('\n')
+        lines = content.split("\n")
         in_section = False
         items = []
 
@@ -154,15 +163,15 @@ class AgentAdapter:
                 in_section = True
                 continue
             if in_section:
-                if line.startswith('##'):  # Next section
+                if line.startswith("##"):  # Next section
                     break
                 line = line.strip()
                 # Handle both numbered (1. ) and bulleted (- ) lists
-                if line.startswith(('- ', '* ', '1. ', '2. ', '3. ', '4. ', '5. ', '6. ')):
+                if line.startswith(("- ", "* ", "1. ", "2. ", "3. ", "4. ", "5. ", "6. ")):
                     # Remove list marker
-                    for prefix in ['- ', '* ', '1. ', '2. ', '3. ', '4. ', '5. ', '6. ']:
+                    for prefix in ["- ", "* ", "1. ", "2. ", "3. ", "4. ", "5. ", "6. "]:
                         if line.startswith(prefix):
-                            items.append(line[len(prefix):])
+                            items.append(line[len(prefix) :])
                             break
 
         return items
@@ -185,21 +194,22 @@ class AgentAdapter:
         persona_md = persona.to_markdown()
 
         # Find where to inject (after first ## header and key principle)
-        lines = base_prompt.split('\n')
+        lines = base_prompt.split("\n")
         insert_index = 0
 
         # Find the end of the role header section (before first ---)
         for i, line in enumerate(lines):
-            if line.strip() == '---':
+            if line.strip() == "---":
                 insert_index = i
                 break
 
         # Insert persona markdown
-        enhanced_lines = lines[:insert_index] + ['', persona_md, ''] + lines[insert_index:]
-        return '\n'.join(enhanced_lines)
+        enhanced_lines = lines[:insert_index] + ["", persona_md, ""] + lines[insert_index:]
+        return "\n".join(enhanced_lines)
 
 
 # Convenience functions
+
 
 def get_agent_adapter() -> AgentAdapter:
     """Get a singleton instance of the AgentAdapter."""
@@ -218,11 +228,11 @@ def inject_persona_into_prompt(prompt: str, agent_type: str) -> str:
         Enhanced prompt with persona
     """
     persona_map = {
-        'planner': 'pm_persona',
-        'coder': 'developer_persona',
-        'qa_reviewer': 'qa_persona',
-        'qa_fixer': 'qa_fixer_persona',
-        'architect': 'architect_persona',
+        "planner": "pm_persona",
+        "coder": "developer_persona",
+        "qa_reviewer": "qa_persona",
+        "qa_fixer": "qa_fixer_persona",
+        "architect": "architect_persona",
     }
 
     persona_name = persona_map.get(agent_type)
@@ -238,7 +248,7 @@ if __name__ == "__main__":
     adapter = AgentAdapter()
 
     # Test loading PM persona
-    pm = adapter.load_persona('pm_persona')
+    pm = adapter.load_persona("pm_persona")
     if pm:
         print(f"Loaded persona: {pm.name} ({pm.role})")
         print(f"Principles: {len(pm.principles)}")

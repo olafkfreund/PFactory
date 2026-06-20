@@ -12,7 +12,8 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 # api(method, path, body|None) -> parsed JSON dict
 GhApi = Callable[[str, str, "dict | None"], dict]
@@ -31,9 +32,7 @@ def _default_gh_api(method: str, path: str, body: dict | None) -> dict:
         check=False,
     )
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"gh api {method} {path} failed: {proc.stderr.strip()[:300]}"
-        )
+        raise RuntimeError(f"gh api {method} {path} failed: {proc.stderr.strip()[:300]}")
     out = proc.stdout.strip()
     return json.loads(out) if out.startswith(("{", "[")) else {}
 
@@ -41,18 +40,14 @@ def _default_gh_api(method: str, path: str, body: dict | None) -> dict:
 class GitHubContentsWriter:
     """Idempotent single-file upsert into ``owner/repo`` on ``branch``."""
 
-    def __init__(
-        self, repo: str, *, branch: str = "main", api: GhApi | None = None
-    ) -> None:
+    def __init__(self, repo: str, *, branch: str = "main", api: GhApi | None = None) -> None:
         self.repo = repo  # "owner/repo"
         self.branch = branch
         self._api = api or _default_gh_api
 
     def _get(self, path: str) -> dict | None:
         try:
-            res = self._api(
-                "GET", f"/repos/{self.repo}/contents/{path}?ref={self.branch}", None
-            )
+            res = self._api("GET", f"/repos/{self.repo}/contents/{path}?ref={self.branch}", None)
         except Exception:  # noqa: BLE001 — 404 => file absent
             return None
         return res if isinstance(res, dict) else None

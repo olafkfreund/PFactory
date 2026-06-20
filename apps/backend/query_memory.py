@@ -68,9 +68,7 @@ def output_json(success: bool, data=None, error: str = None):
         result["data"] = data
     if error:
         result["error"] = error
-    print(
-        json.dumps(result, default=str)
-    )  # Use default=str for any non-serializable types
+    print(json.dumps(result, default=str))  # Use default=str for any non-serializable types
     sys.exit(0 if success else 1)
 
 
@@ -194,9 +192,7 @@ def cmd_get_memories(args):
                 "name": row.get("name", ""),
                 "type": infer_episode_type(row.get("name", ""), row.get("content", "")),
                 "timestamp": row.get("created_at") or datetime.now().isoformat(),
-                "content": row.get("content")
-                or row.get("description")
-                or row.get("name", ""),
+                "content": row.get("content") or row.get("description") or row.get("name", ""),
                 "description": row.get("description", ""),
                 "group_id": row.get("group_id", ""),
             }
@@ -212,9 +208,7 @@ def cmd_get_memories(args):
 
     except Exception as e:
         # Table might not exist yet
-        if "Episodic" in str(e) and (
-            "not exist" in str(e).lower() or "cannot" in str(e).lower()
-        ):
+        if "Episodic" in str(e) and ("not exist" in str(e).lower() or "cannot" in str(e).lower()):
             output_json(True, data={"memories": [], "count": 0})
         else:
             output_error(f"Query failed: {e}")
@@ -248,9 +242,7 @@ def cmd_search(args):
             LIMIT $limit
         """
 
-        result = conn.execute(
-            query, parameters={"search_query": search_query, "limit": limit}
-        )
+        result = conn.execute(query, parameters={"search_query": search_query, "limit": limit})
         df = result.get_as_df()
 
         memories = []
@@ -260,9 +252,7 @@ def cmd_search(args):
                 "name": row.get("name", ""),
                 "type": infer_episode_type(row.get("name", ""), row.get("content", "")),
                 "timestamp": row.get("created_at") or datetime.now().isoformat(),
-                "content": row.get("content")
-                or row.get("description")
-                or row.get("name", ""),
+                "content": row.get("content") or row.get("description") or row.get("name", ""),
                 "description": row.get("description", ""),
                 "group_id": row.get("group_id", ""),
                 "score": 1.0,  # Keyword match score
@@ -280,9 +270,7 @@ def cmd_search(args):
         )
 
     except Exception as e:
-        if "Episodic" in str(e) and (
-            "not exist" in str(e).lower() or "cannot" in str(e).lower()
-        ):
+        if "Episodic" in str(e) and ("not exist" in str(e).lower() or "cannot" in str(e).lower()):
             output_json(True, data={"memories": [], "count": 0, "query": args.query})
         else:
             output_error(f"Search failed: {e}")
@@ -380,9 +368,7 @@ async def _async_semantic_search(args):
                         "id": getattr(result, "uuid", "unknown"),
                         "name": result.fact[:100] if result.fact else "",
                         "type": "session_insight",
-                        "timestamp": getattr(
-                            result, "created_at", datetime.now().isoformat()
-                        ),
+                        "timestamp": getattr(result, "created_at", datetime.now().isoformat()),
                         "content": result.fact or "",
                         "score": getattr(result, "score", 1.0),
                     }
@@ -394,9 +380,7 @@ async def _async_semantic_search(args):
                         "type": infer_episode_type(
                             getattr(result, "name", ""), getattr(result, "content", "")
                         ),
-                        "timestamp": getattr(
-                            result, "created_at", datetime.now().isoformat()
-                        ),
+                        "timestamp": getattr(result, "created_at", datetime.now().isoformat()),
                         "content": result.content or "",
                         "score": getattr(result, "score", 1.0),
                     }
@@ -480,9 +464,7 @@ def cmd_get_entities(args):
         output_json(True, data={"entities": entities, "count": len(entities)})
 
     except Exception as e:
-        if "Entity" in str(e) and (
-            "not exist" in str(e).lower() or "cannot" in str(e).lower()
-        ):
+        if "Entity" in str(e) and ("not exist" in str(e).lower() or "cannot" in str(e).lower()):
             output_json(True, data={"entities": [], "count": 0})
         else:
             output_error(f"Query failed: {e}")
@@ -533,9 +515,7 @@ def extract_session_number(name: str) -> int | None:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Query LadybugDB memory database for pfactory-ui"
-    )
+    parser = argparse.ArgumentParser(description="Query LadybugDB memory database for pfactory-ui")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # get-status command
@@ -544,14 +524,10 @@ def main():
     status_parser.add_argument("database", help="Database name")
 
     # get-memories command
-    memories_parser = subparsers.add_parser(
-        "get-memories", help="Get episodic memories"
-    )
+    memories_parser = subparsers.add_parser("get-memories", help="Get episodic memories")
     memories_parser.add_argument("db_path", help="Path to database directory")
     memories_parser.add_argument("database", help="Database name")
-    memories_parser.add_argument(
-        "--limit", type=int, default=20, help="Maximum results"
-    )
+    memories_parser.add_argument("--limit", type=int, default=20, help="Maximum results")
 
     # search command
     search_parser = subparsers.add_parser("search", help="Search memories")
@@ -568,17 +544,13 @@ def main():
     semantic_parser.add_argument("db_path", help="Path to database directory")
     semantic_parser.add_argument("database", help="Database name")
     semantic_parser.add_argument("query", help="Search query")
-    semantic_parser.add_argument(
-        "--limit", type=int, default=20, help="Maximum results"
-    )
+    semantic_parser.add_argument("--limit", type=int, default=20, help="Maximum results")
 
     # get-entities command
     entities_parser = subparsers.add_parser("get-entities", help="Get entity memories")
     entities_parser.add_argument("db_path", help="Path to database directory")
     entities_parser.add_argument("database", help="Database name")
-    entities_parser.add_argument(
-        "--limit", type=int, default=20, help="Maximum results"
-    )
+    entities_parser.add_argument("--limit", type=int, default=20, help="Maximum results")
 
     args = parser.parse_args()
 

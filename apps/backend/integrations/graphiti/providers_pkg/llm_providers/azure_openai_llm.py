@@ -43,9 +43,7 @@ def create_azure_openai_llm_client(config: "GraphitiConfig") -> Any:
     if not config.azure_openai_base_url:
         raise ProviderError("Azure OpenAI provider requires AZURE_OPENAI_BASE_URL")
     if not config.azure_openai_llm_deployment:
-        raise ProviderError(
-            "Azure OpenAI provider requires AZURE_OPENAI_LLM_DEPLOYMENT"
-        )
+        raise ProviderError("Azure OpenAI provider requires AZURE_OPENAI_LLM_DEPLOYMENT")
 
     azure_client = AsyncOpenAI(
         base_url=config.azure_openai_base_url,

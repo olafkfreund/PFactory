@@ -212,11 +212,7 @@ class PortDetector(BaseAnalyzer):
                     continue
 
                 # Check if we hit another service
-                if (
-                    in_service
-                    and re.match(r"^\s*\w+\s*:", line)
-                    and "ports:" not in line
-                ):
+                if in_service and re.match(r"^\s*\w+\s*:", line) and "ports:" not in line:
                     in_service = False
                     in_ports = False
                     continue

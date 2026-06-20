@@ -52,10 +52,10 @@ from .validator import FrameworkDescriptorError, validate_descriptor
 
 __all__ = [
     "FrameworkDescriptor",
-    "RuntimeSpec",
-    "load_registry",
-    "get_descriptor",
-    "validate_descriptor",
     "FrameworkDescriptorError",
     "FrameworkRegistryError",
+    "RuntimeSpec",
+    "get_descriptor",
+    "load_registry",
+    "validate_descriptor",
 ]

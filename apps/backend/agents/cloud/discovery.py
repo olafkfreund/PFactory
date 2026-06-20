@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 __all__ = ["AccessResult", "CloudDiscoveryError", "access_check", "discover"]
 
@@ -61,9 +61,7 @@ def _default_runner(argv: list[str]) -> _Cmd:
 def _run(runner: Callable | None, argv: list[str]) -> _Cmd:
     r = (runner or _default_runner)(argv)
     # Allow tests to return a CompletedProcess-like object too.
-    return _Cmd(
-        returncode=getattr(r, "returncode", 1), stdout=getattr(r, "stdout", "") or ""
-    )
+    return _Cmd(returncode=getattr(r, "returncode", 1), stdout=getattr(r, "stdout", "") or "")
 
 
 def _profile_args(provider: str, profile: str | None) -> list[str]:
@@ -95,8 +93,7 @@ def _aws_identity_name(arn: str) -> str | None:
 def _aws_access(profile: str | None, runner: Callable | None) -> AccessResult:
     cmd = _run(
         runner,
-        ["aws", "sts", "get-caller-identity", "--output", "json"]
-        + _profile_args("aws", profile),
+        ["aws", "sts", "get-caller-identity", "--output", "json"] + _profile_args("aws", profile),
     )
     if cmd.returncode != 0:
         return AccessResult(ok=False, provider="aws", error="sts get-caller-identity failed")
@@ -105,15 +102,18 @@ def _aws_access(profile: str | None, runner: Callable | None) -> AccessResult:
     except (json.JSONDecodeError, ValueError):
         return AccessResult(ok=False, provider="aws", error="unparseable identity")
     return AccessResult(
-        ok=True, provider="aws", account=data.get("Account"),
+        ok=True,
+        provider="aws",
+        account=data.get("Account"),
         identity=_aws_identity_name(data.get("Arn", "")),
     )
 
 
 def _gcp_access(profile: str | None, runner: Callable | None) -> AccessResult:
     # ``profile`` overrides the project; otherwise read the active gcloud config.
-    acct = _run(runner, ["gcloud", "auth", "list", "--filter=status:ACTIVE",
-                         "--format=value(account)"])
+    acct = _run(
+        runner, ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"]
+    )
     identity = acct.stdout.strip() or None
     if profile:
         project = profile
@@ -279,8 +279,7 @@ def _aws_discover(inv: dict, profile, regions, wanted, runner) -> None:
         # --query Buckets returns a bare JSON list of bucket objects.
         buckets = _run(
             runner,
-            ["aws", "s3api", "list-buckets", "--query", "Buckets", "--output", "json"]
-            + prof,
+            ["aws", "s3api", "list-buckets", "--query", "Buckets", "--output", "json"] + prof,
         )
         try:
             blist = json.loads(buckets.stdout) if buckets.returncode == 0 else []
@@ -290,15 +289,9 @@ def _aws_discover(inv: dict, profile, regions, wanted, runner) -> None:
         if n is not None:
             inv["global"]["s3"] = {"count": n}
     if wanted("iam"):
-        summ = _run(
-            runner, ["aws", "iam", "get-account-summary", "--output", "json"] + prof
-        )
+        summ = _run(runner, ["aws", "iam", "get-account-summary", "--output", "json"] + prof)
         try:
-            m = (
-                json.loads(summ.stdout).get("SummaryMap", {})
-                if summ.returncode == 0
-                else {}
-            )
+            m = json.loads(summ.stdout).get("SummaryMap", {}) if summ.returncode == 0 else {}
         except (json.JSONDecodeError, ValueError):
             m = {}
         if m:
@@ -316,15 +309,11 @@ def _aws_discover(inv: dict, profile, regions, wanted, runner) -> None:
         v = _count(vpcs, "Vpcs")
         if v is not None:
             region_inv["vpcs"] = v
-        inst = _run(
-            runner, ["aws", "ec2", "describe-instances", "--output", "json"] + rprof
-        )
+        inst = _run(runner, ["aws", "ec2", "describe-instances", "--output", "json"] + rprof)
         i = _count(inst, "Reservations")
         if i is not None:
             region_inv["instances"] = i
-        lam = _run(
-            runner, ["aws", "lambda", "list-functions", "--output", "json"] + rprof
-        )
+        lam = _run(runner, ["aws", "lambda", "list-functions", "--output", "json"] + rprof)
         fn = _count(lam, "Functions")
         if fn is not None:
             region_inv["lambdas"] = fn

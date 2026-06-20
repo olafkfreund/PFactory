@@ -30,11 +30,11 @@ from spec_sources import NormalizedSpec, SpecFormat, ingest
 
 __all__ = [
     "DocumentLoadError",
-    "extract_pdf_text",
     "extract_docx_text",
+    "extract_pdf_text",
     "extract_text",
-    "load_document_text",
     "ingest_document",
+    "load_document_text",
 ]
 
 # Suffixes whose bytes are already text — decoded as UTF-8 and parsed directly.
@@ -50,6 +50,7 @@ class DocumentLoadError(ValueError):
 
 
 # ── extractors ─────────────────────────────────────────────────────────
+
 
 def extract_pdf_text(data: bytes) -> str:
     """Extract text from PDF bytes, one page per block, joined by newlines."""
@@ -81,8 +82,7 @@ def extract_docx_text(data: bytes) -> str:
         from docx import Document
     except ImportError as exc:  # pragma: no cover - environment guard
         raise DocumentLoadError(
-            "DOCX ingestion needs the 'python-docx' package "
-            "(pip install python-docx)."
+            "DOCX ingestion needs the 'python-docx' package (pip install python-docx)."
         ) from exc
     try:
         doc = Document(io.BytesIO(data))
@@ -146,6 +146,7 @@ def load_document_text(path: str | Path) -> str:
 
 
 # ── unified ingestion ──────────────────────────────────────────────────
+
 
 def ingest_document(
     source: str | Path,

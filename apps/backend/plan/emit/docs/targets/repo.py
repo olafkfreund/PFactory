@@ -37,12 +37,8 @@ class RepoDocsTarget:
 
             # 2) upsert the registry (keyed by correlation_key)
             reg_path = self._root / reg.REGISTRY_FILE
-            existing = reg.parse_registry(
-                reg_path.read_text() if reg_path.exists() else None
-            )
-            plans = reg.upsert(
-                existing, bundle.registry_entry, updated_at=self._updated_at
-            )
+            existing = reg.parse_registry(reg_path.read_text() if reg_path.exists() else None)
+            plans = reg.upsert(existing, bundle.registry_entry, updated_at=self._updated_at)
             tmp = reg_path.with_suffix(".json.tmp")
             tmp.write_text(reg.dump_registry(plans))
             tmp.replace(reg_path)
@@ -61,6 +57,4 @@ class RepoDocsTarget:
             )
         except Exception as exc:  # noqa: BLE001 — best-effort, never break emit
             logger.warning("RepoDocsTarget failed for %s: %s", bundle.plan_id, exc)
-            return TargetResult(
-                target=self.name, status="error", detail={"error": str(exc)}
-            )
+            return TargetResult(target=self.name, status="error", detail={"error": str(exc)})

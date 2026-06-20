@@ -73,9 +73,7 @@ def find_spec(project_dir: Path, spec_identifier: str) -> Path | None:
 
         # Try matching by number prefix
         for spec_folder in specs_dir.iterdir():
-            if spec_folder.is_dir() and spec_folder.name.startswith(
-                spec_identifier + "-"
-            ):
+            if spec_folder.is_dir() and spec_folder.name.startswith(spec_identifier + "-"):
                 if (spec_folder / "spec.md").exists():
                     return spec_folder
 
@@ -83,24 +81,15 @@ def find_spec(project_dir: Path, spec_identifier: str) -> Path | None:
     worktree_base = project_dir / ".pfactory" / "worktrees" / "tasks"
     if worktree_base.exists():
         # Try exact match in worktree
-        worktree_spec = (
-            worktree_base / spec_identifier / ".pfactory" / "specs" / spec_identifier
-        )
+        worktree_spec = worktree_base / spec_identifier / ".pfactory" / "specs" / spec_identifier
         if worktree_spec.exists() and (worktree_spec / "spec.md").exists():
             return worktree_spec
 
         # Try matching by prefix in worktrees
         for worktree_dir in worktree_base.iterdir():
-            if worktree_dir.is_dir() and worktree_dir.name.startswith(
-                spec_identifier + "-"
-            ):
-                spec_in_worktree = (
-                    worktree_dir / ".pfactory" / "specs" / worktree_dir.name
-                )
-                if (
-                    spec_in_worktree.exists()
-                    and (spec_in_worktree / "spec.md").exists()
-                ):
+            if worktree_dir.is_dir() and worktree_dir.name.startswith(spec_identifier + "-"):
+                spec_in_worktree = worktree_dir / ".pfactory" / "specs" / worktree_dir.name
+                if spec_in_worktree.exists() and (spec_in_worktree / "spec.md").exists():
                     return spec_in_worktree
 
     return None
@@ -148,9 +137,7 @@ def validate_environment(spec_dir: Path) -> bool:
         if graphiti_status.get("db_path"):
             print(f"  Path: {graphiti_status['db_path']}")
     elif graphiti_status["enabled"]:
-        print(
-            f"Graphiti memory: CONFIGURED but unavailable ({graphiti_status['reason']})"
-        )
+        print(f"Graphiti memory: CONFIGURED but unavailable ({graphiti_status['reason']})")
     else:
         print("Graphiti memory: DISABLED (set GRAPHITI_ENABLED=true to enable)")
 

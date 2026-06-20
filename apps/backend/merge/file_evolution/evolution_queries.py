@@ -247,9 +247,7 @@ class EvolutionQueries:
                     "task_id": ts.task_id,
                     "intent": ts.task_intent,
                     "started_at": ts.started_at.isoformat(),
-                    "completed_at": ts.completed_at.isoformat()
-                    if ts.completed_at
-                    else None,
+                    "completed_at": ts.completed_at.isoformat() if ts.completed_at else None,
                     "changes": [c.to_dict() for c in ts.semantic_changes],
                     "hash_before": ts.content_hash_before,
                     "hash_after": ts.content_hash_after,

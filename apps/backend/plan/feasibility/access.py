@@ -24,8 +24,11 @@ if TYPE_CHECKING:
 
 # Detected service → representative IAM actions the plan would need.
 _ACTION_HINTS: list[tuple[re.Pattern[str], str, list[str]]] = [
-    (re.compile(r"(?i)\beks\b|kubernetes|k8s"), "aws",
-     ["eks:CreateCluster", "ec2:RunInstances", "iam:CreateRole"]),
+    (
+        re.compile(r"(?i)\beks\b|kubernetes|k8s"),
+        "aws",
+        ["eks:CreateCluster", "ec2:RunInstances", "iam:CreateRole"],
+    ),
     (re.compile(r"(?i)\brds\b|postgres|aurora"), "aws", ["rds:CreateDBInstance"]),
     (re.compile(r"(?i)\bs3\b|bucket"), "aws", ["s3:CreateBucket", "s3:PutObject"]),
     (re.compile(r"(?i)\belasticache\b|\bredis\b"), "aws", ["elasticache:CreateCacheCluster"]),
@@ -95,7 +98,9 @@ def verify_access(
     if aws_actions and sim_result is None:
         # Couldn't verify (no creds / SDK) — advise, don't fail.
         for action in aws_actions:
-            reqs.append(AccessRequirement(provider="aws", action=action, region=region, granted=None))
+            reqs.append(
+                AccessRequirement(provider="aws", action=action, region=region, granted=None)
+            )
         findings.append(
             Finding(
                 title="AWS access not verified — credentials/permissions unknown",
@@ -107,15 +112,23 @@ def verify_access(
                 severity="medium",
                 source="feasibility-access",
                 blocking=False,
-                citations=[Citation(why="IAM policy simulation verifies the principal can perform the work.",
-                                    uri=_IAM_DOCS, title="Testing IAM policies", source="aws-iam")],
+                citations=[
+                    Citation(
+                        why="IAM policy simulation verifies the principal can perform the work.",
+                        uri=_IAM_DOCS,
+                        title="Testing IAM policies",
+                        source="aws-iam",
+                    )
+                ],
             )
         )
     elif aws_actions:
         for action in aws_actions:
             decision = sim_result.get(action, "implicitDeny")
             granted = decision == "allowed"
-            reqs.append(AccessRequirement(provider="aws", action=action, region=region, granted=granted))
+            reqs.append(
+                AccessRequirement(provider="aws", action=action, region=region, granted=granted)
+            )
             if not granted:
                 findings.append(
                     Finding(
@@ -127,8 +140,14 @@ def verify_access(
                         severity="high",
                         source="feasibility-access",
                         blocking=False,
-                        citations=[Citation(why="The plan requires this action to be built as described.",
-                                            uri=_IAM_DOCS, title="Testing IAM policies", source="aws-iam")],
+                        citations=[
+                            Citation(
+                                why="The plan requires this action to be built as described.",
+                                uri=_IAM_DOCS,
+                                title="Testing IAM policies",
+                                source="aws-iam",
+                            )
+                        ],
                     )
                 )
 
@@ -148,8 +167,14 @@ def verify_access(
                 severity="low",
                 source="feasibility-access",
                 blocking=False,
-                citations=[Citation(why="The plan targets these clouds; their permissions must be confirmed.",
-                                    uri="", title="", source=provs[0])],
+                citations=[
+                    Citation(
+                        why="The plan targets these clouds; their permissions must be confirmed.",
+                        uri="",
+                        title="",
+                        source=provs[0],
+                    )
+                ],
             )
         )
 
@@ -170,9 +195,6 @@ def _run_aws_simulation(actions: list[str], simulator) -> dict | None:
         arn = session.client("sts").get_caller_identity()["Arn"]
         iam = session.client("iam")
         resp = iam.simulate_principal_policy(PolicySourceArn=arn, ActionNames=actions)
-        return {
-            r["EvalActionName"]: r["EvalDecision"]
-            for r in resp.get("EvaluationResults", [])
-        }
+        return {r["EvalActionName"]: r["EvalDecision"] for r in resp.get("EvaluationResults", [])}
     except Exception:
         return None

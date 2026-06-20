@@ -16,9 +16,7 @@ class Spinner:
     """Simple spinner for long operations."""
 
     FRAMES = (
-        ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        if UNICODE
-        else ["|", "/", "-", "\\"]
+        ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] if UNICODE else ["|", "/", "-", "\\"]
     )
 
     def __init__(self, message: str = ""):

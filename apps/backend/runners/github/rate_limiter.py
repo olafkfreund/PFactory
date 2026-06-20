@@ -529,14 +529,10 @@ def rate_limited(
                         if not available and attempt == 0:
                             # Try to acquire (will wait if needed)
                             if not await limiter.acquire_github(timeout=30.0):
-                                raise RateLimitExceeded(
-                                    f"GitHub API rate limit exceeded: {msg}"
-                                )
+                                raise RateLimitExceeded(f"GitHub API rate limit exceeded: {msg}")
                         elif not available:
                             # On retry, wait for token
-                            await limiter.acquire_github(
-                                timeout=limiter.max_retry_delay
-                            )
+                            await limiter.acquire_github(timeout=limiter.max_retry_delay)
 
                     # Execute function
                     result = await func(*args, **kwargs)
@@ -556,8 +552,7 @@ def rate_limited(
                         limiter.max_retry_delay,
                     )
                     print(
-                        f"[RateLimit] Retry {attempt + 1}/{max_retries} "
-                        f"after {delay:.1f}s: {e}",
+                        f"[RateLimit] Retry {attempt + 1}/{max_retries} after {delay:.1f}s: {e}",
                         flush=True,
                     )
                     await asyncio.sleep(delay)
@@ -565,17 +560,11 @@ def rate_limited(
                 except Exception as e:
                     # Check if it's a rate limit error (403/429)
                     error_str = str(e).lower()
-                    if (
-                        "403" in error_str
-                        or "429" in error_str
-                        or "rate limit" in error_str
-                    ):
+                    if "403" in error_str or "429" in error_str or "rate limit" in error_str:
                         limiter.record_github_error()
 
                         if attempt >= max_retries:
-                            raise RateLimitExceeded(
-                                f"GitHub API rate limit (HTTP 403/429): {e}"
-                            )
+                            raise RateLimitExceeded(f"GitHub API rate limit (HTTP 403/429): {e}")
 
                         # Exponential backoff
                         delay = min(
@@ -669,9 +658,7 @@ if __name__ == "__main__":
                 operation_name="PR review",
             )
             print(f"   Cost: ${cost:.4f}")
-            print(
-                f"   Remaining budget: ${limiter.cost_tracker.remaining_budget():.2f}"
-            )
+            print(f"   Remaining budget: ${limiter.cost_tracker.remaining_budget():.2f}")
         except CostLimitExceeded as e:
             print(f"   ✗ {e}")
 

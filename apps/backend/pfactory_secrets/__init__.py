@@ -119,12 +119,12 @@ class SecretsBackend(ABC):
 
 
 __all__ = [
-    "SecretsBackend",
+    "BackendUnavailableError",
+    "EgressClass",
+    "InvalidSecretRefError",
+    "SecretNotFoundError",
     "SecretRef",
     "SecretValue",
+    "SecretsBackend",
     "SecretsError",
-    "InvalidSecretRefError",
-    "BackendUnavailableError",
-    "SecretNotFoundError",
-    "EgressClass",
 ]

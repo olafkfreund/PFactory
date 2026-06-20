@@ -79,9 +79,7 @@ class CodebaseAnalyzer(SubAgent):
         tech_stack = self._detect_tech_stack()
 
         # Find relevant files based on task
-        relevant_files = self._find_relevant_files(
-            task, search_terms, file_patterns, max_depth
-        )
+        relevant_files = self._find_relevant_files(task, search_terms, file_patterns, max_depth)
 
         # Identify entry points
         entry_points = self._identify_entry_points()
@@ -106,9 +104,7 @@ class CodebaseAnalyzer(SubAgent):
         # Generate recommendations
         recommendations = []
         if not relevant_files:
-            recommendations.append(
-                "No relevant files found - consider creating new files"
-            )
+            recommendations.append("No relevant files found - consider creating new files")
         elif len(relevant_files) > 10:
             recommendations.append(
                 f"Found {len(relevant_files)} relevant files - prioritize core modules"
@@ -127,9 +123,7 @@ class CodebaseAnalyzer(SubAgent):
                 "entry_points": entry_points,
                 "conventions": conventions,
             },
-            reasoning=self._generate_reasoning(
-                structure, tech_stack, relevant_files, entry_points
-            ),
+            reasoning=self._generate_reasoning(structure, tech_stack, relevant_files, entry_points),
             confidence=confidence,
             recommendations=recommendations,
             metadata={
@@ -246,9 +240,7 @@ class CodebaseAnalyzer(SubAgent):
             import re
 
             words = re.findall(r"\w+", task_lower)
-            keywords.update(
-                w for w in words if len(w) > 3 and w not in ["that", "with", "this"]
-            )
+            keywords.update(w for w in words if len(w) > 3 and w not in ["that", "with", "this"])
 
         try:
             for root, dirs, files in os.walk(self.project_dir):
@@ -274,9 +266,7 @@ class CodebaseAnalyzer(SubAgent):
 
                     # Check file patterns
                     if file_patterns:
-                        if any(
-                            pattern in rel_path.lower() for pattern in file_patterns
-                        ):
+                        if any(pattern in rel_path.lower() for pattern in file_patterns):
                             relevant.append(rel_path)
                             continue
 

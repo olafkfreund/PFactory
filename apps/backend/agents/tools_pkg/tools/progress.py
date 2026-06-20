@@ -113,9 +113,7 @@ def create_progress_tools(
                     f"  {phase_name}: {phase_stats['completed']}/{phase_stats['total']}"
                 )
 
-            progress_pct = (
-                (stats["completed"] / stats["total"] * 100) if stats["total"] > 0 else 0
-            )
+            progress_pct = (stats["completed"] / stats["total"] * 100) if stats["total"] > 0 else 0
 
             result = f"""Build Progress: {stats["completed"]}/{stats["total"]} subtasks ({progress_pct:.0f}%)
 
@@ -141,11 +139,7 @@ Next subtask to work on:
             return {"content": [{"type": "text", "text": result}]}
 
         except Exception as e:
-            return {
-                "content": [
-                    {"type": "text", "text": f"Error reading build progress: {e}"}
-                ]
-            }
+            return {"content": [{"type": "text", "text": f"Error reading build progress: {e}"}]}
 
     tools.append(get_build_progress)
 

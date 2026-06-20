@@ -235,9 +235,7 @@ class SpecNumberLock:
             Next available spec number (global max + 1)
         """
         if not self.acquired:
-            raise SpecNumberLockError(
-                "Lock must be acquired before getting next spec number"
-            )
+            raise SpecNumberLockError("Lock must be acquired before getting next spec number")
 
         if self._global_max is not None:
             return self._global_max + 1

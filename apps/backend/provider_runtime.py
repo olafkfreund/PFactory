@@ -65,9 +65,7 @@ class ProviderRuntime:
 # first since that's the post-sunset binary (see providers/gemini_agentic.py).
 _REGISTRY: dict[str, ProviderRuntime] = {
     "claude": ProviderRuntime("claude", "pip", (), (), package="claude-agent-sdk"),
-    "codex": ProviderRuntime(
-        "codex", "npm", ("codex",), ("--version",), package="@openai/codex"
-    ),
+    "codex": ProviderRuntime("codex", "npm", ("codex",), ("--version",), package="@openai/codex"),
     "copilot": ProviderRuntime(
         "copilot",
         "gh",
@@ -88,9 +86,7 @@ _REGISTRY: dict[str, ProviderRuntime] = {
             "~/.gemini/antigravity-cli/bin/gemini",
         ),
     ),
-    "ollama": ProviderRuntime(
-        "ollama", "binary", ("ollama",), ("--version",), managed=False
-    ),
+    "ollama": ProviderRuntime("ollama", "binary", ("ollama",), ("--version",), managed=False),
 }
 
 
@@ -117,9 +113,7 @@ def get_runtime(name: str) -> ProviderRuntime:
     try:
         return _REGISTRY[name]
     except KeyError as exc:
-        raise KeyError(
-            f"unknown provider runtime {name!r}; known: {sorted(_REGISTRY)}"
-        ) from exc
+        raise KeyError(f"unknown provider runtime {name!r}; known: {sorted(_REGISTRY)}") from exc
 
 
 def _parse_version(text: str | None) -> str | None:
@@ -166,6 +160,7 @@ def _pip_version_via(python: str | None, package: str | None) -> str | None:
                 "-c",
                 f"from importlib.metadata import version;print(version({package!r}))",
             ],
+            check=False,
             capture_output=True,
             text=True,
             timeout=15,
@@ -213,6 +208,7 @@ def detect_installed(rt: ProviderRuntime) -> str | None:
     try:
         proc = subprocess.run(
             [binary, *rt.version_args],
+            check=False,
             capture_output=True,
             text=True,
             timeout=15,
@@ -234,6 +230,7 @@ def latest_version(rt: ProviderRuntime) -> str | None:
         try:
             proc = subprocess.run(
                 [npm, "view", rt.package, "version"],
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -270,11 +267,7 @@ def _read_pins() -> dict[str, str]:
         data = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
         return {}
-    return (
-        {k: v for k, v in data.items() if isinstance(v, str)}
-        if isinstance(data, dict)
-        else {}
-    )
+    return {k: v for k, v in data.items() if isinstance(v, str)} if isinstance(data, dict) else {}
 
 
 def pinned_version(name: str) -> str | None:
@@ -369,9 +362,7 @@ class InstallResult:
     installed_version: str | None  # re-detected after the install
 
 
-def run_install(
-    name: str, version: str | None = None, *, timeout: int = 600
-) -> InstallResult:
+def run_install(name: str, version: str | None = None, *, timeout: int = 600) -> InstallResult:
     """Execute the install/update for ``name`` at ``version`` (or latest).
 
     Runs :func:`install_argv` — a **real** package install on the host. This is
@@ -382,7 +373,7 @@ def run_install(
     rt = get_runtime(name)
     argv = install_argv(rt, version)  # raises ValueError if unmanaged
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=timeout)
         returncode = proc.returncode
         output = ((proc.stdout or "") + (proc.stderr or ""))[-4000:]
     except (OSError, subprocess.SubprocessError) as exc:

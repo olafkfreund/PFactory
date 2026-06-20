@@ -64,12 +64,8 @@ def create_patched_kuzu_driver(db: str = ":memory:", max_concurrent_queries: int
                 results = await self.client.execute(cypher_query_, parameters=params)
             except Exception as e:
                 # Truncate long values for logging
-                log_params = {
-                    k: (v[:5] if isinstance(v, list) else v) for k, v in params.items()
-                }
-                logger.error(
-                    f"Error executing Kuzu query: {e}\n{cypher_query_}\n{log_params}"
-                )
+                log_params = {k: (v[:5] if isinstance(v, list) else v) for k, v in params.items()}
+                logger.error(f"Error executing Kuzu query: {e}\n{cypher_query_}\n{log_params}")
                 raise
 
             if not results:
@@ -106,17 +102,13 @@ def create_patched_kuzu_driver(db: str = ":memory:", max_concurrent_queries: int
                         if delete_existing:
                             # Extract index name from query
                             # Format: CALL CREATE_FTS_INDEX('TableName', 'index_name', [...])
-                            match = re.search(
-                                r"CREATE_FTS_INDEX\('([^']+)',\s*'([^']+)'", query
-                            )
+                            match = re.search(r"CREATE_FTS_INDEX\('([^']+)',\s*'([^']+)'", query)
                             if match:
                                 table_name, index_name = match.groups()
                                 drop_query = f"CALL DROP_FTS_INDEX('{table_name}', '{index_name}')"
                                 try:
                                     conn.execute(drop_query)
-                                    logger.debug(
-                                        f"Dropped existing FTS index: {index_name}"
-                                    )
+                                    logger.debug(f"Dropped existing FTS index: {index_name}")
                                 except Exception:
                                     # Index might not exist, that's fine
                                     pass
@@ -129,9 +121,7 @@ def create_patched_kuzu_driver(db: str = ":memory:", max_concurrent_queries: int
                         error_msg = str(e).lower()
                         # Handle "index already exists" gracefully
                         if "already exists" in error_msg or "duplicate" in error_msg:
-                            logger.debug(
-                                f"FTS index already exists (skipping): {query[:60]}..."
-                            )
+                            logger.debug(f"FTS index already exists (skipping): {query[:60]}...")
                         else:
                             # Log but don't fail - some indexes might fail in certain Kuzu versions
                             logger.warning(f"Failed to create FTS index: {e}")

@@ -58,8 +58,10 @@ def _cmd_resolve(args) -> int:
             print(f"resolve failed: {exc}", file=sys.stderr)
             return 1
     # Never print the value — only a redacted summary.
-    print(f"resolved {args.ref}  →  backend={val.backend} "
-          f"source={val.source} value=<{len(val.value)} chars>")
+    print(
+        f"resolved {args.ref}  →  backend={val.backend} "
+        f"source={val.source} value=<{len(val.value)} chars>"
+    )
     return 0
 
 
@@ -76,8 +78,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_res = sub.add_parser("resolve", help="resolve a single ref (redacted output)")
     p_res.add_argument("ref")
-    p_res.add_argument("--allow-egress", action="store_true",
-                       help="permit non-local backends to egress")
+    p_res.add_argument(
+        "--allow-egress", action="store_true", help="permit non-local backends to egress"
+    )
     p_res.set_defaults(func=_cmd_resolve)
 
     args = parser.parse_args(argv)

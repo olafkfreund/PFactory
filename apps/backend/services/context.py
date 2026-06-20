@@ -150,9 +150,7 @@ class ServiceContextGenerator:
                 with open(package_json) as f:
                     pkg = json.load(f)
                     deps = list(pkg.get("dependencies", {}).keys())[:15]
-                    context.dependencies.extend(
-                        [d for d in deps if d not in context.dependencies]
-                    )
+                    context.dependencies.extend([d for d in deps if d not in context.dependencies])
             except (OSError, json.JSONDecodeError):
                 pass
 
@@ -173,9 +171,7 @@ class ServiceContextGenerator:
                 content = route_file.read_text()
                 # Look for common route patterns
                 if "@app.route" in content or "@router." in content:
-                    context.api_patterns.append(
-                        f"Flask/FastAPI routes in {route_file.name}"
-                    )
+                    context.api_patterns.append(f"Flask/FastAPI routes in {route_file.name}")
                 elif "express.Router" in content or "app.get" in content:
                     context.api_patterns.append(f"Express routes in {route_file.name}")
             except (OSError, UnicodeDecodeError):
@@ -408,9 +404,7 @@ def main():
     """CLI entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Generate SERVICE_CONTEXT.md files for services"
-    )
+    parser = argparse.ArgumentParser(description="Generate SERVICE_CONTEXT.md files for services")
     parser.add_argument(
         "--project-dir",
         type=Path,

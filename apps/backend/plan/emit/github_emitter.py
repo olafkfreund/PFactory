@@ -20,7 +20,8 @@ create issues for an ungoverned plan.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -73,11 +74,11 @@ def _create_issue_resilient(
     for attempt in range(attempts):
         try:
             return gh.create_issue(title, body, labels)
-        except Exception as exc:  # noqa: BLE001 — classify then re-raise
+        except Exception as exc:
             last = exc
             if not _is_retryable(exc) or attempt == attempts - 1:
                 raise
-            sleep_fn(backoff_base ** attempt)
+            sleep_fn(backoff_base**attempt)
     raise last  # pragma: no cover - loop always returns or raises above
 
 
@@ -229,8 +230,7 @@ def emit_to_github(
     if dry_run:
         planned: list[dict[str, Any]] = [epic_pl]
         planned.extend(
-            _child_payload(c, epic_number=None, extra_labels=extra_labels,
-                           meta_block=meta_block)
+            _child_payload(c, epic_number=None, extra_labels=extra_labels, meta_block=meta_block)
             for c in epic.children
         )
         return EmitResult(dry_run=True, planned=planned)
@@ -252,7 +252,10 @@ def emit_to_github(
     else:
         try:
             epic_number = _create_issue_resilient(
-                gh, epic_pl["title"], epic_pl["body"], list(epic_pl["labels"]),
+                gh,
+                epic_pl["title"],
+                epic_pl["body"],
+                list(epic_pl["labels"]),
                 sleep_fn=sleep_fn,
             )
         except Exception as exc:  # noqa: BLE001
@@ -275,11 +278,16 @@ def emit_to_github(
         if child.key in reused:
             child_numbers[child.key] = reused[child.key]
             continue
-        pl = _child_payload(child, epic_number=epic_number, extra_labels=extra_labels,
-                            meta_block=meta_block)
+        pl = _child_payload(
+            child, epic_number=epic_number, extra_labels=extra_labels, meta_block=meta_block
+        )
         try:
             number = _create_issue_resilient(
-                gh, pl["title"], pl["body"], list(pl["labels"]), sleep_fn=sleep_fn,
+                gh,
+                pl["title"],
+                pl["body"],
+                list(pl["labels"]),
+                sleep_fn=sleep_fn,
             )
         except Exception as exc:  # noqa: BLE001
             errors.append(f"failed to create child issue {child.key!r}: {exc}")

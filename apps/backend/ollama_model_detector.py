@@ -137,7 +137,7 @@ def fetch_ollama_api(base_url: str, endpoint: str, timeout: int = 1) -> dict | N
 
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.loads(response.read().decode())
-    except urllib.error.URLError as e:
+    except urllib.error.URLError:
         return None
     except json.JSONDecodeError:
         return None
@@ -405,23 +405,19 @@ def cmd_pull_model(args) -> None:
         )
 
     except urllib.error.URLError as e:
-        output_error(f"Failed to connect to Ollama: {str(e)}")
+        output_error(f"Failed to connect to Ollama: {e!s}")
     except urllib.error.HTTPError as e:
         output_error(f"Ollama API error: {e.code} - {e.reason}")
     except Exception as e:
-        output_error(f"Failed to pull model: {str(e)}")
+        output_error(f"Failed to pull model: {e!s}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Detect and list Ollama models for pfactory-ui"
-    )
+    parser = argparse.ArgumentParser(description="Detect and list Ollama models for pfactory-ui")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # check-status command
-    status_parser = subparsers.add_parser(
-        "check-status", help="Check if Ollama is running"
-    )
+    status_parser = subparsers.add_parser("check-status", help="Check if Ollama is running")
     status_parser.add_argument(
         "--base-url", help=f"Ollama server URL (default: {DEFAULT_OLLAMA_URL})"
     )
@@ -450,9 +446,7 @@ def main():
     )
 
     # pull-model command
-    pull_parser = subparsers.add_parser(
-        "pull-model", help="Pull (download) an Ollama model"
-    )
+    pull_parser = subparsers.add_parser("pull-model", help="Pull (download) an Ollama model")
     pull_parser.add_argument("model", help="Model name to pull (e.g., embeddinggemma)")
 
     args = parser.parse_args()

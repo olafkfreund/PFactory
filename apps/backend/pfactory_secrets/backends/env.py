@@ -33,12 +33,8 @@ class EnvBackend(SecretsBackend):
         try:
             value = resolve_env_var(var)
         except MissingSecretError as exc:
-            raise SecretNotFoundError(
-                f"Environment variable {var!r} is not set"
-            ) from exc
-        return SecretValue(
-            value=value, backend=self.name, ref=ref.raw, source=f"env:{var}"
-        )
+            raise SecretNotFoundError(f"Environment variable {var!r} is not set") from exc
+        return SecretValue(value=value, backend=self.name, ref=ref.raw, source=f"env:{var}")
 
 
 __all__ = ["EnvBackend"]

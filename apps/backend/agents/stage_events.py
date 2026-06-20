@@ -49,9 +49,7 @@ def _webhook_url() -> str | None:
     return url or None
 
 
-def stage_event_payload(
-    spec_dir: Path, status: dict[str, Any], stage: str
-) -> dict[str, Any]:
+def stage_event_payload(spec_dir: Path, status: dict[str, Any], stage: str) -> dict[str, Any]:
     """Build the event payload — #85's completion shape plus ``stage``."""
     return {
         "task_id": status.get("task_id") or spec_dir.name,
@@ -86,9 +84,7 @@ def emit_stage_event(spec_dir: Path, status: dict[str, Any], *, stage: str) -> N
         try:
             findings_dir = spec_dir / "findings"
             findings_dir.mkdir(parents=True, exist_ok=True)
-            with (findings_dir / "stage_events.jsonl").open(
-                "a", encoding="utf-8"
-            ) as fh:
+            with (findings_dir / "stage_events.jsonl").open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(payload) + "\n")
         except OSError:
             pass

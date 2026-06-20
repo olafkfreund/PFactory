@@ -11,10 +11,10 @@ from .config import GraphitiConfig, validate_graphiti_config
 # Lazy imports for components that require graphiti package
 __all__ = [
     "GraphitiConfig",
-    "validate_graphiti_config",
     "GraphitiMemory",
-    "create_llm_client",
     "create_embedder",
+    "create_llm_client",
+    "validate_graphiti_config",
 ]
 
 

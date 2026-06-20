@@ -91,9 +91,7 @@ class ContextLoader:
             try:
                 with open(requirements_file) as f:
                     requirements = json.load(f)
-                declared_type = _normalize_workflow_type(
-                    requirements.get("workflow_type", "")
-                )
+                declared_type = _normalize_workflow_type(requirements.get("workflow_type", ""))
                 if declared_type in _WORKFLOW_TYPE_MAPPING:
                     return _WORKFLOW_TYPE_MAPPING[declared_type]
             except (json.JSONDecodeError, KeyError):
@@ -105,9 +103,7 @@ class ContextLoader:
             try:
                 with open(assessment_file) as f:
                     assessment = json.load(f)
-                declared_type = _normalize_workflow_type(
-                    assessment.get("workflow_type", "")
-                )
+                declared_type = _normalize_workflow_type(assessment.get("workflow_type", ""))
                 if declared_type in _WORKFLOW_TYPE_MAPPING:
                     return _WORKFLOW_TYPE_MAPPING[declared_type]
             except (json.JSONDecodeError, KeyError):

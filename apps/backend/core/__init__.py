@@ -9,11 +9,11 @@ Core components for the PFactory autonomous coding framework.
 # that may not be needed for basic operations like workspace management.
 
 __all__ = [
-    "run_autonomous_agent",
-    "run_followup_planner",
+    "ProgressTracker",
     "WorkspaceManager",
     "WorktreeManager",
-    "ProgressTracker",
+    "run_autonomous_agent",
+    "run_followup_planner",
 ]
 
 

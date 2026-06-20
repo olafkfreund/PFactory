@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -83,7 +83,7 @@ def _workspace_root() -> Path:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def write_visual_inspection_meta(spec_dir: Path, visual_inspection: dict | None) -> bool:
@@ -159,9 +159,7 @@ def _find_task(task_id: str, root: Path | None = None) -> tuple[str, str] | None
     return None
 
 
-def _load_status(
-    project_id: str, spec_id: str, root: Path | None = None
-) -> dict[str, Any] | None:
+def _load_status(project_id: str, spec_id: str, root: Path | None = None) -> dict[str, Any] | None:
     sf = _status_file(project_id, spec_id, root)
     if not sf.exists():
         return None
@@ -187,9 +185,7 @@ def _format_error(exc: Exception | str) -> dict[str, Any]:
 
 def _format_json(data: Any) -> dict[str, Any]:
     """Return the MCP content-block success shape with JSON payload."""
-    return {
-        "content": [{"type": "text", "text": json.dumps(data, indent=2, default=str)}]
-    }
+    return {"content": [{"type": "text", "text": json.dumps(data, indent=2, default=str)}]}
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +244,14 @@ def create_task_control_tools() -> list:
                     "description": "Optional (#170). When the handover enables a visual inspection, pass {enabled: true, target: <visual target name>, flow: <what to inspect>}. The browser lane then records + packages an automated-test/ run with screenshots + a human report. Omit (or enabled:false) for a normal task.",
                     "properties": {
                         "enabled": {"type": "boolean", "default": False},
-                        "target": {"type": "string", "description": "Name of a visual target in .pfactory.yml"},
-                        "flow": {"type": "string", "description": "What to inspect (the user flow / acceptance focus)"},
+                        "target": {
+                            "type": "string",
+                            "description": "Name of a visual target in .pfactory.yml",
+                        },
+                        "flow": {
+                            "type": "string",
+                            "description": "What to inspect (the user flow / acceptance focus)",
+                        },
                     },
                 },
             },
@@ -385,9 +387,7 @@ def create_task_control_tools() -> list:
         except ImportError:
             # planner module not importable (e.g. minimal venv without SDK
             # transitive deps); leave status=pending and surface a warning.
-            snapshot_warnings.append(
-                "planner module not importable — task stays at status=pending"
-            )
+            snapshot_warnings.append("planner module not importable — task stays at status=pending")
 
         portal_port = os.environ.get("PFACTORY_PORTAL_PORT", "3114")
         return _format_json(
@@ -516,9 +516,7 @@ def create_task_control_tools() -> list:
     )
     async def project_list(args: dict[str, Any]) -> dict[str, Any]:
         data = _load_projects()
-        return _format_json(
-            {"count": len(data["projects"]), "projects": data["projects"]}
-        )
+        return _format_json({"count": len(data["projects"]), "projects": data["projects"]})
 
     tools.append(project_list)
 
@@ -686,11 +684,7 @@ def create_task_control_tools() -> list:
             from agents.planner import schedule_planner
 
             project_entry = next(
-                (
-                    p
-                    for p in _load_projects().get("projects", [])
-                    if p.get("id") == project_id
-                ),
+                (p for p in _load_projects().get("projects", []) if p.get("id") == project_id),
                 {},
             )
             project_root = project_entry.get("root_path", ".")

@@ -43,9 +43,7 @@ class ReadinessContext(BaseModel):
     local_cluster: dict | None = None
 
 
-CheckFn = Callable[
-    ["NormalizedPlan", "EpicPlan", ReadinessContext], ReadinessCheckResult
-]
+CheckFn = Callable[["NormalizedPlan", "EpicPlan", ReadinessContext], ReadinessCheckResult]
 
 _REGISTRY: dict[str, CheckFn] = {}
 _ORDER: list[str] = []
@@ -85,12 +83,8 @@ def _children_present(
         severity="info" if ok else "critical",
         hard=True,
         waivable=False,
-        detail=""
-        if ok
-        else "The plan produced no child issues — it cannot be executed.",
-        remediation=""
-        if ok
-        else "Revise the plan so it can be decomposed into work units.",
+        detail="" if ok else "The plan produced no child issues — it cannot be executed.",
+        remediation="" if ok else "Revise the plan so it can be decomposed into work units.",
     )
 
 
@@ -111,12 +105,8 @@ def _criteria_present(
         severity="info" if ok else "high",
         hard=True,
         waivable=True,
-        detail=""
-        if ok
-        else "No explicit acceptance criteria — execution intent is implicit.",
-        remediation=""
-        if ok
-        else "Add an '## Acceptance Criteria' section (or AC#N: lines).",
+        detail="" if ok else "No explicit acceptance criteria — execution intent is implicit.",
+        remediation="" if ok else "Add an '## Acceptance Criteria' section (or AC#N: lines).",
     )
 
 
@@ -346,9 +336,7 @@ def _deps_sound(
         hard=True,
         waivable=not has_cycle,
         detail="" if ok else "; ".join(problems),
-        remediation=""
-        if ok
-        else "Fix depends_on to reference existing child keys; remove cycles.",
+        remediation="" if ok else "Fix depends_on to reference existing child keys; remove cycles.",
         evidence={} if ok else {"problems": problems},
     )
 
@@ -455,9 +443,7 @@ def _enrichment_integrity(
     """
     infra = [e for e in plan.enrichment.infra if isinstance(e, dict)]
     failed = [
-        str(e.get("adapter") or "?")
-        for e in infra
-        if e.get("available") is False or e.get("error")
+        str(e.get("adapter") or "?") for e in infra if e.get("available") is False or e.get("error")
     ]
     relevant = is_cloud_relevant(plan)
 
@@ -544,18 +530,14 @@ def _decompose_trustworthy(
         hard=True,
         waivable=True,
         detail=(
-            ""
-            if not fell_back
-            else "The LLM decomposer errored and fell back to the heuristic."
+            "" if not fell_back else "The LLM decomposer errored and fell back to the heuristic."
         ),
         remediation=(
             ""
             if not fell_back
             else "Re-run decomposition; inspect the recorded error, or waive to accept the heuristic."
         ),
-        evidence={}
-        if not fell_back
-        else {"decompose_errors": list(epic.decompose_errors)},
+        evidence={} if not fell_back else {"decompose_errors": list(epic.decompose_errors)},
     )
 
 
@@ -669,9 +651,7 @@ def run_readiness(
     (``agents.cloud.local_cluster.probe_cluster().to_dict()``); when omitted the
     ``env-buildable`` check reports not_applicable.
     """
-    ctx = ReadinessContext(
-        blocking_findings=blocking_findings or [], local_cluster=local_cluster
-    )
+    ctx = ReadinessContext(blocking_findings=blocking_findings or [], local_cluster=local_cluster)
     fns = checks if checks is not None else default_checks()
     results = [fn(plan, epic, ctx) for fn in fns]
     return ReadinessReport(

@@ -69,12 +69,14 @@ def _build_reader(project: str) -> GcpReader:  # pragma: no cover
             out: list[dict] = []
             for zone, scoped in client.aggregated_list(project=project):
                 for inst in getattr(scoped, "instances", []) or []:
-                    out.append({
-                        "name": inst.name,
-                        "machine_type": inst.machine_type.split("/")[-1],
-                        "status": inst.status,
-                        "zone": zone.split("/")[-1],
-                    })
+                    out.append(
+                        {
+                            "name": inst.name,
+                            "machine_type": inst.machine_type.split("/")[-1],
+                            "status": inst.status,
+                            "zone": zone.split("/")[-1],
+                        }
+                    )
             return out
 
         def list_projects(self) -> list[dict]:
@@ -147,18 +149,18 @@ class GcpAdapter(InfraAdapter):
             location = c.get("location") or c.get("region")
             if location:
                 regions.add(location)
-            workloads.append({
-                "kind": "gke_cluster",
-                "name": name,
-                "node_count": c.get("node_count", 0),
-                "kubernetes_version": version,
-                "location": location,
-            })
+            workloads.append(
+                {
+                    "kind": "gke_cluster",
+                    "name": name,
+                    "node_count": c.get("node_count", 0),
+                    "kubernetes_version": version,
+                    "location": location,
+                }
+            )
             parsed = _parse_k8s_version(version)
             if parsed is not None and parsed < _OUTDATED_K8S_BELOW:
-                findings.append(
-                    f"GKE cluster {name} runs an outdated k8s version {version}"
-                )
+                findings.append(f"GKE cluster {name} runs an outdated k8s version {version}")
 
         for inst in instances:
             zone = inst.get("zone")
@@ -180,10 +182,7 @@ class GcpAdapter(InfraAdapter):
             "machine_types": machine_types,
             "regions": sorted(regions),
         }
-        policies = [
-            {"project_id": p.get("project_id"), "name": p.get("name")}
-            for p in projects
-        ]
+        policies = [{"project_id": p.get("project_id"), "name": p.get("name")} for p in projects]
 
         return InfraSnapshot(
             adapter=self.name,

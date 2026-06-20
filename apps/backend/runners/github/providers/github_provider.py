@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # Import from parent package or direct import
@@ -128,20 +128,11 @@ class GitHubProvider:
         result = []
         for pr_data in prs:
             # Apply additional filters
-            if (
-                filters.author
-                and pr_data.get("author", {}).get("login") != filters.author
-            ):
+            if filters.author and pr_data.get("author", {}).get("login") != filters.author:
                 continue
-            if (
-                filters.base_branch
-                and pr_data.get("baseRefName") != filters.base_branch
-            ):
+            if filters.base_branch and pr_data.get("baseRefName") != filters.base_branch:
                 continue
-            if (
-                filters.head_branch
-                and pr_data.get("headRefName") != filters.head_branch
-            ):
+            if filters.head_branch and pr_data.get("headRefName") != filters.head_branch:
                 continue
             if filters.labels:
                 pr_labels = [label.get("name") for label in pr_data.get("labels", [])]
@@ -229,9 +220,7 @@ class GitHubProvider:
         issue_data = await self._gh_client.issue_get(number, json_fields=fields)
         return self._parse_issue_data(issue_data)
 
-    async def fetch_issues(
-        self, filters: IssueFilters | None = None
-    ) -> list[IssueData]:
+    async def fetch_issues(self, filters: IssueFilters | None = None) -> list[IssueData]:
         """Fetch issues with optional filters."""
         filters = filters or IssueFilters()
 
@@ -260,15 +249,10 @@ class GitHubProvider:
                 continue
 
             # Apply filters
-            if (
-                filters.author
-                and issue_data.get("author", {}).get("login") != filters.author
-            ):
+            if filters.author and issue_data.get("author", {}).get("login") != filters.author:
                 continue
             if filters.labels:
-                issue_labels = [
-                    label.get("name") for label in issue_data.get("labels", [])
-                ]
+                issue_labels = [label.get("name") for label in issue_data.get("labels", [])]
                 if not all(label in issue_labels for label in filters.labels):
                     continue
 
@@ -348,12 +332,8 @@ class GitHubProvider:
             return
 
         owner, name = self._repo.split("/", 1)
-        wants_copilot = any(
-            a.strip().lower() == self._COPILOT_ALIAS for a in assignees
-        )
-        regular_logins = [
-            a for a in assignees if a.strip().lower() != self._COPILOT_ALIAS
-        ]
+        wants_copilot = any(a.strip().lower() == self._COPILOT_ALIAS for a in assignees)
+        regular_logins = [a for a in assignees if a.strip().lower() != self._COPILOT_ALIAS]
 
         # Resolve actor node IDs. suggestedActors is the only way to get
         # the Copilot bot's GraphQL node ID; it also tells us whether the
@@ -368,13 +348,9 @@ class GitHubProvider:
           }
         }
         """
-        actors_resp = await self._graphql(
-            actors_query, {"owner": owner, "name": name}
-        )
+        actors_resp = await self._graphql(actors_query, {"owner": owner, "name": name})
         repo_node = actors_resp.get("data", {}).get("repository") or {}
-        nodes = (
-            repo_node.get("suggestedActors", {}).get("nodes", []) if repo_node else []
-        )
+        nodes = repo_node.get("suggestedActors", {}).get("nodes", []) if repo_node else []
 
         actor_ids: list[str] = []
 
@@ -401,9 +377,7 @@ class GitHubProvider:
                 (
                     n.get("id")
                     for n in nodes
-                    if n.get("__typename") == "User"
-                    and n.get("login") == login
-                    and n.get("id")
+                    if n.get("__typename") == "User" and n.get("login") == login and n.get("id")
                 ),
                 None,
             )
@@ -424,12 +398,7 @@ class GitHubProvider:
             """,
             {"owner": owner, "name": name, "number": issue_number},
         )
-        assignable_id = (
-            issue_resp.get("data", {})
-            .get("repository", {})
-            .get("issue", {})
-            .get("id")
-        )
+        assignable_id = issue_resp.get("data", {}).get("repository", {}).get("issue", {}).get("id")
         if not assignable_id:
             return
 
@@ -444,9 +413,7 @@ class GitHubProvider:
             {"assignableId": assignable_id, "actorIds": actor_ids},
         )
 
-    async def _graphql(
-        self, query: str, variables: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         """Run a GraphQL query/mutation via `gh api graphql`.
 
         Encodes variables for `gh api graphql`: `-f` for raw strings,
@@ -652,11 +619,11 @@ class GitHubProvider:
     def _parse_datetime(self, dt_str: str | None) -> datetime:
         """Parse ISO datetime string."""
         if not dt_str:
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
         try:
             return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         except (ValueError, AttributeError):
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
 
     def _parse_reviewers(self, review_requests: list | None) -> list[str]:
         """Parse review requests into list of usernames."""

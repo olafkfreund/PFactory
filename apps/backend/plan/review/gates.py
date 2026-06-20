@@ -93,9 +93,7 @@ def run_gates(
     # to the lens score: a high aggregate cannot mask a missing-information
     # blocker. Blocking review findings feed the no-blocking-findings check so the
     # report is a single audit surface for "why can't this emit".
-    review.readiness = run_readiness(
-        plan, epic, blocking_findings=review.blocking_findings()
-    )
+    review.readiness = run_readiness(plan, epic, blocking_findings=review.blocking_findings())
     return review
 
 

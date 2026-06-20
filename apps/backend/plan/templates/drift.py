@@ -152,9 +152,7 @@ def _summarise(
     return f"template '{name}' drift — " + "; ".join(parts)
 
 
-def fetch_current_best_practices(
-    template: Template, *, source: Any = None
-) -> dict[str, Any]:
+def fetch_current_best_practices(template: Template, *, source: Any = None) -> dict[str, Any]:
     """Fetch the current best-practice snapshot for ``template``.
 
     The ``source`` is the injected seam to cloud / best-practice MCP servers —

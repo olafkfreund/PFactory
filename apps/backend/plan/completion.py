@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -36,7 +36,7 @@ _PHASE_BY_STATUS = {"emitted": "emit", "rejected": "review"}
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _truthy(value: str | None) -> bool:

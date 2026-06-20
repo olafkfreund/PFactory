@@ -62,9 +62,7 @@ def derive_environment(contract: dict) -> dict | None:
     needs_net = browser or "api" in lanes or "integration" in lanes
     network = "restricted" if needs_net else "none"
 
-    proof: list[str] = [
-        "python --version" if lane_language == "python" else "node --version"
-    ]
+    proof: list[str] = ["python --version" if lane_language == "python" else "node --version"]
     if browser:
         proof.append("playwright --version")
 

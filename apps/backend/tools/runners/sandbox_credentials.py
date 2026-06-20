@@ -179,9 +179,7 @@ def resolve_test_target_credentials(
             if spec.as_username and spec.username_ref:
                 env[spec.as_username] = broker.resolve_ref(spec.username_ref).value
         except Exception:  # noqa: BLE001 - one bad ref must not break the lane
-            logger.warning(
-                "failed to resolve test credential %r", spec.name, exc_info=True
-            )
+            logger.warning("failed to resolve test credential %r", spec.name, exc_info=True)
 
     return SandboxCredentials(env=env, broker=broker)
 

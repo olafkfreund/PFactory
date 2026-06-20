@@ -134,7 +134,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
         model: str = _DEFAULT_MODEL,
         base_url: str = _DEFAULT_BASE_URL,
         timeout: int = _DEFAULT_TIMEOUT,
-        working_dir: Path | str = Path("."),
+        working_dir: Path | str = Path(),
         max_turns: int = _DEFAULT_MAX_TURNS,
         tool_names: list[str] | None = None,
         extra_options: dict[str, Any] | None = None,
@@ -146,7 +146,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
         # bare tag (``qwen3:14b``) and returns HTTP 400 if you send the
         # prefix in /api/chat's ``model`` field. Strip it once here.
         if model.startswith("ollama:"):
-            model = model[len("ollama:"):]
+            model = model[len("ollama:") :]
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
@@ -186,9 +186,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
     async def query(self, prompt: str) -> None:
         """Store the prompt for execution when ``receive_response()`` is called."""
         self._pending_prompt = prompt
-        logger.debug(
-            "OllamaAgenticProvider: prompt stored (length=%d)", len(prompt)
-        )
+        logger.debug("OllamaAgenticProvider: prompt stored (length=%d)", len(prompt))
 
     def receive_response(self) -> AsyncIterator[Any]:
         """Return an async generator that runs the agentic tool-calling loop."""
@@ -207,9 +205,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
             Claude SDK message protocol.
         """
         if not self._pending_prompt:
-            logger.warning(
-                "OllamaAgenticProvider.receive_response() called before query()"
-            )
+            logger.warning("OllamaAgenticProvider.receive_response() called before query()")
             return
 
         # Build initial messages
@@ -230,9 +226,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
         _NUDGE_AFTER = 5
 
         for turn in range(self._max_turns):
-            logger.debug(
-                "OllamaAgenticProvider: turn %d/%d", turn + 1, self._max_turns
-            )
+            logger.debug("OllamaAgenticProvider: turn %d/%d", turn + 1, self._max_turns)
 
             # Call Ollama API
             payload = self._build_payload(messages)
@@ -243,10 +237,17 @@ class OllamaAgenticProvider(BaseLLMProvider):
                     asyncio.to_thread(self._http_post, url, payload),
                     timeout=float(self._timeout),
                 )
-            except asyncio.TimeoutError:
-                yield AssistantMessage(content=[TextBlock(
-                    text=f"[Ollama request timed out after {self._timeout}s on turn {turn + 1}]"
-                )])
+            except TimeoutError:
+                yield AssistantMessage(
+                    content=[
+                        TextBlock(
+                            text=(
+                                f"[Ollama request timed out after {self._timeout}s "
+                                f"on turn {turn + 1}]"
+                            )
+                        )
+                    ]
+                )
                 return
 
             # Parse response
@@ -290,9 +291,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
                             except json.JSONDecodeError:
                                 tool_args = {}
 
-                    assistant_blocks.append(
-                        ToolUseBlock(name=tool_name, input=tool_args)
-                    )
+                    assistant_blocks.append(ToolUseBlock(name=tool_name, input=tool_args))
 
                 # Yield the assistant message with text + tool use blocks
                 yield AssistantMessage(content=assistant_blocks)
@@ -333,10 +332,12 @@ class OllamaAgenticProvider(BaseLLMProvider):
                     if isinstance(result_content, list):
                         result_content = "\n".join(str(r) for r in result_content)
 
-                    tool_results_for_api.append({
-                        "role": "tool",
-                        "content": str(result_content),
-                    })
+                    tool_results_for_api.append(
+                        {
+                            "role": "tool",
+                            "content": str(result_content),
+                        }
+                    )
 
                 # Yield UserMessage with tool results (matches Claude SDK protocol)
                 yield UserMessage(content=tool_result_blocks)
@@ -346,9 +347,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
                 messages.extend(tool_results_for_api)
 
                 # ── Convergence guard ──────────────────────────────────────
-                turn_names = [
-                    (tc.get("function", {}) or {}).get("name", "") for tc in tool_calls
-                ]
+                turn_names = [(tc.get("function", {}) or {}).get("name", "") for tc in tool_calls]
                 turn_sigs = [
                     (
                         (tc.get("function", {}) or {}).get("name", ""),
@@ -375,23 +374,23 @@ class OllamaAgenticProvider(BaseLLMProvider):
                     and not _nudged
                     and (_readonly_turns >= _NUDGE_AFTER or repeated)
                 ):
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "You have gathered enough context. Do NOT read or "
-                            "search again. Produce the final required file NOW "
-                            "by calling the Write tool exactly once with the "
-                            "complete file content."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "You have gathered enough context. Do NOT read or "
+                                "search again. Produce the final required file NOW "
+                                "by calling the Write tool exactly once with the "
+                                "complete file content."
+                            ),
+                        }
+                    )
                     _nudged = True
 
             else:
                 # No tool calls — final response
                 if not assistant_blocks:
-                    assistant_blocks.append(
-                        TextBlock(text="(no output from Ollama)")
-                    )
+                    assistant_blocks.append(TextBlock(text="(no output from Ollama)"))
                 yield AssistantMessage(content=assistant_blocks)
                 return
 
@@ -400,9 +399,13 @@ class OllamaAgenticProvider(BaseLLMProvider):
             "OllamaAgenticProvider: max turns (%d) reached, stopping",
             self._max_turns,
         )
-        yield AssistantMessage(content=[TextBlock(
-            text=f"[Reached maximum of {self._max_turns} tool-calling turns. Stopping.]"
-        )])
+        yield AssistantMessage(
+            content=[
+                TextBlock(
+                    text=f"[Reached maximum of {self._max_turns} tool-calling turns. Stopping.]"
+                )
+            ]
+        )
 
     # ------------------------------------------------------------------
     # HTTP helpers (reuse pattern from OllamaProvider)
@@ -443,8 +446,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
             except Exception:
                 pass
             raise RuntimeError(
-                f"Ollama API HTTP error {exc.code}: {exc.reason}. "
-                f"Response body: {error_body}"
+                f"Ollama API HTTP error {exc.code}: {exc.reason}. Response body: {error_body}"
             ) from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
@@ -455,9 +457,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
         try:
             return json.loads(raw.decode("utf-8", errors="replace"))
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"Ollama API returned invalid JSON: {exc}"
-            ) from exc
+            raise RuntimeError(f"Ollama API returned invalid JSON: {exc}") from exc
 
     def _verify_connection(self) -> None:
         """Synchronous health check via ``GET /api/tags``."""
@@ -482,9 +482,7 @@ class OllamaAgenticProvider(BaseLLMProvider):
 
     async def __aenter__(self) -> OllamaAgenticProvider:
         """Verify Ollama server is reachable before starting."""
-        logger.debug(
-            "OllamaAgenticProvider: verifying connection to %s", self._base_url
-        )
+        logger.debug("OllamaAgenticProvider: verifying connection to %s", self._base_url)
         await asyncio.to_thread(self._verify_connection)
         logger.debug("OllamaAgenticProvider: connection verified")
         return self

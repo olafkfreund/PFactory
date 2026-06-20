@@ -395,31 +395,25 @@ The project root is: `{project_dir}`
     # Add capability summary for transparency
     active_caps = [k for k, v in capabilities.items() if v]
     if active_caps:
-        spec_context += (
-            "Based on project analysis, the following capabilities were detected:\n"
-        )
+        spec_context += "Based on project analysis, the following capabilities were detected:\n"
         for cap in active_caps:
-            cap_name = (
-                cap.replace("is_", "").replace("has_", "").replace("_", " ").title()
-            )
+            cap_name = cap.replace("is_", "").replace("has_", "").replace("_", " ").title()
             spec_context += f"- {cap_name}\n"
         spec_context += "\nRelevant validation tools have been included below.\n\n"
     else:
-        spec_context += (
-            "No special project capabilities detected. Using standard validation.\n\n"
-        )
+        spec_context += "No special project capabilities detected. Using standard validation.\n\n"
 
     spec_context += "---\n\n"
 
     # Find injection point in base prompt (after PHASE 4, before PHASE 5)
-    injection_marker = (
-        "<!-- PROJECT-SPECIFIC VALIDATION TOOLS WILL BE INJECTED HERE -->"
-    )
+    injection_marker = "<!-- PROJECT-SPECIFIC VALIDATION TOOLS WILL BE INJECTED HERE -->"
 
     if mcp_sections and injection_marker in base_prompt:
         # Replace marker with actual MCP tool sections
         mcp_content = "\n\n---\n\n## PROJECT-SPECIFIC VALIDATION TOOLS\n\n"
-        mcp_content += "The following validation tools are available based on your project type:\n\n"
+        mcp_content += (
+            "The following validation tools are available based on your project type:\n\n"
+        )
         mcp_content += "\n\n---\n\n".join(mcp_sections)
         mcp_content += "\n\n---\n"
 
@@ -527,8 +521,7 @@ def _build_tests_catalog_block(spec_dir: Path) -> str:
     catalog_path = spec_dir / "context" / "tests_catalog.json"
     if not catalog_path.exists():
         return (
-            "## TESTS CATALOG\n"
-            "(no catalog at this repo yet — every subtask uses intent: create)\n"
+            "## TESTS CATALOG\n(no catalog at this repo yet — every subtask uses intent: create)\n"
         )
     try:
         from tests_catalog import TestsCatalog  # deferred: not on hot path
@@ -558,10 +551,7 @@ def _build_tests_catalog_block(spec_dir: Path) -> str:
         lines.append(f"(catalog has {len(catalog.tests)} entries total)")
         return "\n".join(lines) + "\n"
     except Exception:  # noqa: BLE001
-        return (
-            "## TESTS CATALOG\n"
-            "(catalog present but could not be parsed — treating as absent)\n"
-        )
+        return "## TESTS CATALOG\n(catalog present but could not be parsed — treating as absent)\n"
 
 
 def get_pfactory_planner_prompt(spec_dir: Path, project_dir: Path) -> str:
@@ -737,9 +727,7 @@ def get_pfactory_gen_functional_prompt(
         verification_cmd = verification.get("command") or verification.get("run") or "?"
     else:
         verification_cmd = (
-            getattr(verification, "command", None)
-            or getattr(verification, "run", None)
-            or "?"
+            getattr(verification, "command", None) or getattr(verification, "run", None) or "?"
         )
 
     write_path = files_to_create[0] if files_to_create else "?"

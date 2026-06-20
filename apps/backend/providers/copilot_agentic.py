@@ -83,7 +83,7 @@ class CopilotAgenticProvider(BaseLLMProvider):
         # provider. The CLI only accepts the bare model name, so strip it once
         # here (mirrors OllamaAgenticProvider).
         if model and model.lower().startswith("copilot:"):
-            model = model[len("copilot:"):]
+            model = model[len("copilot:") :]
         if model and not _MODEL_NAME_RE.match(model):
             raise ValueError(
                 f"Invalid model name '{model}': must be alphanumeric with . _ : / - separators"
@@ -167,20 +167,16 @@ class CopilotAgenticProvider(BaseLLMProvider):
             stdout_b, stderr_b = await asyncio.wait_for(
                 proc.communicate(), timeout=float(self._timeout)
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
-            raise RuntimeError(
-                f"Copilot run exceeded timeout ({self._timeout}s)"
-            ) from None
+            raise RuntimeError(f"Copilot run exceeded timeout ({self._timeout}s)") from None
 
         stdout = stdout_b.decode("utf-8", errors="replace")
         stderr = stderr_b.decode("utf-8", errors="replace")
 
         if proc.returncode != 0:
             detail = (stderr or stdout).strip()[:500]
-            raise RuntimeError(
-                f"Copilot CLI exited {proc.returncode}: {detail or '(no output)'}"
-            )
+            raise RuntimeError(f"Copilot CLI exited {proc.returncode}: {detail or '(no output)'}")
 
         response_text = self._strip_trailer(stdout) or "(no output from Copilot CLI)"
         logger.info(

@@ -15,8 +15,8 @@ from analysis.analyzer import (
 )
 
 __all__ = [
-    "ServiceAnalyzer",
     "ProjectAnalyzer",
+    "ServiceAnalyzer",
     "analyze_project",
     "analyze_service",
     "main",

@@ -77,24 +77,18 @@ class FeaturePlanGenerator(PlanGenerator):
                 subtasks.append(
                     Subtask(
                         id=f"{service}-{subtask_id}",
-                        description=f"Modify {path}: {reason}"
-                        if reason
-                        else f"Update {path}",
+                        description=f"Modify {path}: {reason}" if reason else f"Update {path}",
                         service=service,
                         files_to_modify=[path],
                         patterns_from=patterns,
-                        verification=create_verification(
-                            self.context, service, subtask_type
-                        ),
+                        verification=create_verification(self.context, service, subtask_type),
                     )
                 )
 
             # Determine dependencies
             depends_on = []
             service_type = (
-                self.context.project_index.get("services", {})
-                .get(service, {})
-                .get("type", "")
+                self.context.project_index.get("services", {}).get(service, {}).get("type", "")
             )
 
             if service_type in ["worker", "celery", "jobs"] and backend_phase:
@@ -282,12 +276,9 @@ class RefactorPlanGenerator(PlanGenerator):
                     Subtask(
                         id="add-new-implementation",
                         description="Implement new system alongside existing",
-                        files_to_modify=[
-                            f.get("path", "") for f in self.context.files_to_modify
-                        ],
+                        files_to_modify=[f.get("path", "") for f in self.context.files_to_modify],
                         patterns_from=[
-                            f.get("path", "")
-                            for f in self.context.files_to_reference[:3]
+                            f.get("path", "") for f in self.context.files_to_reference[:3]
                         ],
                         verification=Verification(
                             type=VerificationType.COMMAND,

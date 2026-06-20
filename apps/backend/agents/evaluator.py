@@ -52,10 +52,11 @@ import json
 import logging as _logging
 import os
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Literal, Protocol
+from typing import Any, Literal, Protocol
 
 _eval_log = _logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ _eval_log = _logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _read_status(spec_dir: Path) -> dict:
@@ -246,9 +247,7 @@ def _resolve_runner_fn(
             # when egress is opted in. Unit lane (network="none") gets neither.
             from tools.runners.sandbox_credentials import resolve_sandbox_credentials
 
-            sandbox_creds = resolve_sandbox_credentials(
-                project_dir_arg, spec_dir, network
-            )
+            sandbox_creds = resolve_sandbox_credentials(project_dir_arg, spec_dir, network)
             extra_env.update(sandbox_creds.env)
             # Test-target login credentials (#107): a ref-auth target's
             # username/secret, resolved + injected as env (egress-gated like #73).
@@ -756,11 +755,7 @@ def _kube_runtime_for(target: dict | None, *, runtime_cls=None):
     (on success *and* failure). Auth rides the materialised read-only kubeconfig
     (``KUBECONFIG``). Returns None for non-k8s targets (the static-URL path).
     """
-    if (
-        not target
-        or target.get("type") != "kubernetes"
-        or not target.get("port_forward")
-    ):
+    if not target or target.get("type") != "kubernetes" or not target.get("port_forward"):
         return None
     from types import SimpleNamespace
 
@@ -853,9 +848,7 @@ def _resolve_browser_runner_fn(
     def _run(test_file: Path, project_dir_arg: Path, seed: int) -> DockerRunResult:
         # relative path of the spec inside the project checkout
         try:
-            rel = str(
-                Path(test_file).resolve().relative_to(Path(project_dir_arg).resolve())
-            )
+            rel = str(Path(test_file).resolve().relative_to(Path(project_dir_arg).resolve()))
         except ValueError:
             # test_file lives in the workspace, not the checkout — use its
             # path relative to the workspace tests/ layout instead.
@@ -1051,10 +1044,7 @@ def _resolve_jest_runner_fn(image: str = _JEST_IMAGE):
             scratch.chmod(0o777)
 
             runner = DockerRunner(image=image, network="none", read_only_rootfs=False)
-            node_path = (
-                "/usr/local/lib/node_modules:"
-                "/usr/local/lib/node_modules/jest/node_modules"
-            )
+            node_path = "/usr/local/lib/node_modules:/usr/local/lib/node_modules/jest/node_modules"
             cmd = (
                 "ln -sfn /usr/local/lib/node_modules /scratch/node_modules; "
                 "cd /scratch && "
@@ -1353,19 +1343,13 @@ async def run_evaluator(
                             runtime.target_url, spec_dir=spec_dir, subtask=st
                         )
                         bundles.append(
-                            _build_browser_signal_bundle(
-                                spec_dir, project_dir, st, browser_runner
-                            )
+                            _build_browser_signal_bundle(spec_dir, project_dir, st, browser_runner)
                         )
                 else:
                     url = _browser_target_url(spec_dir, st)
-                    browser_runner = _resolve_browser_runner_fn(
-                        url, spec_dir=spec_dir, subtask=st
-                    )
+                    browser_runner = _resolve_browser_runner_fn(url, spec_dir=spec_dir, subtask=st)
                     bundles.append(
-                        _build_browser_signal_bundle(
-                            spec_dir, project_dir, st, browser_runner
-                        )
+                        _build_browser_signal_bundle(spec_dir, project_dir, st, browser_runner)
                     )
         if api_completed:
             for st in api_completed:
@@ -1383,9 +1367,7 @@ async def run_evaluator(
                             subtask=st,
                         )
                         bundles.append(
-                            _build_api_signal_bundle(
-                                spec_dir, project_dir, st, api_runner
-                            )
+                            _build_api_signal_bundle(spec_dir, project_dir, st, api_runner)
                         )
                 else:
                     url = _browser_target_url(spec_dir, st)
@@ -1396,9 +1378,7 @@ async def run_evaluator(
                         target_url=url,
                         subtask=st,
                     )
-                    bundles.append(
-                        _build_api_signal_bundle(spec_dir, project_dir, st, api_runner)
-                    )
+                    bundles.append(_build_api_signal_bundle(spec_dir, project_dir, st, api_runner))
         if jest_completed:
             jest_runner = _resolve_jest_runner_fn()
             bundles += [
@@ -1419,9 +1399,7 @@ async def run_evaluator(
                 verbose,
             )
         except Exception as exc:  # noqa: BLE001 — surface in status
-            _eval_log.error(
-                "evaluator session raised: %s\n%s", exc, traceback.format_exc()
-            )
+            _eval_log.error("evaluator session raised: %s\n%s", exc, traceback.format_exc())
             _write_status_patch(
                 spec_dir,
                 status="evaluator_failed",

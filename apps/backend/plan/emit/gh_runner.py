@@ -18,8 +18,9 @@ path segment is the issue number.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 
 class GhRunnerError(RuntimeError):
@@ -36,15 +37,21 @@ class _SubprocessResultLike(Protocol):
 
 
 def _default_runner_fn(
-    argv: list[str], *, cwd: Path, stdin: str | None = None,
+    argv: list[str],
+    *,
+    cwd: Path,
+    stdin: str | None = None,
 ) -> _SubprocessResultLike:
     """Default runner that ACTUALLY shells out."""
     import subprocess
 
     return subprocess.run(
-        argv, cwd=str(cwd),
+        argv,
+        cwd=str(cwd),
         input=stdin if stdin is not None else None,
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -97,9 +104,19 @@ class GhCliRunner:
         for label in labels:
             try:
                 self._run(
-                    ["gh", "label", "create", label, "-R", self._repo,
-                     "--color", "ededed", "--force"],
-                    cwd=self._cwd, stdin=None,
+                    [
+                        "gh",
+                        "label",
+                        "create",
+                        label,
+                        "-R",
+                        self._repo,
+                        "--color",
+                        "ededed",
+                        "--force",
+                    ],
+                    cwd=self._cwd,
+                    stdin=None,
                 )
             except Exception:  # noqa: BLE001 — label bootstrap is best-effort
                 pass
@@ -109,15 +126,12 @@ class GhCliRunner:
         # missing one of the taxonomy labels (see _ensure_labels).
         if labels:
             self._ensure_labels(labels)
-        argv = ["gh", "issue", "create", "-R", self._repo,
-                "--title", title, "--body-file", "-"]
+        argv = ["gh", "issue", "create", "-R", self._repo, "--title", title, "--body-file", "-"]
         for label in labels:
             argv += ["--label", label]
         res = self._run(argv, cwd=self._cwd, stdin=body)
         if res.returncode != 0:
-            raise GhRunnerError(
-                f"gh issue create failed: {(res.stderr or '').strip()[:300]}"
-            )
+            raise GhRunnerError(f"gh issue create failed: {(res.stderr or '').strip()[:300]}")
         return _parse_issue_number(res.stdout)
 
     def link_sub_issue(self, parent: int, child: int) -> None:
@@ -129,7 +143,8 @@ class GhCliRunner:
         """
         res = self._run(
             ["gh", "api", f"repos/{self._repo}/issues/{child}", "--jq", ".id"],
-            cwd=self._cwd, stdin=None,
+            cwd=self._cwd,
+            stdin=None,
         )
         if res.returncode != 0:
             raise GhRunnerError(
@@ -137,13 +152,19 @@ class GhCliRunner:
             )
         child_id = (res.stdout or "").strip()
         res2 = self._run(
-            ["gh", "api", "--method", "POST",
-             f"repos/{self._repo}/issues/{parent}/sub_issues",
-             "-F", f"sub_issue_id={child_id}"],
-            cwd=self._cwd, stdin=None,
+            [
+                "gh",
+                "api",
+                "--method",
+                "POST",
+                f"repos/{self._repo}/issues/{parent}/sub_issues",
+                "-F",
+                f"sub_issue_id={child_id}",
+            ],
+            cwd=self._cwd,
+            stdin=None,
         )
         if res2.returncode != 0:
             raise GhRunnerError(
-                f"link sub-issue #{child}→#{parent} failed: "
-                f"{(res2.stderr or '').strip()[:200]}"
+                f"link sub-issue #{child}→#{parent} failed: {(res2.stderr or '').strip()[:200]}"
             )

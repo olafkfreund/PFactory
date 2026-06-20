@@ -131,9 +131,7 @@ def print_merge_success(
                 ]
             )
             if spec_name:
-                lines.append(
-                    f"  python pfactory/run.py --spec {spec_name} --discard"
-                )
+                lines.append(f"  python pfactory/run.py --spec {spec_name} --discard")
         else:
             lines.extend(
                 [
@@ -157,11 +155,7 @@ def print_conflict_info(result: dict) -> None:
         return
 
     print()
-    print(
-        warning(
-            f"  {len(conflicts)} file{'s' if len(conflicts) != 1 else ''} had conflicts:"
-        )
-    )
+    print(warning(f"  {len(conflicts)} file{'s' if len(conflicts) != 1 else ''} had conflicts:"))
     for conflict_file in conflicts:
         print(f"    {highlight(conflict_file)}")
     print()

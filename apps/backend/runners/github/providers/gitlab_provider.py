@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -25,6 +25,7 @@ from .protocol import (
 )
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class GitLabProvider:
@@ -66,12 +67,16 @@ class GitLabProvider:
         """Fetch GitLab Merge Request details."""
         async with self._client() as client:
             # Fetch MR basic details
-            mr_resp = await client.get(f"/api/v4/projects/{self._project_id}/merge_requests/{number}")
+            mr_resp = await client.get(
+                f"/api/v4/projects/{self._project_id}/merge_requests/{number}"
+            )
             mr_resp.raise_for_status()
             mr_data = mr_resp.json()
 
             # Fetch MR diffs
-            diff_resp = await client.get(f"/api/v4/projects/{self._project_id}/merge_requests/{number}/diffs")
+            diff_resp = await client.get(
+                f"/api/v4/projects/{self._project_id}/merge_requests/{number}/diffs"
+            )
             diffs = []
             unified_diff = ""
             if diff_resp.status_code == 200:
@@ -89,19 +94,25 @@ class GitLabProvider:
                 file_dels = file_diff.count("\n-")
                 additions += file_adds
                 deletions += file_dels
-                files.append({
-                    "path": d.get("new_path") or d.get("old_path"),
-                    "additions": file_adds,
-                    "deletions": file_dels,
-                    "type": "modified" if not d.get("new_file") and not d.get("deleted_file") else ("added" if d.get("new_file") else "deleted")
-                })
+                files.append(
+                    {
+                        "path": d.get("new_path") or d.get("old_path"),
+                        "additions": file_adds,
+                        "deletions": file_dels,
+                        "type": "modified"
+                        if not d.get("new_file") and not d.get("deleted_file")
+                        else ("added" if d.get("new_file") else "deleted"),
+                    }
+                )
 
             return PRData(
                 number=mr_data["iid"],
                 title=mr_data["title"],
                 body=mr_data.get("description") or "",
                 author=mr_data.get("author", {}).get("username", ""),
-                state="merged" if mr_data.get("state") == "merged" else ("open" if mr_data.get("state") == "opened" else "closed"),
+                state="merged"
+                if mr_data.get("state") == "merged"
+                else ("open" if mr_data.get("state") == "opened" else "closed"),
                 source_branch=mr_data.get("source_branch") or "",
                 target_branch=mr_data.get("target_branch") or "",
                 additions=additions,
@@ -113,25 +124,29 @@ class GitLabProvider:
                 created_at=self._parse_datetime(mr_data.get("created_at")),
                 updated_at=self._parse_datetime(mr_data.get("updated_at")),
                 labels=mr_data.get("labels") or [],
-                reviewers=[r.get("username", "") for r in mr_data.get("reviewers", [])] if mr_data.get("reviewers") else [],
+                reviewers=[r.get("username", "") for r in mr_data.get("reviewers", [])]
+                if mr_data.get("reviewers")
+                else [],
                 is_draft=mr_data.get("work_in_progress") or mr_data.get("draft") or False,
                 mergeable=mr_data.get("merge_status") == "can_be_merged",
                 provider=ProviderType.GITLAB,
-                raw_data=mr_data
+                raw_data=mr_data,
             )
 
     async def fetch_prs(self, filters: PRFilters | None = None) -> list[PRData]:
         """Fetch merge requests list with optional filters."""
         filters = filters or PRFilters()
         params: dict[str, Any] = {"per_page": filters.limit}
-        
+
         if filters.state == "open":
             params["state"] = "opened"
         elif filters.state in ("closed", "merged"):
             params["state"] = filters.state
 
         async with self._client() as client:
-            resp = await client.get(f"/api/v4/projects/{self._project_id}/merge_requests", params=params)
+            resp = await client.get(
+                f"/api/v4/projects/{self._project_id}/merge_requests", params=params
+            )
             resp.raise_for_status()
             mr_list = resp.json()
 
@@ -155,7 +170,7 @@ class GitLabProvider:
                     results.append(full_pr)
                 except Exception as e:
                     logger.error(f"Error fetching GitLab MR details for iid {mr.get('iid')}: {e}")
-            
+
             return results
 
     async def fetch_pr_diff(self, number: int) -> str:
@@ -170,7 +185,7 @@ class GitLabProvider:
             note_payload = {"body": review.body}
             note_resp = await client.post(
                 f"/api/v4/projects/{self._project_id}/merge_requests/{pr_number}/notes",
-                json=note_payload
+                json=note_payload,
             )
             note_resp.raise_for_status()
             note_id = note_resp.json()["id"]
@@ -188,13 +203,13 @@ class GitLabProvider:
                             "new_line": finding.line,
                             "base_sha": "HEAD",  # Fallbacks
                             "start_sha": "HEAD",
-                            "head_sha": "HEAD"
-                        }
+                            "head_sha": "HEAD",
+                        },
                     }
                     try:
                         disc_resp = await client.post(
                             f"/api/v4/projects/{self._project_id}/merge_requests/{pr_number}/discussions",
-                            json=disc_payload
+                            json=disc_payload,
                         )
                         # If complex position parameter fails due to SHA mismatches, fallback to a standard note comment
                         if disc_resp.status_code != 201:
@@ -203,7 +218,7 @@ class GitLabProvider:
                             }
                             await client.post(
                                 f"/api/v4/projects/{self._project_id}/merge_requests/{pr_number}/notes",
-                                json=fallback_payload
+                                json=fallback_payload,
                             )
                     except Exception as e:
                         logger.error(f"Error posting GitLab discussion: {e}")
@@ -227,7 +242,9 @@ class GitLabProvider:
         # GitLab uses "Draft: " title prefix to mark a draft MR (the dedicated
         # `draft` boolean works only on newer GitLab versions; the prefix is
         # universally supported and matches what the web UI does).
-        effective_title = f"Draft: {title}" if draft and not title.lower().startswith("draft:") else title
+        effective_title = (
+            f"Draft: {title}" if draft and not title.lower().startswith("draft:") else title
+        )
         payload = {
             "source_branch": source_branch,
             "target_branch": target_branch,
@@ -265,7 +282,7 @@ class GitLabProvider:
         async with self._client() as client:
             resp = await client.put(
                 f"/api/v4/projects/{self._project_id}/merge_requests/{pr_number}/merge",
-                json=payload
+                json=payload,
             )
             return resp.status_code in (200, 202)
 
@@ -277,7 +294,7 @@ class GitLabProvider:
         async with self._client() as client:
             resp = await client.put(
                 f"/api/v4/projects/{self._project_id}/merge_requests/{pr_number}",
-                json={"state_event": "close"}
+                json={"state_event": "close"},
             )
             return resp.status_code == 200
 
@@ -296,7 +313,7 @@ class GitLabProvider:
         """Fetch issues with optional filters."""
         filters = filters or IssueFilters()
         params: dict[str, Any] = {"per_page": filters.limit}
-        
+
         if filters.state == "open":
             params["state"] = "opened"
         elif filters.state == "closed":
@@ -326,10 +343,7 @@ class GitLabProvider:
         assignees: list[str] | None = None,
     ) -> IssueData:
         """Create a new GitLab issue."""
-        payload: dict[str, Any] = {
-            "title": title,
-            "description": body
-        }
+        payload: dict[str, Any] = {"title": title, "description": body}
         if labels:
             payload["labels"] = ",".join(labels)
 
@@ -357,7 +371,7 @@ class GitLabProvider:
         async with self._client() as client:
             resp = await client.put(
                 f"/api/v4/projects/{self._project_id}/issues/{number}",
-                json={"state_event": "close"}
+                json={"state_event": "close"},
             )
             return resp.status_code == 200
 
@@ -367,14 +381,14 @@ class GitLabProvider:
         async with self._client() as client:
             mr_resp = await client.post(
                 f"/api/v4/projects/{self._project_id}/merge_requests/{issue_or_pr_number}/notes",
-                json={"body": body}
+                json={"body": body},
             )
             if mr_resp.status_code == 201:
                 return mr_resp.json()["id"]
 
             issue_resp = await client.post(
                 f"/api/v4/projects/{self._project_id}/issues/{issue_or_pr_number}/notes",
-                json={"body": body}
+                json={"body": body},
             )
             issue_resp.raise_for_status()
             return issue_resp.json()["id"]
@@ -385,9 +399,7 @@ class GitLabProvider:
     # insensitive) for callers that want explicit naming.
     _DUO_ALIASES = frozenset({"copilot", "duo", "gitlab-duo"})
 
-    async def assign_to_user(
-        self, issue_number: int, assignees: list[str]
-    ) -> None:
+    async def assign_to_user(self, issue_number: int, assignees: list[str]) -> None:
         """Trigger a GitLab Duo Workflow against the issue (#98, V1.5).
 
         Mirrors the GitHub provider's ``assign_to_user`` contract: when
@@ -408,9 +420,7 @@ class GitLabProvider:
             return
 
         wants_duo = any(a.strip().lower() in self._DUO_ALIASES for a in assignees)
-        regular_logins = [
-            a for a in assignees if a.strip().lower() not in self._DUO_ALIASES
-        ]
+        regular_logins = [a for a in assignees if a.strip().lower() not in self._DUO_ALIASES]
 
         if wants_duo:
             await self._trigger_duo_workflow(issue_number)
@@ -510,9 +520,7 @@ class GitLabProvider:
         async with self._client() as client:
             assignee_ids: list[int] = []
             for username in usernames:
-                user_resp = await client.get(
-                    "/api/v4/users", params={"username": username}
-                )
+                user_resp = await client.get("/api/v4/users", params={"username": username})
                 if user_resp.status_code == 200 and user_resp.json():
                     assignee_ids.append(user_resp.json()[0]["id"])
             if not assignee_ids:
@@ -531,12 +539,12 @@ class GitLabProvider:
             # Try MR update first, then issue update
             mr_resp = await client.put(
                 f"/api/v4/projects/{self._project_id}/merge_requests/{issue_or_pr_number}",
-                json={"add_labels": ",".join(labels)}
+                json={"add_labels": ",".join(labels)},
             )
             if mr_resp.status_code != 200:
                 await client.put(
                     f"/api/v4/projects/{self._project_id}/issues/{issue_or_pr_number}",
-                    json={"add_labels": ",".join(labels)}
+                    json={"add_labels": ",".join(labels)},
                 )
 
     async def remove_labels(self, issue_or_pr_number: int, labels: list[str]) -> None:
@@ -544,21 +552,17 @@ class GitLabProvider:
         async with self._client() as client:
             mr_resp = await client.put(
                 f"/api/v4/projects/{self._project_id}/merge_requests/{issue_or_pr_number}",
-                json={"remove_labels": ",".join(labels)}
+                json={"remove_labels": ",".join(labels)},
             )
             if mr_resp.status_code != 200:
                 await client.put(
                     f"/api/v4/projects/{self._project_id}/issues/{issue_or_pr_number}",
-                    json={"remove_labels": ",".join(labels)}
+                    json={"remove_labels": ",".join(labels)},
                 )
 
     async def create_label(self, label: LabelData) -> None:
         """Create a new label in the repository."""
-        payload = {
-            "name": label.name,
-            "color": label.color,
-            "description": label.description
-        }
+        payload = {"name": label.name, "color": label.color, "description": label.description}
         async with self._client() as client:
             await client.post(f"/api/v4/projects/{self._project_id}/labels", json=payload)
 
@@ -572,7 +576,7 @@ class GitLabProvider:
                 LabelData(
                     name=lbl["name"],
                     color=lbl.get("color") or "#909090",
-                    description=lbl.get("description") or ""
+                    description=lbl.get("description") or "",
                 )
                 for lbl in labels_list
             ]
@@ -596,7 +600,9 @@ class GitLabProvider:
         """Evaluate a user's access level in GitLab (admin, write, read, none)."""
         async with self._client() as client:
             # Query members endpoint to get access levels
-            resp = await client.get(f"/api/v4/projects/{self._project_id}/members/all", params={"query": username})
+            resp = await client.get(
+                f"/api/v4/projects/{self._project_id}/members/all", params={"query": username}
+            )
             if resp.status_code == 200 and resp.json():
                 user_info = resp.json()[0]
                 access_level = user_info.get("access_level", 0)
@@ -638,16 +644,18 @@ class GitLabProvider:
             created_at=self._parse_datetime(issue.get("created_at")),
             updated_at=self._parse_datetime(issue.get("updated_at")),
             url=issue.get("web_url") or "",
-            assignees=[a.get("username", "") for a in issue.get("assignees", [])] if issue.get("assignees") else [],
+            assignees=[a.get("username", "") for a in issue.get("assignees", [])]
+            if issue.get("assignees")
+            else [],
             milestone=issue.get("milestone", {}).get("title") if issue.get("milestone") else None,
             provider=ProviderType.GITLAB,
-            raw_data=issue
+            raw_data=issue,
         )
 
     def _parse_datetime(self, val: str | None) -> datetime:
         if not val:
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
         try:
             return datetime.fromisoformat(val.replace("Z", "+00:00"))
         except Exception:
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)

@@ -36,7 +36,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Add pfactory to path
@@ -164,7 +164,7 @@ async def test_save_episode(db_path: str, database: str) -> tuple[str, str]:
         # Create test episode data
         test_data = {
             "type": "test_episode",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "test_field": "Hello from LadybugDB test!",
             "test_number": 42,
             "embedder": config.embedder_provider,
@@ -187,7 +187,7 @@ async def test_save_episode(db_path: str, database: str) -> tuple[str, str]:
             episode_body=json.dumps(test_data),
             source=EpisodeType.text,
             source_description="Test episode from test_graphiti_memory.py",
-            reference_time=datetime.now(timezone.utc),
+            reference_time=datetime.now(UTC),
             group_id=group_id,
         )
 
@@ -322,13 +322,9 @@ async def test_semantic_search(db_path: str, database: str, group_id: str) -> bo
         await client.close()
 
         if results:
-            print_result(
-                "Semantic Search", f"SUCCESS - Found {len(results)} results", True
-            )
+            print_result("Semantic Search", f"SUCCESS - Found {len(results)} results", True)
         else:
-            print_result(
-                "Semantic Search", "No results (may need time for embedding)", False
-            )
+            print_result("Semantic Search", "No results (may need time for embedding)", False)
 
         return len(results) > 0
 
@@ -359,15 +355,11 @@ async def test_ollama_embeddings() -> bool:
         try:
             resp = requests.get(f"{ollama_base_url}/api/tags", timeout=5)
             if resp.status_code != 200:
-                print_result(
-                    "Ollama", f"Not responding (status {resp.status_code})", False
-                )
+                print_result("Ollama", f"Not responding (status {resp.status_code})", False)
                 return False
 
             models = [m["name"] for m in resp.json().get("models", [])]
-            embedding_models = [
-                m for m in models if "embed" in m.lower() or "gemma" in m.lower()
-            ]
+            embedding_models = [m for m in models if "embed" in m.lower() or "gemma" in m.lower()]
             print_result("Ollama", f"Running with {len(models)} models", True)
             print(f"    Embedding models: {embedding_models}")
 
@@ -379,9 +371,7 @@ async def test_ollama_embeddings() -> bool:
         print()
         print("  Generating test embedding...")
 
-        test_text = (
-            "This is a test embedding for PFactory memory system using LadybugDB."
-        )
+        test_text = "This is a test embedding for PFactory memory system using LadybugDB."
 
         resp = requests.post(
             f"{ollama_base_url}/api/embeddings",
@@ -405,15 +395,11 @@ async def test_ollama_embeddings() -> bool:
                     f"Mismatch! Got {len(embedding)}, expected {expected_dim}",
                     False,
                 )
-                print_info(
-                    f"Update OLLAMA_EMBEDDING_DIM={len(embedding)} in your config"
-                )
+                print_info(f"Update OLLAMA_EMBEDDING_DIM={len(embedding)} in your config")
 
             return True
         else:
-            print_result(
-                "Embedding", f"FAILED: {resp.status_code} - {resp.text}", False
-            )
+            print_result("Embedding", f"FAILED: {resp.status_code} - {resp.text}", False)
             return False
 
     except ImportError:
@@ -482,12 +468,8 @@ async def test_graphiti_memory_class(db_path: str, database: str) -> bool:
             "recommendations_for_next_session": ["Continue testing"],
         }
 
-        save_result = await memory.save_session_insights(
-            session_num=1, insights=insights
-        )
-        print_result(
-            "save_session_insights", "SUCCESS" if save_result else "FAILED", save_result
-        )
+        save_result = await memory.save_session_insights(session_num=1, insights=insights)
+        print_result("save_session_insights", "SUCCESS" if save_result else "FAILED", save_result)
 
         # Test save_pattern
         print()
@@ -495,9 +477,7 @@ async def test_graphiti_memory_class(db_path: str, database: str) -> bool:
         pattern_result = await memory.save_pattern(
             "LadybugDB pattern: Embedded graph database works without Docker"
         )
-        print_result(
-            "save_pattern", "SUCCESS" if pattern_result else "FAILED", pattern_result
-        )
+        print_result("save_pattern", "SUCCESS" if pattern_result else "FAILED", pattern_result)
 
         # Test get_relevant_context
         print()
@@ -659,12 +639,8 @@ async def main():
     if embedder_provider == "ollama":
         ollama_model = os.environ.get("OLLAMA_EMBEDDING_MODEL", "")
         ollama_dim = os.environ.get("OLLAMA_EMBEDDING_DIM", "")
-        print_result(
-            "OLLAMA_EMBEDDING_MODEL", ollama_model or "(not set)", bool(ollama_model)
-        )
-        print_result(
-            "OLLAMA_EMBEDDING_DIM", ollama_dim or "(not set)", bool(ollama_dim)
-        )
+        print_result("OLLAMA_EMBEDDING_MODEL", ollama_model or "(not set)", bool(ollama_model))
+        print_result("OLLAMA_EMBEDDING_DIM", ollama_dim or "(not set)", bool(ollama_dim))
     elif embedder_provider == "openai":
         has_key = bool(os.environ.get("OPENAI_API_KEY"))
         print_result("OPENAI_API_KEY", "Set" if has_key else "Not set", has_key)
@@ -689,9 +665,7 @@ async def main():
         await test_keyword_search(args.db_path, args.database)
 
     if test in ["all", "semantic"]:
-        await test_semantic_search(
-            args.db_path, args.database, group_id or "ladybug_test_group"
-        )
+        await test_semantic_search(args.db_path, args.database, group_id or "ladybug_test_group")
 
     if test in ["all", "memory"]:
         await test_graphiti_memory_class(args.db_path, args.database)
@@ -710,9 +684,7 @@ async def main():
     print("    python integrations/graphiti/test_graphiti_memory.py --test ollama")
     print()
     print("    # Test with production database:")
-    print(
-        "    python integrations/graphiti/test_graphiti_memory.py --database magestic_ai_memory"
-    )
+    print("    python integrations/graphiti/test_graphiti_memory.py --database magestic_ai_memory")
     print()
 
 

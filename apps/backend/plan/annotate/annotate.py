@@ -13,9 +13,34 @@ if TYPE_CHECKING:
 
 # Words too generic to anchor on.
 _STOP = {
-    "the", "a", "an", "is", "are", "no", "not", "to", "of", "in", "on", "and",
-    "or", "for", "with", "plan", "issue", "child", "has", "have", "should",
-    "criteria", "criterion", "this", "that", "its", "be", "needs",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "no",
+    "not",
+    "to",
+    "of",
+    "in",
+    "on",
+    "and",
+    "or",
+    "for",
+    "with",
+    "plan",
+    "issue",
+    "child",
+    "has",
+    "have",
+    "should",
+    "criteria",
+    "criterion",
+    "this",
+    "that",
+    "its",
+    "be",
+    "needs",
 }
 
 
@@ -111,10 +136,16 @@ def _render_improved(original: str, suggestions: list[SuggestedEdit]) -> str:
     for i, s in enumerate(suggestions, 1):
         where = f"line {s.anchor_line}" if s.anchor_line else "whole document"
         out.append(f"### {i}. {s.suggestion}  `[{s.severity}]`")
-        out.append(f"- **Where:** {where}" + (f" — “{s.original_excerpt}”" if s.original_excerpt else ""))
+        out.append(
+            f"- **Where:** {where}" + (f" — “{s.original_excerpt}”" if s.original_excerpt else "")
+        )
         out.append(f"- **Why:** {s.why}")
         if s.citation and (s.citation.uri or s.citation.title):
             label = s.citation.title or s.citation.source or s.citation.uri
-            out.append(f"- **Source:** [{label}]({s.citation.uri})" if s.citation.uri else f"- **Source:** {label}")
+            out.append(
+                f"- **Source:** [{label}]({s.citation.uri})"
+                if s.citation.uri
+                else f"- **Source:** {label}"
+            )
         out.append("")
     return "\n".join(out)

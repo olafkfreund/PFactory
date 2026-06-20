@@ -80,7 +80,7 @@ def provisioned(factory, *, cost_guard: CostGuard):
 def make_liveness_check(target: EphemeralTarget):
     """Adapt a provisioned target into the curation gate's ``liveness_check`` (#86)."""
 
-    def liveness_check(_req) -> bool:  # noqa: ANN001
+    def liveness_check(_req) -> bool:
         try:
             return bool(target.live())
         except Exception as exc:  # noqa: BLE001 - a probe failure is "not live", not a crash

@@ -9,8 +9,8 @@ hand it to a coding agent. **Dry-run by default** (no GitHub call unless
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from .model import RunMeta
 
@@ -32,7 +32,7 @@ def _child_body(step, target: dict) -> str:
     return "\n".join(
         [
             "## What's wrong",
-            f"Visual inspection step {step.n} (\"{step.label}\") failed on "
+            f'Visual inspection step {step.n} ("{step.label}") failed on '
             f"`{target.get('name', '?')}`.",
             "",
             f"> {step.error or 'the step assertion failed'}",
@@ -106,15 +106,41 @@ def register_issues(
         return {"dry_run": True, "count": len(children), "epic": None, "children": []}
 
     run = gh_runner or _default_gh
-    rc, out = run(["gh", "issue", "create", "--repo", repo, "--title", epic.title,
-                   "--body", epic.body, "--label", ",".join(epic.labels)])
+    rc, out = run(
+        [
+            "gh",
+            "issue",
+            "create",
+            "--repo",
+            repo,
+            "--title",
+            epic.title,
+            "--body",
+            epic.body,
+            "--label",
+            ",".join(epic.labels),
+        ]
+    )
     epic_url = (out or "").strip()
     epic_num = epic_url.rstrip("/").rsplit("/", 1)[-1] if epic_url else ""
     created: list[str] = []
     for c in children:
         body = c.body + (f"\n\nPart of epic #{epic_num}." if epic_num else "")
-        _, curl = run(["gh", "issue", "create", "--repo", repo, "--title", c.title,
-                       "--body", body, "--label", ",".join(c.labels)])
+        _, curl = run(
+            [
+                "gh",
+                "issue",
+                "create",
+                "--repo",
+                repo,
+                "--title",
+                c.title,
+                "--body",
+                body,
+                "--label",
+                ",".join(c.labels),
+            ]
+        )
         created.append((curl or "").strip())
     return {"dry_run": False, "count": len(children), "epic": epic_url, "children": created}
 

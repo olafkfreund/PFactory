@@ -74,4 +74,4 @@ class RedactingFilter(logging.Filter):
         return True
 
 
-__all__ = ["Redactor", "RedactingFilter", "scrub_patterns"]
+__all__ = ["RedactingFilter", "Redactor", "scrub_patterns"]

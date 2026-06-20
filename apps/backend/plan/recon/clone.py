@@ -83,9 +83,7 @@ def _hardened_env(home: str) -> dict[str, str]:
     return env
 
 
-def _run_git(
-    args: list[str], *, cwd: str, env: dict[str, str]
-) -> subprocess.CompletedProcess:
+def _run_git(args: list[str], *, cwd: str, env: dict[str, str]) -> subprocess.CompletedProcess:
     """Run git with no shell, hooks disabled, bounded time. Raises on failure."""
     return subprocess.run(  # noqa: S603 - fixed argv, no shell, hardened env
         ["git", "-c", "core.hooksPath=/dev/null", *args],
@@ -148,12 +146,8 @@ def clone_for_recon(repo: str, base_ref: str | None = None) -> Iterator[CloneRes
             return
         except subprocess.CalledProcessError as exc:
             # stderr may contain the token-bearing URL; never surface it.
-            yield CloneResult(
-                ok=False, error="clone failed (repo unreachable or ref not found)"
-            )
-            logger.info(
-                "recon clone failed for %s@%s: rc=%s", repo, base_ref, exc.returncode
-            )
+            yield CloneResult(ok=False, error="clone failed (repo unreachable or ref not found)")
+            logger.info("recon clone failed for %s@%s: rc=%s", repo, base_ref, exc.returncode)
             return
 
         limit_err = _within_limits(work)
@@ -163,10 +157,7 @@ def clone_for_recon(repo: str, base_ref: str | None = None) -> Iterator[CloneRes
 
         commit: str | None = None
         with contextlib.suppress(subprocess.SubprocessError):
-            commit = (
-                _run_git(["rev-parse", "HEAD"], cwd=str(work), env=env).stdout.strip()
-                or None
-            )
+            commit = _run_git(["rev-parse", "HEAD"], cwd=str(work), env=env).stdout.strip() or None
 
         yield CloneResult(ok=True, path=work, commit=commit)
     finally:

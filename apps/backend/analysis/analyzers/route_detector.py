@@ -60,9 +60,7 @@ class RouteDetector(BaseAnalyzer):
     def _detect_fastapi_routes(self) -> list[dict]:
         """Detect FastAPI routes."""
         routes = []
-        files_to_check = [
-            f for f in self.path.glob("**/*.py") if self._should_include_file(f)
-        ]
+        files_to_check = [f for f in self.path.glob("**/*.py") if self._should_include_file(f)]
 
         for file_path in files_to_check:
             try:
@@ -93,8 +91,7 @@ class RouteDetector(BaseAnalyzer):
                         path = match.group(1)
                         methods_str = match.group(2)
                         methods = [
-                            m.strip().strip('"').strip("'").upper()
-                            for m in methods_str.split(",")
+                            m.strip().strip('"').strip("'").upper() for m in methods_str.split(",")
                         ]
 
                     # Check if route requires auth (has Depends in the decorator)
@@ -105,8 +102,7 @@ class RouteDetector(BaseAnalyzer):
                     ]
 
                     requires_auth = (
-                        "Depends" in route_definition
-                        or "require" in route_definition.lower()
+                        "Depends" in route_definition or "require" in route_definition.lower()
                     )
 
                     routes.append(
@@ -124,9 +120,7 @@ class RouteDetector(BaseAnalyzer):
     def _detect_flask_routes(self) -> list[dict]:
         """Detect Flask routes."""
         routes = []
-        files_to_check = [
-            f for f in self.path.glob("**/*.py") if self._should_include_file(f)
-        ]
+        files_to_check = [f for f in self.path.glob("**/*.py") if self._should_include_file(f)]
 
         for file_path in files_to_check:
             try:
@@ -144,8 +138,7 @@ class RouteDetector(BaseAnalyzer):
 
                 if methods_str:
                     methods = [
-                        m.strip().strip('"').strip("'").upper()
-                        for m in methods_str.split(",")
+                        m.strip().strip('"').strip("'").upper() for m in methods_str.split(",")
                     ]
                 else:
                     methods = ["GET"]  # Flask default
@@ -154,8 +147,7 @@ class RouteDetector(BaseAnalyzer):
                 decorator_start = content.rfind("@", 0, match.start())
                 decorator_section = content[decorator_start : match.end()]
                 requires_auth = (
-                    "login_required" in decorator_section
-                    or "require" in decorator_section.lower()
+                    "login_required" in decorator_section or "require" in decorator_section.lower()
                 )
 
                 routes.append(
@@ -173,9 +165,7 @@ class RouteDetector(BaseAnalyzer):
     def _detect_django_routes(self) -> list[dict]:
         """Detect Django routes from urls.py files."""
         routes = []
-        url_files = [
-            f for f in self.path.glob("**/urls.py") if self._should_include_file(f)
-        ]
+        url_files = [f for f in self.path.glob("**/urls.py") if self._should_include_file(f)]
 
         for file_path in url_files:
             try:
@@ -209,12 +199,8 @@ class RouteDetector(BaseAnalyzer):
     def _detect_express_routes(self) -> list[dict]:
         """Detect Express/Fastify/Koa routes."""
         routes = []
-        js_files = [
-            f for f in self.path.glob("**/*.js") if self._should_include_file(f)
-        ]
-        ts_files = [
-            f for f in self.path.glob("**/*.ts") if self._should_include_file(f)
-        ]
+        js_files = [f for f in self.path.glob("**/*.js") if self._should_include_file(f)]
+        ts_files = [f for f in self.path.glob("**/*.ts") if self._should_include_file(f)]
         files_to_check = js_files + ts_files
         for file_path in files_to_check:
             try:
@@ -223,9 +209,7 @@ class RouteDetector(BaseAnalyzer):
                 continue
 
             # Pattern: app.get('/path', handler) or router.post('/path', middleware, handler)
-            pattern = (
-                r'(?:app|router)\.(get|post|put|delete|patch|use)\(["\']([^"\']+)["\']'
-            )
+            pattern = r'(?:app|router)\.(get|post|put|delete|patch|use)\(["\']([^"\']+)["\']'
             matches = re.finditer(pattern, content)
 
             for match in matches:
@@ -239,9 +223,7 @@ class RouteDetector(BaseAnalyzer):
                 # Check for auth middleware in the route definition
                 line_start = content.rfind("\n", 0, match.start()) + 1
                 line_end = content.find("\n", match.end())
-                route_line = content[
-                    line_start : line_end if line_end != -1 else len(content)
-                ]
+                route_line = content[line_start : line_end if line_end != -1 else len(content)]
 
                 requires_auth = any(
                     keyword in route_line.lower()
@@ -269,9 +251,7 @@ class RouteDetector(BaseAnalyzer):
         if app_dir.exists():
             # Find all route.ts/js files
             route_files = [
-                f
-                for f in app_dir.glob("**/route.{ts,js,tsx,jsx}")
-                if self._should_include_file(f)
+                f for f in app_dir.glob("**/route.{ts,js,tsx,jsx}") if self._should_include_file(f)
             ]
             for route_file in route_files:
                 # Convert file path to route path
@@ -307,9 +287,7 @@ class RouteDetector(BaseAnalyzer):
         pages_api = self.path / "pages" / "api"
         if pages_api.exists():
             api_files = [
-                f
-                for f in pages_api.glob("**/*.{ts,js,tsx,jsx}")
-                if self._should_include_file(f)
+                f for f in pages_api.glob("**/*.{ts,js,tsx,jsx}") if self._should_include_file(f)
             ]
             for api_file in api_files:
                 if api_file.name.startswith("_"):
@@ -317,9 +295,7 @@ class RouteDetector(BaseAnalyzer):
 
                 # Convert file path to route
                 relative_path = api_file.relative_to(pages_api)
-                route_path = "/api/" + str(relative_path.with_suffix("")).replace(
-                    "\\", "/"
-                )
+                route_path = "/api/" + str(relative_path.with_suffix("")).replace("\\", "/")
 
                 # Convert [id] to :id
                 route_path = re.sub(r"\[([^\]]+)\]", r":\1", route_path)
@@ -342,9 +318,7 @@ class RouteDetector(BaseAnalyzer):
     def _detect_go_routes(self) -> list[dict]:
         """Detect Go framework routes (Gin, Echo, Chi, Fiber)."""
         routes = []
-        go_files = [
-            f for f in self.path.glob("**/*.go") if self._should_include_file(f)
-        ]
+        go_files = [f for f in self.path.glob("**/*.go") if self._should_include_file(f)]
 
         for file_path in go_files:
             try:
@@ -378,9 +352,7 @@ class RouteDetector(BaseAnalyzer):
     def _detect_rust_routes(self) -> list[dict]:
         """Detect Rust framework routes (Axum, Actix)."""
         routes = []
-        rust_files = [
-            f for f in self.path.glob("**/*.rs") if self._should_include_file(f)
-        ]
+        rust_files = [f for f in self.path.glob("**/*.rs") if self._should_include_file(f)]
 
         for file_path in rust_files:
             try:

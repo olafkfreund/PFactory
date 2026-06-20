@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 __all__ = [
     "LocalClusterReadiness",
@@ -53,9 +53,7 @@ def _run(runner: Callable | None, argv: list[str]) -> _Cmd:
         r = (runner or _default_runner)(argv)
     except Exception as exc:  # never raise out of a read-only probe
         return _Cmd(returncode=127, stdout=str(exc))
-    return _Cmd(
-        returncode=getattr(r, "returncode", 1), stdout=getattr(r, "stdout", "") or ""
-    )
+    return _Cmd(returncode=getattr(r, "returncode", 1), stdout=getattr(r, "stdout", "") or "")
 
 
 @dataclass
@@ -180,9 +178,7 @@ def probe_cluster(
         {
             "id": "cluster-reachable",
             "ok": res.reachable,
-            "detail": "API server reachable"
-            if res.reachable
-            else "cluster unreachable",
+            "detail": "API server reachable" if res.reachable else "cluster unreachable",
         }
     )
     if not res.reachable:
@@ -217,9 +213,7 @@ def probe_cluster(
         )
 
     nodes = _run(runner, ["kubectl", "get", "nodes", "-o", "json", *ca])
-    res.schedulable_nodes = (
-        _count_schedulable_nodes(nodes.stdout) if nodes.returncode == 0 else 0
-    )
+    res.schedulable_nodes = _count_schedulable_nodes(nodes.stdout) if nodes.returncode == 0 else 0
     res.checks.append(
         {
             "id": "schedulable-nodes",

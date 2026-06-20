@@ -17,7 +17,7 @@ packs, per-tenant batching — see #122.)
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
@@ -93,9 +93,7 @@ def _source_document(session: PlanSession) -> AuditArtifact:
             "description": plan.description,
             "target_kind": plan.target_kind,
             "plan_type": plan.plan_type,
-            "acceptance_criteria": [
-                {"id": c.id, "text": c.text} for c in plan.criteria
-            ],
+            "acceptance_criteria": [{"id": c.id, "text": c.text} for c in plan.criteria],
             "content_hash": plan.content_hash,
             "raw_text": plan.raw_text,
         },
@@ -108,24 +106,25 @@ def _review_findings(session: PlanSession) -> AuditArtifact:
     lenses: list[dict[str, Any]] = []
     if present:
         for ls in review.lenses:
-            lenses.append({
-                "lens": ls.lens,
-                "score": ls.score,
-                "findings": [
-                    {
-                        "title": f.title,
-                        "detail": f.detail,
-                        "severity": f.severity,
-                        "source": f.source,
-                        "blocking": f.blocking,
-                        "citations": [
-                            {"title": c.title, "uri": c.uri, "why": c.why}
-                            for c in f.citations
-                        ],
-                    }
-                    for f in ls.findings
-                ],
-            })
+            lenses.append(
+                {
+                    "lens": ls.lens,
+                    "score": ls.score,
+                    "findings": [
+                        {
+                            "title": f.title,
+                            "detail": f.detail,
+                            "severity": f.severity,
+                            "source": f.source,
+                            "blocking": f.blocking,
+                            "citations": [
+                                {"title": c.title, "uri": c.uri, "why": c.why} for c in f.citations
+                            ],
+                        }
+                        for f in ls.findings
+                    ],
+                }
+            )
     return AuditArtifact(
         key="review_findings",
         title="Review-gate findings & citations",
@@ -232,8 +231,7 @@ def _tfactory_verdict(session: PlanSession) -> AuditArtifact:
         summary=(
             "Independent TFactory verification verdict attached."
             if present
-            else "No TFactory verdict on this plan record (verified downstream in "
-            "TFactory)."
+            else "No TFactory verdict on this plan record (verified downstream in TFactory)."
         ),
         content=verdict,
     )
@@ -246,7 +244,7 @@ def build_audit_pack(session: PlanSession, *, now: str | None = None) -> AuditPa
     timestamp. The pack inlines every artifact's content so a reviewer needs no
     access to PFactory's systems to read it (AC2).
     """
-    generated = now or datetime.now(timezone.utc).isoformat()
+    generated = now or datetime.now(UTC).isoformat()
     return AuditPack(
         plan_id=session.plan.plan_id,
         plan_title=session.plan.title,

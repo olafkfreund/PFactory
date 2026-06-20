@@ -74,21 +74,23 @@ def derive_parallelism(epic: EpicPlan) -> tuple[bool, int]:
 def build_execution(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, Any]:
     """Build the contract's ``execution`` block for ``plan``/``epic``."""
     parallel, workers = derive_parallelism(epic)
-    services = len({
-        s
-        for c in epic.children
-        for label in c.labels
-        for prefix in ("service:", "area:")
-        if label.startswith(prefix) and (s := label[len(prefix):])
-    })
+    services = len(
+        {
+            s
+            for c in epic.children
+            for label in c.labels
+            for prefix in ("service:", "area:")
+            if label.startswith(prefix) and (s := label[len(prefix) :])
+        }
+    )
     complexity = derive_complexity(epic, services=services)
     # Operators can pin the build model via PFACTORY_EXECUTION_MODEL
     # (e.g. "gemini-2.5-pro" → antigravity, "opus" → claude); unset falls back to
     # the per-complexity default. The model string stays the single source of
     # truth — the provider is always inferred from the final id.
-    model = os.environ.get("PFACTORY_EXECUTION_MODEL", "").strip() or _MODEL_BY_COMPLEXITY[
-        complexity
-    ]
+    model = (
+        os.environ.get("PFACTORY_EXECUTION_MODEL", "").strip() or _MODEL_BY_COMPLEXITY[complexity]
+    )
     provider = infer_provider_from_model(model)
 
     return {

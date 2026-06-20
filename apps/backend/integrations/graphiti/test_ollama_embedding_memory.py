@@ -164,8 +164,7 @@ async def test_ollama_embeddings() -> bool:
 
         # Check if embedding model is available
         embedding_model_found = any(
-            ollama_model in name or ollama_model.split(":")[0] in name
-            for name in model_names
+            ollama_model in name or ollama_model.split(":")[0] in name for name in model_names
         )
         if not embedding_model_found:
             print_info(f"Model '{ollama_model}' not found. Available: {model_names}")
@@ -226,9 +225,7 @@ async def test_ollama_embeddings() -> bool:
             )
             print_info(f"Update OLLAMA_EMBEDDING_DIM={len(embedding)} in your config")
             return False
-        print_result(
-            f"Embedding {i + 1} dimension", f"{len(embedding)} matches expected", True
-        )
+        print_result(f"Embedding {i + 1} dimension", f"{len(embedding)} matches expected", True)
 
     # Step 4: Test embedding similarity (basic sanity check)
     print_step(4, "Testing embedding similarity")
@@ -354,12 +351,8 @@ async def test_memory_creation(test_db_path: Path) -> tuple[Path, Path, bool]:
         ],
     }
 
-    save_result = await memory.save_session_insights(
-        session_num=1, insights=session_insights
-    )
-    print_result(
-        "save_session_insights", "SUCCESS" if save_result else "FAILED", save_result
-    )
+    save_result = await memory.save_session_insights(session_num=1, insights=session_insights)
+    print_result("save_session_insights", "SUCCESS" if save_result else "FAILED", save_result)
 
     # Step 3: Save patterns
     print_step(3, "Saving code patterns")
@@ -507,9 +500,7 @@ async def test_memory_retrieval(spec_dir: Path, project_dir: Path) -> bool:
         for subtask in subtasks[:3]:
             print(f"      - {subtask}")
 
-    print_result(
-        "Session history", f"Retrieved {len(history)} sessions", len(history) > 0
-    )
+    print_result("Session history", f"Retrieved {len(history)} sessions", len(history) > 0)
 
     # Step 5: Get status summary
     print_step(5, "Memory status summary")
@@ -568,7 +559,9 @@ async def test_full_cycle(test_db_path: Path) -> bool:
     unique_pattern = (
         f"Unique pattern {unique_id}: Use dependency injection for database connections"
     )
-    unique_gotcha = f"Unique gotcha {unique_id}: Always close database connections in finally blocks"
+    unique_gotcha = (
+        f"Unique gotcha {unique_id}: Always close database connections in finally blocks"
+    )
 
     print(f"  Unique ID: {unique_id}")
     print(f"  Pattern: {unique_pattern[:60]}...")
@@ -587,9 +580,7 @@ async def test_full_cycle(test_db_path: Path) -> bool:
     print_result("Initialize", "SUCCESS", True)
 
     pattern_result = await memory.save_pattern(unique_pattern)
-    print_result(
-        "save_pattern", "SUCCESS" if pattern_result else "FAILED", pattern_result
-    )
+    print_result("save_pattern", "SUCCESS" if pattern_result else "FAILED", pattern_result)
 
     gotcha_result = await memory.save_gotcha(unique_gotcha)
     print_result("save_gotcha", "SUCCESS" if gotcha_result else "FAILED", gotcha_result)
@@ -673,15 +664,11 @@ async def test_full_cycle(test_db_path: Path) -> bool:
     # Summary
     print()
     cycle_passed = (
-        pattern_result
-        and gotcha_result
-        and (pattern_found or gotcha_found or len(alt_results) > 0)
+        pattern_result and gotcha_result and (pattern_found or gotcha_found or len(alt_results) > 0)
     )
     print_result(
         "Full Cycle Test",
-        "Create-Store-Retrieve cycle verified"
-        if cycle_passed
-        else "Some steps had issues",
+        "Create-Store-Retrieve cycle verified" if cycle_passed else "Some steps had issues",
         cycle_passed,
     )
 
@@ -695,9 +682,7 @@ async def test_full_cycle(test_db_path: Path) -> bool:
 
 async def main():
     """Run Ollama embedding memory tests."""
-    parser = argparse.ArgumentParser(
-        description="Test Ollama Embedding Memory Integration"
-    )
+    parser = argparse.ArgumentParser(description="Test Ollama Embedding Memory Integration")
     parser.add_argument(
         "--test",
         choices=["all", "embeddings", "create", "retrieve", "full-cycle"],
@@ -794,17 +779,13 @@ async def main():
         project_dir = None
 
         if test in ["all", "create"]:
-            spec_dir, project_dir, results["create"] = await test_memory_creation(
-                test_db_path
-            )
+            spec_dir, project_dir, results["create"] = await test_memory_creation(test_db_path)
 
         if test in ["all", "retrieve"]:
             if spec_dir and project_dir:
                 results["retrieve"] = await test_memory_retrieval(spec_dir, project_dir)
             else:
-                print_info(
-                    "Skipping retrieve test - no spec/project dir from create test"
-                )
+                print_info("Skipping retrieve test - no spec/project dir from create test")
 
         if test in ["all", "full-cycle"]:
             results["full-cycle"] = await test_full_cycle(test_db_path)
@@ -846,12 +827,8 @@ async def main():
     print("    python integrations/graphiti/test_ollama_embedding_memory.py")
     print()
     print("    # Run specific test:")
-    print(
-        "    python integrations/graphiti/test_ollama_embedding_memory.py --test embeddings"
-    )
-    print(
-        "    python integrations/graphiti/test_ollama_embedding_memory.py --test full-cycle"
-    )
+    print("    python integrations/graphiti/test_ollama_embedding_memory.py --test embeddings")
+    print("    python integrations/graphiti/test_ollama_embedding_memory.py --test full-cycle")
     print()
     print("    # Keep database for inspection:")
     print("    python integrations/graphiti/test_ollama_embedding_memory.py --keep-db")

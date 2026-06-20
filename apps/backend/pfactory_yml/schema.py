@@ -357,15 +357,9 @@ class CloudProviderTarget(BaseModel):
     name: str
     provider: Literal["aws", "azure", "gcp"]
     regions: list[str] = []  # [] = provider default / all enabled regions
-    profile: str | None = (
-        None  # named CLI profile (aws profile / gcloud config / az subscription)
-    )
-    assume_role: str | None = (
-        None  # read-only role ARN / impersonated SA / managed identity
-    )
-    auth: RefAuth | None = (
-        None  # vault-backed credential reference (alternative to profile)
-    )
+    profile: str | None = None  # named CLI profile (aws profile / gcloud config / az subscription)
+    assume_role: str | None = None  # read-only role ARN / impersonated SA / managed identity
+    auth: RefAuth | None = None  # vault-backed credential reference (alternative to profile)
     scan: CloudScanConfig = Field(default_factory=CloudScanConfig)
 
 
@@ -542,9 +536,7 @@ class EvidenceRetentionPolicy(BaseModel):
                 return v
             except ValueError:
                 pass
-        raise ValueError(
-            f"retention window must be 'forever' or '<N>_days' (got {v!r})"
-        )
+        raise ValueError(f"retention window must be 'forever' or '<N>_days' (got {v!r})")
 
     @field_validator("size_cap_per_task")
     @classmethod
@@ -714,9 +706,7 @@ class PFactoryConfig(BaseModel):
         A ``cloud_provider`` target needs network egress to reach cloud APIs,
         so declaring one without ``egress.enabled`` is rejected.
         """
-        cloud = [
-            t for t in self.targets if getattr(t, "type", None) == "cloud_provider"
-        ]
+        cloud = [t for t in self.targets if getattr(t, "type", None) == "cloud_provider"]
         if cloud and not self.egress.enabled:
             names = sorted(t.name for t in cloud)
             raise ValueError(

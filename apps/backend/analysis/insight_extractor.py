@@ -89,6 +89,7 @@ def get_session_diff(
     try:
         result = subprocess.run(
             ["git", "diff", commit_before, commit_after],
+            check=False,
             cwd=project_dir,
             capture_output=True,
             text=True,
@@ -98,9 +99,7 @@ def get_session_diff(
 
         if len(diff) > MAX_DIFF_CHARS:
             # Truncate and add note
-            diff = (
-                diff[:MAX_DIFF_CHARS] + f"\n\n... (truncated, {len(diff)} chars total)"
-            )
+            diff = diff[:MAX_DIFF_CHARS] + f"\n\n... (truncated, {len(diff)} chars total)"
 
         return diff if diff else "(Empty diff)"
 
@@ -134,6 +133,7 @@ def get_changed_files(
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", commit_before, commit_after],
+            check=False,
             cwd=project_dir,
             capture_output=True,
             text=True,
@@ -159,6 +159,7 @@ def get_commit_messages(
     try:
         result = subprocess.run(
             ["git", "log", "--oneline", f"{commit_before}..{commit_after}"],
+            check=False,
             cwd=project_dir,
             capture_output=True,
             text=True,
@@ -336,9 +337,7 @@ def _format_attempt_history(attempts: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def run_insight_extraction(
-    inputs: dict, project_dir: Path | None = None
-) -> dict | None:
+async def run_insight_extraction(inputs: dict, project_dir: Path | None = None) -> dict | None:
     """
     Run the insight extraction using Claude Agent SDK.
 
@@ -703,9 +702,7 @@ async def extract_session_insights_bulk(
                 recovery_manager=c.get("recovery_manager"),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "gather_extraction_inputs failed for %s: %s", subtask_id, exc
-            )
+            logger.warning("gather_extraction_inputs failed for %s: %s", subtask_id, exc)
             entries_by_id[subtask_id] = {"skip_reason": "gather_failed"}
             continue
 
@@ -731,12 +728,8 @@ async def extract_session_insights_bulk(
     # Submit + poll.
     try:
         batch_id = await submit_batch(requests, api_key=api_key)
-        logger.info(
-            "Bulk extraction batch submitted: %s (%d requests)", batch_id, len(requests)
-        )
-        batch_results = await await_batch(
-            batch_id, api_key=api_key, timeout=_bulk_timeout()
-        )
+        logger.info("Bulk extraction batch submitted: %s (%d requests)", batch_id, len(requests))
+        batch_results = await await_batch(batch_id, api_key=api_key, timeout=_bulk_timeout())
     except RuntimeError as exc:  # missing API key
         logger.warning("Batch path unavailable: %s — falling back to sequential", exc)
         return await _bulk_sequential_fallback(
@@ -828,18 +821,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Test insight extraction")
     parser.add_argument("--spec-dir", type=Path, required=True, help="Spec directory")
-    parser.add_argument(
-        "--project-dir", type=Path, required=True, help="Project directory"
-    )
-    parser.add_argument(
-        "--commit-before", type=str, required=True, help="Commit before session"
-    )
-    parser.add_argument(
-        "--commit-after", type=str, required=True, help="Commit after session"
-    )
-    parser.add_argument(
-        "--subtask-id", type=str, default="test-subtask", help="Subtask ID"
-    )
+    parser.add_argument("--project-dir", type=Path, required=True, help="Project directory")
+    parser.add_argument("--commit-before", type=str, required=True, help="Commit before session")
+    parser.add_argument("--commit-after", type=str, required=True, help="Commit after session")
+    parser.add_argument("--subtask-id", type=str, default="test-subtask", help="Subtask ID")
 
     args = parser.parse_args()
 

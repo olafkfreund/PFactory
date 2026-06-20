@@ -144,7 +144,5 @@ def get_descriptor(
     registry = load_registry(frameworks_dir=frameworks_dir)
     if name not in registry:
         available = sorted(registry.keys())
-        raise KeyError(
-            f"framework {name!r} not found in registry; available: {available}"
-        )
+        raise KeyError(f"framework {name!r} not found in registry; available: {available}")
     return registry[name]

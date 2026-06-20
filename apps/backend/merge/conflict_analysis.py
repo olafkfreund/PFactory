@@ -99,9 +99,7 @@ def detect_conflicts(
         )
 
         file_path = next(iter(task_analyses.values())).file_path
-        conflict = analyze_location_conflict(
-            file_path, location, task_changes, rule_index
-        )
+        conflict = analyze_location_conflict(file_path, location, task_changes, rule_index)
         if conflict:
             debug_detailed(
                 MODULE,

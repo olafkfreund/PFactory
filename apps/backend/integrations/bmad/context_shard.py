@@ -11,9 +11,7 @@ import re
 from pathlib import Path
 
 
-def extract_architecture_sections(
-    architecture_file: Path, section_refs: list[str]
-) -> str:
+def extract_architecture_sections(architecture_file: Path, section_refs: list[str]) -> str:
     """Extract specific sections from architecture.md.
 
     Args:

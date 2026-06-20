@@ -144,9 +144,7 @@ class SessionSpawner:
 
         # Log context reduction
         if full_context:
-            reduction = (
-                (len(full_context) - len(formatted_context)) / len(full_context)
-            ) * 100
+            reduction = ((len(full_context) - len(formatted_context)) / len(full_context)) * 100
             logger.info(
                 f"Context reduction for {story_id}: {reduction:.1f}% "
                 f"({len(full_context)} → {len(formatted_context)} chars)"

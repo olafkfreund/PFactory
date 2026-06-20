@@ -19,9 +19,9 @@ from .requirements_analyst import RequirementsAnalyst
 from .technical_evaluator import TechnicalEvaluator
 
 __all__ = [
+    "CodebaseAnalyzer",
+    "RequirementsAnalyst",
     "SubAgent",
     "SubAgentResult",
-    "RequirementsAnalyst",
-    "CodebaseAnalyzer",
     "TechnicalEvaluator",
 ]

@@ -86,9 +86,7 @@ def _detect_default_branch(project_dir: Path) -> str:
     return "main"
 
 
-def _get_changed_files_from_git(
-    worktree_path: Path, base_branch: str = "main"
-) -> list[str]:
+def _get_changed_files_from_git(worktree_path: Path, base_branch: str = "main") -> list[str]:
     """
     Get list of changed files from git diff between base branch and HEAD.
 
@@ -243,9 +241,7 @@ def _generate_and_save_commit_message(project_dir: Path, spec_name: str) -> None
                 text=True,
             )
             if result.returncode == 0:
-                files_changed = [
-                    f.strip() for f in result.stdout.strip().split("\n") if f.strip()
-                ]
+                files_changed = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
         except Exception as e:
             debug_warning(MODULE, f"Could not get diff summary: {e}")
 
@@ -267,9 +263,7 @@ def _generate_and_save_commit_message(project_dir: Path, spec_name: str) -> None
             if spec_dir.exists():
                 commit_msg_file = spec_dir / "suggested_commit_message.txt"
                 commit_msg_file.write_text(commit_message, encoding="utf-8")
-                debug_success(
-                    MODULE, f"Saved commit message suggestion to {commit_msg_file}"
-                )
+                debug_success(MODULE, f"Saved commit message suggestion to {commit_msg_file}")
             else:
                 debug_warning(MODULE, f"Spec directory not found: {spec_dir}")
         else:
@@ -335,9 +329,7 @@ def handle_list_worktrees_command(project_dir: Path) -> None:
         print("  To review:  python pfactory/run.py --spec <name> --review")
         print("  To discard: python pfactory/run.py --spec <name> --discard")
         print()
-        print(
-            "  To cleanup all worktrees: python pfactory/run.py --cleanup-worktrees"
-        )
+        print("  To cleanup all worktrees: python pfactory/run.py --cleanup-worktrees")
     print()
 
 
@@ -421,9 +413,7 @@ def _check_git_merge_conflicts(project_dir: Path, spec_name: str) -> dict:
             result["commits_behind"] = commits_behind
             if commits_behind > 0:
                 result["needs_rebase"] = True
-                debug(
-                    MODULE, f"Main is {commits_behind} commits ahead of worktree base"
-                )
+                debug(MODULE, f"Main is {commits_behind} commits ahead of worktree base")
 
         # Use git merge-tree to check for conflicts WITHOUT touching working directory
         # This is a plumbing command that does a 3-way merge in memory
@@ -504,9 +494,7 @@ def _check_git_merge_conflicts(project_dir: Path, spec_name: str) -> dict:
                 result["conflicting_files"] = [
                     f for f in conflicting if not _is_magestic_ai_file(f)
                 ]
-                debug(
-                    MODULE, f"Found {len(conflicting)} files modified in both branches"
-                )
+                debug(MODULE, f"Found {len(conflicting)} files modified in both branches")
 
             debug(MODULE, f"Conflicting files: {result['conflicting_files']}")
         else:
@@ -591,9 +579,7 @@ def handle_merge_preview_command(
             task_source_branch = _detect_default_branch(project_dir)
 
         # Get actual changed files from git diff (this is the authoritative count)
-        all_changed_files = _get_changed_files_from_git(
-            worktree_path, task_source_branch
-        )
+        all_changed_files = _get_changed_files_from_git(worktree_path, task_source_branch)
         debug(
             MODULE,
             f"Git diff against '{task_source_branch}' shows {len(all_changed_files)} changed files",
@@ -701,17 +687,13 @@ def handle_merge_preview_command(
 
             if merge_base:
                 # Detect file renames between merge-base and current base branch
-                path_mappings = detect_file_renames(
-                    project_dir, merge_base, base_branch
-                )
+                path_mappings = detect_file_renames(project_dir, merge_base, base_branch)
 
                 if path_mappings:
                     debug(
                         MODULE,
                         f"Detected {len(path_mappings)} file rename(s) between merge-base and target",
-                        sample_mappings={
-                            k: v for k, v in list(path_mappings.items())[:3]
-                        },
+                        sample_mappings={k: v for k, v in list(path_mappings.items())[:3]},
                     )
 
                     # Check which changed files have path mappings and need AI merge

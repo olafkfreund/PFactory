@@ -35,9 +35,7 @@ def _write_fast_mode_setting(enabled: bool) -> None:
             # Atomic write using shared utility
             write_json_atomic(settings_file, settings)
             state = "true" if enabled else "false"
-            logger.info(
-                f"[Fast Mode] Wrote fastMode={state} to ~/.claude/settings.json"
-            )
+            logger.info(f"[Fast Mode] Wrote fastMode={state} to ~/.claude/settings.json")
     except Exception as e:
         logger.warning(f"[Fast Mode] Could not update ~/.claude/settings.json: {e}")
 
@@ -69,6 +67,4 @@ def ensure_fast_mode_in_user_settings() -> None:
 
         atexit.register(_disable_fast_mode_on_exit)
         _fast_mode_atexit_registered = True
-        logger.info(
-            "[Fast Mode] Registered atexit cleanup (will restore fastMode=false)"
-        )
+        logger.info("[Fast Mode] Registered atexit cleanup (will restore fastMode=false)")

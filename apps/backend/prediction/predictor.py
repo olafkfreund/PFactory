@@ -54,9 +54,7 @@ class BugPredictor:
         known_gotchas = self.memory_loader.load_gotchas()
 
         # Analyze risks
-        predicted_issues = self.risk_analyzer.analyze_subtask_risks(
-            subtask, attempt_history
-        )
+        predicted_issues = self.risk_analyzer.analyze_subtask_risks(subtask, attempt_history)
 
         # Generate checklist
         checklist = self.checklist_generator.generate_checklist(

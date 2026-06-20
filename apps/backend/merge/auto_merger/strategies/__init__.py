@@ -13,10 +13,10 @@ from .ordering_strategy import OrderingStrategy
 from .props_strategy import PropsStrategy
 
 __all__ = [
-    "MergeStrategyHandler",
-    "ImportStrategy",
-    "HooksStrategy",
     "AppendStrategy",
+    "HooksStrategy",
+    "ImportStrategy",
+    "MergeStrategyHandler",
     "OrderingStrategy",
     "PropsStrategy",
 ]

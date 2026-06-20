@@ -6,7 +6,6 @@ Shows how PFactory automatically generates provider-specific database names
 to prevent embedding dimension mismatches.
 """
 
-import os
 import sys
 from pathlib import Path
 

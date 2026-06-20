@@ -93,9 +93,7 @@ class TemplateFile:
         try:
             return Template(self.body).substitute(values)
         except KeyError as exc:
-            raise TemplateError(
-                self.path, f"unsubstituted placeholder in body: {exc}"
-            ) from exc
+            raise TemplateError(self.path, f"unsubstituted placeholder in body: {exc}") from exc
 
 
 def load_template(path: Path) -> TemplateFile:
@@ -119,9 +117,7 @@ def load_template(path: Path) -> TemplateFile:
         raise TemplateError(path, "missing YAML front-matter (must start with ---)")
     parts = text.split("\n---\n", 1)
     if len(parts) != 2:
-        raise TemplateError(
-            path, "front-matter not terminated with --- on its own line"
-        )
+        raise TemplateError(path, "front-matter not terminated with --- on its own line")
     front_raw = parts[0][4:]  # strip leading "---\n"
     body = parts[1].lstrip("\n")
     try:
@@ -132,9 +128,7 @@ def load_template(path: Path) -> TemplateFile:
         raise TemplateError(path, "front-matter must be a YAML mapping")
     for required in ("description",):
         if required not in raw_meta:
-            raise TemplateError(
-                path, f"front-matter missing required field: {required}"
-            )
+            raise TemplateError(path, f"front-matter missing required field: {required}")
     metadata = TemplateMetadata(
         description=str(raw_meta["description"]),
         requires_target=bool(raw_meta.get("requires_target", False)),
@@ -184,9 +178,7 @@ def load_templates_for_framework(
     if include_harvested:
         search_dirs.append(Path.home() / ".pfactory" / "templates" / framework_name)
         if project_dir is not None:
-            search_dirs.append(
-                Path(project_dir) / ".pfactory" / "templates" / framework_name
-            )
+            search_dirs.append(Path(project_dir) / ".pfactory" / "templates" / framework_name)
 
     out: dict[str, TemplateFile] = {}
     for tdir in search_dirs:

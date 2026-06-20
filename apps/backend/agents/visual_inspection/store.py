@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-__all__ = ["store_root", "write_run", "list_runs", "read_run", "download_path"]
+__all__ = ["download_path", "list_runs", "read_run", "store_root", "write_run"]
 
 _ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _DOWNLOADS = {
@@ -115,13 +115,25 @@ def _render_pdf(d: Path, md_name: str) -> Path | None:
         return None
     with tempfile.TemporaryDirectory() as tmp:
         html = Path(tmp) / "doc.html"
-        subprocess.run([pandoc, str(md), "-f", "gfm", "-t", "html", "-s", "-o", str(html)],
-                       capture_output=True, timeout=60)
+        subprocess.run(
+            [pandoc, str(md), "-f", "gfm", "-t", "html", "-s", "-o", str(html)],
+            capture_output=True,
+            timeout=60,
+        )
         if not html.is_file():
             return None
-        subprocess.run([chrome, "--headless", "--no-sandbox", "--disable-gpu",
-                        f"--print-to-pdf={pdf}", f"file://{html}"],
-                       capture_output=True, timeout=120)
+        subprocess.run(
+            [
+                chrome,
+                "--headless",
+                "--no-sandbox",
+                "--disable-gpu",
+                f"--print-to-pdf={pdf}",
+                f"file://{html}",
+            ],
+            capture_output=True,
+            timeout=120,
+        )
     return pdf if pdf.is_file() else None
 
 

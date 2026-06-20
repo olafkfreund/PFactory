@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from ..bundle import DocBundle, TargetResult
 from . import registry as reg
@@ -48,9 +49,7 @@ class BackstageTarget:
         writer: GitHubContentsWriter | None = None,
         http: HttpFn | None = None,
     ) -> None:
-        self._base_url = (base_url or os.environ.get("BACKSTAGE_BASE_URL", "")).rstrip(
-            "/"
-        )
+        self._base_url = (base_url or os.environ.get("BACKSTAGE_BASE_URL", "")).rstrip("/")
         self._repo = repo
         self._branch = branch
         self._component = component
@@ -86,9 +85,7 @@ class BackstageTarget:
             detail: dict[str, Any] = {"base_url": self._base_url, "repo": self._repo}
 
             if self._git_write and self._repo:
-                writer = self._writer or GitHubContentsWriter(
-                    self._repo, branch=self._branch
-                )
+                writer = self._writer or GitHubContentsWriter(self._repo, branch=self._branch)
                 base = self._subdir
                 # page
                 writer.put_file(
@@ -97,9 +94,7 @@ class BackstageTarget:
                     f"docs(plan): {bundle.plan_id}",
                 )
                 # registry round-trip (read existing → upsert → write)
-                existing = reg.parse_registry(
-                    writer.get_file(f"{base}/{reg.REGISTRY_FILE}")
-                )
+                existing = reg.parse_registry(writer.get_file(f"{base}/{reg.REGISTRY_FILE}"))
                 plans = reg.upsert(existing, bundle.registry_entry)
                 writer.put_file(
                     f"{base}/{reg.REGISTRY_FILE}",
@@ -122,6 +117,4 @@ class BackstageTarget:
             return TargetResult(target=self.name, status="written", detail=detail)
         except Exception as exc:  # noqa: BLE001 — best-effort, never break emit
             logger.warning("BackstageTarget failed for %s: %s", bundle.plan_id, exc)
-            return TargetResult(
-                target=self.name, status="error", detail={"error": str(exc)}
-            )
+            return TargetResult(target=self.name, status="error", detail={"error": str(exc)})

@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from plan.annotate import AnnotationResult, annotate_plan
@@ -143,9 +143,7 @@ class PlanSession(BaseModel):
     # append-only RFC-0001a curation trail (refs only, never secrets).
     access_approvals: dict = Field(default_factory=dict)
     access_audit: list = Field(default_factory=list)
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     # PARR correlation chain (#47): pfactory.session_id → issue# → aifactory.task_id.
     # `correlation_key` is the shared key (the emitted GitHub issue #, with a
@@ -294,9 +292,7 @@ class PlanService:
     set is reloaded on startup, so plans survive pod restarts.
     """
 
-    def __init__(
-        self, *, store_dir: Path | None = None, persist: bool | None = None
-    ) -> None:
+    def __init__(self, *, store_dir: Path | None = None, persist: bool | None = None) -> None:
         self._sessions: dict[str, PlanSession] = {}
         self._persist = _persist_enabled() if persist is None else persist
         self._store_dir = store_dir or _default_store_dir()
@@ -313,7 +309,7 @@ class PlanService:
         """
         try:
             self._store_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:  # noqa: BLE001 — disk unavailable → stay in-memory
+        except OSError as exc:
             logger.warning("plan store dir unavailable (%s); running in-memory", exc)
             self._persist = False
             return
@@ -322,9 +318,7 @@ class PlanService:
                 session = PlanSession.model_validate_json(path.read_text())
                 self._sessions[session.session_id] = session
             except Exception as exc:  # noqa: BLE001 — skip corrupt/old payloads
-                logger.warning(
-                    "skipping unreadable plan session %s: %s", path.name, exc
-                )
+                logger.warning("skipping unreadable plan session %s: %s", path.name, exc)
         if self._sessions:
             logger.info("loaded %d persisted plan session(s)", len(self._sessions))
 
@@ -343,9 +337,7 @@ class PlanService:
             tmp.write_text(session.model_dump_json())
             tmp.replace(dest)
         except Exception as exc:  # noqa: BLE001 — disk hiccup must not break a run
-            logger.warning(
-                "failed to persist plan session %s: %s", session.session_id, exc
-            )
+            logger.warning("failed to persist plan session %s: %s", session.session_id, exc)
 
     # ── ingest ─────────────────────────────────────────────────────────
 
@@ -367,9 +359,7 @@ class PlanService:
         base_ref: str | None = None,
         autonomy_tier: str | None = None,
     ) -> PlanSession:
-        plan = ingest_text(
-            text, source_channel=channel, title=title, seq=self._next_seq()
-        )
+        plan = ingest_text(text, source_channel=channel, title=title, seq=self._next_seq())
         # RFC-0011: carry the label-driven difficulty tier from intake so process()
         # can route hard and emit can override the contract blocks (#182).
         plan = _carry_tier(plan, autonomy_tier)
@@ -427,9 +417,7 @@ class PlanService:
 
     # ── process (the pipeline core) ────────────────────────────────────
 
-    def process(
-        self, session_id: str, *, external_runner=None, llm=None
-    ) -> PlanSession:
+    def process(self, session_id: str, *, external_runner=None, llm=None) -> PlanSession:
         """Detect → plan-type → enrich → decompose → synthesize → review gates.
 
         When no ``external_runner`` is supplied, the provider-MCP runner is used by
@@ -512,7 +500,7 @@ class PlanService:
                 tmpl = load_templates().get(session.selected_template)
                 if tmpl is not None:
                     template_findings = tmpl.check(build_context(plan))
-        except Exception:
+        except Exception:  # noqa: BLE001 — docs must never break emit
             template_findings = []
 
         def _composed_runner(p, e):
@@ -534,9 +522,7 @@ class PlanService:
         self._save(session)
         return session
 
-    def _reconnoiter(
-        self, session: PlanSession, plan: NormalizedPlan
-    ) -> NormalizedPlan:
+    def _reconnoiter(self, session: PlanSession, plan: NormalizedPlan) -> NormalizedPlan:
         """Attach a static :class:`RepoMap` of the target repo (RFC-0010, #108).
 
         Reads the repo **statically, read-only** — never executes its code (see
@@ -606,9 +592,7 @@ class PlanService:
 
             cloud_adapters = {"aws", "azure", "gcp", "kubernetes", "openshift"}
             cloud_relevant = is_cloud_relevant(plan)
-            adapters = [
-                n for n in adapters if n not in cloud_adapters or cloud_relevant
-            ]
+            adapters = [n for n in adapters if n not in cloud_adapters or cloud_relevant]
         if adapters:
             from plan.enrich.base import get_adapter
 
@@ -627,9 +611,7 @@ class PlanService:
                 try:
                     infra.append(get_adapter(name).to_enrichment())
                 except Exception as exc:
-                    infra.append(
-                        {"adapter": name, "available": False, "error": str(exc)}
-                    )
+                    infra.append({"adapter": name, "available": False, "error": str(exc)})
             enrichment = enrichment.model_copy(update={"infra": infra})
 
         # ── knowledge connectors (review wiki / search best practices) ──
@@ -662,9 +644,7 @@ class PlanService:
             for name in connectors:
                 try:
                     kw = _knowledge_connector_kwargs(name, wiki_root)
-                    knowledge.extend(
-                        get_connector(name, **kw).to_enrichment(text, limit=8)
-                    )
+                    knowledge.extend(get_connector(name, **kw).to_enrichment(text, limit=8))
                 except Exception:
                     continue
             enrichment = enrichment.model_copy(update={"knowledge": knowledge})
@@ -679,9 +659,7 @@ class PlanService:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before approving")
-        approve_review(
-            session.review, session.plan, approver=approver, feedback=feedback
-        )
+        approve_review(session.review, session.plan, approver=approver, feedback=feedback)
         session.status = "approved"
         self._save(session)
         return session
@@ -714,9 +692,7 @@ class PlanService:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before rejecting")
-        reject_review(
-            session.review, session.plan, approver=approver, feedback=feedback
-        )
+        reject_review(session.review, session.plan, approver=approver, feedback=feedback)
         session.status = "rejected"
         # Terminal too: emit the completion event with a synthetic key (no issue#).
         session.correlation_key = correlation_key_for(session)
@@ -796,7 +772,7 @@ class PlanService:
                         connections=docs_connections,
                         selected=docs_selected,
                     )
-            except Exception:  # noqa: BLE001 — docs must never break emit
+            except Exception:
                 logger.warning("plan docs emit failed", exc_info=True)
         self._save(session)
         return session
@@ -829,18 +805,12 @@ class PlanService:
         # The GitHub epic emit is already gated by review.ready_to_emit; the
         # contract fast-path needs the same human gate so opus/migration work
         # cannot skip sign-off.
-        if (
-            not dry_run
-            and session.plan.autonomy_tier == "hard"
-            and session.status != "approved"
-        ):
+        if not dry_run and session.plan.autonomy_tier == "hard" and session.status != "approved":
             raise PlanServiceError(
                 "tier=hard requires human approval before emitting the contract: "
                 f"approve session '{session_id}' first (status={session.status!r})"
             )
-        base = base_url or os.environ.get(
-            "PFACTORY_AIFACTORY_API_URL", "http://localhost:3101"
-        )
+        base = base_url or os.environ.get("PFACTORY_AIFACTORY_API_URL", "http://localhost:3101")
         pid = project_id or repo or session.plan.plan_id
         corr = session.correlation_key or correlation_key_for(session)
         # RFC-0007 (#84): discover the access block from the snapshotted
@@ -864,11 +834,7 @@ class PlanService:
         )
         session.contract_result = result
         if result.get("ok") and not dry_run:
-            resp = (
-                result.get("response")
-                if isinstance(result.get("response"), dict)
-                else {}
-            )
+            resp = result.get("response") if isinstance(result.get("response"), dict) else {}
             task_id = (resp or {}).get("taskId") or (resp or {}).get("task_id")
             if task_id:
                 session.aifactory_task_id = str(task_id)
@@ -901,15 +867,9 @@ class PlanService:
         from plan.access_discovery import curate_requirement
 
         session = self.get(session_id)
-        block = ((session.contract_result or {}).get("contract") or {}).get(
-            "access"
-        ) or {}
+        block = ((session.contract_result or {}).get("contract") or {}).get("access") or {}
         req = next(
-            (
-                r
-                for r in (block.get("requirements") or [])
-                if r.get("resource") == resource
-            ),
+            (r for r in (block.get("requirements") or []) if r.get("resource") == resource),
             None,
         )
         if req is None:
@@ -920,16 +880,14 @@ class PlanService:
         approval = {
             "approved_by": approved_by,
             "scope": scope,
-            "approved_at": approved_at or datetime.now(timezone.utc).isoformat(),
+            "approved_at": approved_at or datetime.now(UTC).isoformat(),
         }
         probe = ref_exists or probe_ref_exists
 
         def liveness(r) -> bool:  # credential must be present to curate at approval
             return probe(r.get("credential_ref")) is True
 
-        _curated, audit = curate_requirement(
-            req, approval=approval, liveness_check=liveness
-        )
+        _curated, audit = curate_requirement(req, approval=approval, liveness_check=liveness)
         if audit is None:
             return {
                 "ok": False,

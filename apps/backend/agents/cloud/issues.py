@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from .assessment import CloudFinding, parse_ocsf
 from .remediation import _group_fails
@@ -43,7 +43,11 @@ class IssueSpec:
 
 def _child_body(it: dict, provider: str, account: str) -> str:
     resources = ", ".join(it["resources"]) if it["resources"] else "—"
-    more = "" if it["count"] <= len(it["resources"]) else f" (+{it['count'] - len(it['resources'])} more)"
+    more = (
+        ""
+        if it["count"] <= len(it["resources"])
+        else f" (+{it['count'] - len(it['resources'])} more)"
+    )
     refs = "\n".join(f"- {r}" for r in it["references"][:5]) or "- (none)"
     return (
         f"**Provider:** {provider} · **Account:** {account} · "
@@ -139,7 +143,13 @@ def register_issues(
     for c in children:
         linked = IssueSpec(c.title, c.body + f"\n\nPart of epic #{epic_num}.", c.labels)
         created.append(_create_issue(run, repo, linked))
-    return {"dry_run": False, "repo": repo, "epic": epic_url, "children": created, "count": len(created)}
+    return {
+        "dry_run": False,
+        "repo": repo,
+        "epic": epic_url,
+        "children": created,
+        "count": len(created),
+    }
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -153,7 +163,9 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--repo", required=True, help="owner/repo")
     p.add_argument("--provider", default="aws")
     p.add_argument("--account", default="?")
-    p.add_argument("--create", action="store_true", help="actually create issues (default: dry-run)")
+    p.add_argument(
+        "--create", action="store_true", help="actually create issues (default: dry-run)"
+    )
     args = p.parse_args(argv)
 
     data = json.loads(open(args.source, encoding="utf-8").read())

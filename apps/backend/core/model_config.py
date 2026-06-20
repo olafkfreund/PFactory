@@ -48,9 +48,7 @@ def get_utility_model_config(
             if parsed_budget <= 0:
                 if parsed_budget == 0:
                     # Zero means disable thinking (same as empty string)
-                    logger.debug(
-                        "UTILITY_THINKING_BUDGET=0 interpreted as 'disable thinking'"
-                    )
+                    logger.debug("UTILITY_THINKING_BUDGET=0 interpreted as 'disable thinking'")
                     thinking_budget = None
                 else:
                     logger.warning(

@@ -47,9 +47,7 @@ _DEFAULT_BASH_TIMEOUT = 120  # seconds
 _MAX_BASH_TIMEOUT = 600  # seconds
 
 
-async def _read_with_limit(
-    path: Path, max_chars: int, encoding: str = "utf-8"
-) -> tuple[str, bool]:
+async def _read_with_limit(path: Path, max_chars: int, encoding: str = "utf-8") -> tuple[str, bool]:
     """Read a text file with a character limit.
 
     Uses ``f.read(n)`` which reads at most *n* characters, avoiding TOCTOU
@@ -57,6 +55,7 @@ async def _read_with_limit(
 
     Returns ``(content, was_truncated)``.
     """
+
     def _do_read() -> tuple[str, bool]:
         with open(path, encoding=encoding, errors="replace") as f:
             data = f.read(max_chars + 1)
@@ -126,7 +125,7 @@ class ToolExecutor:
                 content=(
                     f"Error: {tool_name} arguments must be a JSON object, got "
                     f"{type(tool_input).__name__}. Re-send the call with named "
-                    "parameters, e.g. {\"file_path\": ..., \"content\": ...}."
+                    'parameters, e.g. {"file_path": ..., "content": ...}.'
                 ),
                 is_error=True,
             )
@@ -208,16 +207,12 @@ class ToolExecutor:
             return ToolResultBlock(content=error, is_error=True)
 
         if not resolved.is_file():
-            return ToolResultBlock(
-                content=f"File not found: {file_path}", is_error=True
-            )
+            return ToolResultBlock(content=f"File not found: {file_path}", is_error=True)
 
         try:
             content, truncated = await _read_with_limit(resolved, _MAX_READ_BYTES)
         except PermissionError:
-            return ToolResultBlock(
-                content=f"Permission denied: {file_path}", is_error=True
-            )
+            return ToolResultBlock(content=f"Permission denied: {file_path}", is_error=True)
 
         lines = content.splitlines()
 
@@ -254,6 +249,7 @@ class ToolExecutor:
                 content = "\n".join(content)
             else:
                 import json as _json
+
                 content = _json.dumps(content, indent=2, default=str)
 
         resolved, error = self._validate_path(file_path)
@@ -264,13 +260,9 @@ class ToolExecutor:
             resolved.parent.mkdir(parents=True, exist_ok=True)
             await asyncio.to_thread(resolved.write_text, content, "utf-8")
         except PermissionError:
-            return ToolResultBlock(
-                content=f"Permission denied: {file_path}", is_error=True
-            )
+            return ToolResultBlock(content=f"Permission denied: {file_path}", is_error=True)
 
-        return ToolResultBlock(
-            content=f"Successfully wrote {len(content)} bytes to {file_path}"
-        )
+        return ToolResultBlock(content=f"Successfully wrote {len(content)} bytes to {file_path}")
 
     async def _exec_edit(self, tool_input: dict) -> ToolResultBlock:
         """Find-and-replace in a file (first occurrence)."""
@@ -283,16 +275,12 @@ class ToolExecutor:
             return ToolResultBlock(content=error, is_error=True)
 
         if not resolved.is_file():
-            return ToolResultBlock(
-                content=f"File not found: {file_path}", is_error=True
-            )
+            return ToolResultBlock(content=f"File not found: {file_path}", is_error=True)
 
         try:
             content = await asyncio.to_thread(resolved.read_text, "utf-8", "replace")
         except PermissionError:
-            return ToolResultBlock(
-                content=f"Permission denied reading: {file_path}", is_error=True
-            )
+            return ToolResultBlock(content=f"Permission denied reading: {file_path}", is_error=True)
 
         count = content.count(old_string)
         if count == 0:
@@ -308,9 +296,7 @@ class ToolExecutor:
         try:
             await asyncio.to_thread(resolved.write_text, new_content, "utf-8")
         except PermissionError:
-            return ToolResultBlock(
-                content=f"Permission denied writing: {file_path}", is_error=True
-            )
+            return ToolResultBlock(content=f"Permission denied writing: {file_path}", is_error=True)
 
         return ToolResultBlock(
             content=f"Successfully edited {file_path} "
@@ -338,9 +324,7 @@ class ToolExecutor:
             )
             if hook_result.get("decision") == "block":
                 reason = hook_result.get("reason", "Command blocked by security policy")
-                return ToolResultBlock(
-                    content=f"Security: {reason}", is_error=True
-                )
+                return ToolResultBlock(content=f"Security: {reason}", is_error=True)
         except ImportError:
             logger.error("security.hooks not available — blocking all bash commands")
             return ToolResultBlock(
@@ -349,9 +333,7 @@ class ToolExecutor:
             )
         except Exception as exc:
             logger.warning("Bash security check failed: %s", exc)
-            return ToolResultBlock(
-                content=f"Security validation error: {exc}", is_error=True
-            )
+            return ToolResultBlock(content=f"Security validation error: {exc}", is_error=True)
 
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -360,10 +342,8 @@ class ToolExecutor:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._working_dir),
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=float(timeout)
-            )
-        except asyncio.TimeoutError:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=float(timeout))
+        except TimeoutError:
             return ToolResultBlock(
                 content=f"Command timed out after {timeout}s: {command}",
                 is_error=True,
@@ -399,14 +379,10 @@ class ToolExecutor:
             base = self._working_dir
 
         if not base.is_dir():
-            return ToolResultBlock(
-                content=f"Directory not found: {base}", is_error=True
-            )
+            return ToolResultBlock(content=f"Directory not found: {base}", is_error=True)
 
         full_pattern = str(base / pattern)
-        matches = await asyncio.to_thread(
-            glob_module.glob, full_pattern, recursive=True
-        )
+        matches = await asyncio.to_thread(glob_module.glob, full_pattern, recursive=True)
 
         # Sort and cap results
         matches.sort()
@@ -426,7 +402,9 @@ class ToolExecutor:
 
         result = "\n".join(relative)
         if total > _MAX_GLOB_RESULTS:
-            result += f"\n\n... and {total - _MAX_GLOB_RESULTS} more (capped at {_MAX_GLOB_RESULTS})"
+            result += (
+                f"\n\n... and {total - _MAX_GLOB_RESULTS} more (capped at {_MAX_GLOB_RESULTS})"
+            )
 
         return ToolResultBlock(content=result)
 
@@ -465,10 +443,8 @@ class ToolExecutor:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._working_dir),
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=30.0
-            )
-        except asyncio.TimeoutError:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        except TimeoutError:
             return ToolResultBlock(
                 content=f"Grep timed out searching for: {pattern}",
                 is_error=True,

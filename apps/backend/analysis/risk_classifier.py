@@ -88,9 +88,7 @@ class ComplexityAnalysis:
 
     scope: ScopeAnalysis = field(default_factory=ScopeAnalysis)
     integrations: IntegrationAnalysis = field(default_factory=IntegrationAnalysis)
-    infrastructure: InfrastructureAnalysis = field(
-        default_factory=InfrastructureAnalysis
-    )
+    infrastructure: InfrastructureAnalysis = field(default_factory=InfrastructureAnalysis)
     knowledge: KnowledgeAnalysis = field(default_factory=KnowledgeAnalysis)
     risk: RiskAnalysis = field(default_factory=RiskAnalysis)
 
@@ -195,12 +193,8 @@ class RiskClassifier:
         analysis_data = data.get("analysis", {})
         analysis = ComplexityAnalysis(
             scope=self._parse_scope(analysis_data.get("scope", {})),
-            integrations=self._parse_integrations(
-                analysis_data.get("integrations", {})
-            ),
-            infrastructure=self._parse_infrastructure(
-                analysis_data.get("infrastructure", {})
-            ),
+            integrations=self._parse_integrations(analysis_data.get("integrations", {})),
+            infrastructure=self._parse_infrastructure(analysis_data.get("infrastructure", {})),
             knowledge=self._parse_knowledge(analysis_data.get("knowledge", {})),
             risk=self._parse_risk(analysis_data.get("risk", {})),
         )
@@ -210,9 +204,7 @@ class RiskClassifier:
         flags = AssessmentFlags(
             needs_research=flags_data.get("needs_research", False),
             needs_self_critique=flags_data.get("needs_self_critique", False),
-            needs_infrastructure_setup=flags_data.get(
-                "needs_infrastructure_setup", False
-            ),
+            needs_infrastructure_setup=flags_data.get("needs_infrastructure_setup", False),
         )
 
         # Parse validation recommendations
@@ -292,9 +284,7 @@ class RiskClassifier:
                 minimal_mode=bool(data.get("minimal_mode", False)),
                 test_types_required=list(data.get("test_types_required", ["unit"])),
                 security_scan_required=bool(data.get("security_scan_required", False)),
-                staging_deployment_required=bool(
-                    data.get("staging_deployment_required", False)
-                ),
+                staging_deployment_required=bool(data.get("staging_deployment_required", False)),
                 reasoning=str(data.get("reasoning", "")),
             )
         else:
@@ -343,10 +333,10 @@ class RiskClassifier:
         security_scan_required = normalized_risk == "high" or has_security_concerns
 
         # Staging for database or infrastructure changes
-        staging_required = (
-            analysis.infrastructure.database_changes
-            and normalized_risk in ["medium", "high"]
-        )
+        staging_required = analysis.infrastructure.database_changes and normalized_risk in [
+            "medium",
+            "high",
+        ]
 
         # Minimal mode for simple changes
         minimal_mode = (

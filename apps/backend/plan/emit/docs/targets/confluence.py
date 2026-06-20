@@ -81,11 +81,7 @@ class ConfluenceTarget:
                 api,
                 params={"spaceKey": self._space, "title": title, "expand": "version"},
             )
-            results = (
-                (found.json() or {}).get("results", [])
-                if found.status_code < 400
-                else []
-            )
+            results = (found.json() or {}).get("results", []) if found.status_code < 400 else []
 
             if results:
                 page = results[0]
@@ -113,9 +109,7 @@ class ConfluenceTarget:
                         "body": _storage_body(bundle.markdown),
                     },
                 )
-                page_id = (
-                    (resp.json() or {}).get("id", "") if resp.status_code < 400 else ""
-                )
+                page_id = (resp.json() or {}).get("id", "") if resp.status_code < 400 else ""
                 action = "created"
 
             # Best-effort labels (non-fatal)
@@ -141,6 +135,4 @@ class ConfluenceTarget:
             )
         except Exception as exc:  # noqa: BLE001 — best-effort, never break emit
             logger.warning("ConfluenceTarget failed for %s: %s", bundle.plan_id, exc)
-            return TargetResult(
-                target=self.name, status="error", detail={"error": str(exc)}
-            )
+            return TargetResult(target=self.name, status="error", detail={"error": str(exc)})

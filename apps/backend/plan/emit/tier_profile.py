@@ -67,9 +67,7 @@ def _apply_execution(execution: dict[str, Any], tier: str) -> None:
     model = _MODEL_BY_TIER[tier]
     execution["model"] = model
     execution["provider"] = infer_provider_from_model(model)
-    execution["provider_rationale"] = (
-        f"{model!r} -> {execution['provider']} (RFC-0011 tier={tier})"
-    )
+    execution["provider_rationale"] = f"{model!r} -> {execution['provider']} (RFC-0011 tier={tier})"
     # Keep the per-phase models consistent with the tier model.
     execution["phase_models"] = {"coding": model, "qa": model, "qa_fixer": model}
     execution["autonomy_tier"] = tier

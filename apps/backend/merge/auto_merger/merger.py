@@ -83,7 +83,7 @@ class AutoMerger:
             return MergeResult(
                 decision=MergeDecision.FAILED,
                 file_path=context.file_path,
-                error=f"Auto-merge failed: {str(e)}",
+                error=f"Auto-merge failed: {e!s}",
             )
 
     def can_handle(self, strategy: MergeStrategy) -> bool:

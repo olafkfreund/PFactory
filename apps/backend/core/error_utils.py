@@ -144,15 +144,13 @@ async def safe_receive_messages(
             if msg_type == "SystemMessage":
                 subtype = getattr(msg, "subtype", "")
                 if subtype.startswith("unknown_"):
-                    original_type = subtype[len("unknown_"):]
+                    original_type = subtype[len("unknown_") :]
                     if "rate_limit" in original_type:
                         data = getattr(msg, "data", {})
-                        retry_after = data.get("retry_after") or data.get(
-                            "data", {}
-                        ).get("retry_after")
-                        retry_info = (
-                            f" (retry in {retry_after}s)" if retry_after else ""
+                        retry_after = data.get("retry_after") or data.get("data", {}).get(
+                            "retry_after"
                         )
+                        retry_info = f" (retry in {retry_after}s)" if retry_after else ""
                         logger.warning(f"[{caller}] Rate limit event{retry_info}")
                     else:
                         logger.debug(

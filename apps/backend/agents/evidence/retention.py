@@ -59,7 +59,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import shutil
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -197,7 +197,7 @@ def enforce_retention(
         :class:`RetentionStats` summarising what was pruned.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     stats = RetentionStats()
     evidence_root = spec_dir / "findings" / "evidence"
@@ -233,7 +233,7 @@ def enforce_retention(
             except OSError:
                 surviving.append(test_dir)
                 continue
-            age_dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+            age_dt = datetime.fromtimestamp(mtime, tz=UTC)
             cutoff = now - timedelta(days=max_days)
             if age_dt < cutoff:
                 # Directory is older than the allowed window → prune

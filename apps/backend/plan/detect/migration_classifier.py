@@ -82,9 +82,7 @@ def _canon(token: str | None) -> str | None:
     return _CANON.get(token.strip().lower().rstrip(".,;:!?)"))
 
 
-def classify_migration(
-    plan: NormalizedPlan, repo_map: RepoMap | None
-) -> MigrationSignal:
+def classify_migration(plan: NormalizedPlan, repo_map: RepoMap | None) -> MigrationSignal:
     """Detect a directional language rewrite grounded in the repo's language."""
     text = _plan_text(plan)
     if not _DIRECTIONAL.search(text):
@@ -102,12 +100,7 @@ def classify_migration(
     if target is None:
         m2 = _TO_ONLY.search(text)
         target = _canon(m2.group(1)) if m2 else None
-    if (
-        source is None
-        and repo_map is not None
-        and repo_map.available
-        and repo_map.languages
-    ):
+    if source is None and repo_map is not None and repo_map.available and repo_map.languages:
         source = repo_map.languages[0]
 
     if not (source and target and source != target):

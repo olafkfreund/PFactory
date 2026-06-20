@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -55,18 +55,14 @@ def _default_root() -> Path:
     return docs_root()
 
 
-def _resolve_targets(
-    root: Path | None, updated_at: str, *, repo: str | None
-) -> list[DocsTarget]:
+def _resolve_targets(root: Path | None, updated_at: str, *, repo: str | None) -> list[DocsTarget]:
     """The effective target set: repo always; Backstage/Confluence when configured.
 
     Per-plan/Settings selection (design §6d/§6e) lands in P4; for now a target is
     added when its env config is present and its ``available()`` returns True.
     The repo/GitHub doc is the default and is always included.
     """
-    out: list[DocsTarget] = [
-        RepoDocsTarget(root or _default_root(), updated_at=updated_at)
-    ]
+    out: list[DocsTarget] = [RepoDocsTarget(root or _default_root(), updated_at=updated_at)]
     git_write = _truthy("PFACTORY_DOCS_GIT_WRITE")
     if _truthy("PFACTORY_DOCS_BACKSTAGE") or os.environ.get("BACKSTAGE_BASE_URL"):
         out.append(BackstageTarget(repo=repo, git_write=git_write))
@@ -99,14 +95,21 @@ def connections_to_targets(
         if not use:
             continue
         if kind == "backstage":
-            out.append(BackstageTarget(
-                base_url=conn.get("base_url"), repo=repo, git_write=git_write,
-            ))
+            out.append(
+                BackstageTarget(
+                    base_url=conn.get("base_url"),
+                    repo=repo,
+                    git_write=git_write,
+                )
+            )
         elif kind == "confluence":
-            out.append(ConfluenceTarget(
-                base_url=conn.get("base_url"), token=conn.get("api_token"),
-                space=conn.get("space"),
-            ))
+            out.append(
+                ConfluenceTarget(
+                    base_url=conn.get("base_url"),
+                    token=conn.get("api_token"),
+                    space=conn.get("space"),
+                )
+            )
     return out
 
 
@@ -132,7 +135,7 @@ def emit_docs(
 
     Returns a list of per-target result dicts. Never raises.
     """
-    updated_at = datetime.now(timezone.utc).isoformat()
+    updated_at = datetime.now(UTC).isoformat()
     try:
         bundle = render_plan_docs(session)
     except Exception as exc:  # noqa: BLE001 — a render bug must not break emit
@@ -154,9 +157,7 @@ def emit_docs(
     return emit_bundle(bundle, targets=effective)
 
 
-def emit_bundle(
-    bundle: DocBundle, *, targets: list[DocsTarget]
-) -> list[dict[str, Any]]:
+def emit_bundle(bundle: DocBundle, *, targets: list[DocsTarget]) -> list[dict[str, Any]]:
     """Publish an already-rendered :class:`DocBundle` to each available target.
 
     The plan-agnostic core of the docs emit: it knows nothing about plans — only
@@ -171,15 +172,11 @@ def emit_bundle(
     for target in targets:
         try:
             if not target.available():
-                results.append(
-                    {"target": target.name, "status": "skipped", "detail": {}}
-                )
+                results.append({"target": target.name, "status": "skipped", "detail": {}})
                 continue
             results.append(target.publish(bundle).as_dict())
         except Exception as exc:  # noqa: BLE001 — isolate target failures
-            logger.warning(
-                "docs target %s failed: %s", getattr(target, "name", "?"), exc
-            )
+            logger.warning("docs target %s failed: %s", getattr(target, "name", "?"), exc)
             results.append(
                 {
                     "target": getattr(target, "name", "?"),

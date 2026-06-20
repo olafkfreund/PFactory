@@ -38,13 +38,20 @@ def plan_ingest(
     if path is not None:
         data = Path(path).read_bytes()
         session = SERVICE.ingest_bytes(
-            data, filename=Path(path).name, title=title, channel=channel,
-            category=category, template=template,
+            data,
+            filename=Path(path).name,
+            title=title,
+            channel=channel,
+            category=category,
+            template=template,
         )
     else:
         session = SERVICE.ingest_text(
-            text, title=title, channel=channel,
-            category=category, template=template,
+            text,
+            title=title,
+            channel=channel,
+            category=category,
+            template=template,
         )
     return session.summary()
 
@@ -101,9 +108,7 @@ def plan_categories() -> dict:
     for name, tmpl in load_templates().items():
         cat_name = getattr(tmpl.metadata, "category", "")
         if cat_name in by_category:
-            by_category[cat_name]["templates"].append(
-                {"name": name, "title": tmpl.metadata.title}
-            )
+            by_category[cat_name]["templates"].append({"name": name, "title": tmpl.metadata.title})
     return {"categories": sorted(by_category.values(), key=lambda c: c["category"])}
 
 
@@ -139,16 +144,29 @@ def _with_review(session) -> dict:
             "gates_passed": session.review.gates_passed,
             "aggregate_score": session.review.aggregate_score,
             "lenses": [
-                {"lens": ls.lens, "score": ls.score,
-                 "findings": [{"title": f.title, "severity": f.severity,
-                               "source": f.source, "citations": [c.model_dump() for c in f.citations]}
-                              for f in ls.findings]}
+                {
+                    "lens": ls.lens,
+                    "score": ls.score,
+                    "findings": [
+                        {
+                            "title": f.title,
+                            "severity": f.severity,
+                            "source": f.source,
+                            "citations": [c.model_dump() for c in f.citations],
+                        }
+                        for f in ls.findings
+                    ],
+                }
                 for ls in session.review.lenses
             ],
         }
     if session.epic is not None:
-        out["cost_estimate"] = session.epic.cost_estimate.model_dump() if session.epic.cost_estimate else None
-        out["effort_estimate"] = session.epic.effort_estimate.model_dump() if session.epic.effort_estimate else None
+        out["cost_estimate"] = (
+            session.epic.cost_estimate.model_dump() if session.epic.cost_estimate else None
+        )
+        out["effort_estimate"] = (
+            session.epic.effort_estimate.model_dump() if session.epic.effort_estimate else None
+        )
     if session.suggested_template:
         out["suggested_template"] = session.suggested_template
     return out

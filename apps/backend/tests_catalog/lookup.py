@@ -70,9 +70,7 @@ def lookup_by_ac(
     # ------------------------------------------------------------------
     ac_id = candidate_ac.split(":", 1)[0].strip()
     if ac_id:
-        prefix = [
-            e for e in catalog.tests if any(s.startswith(ac_id) for s in e.covers_acs)
-        ]
+        prefix = [e for e in catalog.tests if any(s.startswith(ac_id) for s in e.covers_acs)]
         if prefix:
             return prefix
 

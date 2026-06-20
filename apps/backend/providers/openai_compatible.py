@@ -143,9 +143,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     async def query(self, prompt: str) -> None:
         """Store the prompt for execution when ``receive_response()`` is called."""
         self._pending_prompt = prompt
-        logger.debug(
-            "OpenAICompatibleProvider: prompt stored (length=%d)", len(prompt)
-        )
+        logger.debug("OpenAICompatibleProvider: prompt stored (length=%d)", len(prompt))
 
     def receive_response(self) -> AsyncIterator[Any]:
         """Return an async generator that calls ``/v1/chat/completions``."""
@@ -167,17 +165,15 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         payload = self._build_payload(self._pending_prompt)
         url = f"{self._base_url}{_PATH_CHAT}"
 
-        logger.debug(
-            "OpenAICompatibleProvider: POST %s model=%r", url, self._model
-        )
+        logger.debug("OpenAICompatibleProvider: POST %s model=%r", url, self._model)
 
         try:
             response_data = await asyncio.wait_for(
                 asyncio.to_thread(self._http_post, url, payload),
                 timeout=float(self._timeout),
             )
-        except asyncio.TimeoutError:
-            raise asyncio.TimeoutError(
+        except TimeoutError:
+            raise TimeoutError(
                 f"OpenAI-compatible API request timed out after {self._timeout}s. "
                 "Increase timeout= or reduce prompt size."
             )
@@ -251,9 +247,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         try:
             return json.loads(raw.decode("utf-8", errors="replace"))
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"OpenAI-compatible API returned invalid JSON: {exc}"
-            ) from exc
+            raise RuntimeError(f"OpenAI-compatible API returned invalid JSON: {exc}") from exc
 
     @staticmethod
     def _extract_content(response_data: dict[str, Any]) -> str:
@@ -287,9 +281,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
         message = first.get("message")
         if not isinstance(message, dict):
-            raise RuntimeError(
-                "OpenAI-compatible API response missing 'choices[0].message'"
-            )
+            raise RuntimeError("OpenAI-compatible API response missing 'choices[0].message'")
 
         content = message.get("content")
         if content is None:
@@ -333,13 +325,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 )
                 return
             raise RuntimeError(
-                f"OpenAI-compatible server health check failed — "
-                f"HTTP {exc.code}: {exc.reason}."
+                f"OpenAI-compatible server health check failed — HTTP {exc.code}: {exc.reason}."
             ) from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
-                f"Cannot reach OpenAI-compatible server at '{self._base_url}': "
-                f"{exc.reason}."
+                f"Cannot reach OpenAI-compatible server at '{self._base_url}': {exc.reason}."
             ) from exc
 
     # ------------------------------------------------------------------

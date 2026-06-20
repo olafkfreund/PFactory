@@ -91,8 +91,7 @@ def detect_format(text: str, *, filename: str | None = None) -> SpecFormat:
         return SpecFormat.GHERKIN
     # EARS if a clear majority of non-empty, non-heading lines use "shall".
     content_lines = [
-        ln for ln in text.splitlines()
-        if ln.strip() and not ln.lstrip().startswith("#")
+        ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
     ]
     if content_lines:
         shall = sum(1 for ln in content_lines if _EARS_SHALL.search(ln))
@@ -103,10 +102,13 @@ def detect_format(text: str, *, filename: str | None = None) -> SpecFormat:
 
 # ── helpers ────────────────────────────────────────────────────────────
 
+
 def _number(criteria: list[str]) -> list[AcceptanceCriterion]:
     """Assign stable ``AC#N`` ids to non-empty criterion strings."""
-    return [AcceptanceCriterion(id=f"AC#{i}", text=t.strip())
-            for i, t in enumerate((c for c in criteria if c.strip()), start=1)]
+    return [
+        AcceptanceCriterion(id=f"AC#{i}", text=t.strip())
+        for i, t in enumerate((c for c in criteria if c.strip()), start=1)
+    ]
 
 
 def _first_h1(text: str, default: str) -> str:
@@ -124,6 +126,7 @@ _AC_HEADING_WORDS = ("acceptance criteria", "acceptance", "requirements")
 
 
 # ── markdown ───────────────────────────────────────────────────────────
+
 
 def parse_markdown(text: str, *, title: str | None = None) -> NormalizedSpec:
     """Parse acceptance criteria from a markdown doc.
@@ -163,12 +166,15 @@ def parse_markdown(text: str, *, title: str | None = None) -> NormalizedSpec:
             "section with bullets, or 'AC#N: ...' lines."
         )
     return NormalizedSpec(
-        title=title, description="", criteria=tuple(acs),
+        title=title,
+        description="",
+        criteria=tuple(acs),
         source_format=SpecFormat.MARKDOWN,
     )
 
 
 # ── gherkin ────────────────────────────────────────────────────────────
+
 
 def parse_gherkin(text: str, *, title: str | None = None) -> NormalizedSpec:
     """Parse a Gherkin ``.feature`` — one acceptance criterion per Scenario.
@@ -192,7 +198,7 @@ def parse_gherkin(text: str, *, title: str | None = None) -> NormalizedSpec:
     for ln in text.splitlines():
         s = ln.strip()
         if s.startswith("Feature:"):
-            feature_title = feature_title or s[len("Feature:"):].strip()
+            feature_title = feature_title or s[len("Feature:") :].strip()
             continue
         if s.startswith(("Scenario:", "Scenario Outline:")):
             _flush()
@@ -241,11 +247,11 @@ def parse_ears(text: str, *, title: str | None = None) -> NormalizedSpec:
 
     acs = _number(criteria)
     if not acs:
-        raise SpecSourceError(
-            "no EARS requirements found — expected lines containing 'shall'."
-        )
+        raise SpecSourceError("no EARS requirements found — expected lines containing 'shall'.")
     return NormalizedSpec(
-        title=title, description="", criteria=tuple(acs),
+        title=title,
+        description="",
+        criteria=tuple(acs),
         source_format=SpecFormat.EARS,
     )
 
@@ -276,8 +282,9 @@ def ingest(
     return _PARSERS[fmt](text, title=title)
 
 
-def ingest_file(path: Path, *, fmt: SpecFormat | None = None,
-                title: str | None = None) -> NormalizedSpec:
+def ingest_file(
+    path: Path, *, fmt: SpecFormat | None = None, title: str | None = None
+) -> NormalizedSpec:
     """Ingest from a file, using its name for format detection."""
     p = Path(path)
     return ingest(p.read_text(), fmt=fmt, filename=p.name, title=title)
@@ -308,8 +315,11 @@ if __name__ == "__main__":  # pragma: no cover - operator ingestion CLI
         "source into PFactory's canonical spec markdown.",
     )
     _ap.add_argument("source", help="path to the AC source file")
-    _ap.add_argument("--format", choices=[f.value for f in SpecFormat],
-                     help="force a source format (default: auto-detect)")
+    _ap.add_argument(
+        "--format",
+        choices=[f.value for f in SpecFormat],
+        help="force a source format (default: auto-detect)",
+    )
     _ap.add_argument("--title", help="override the spec title")
     _ap.add_argument("--context", help="write aifactory_spec.md into this context dir")
     _args = _ap.parse_args()
@@ -324,8 +334,11 @@ if __name__ == "__main__":  # pragma: no cover - operator ingestion CLI
         print(f"error: {_exc}", file=_sys.stderr)
         _sys.exit(2)
 
-    print(f"# {_spec.title}  ({_spec.source_format.value}, "
-          f"{len(_spec.criteria)} acceptance criteria)", file=_sys.stderr)
+    print(
+        f"# {_spec.title}  ({_spec.source_format.value}, "
+        f"{len(_spec.criteria)} acceptance criteria)",
+        file=_sys.stderr,
+    )
     if _args.context:
         _dst = write_spec_markdown(_spec, Path(_args.context))
         print(f"wrote {_dst}", file=_sys.stderr)

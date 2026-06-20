@@ -19,10 +19,10 @@ from .storage import EvolutionStorage
 from .tracker import FileEvolutionTracker
 
 __all__ = [
-    "FileEvolutionTracker",
-    "EvolutionStorage",
-    "BaselineCapture",
-    "ModificationTracker",
-    "EvolutionQueries",
     "DEFAULT_EXTENSIONS",
+    "BaselineCapture",
+    "EvolutionQueries",
+    "EvolutionStorage",
+    "FileEvolutionTracker",
+    "ModificationTracker",
 ]

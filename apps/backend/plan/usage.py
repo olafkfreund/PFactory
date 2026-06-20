@@ -123,12 +123,8 @@ def usage_from_obj(obj: object) -> PlanUsage | None:
             return None
         model = str(obj.get("model") or data.get("model") or "")
         cost = data.get("cost_usd", obj.get("cost_usd"))
-        cost_usd = (
-            float(cost) if cost is not None else estimate_cost_usd(in_tok, out_tok, model)
-        )
-        return PlanUsage(
-            input_tokens=in_tok, output_tokens=out_tok, cost_usd=cost_usd, model=model
-        )
+        cost_usd = float(cost) if cost is not None else estimate_cost_usd(in_tok, out_tok, model)
+        return PlanUsage(input_tokens=in_tok, output_tokens=out_tok, cost_usd=cost_usd, model=model)
 
     # adapter that records its most recent call.
     last = getattr(obj, "last_usage", None)
@@ -147,6 +143,4 @@ def usage_from_obj(obj: object) -> PlanUsage | None:
         model = str(getattr(src, "model", "") or "")
     cost = getattr(src, "cost_usd", None)
     cost_usd = float(cost) if cost is not None else estimate_cost_usd(in_tok, out_tok, model)
-    return PlanUsage(
-        input_tokens=in_tok, output_tokens=out_tok, cost_usd=cost_usd, model=model
-    )
+    return PlanUsage(input_tokens=in_tok, output_tokens=out_tok, cost_usd=cost_usd, model=model)

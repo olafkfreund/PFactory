@@ -114,17 +114,12 @@ def handle_mcp_doctor_command(project_dir: Path | None = None) -> int:
 
     for entry in CATALOG:
         creds = (
-            get_credential_status(entry.credential_provider)
-            if entry.credential_provider
-            else None
+            get_credential_status(entry.credential_provider) if entry.credential_provider else None
         )
         markers_ok, marker_desc = _check_marker_match(entry, infra_markers)
 
         # Status icon — would this server actually auto-enable right now?
-        would_enable = (
-            markers_ok
-            and (creds is None or creds.available)
-        )
+        would_enable = markers_ok and (creds is None or creds.available)
         icon = f"{_GREEN}✓{_RESET}" if would_enable else f"{_RED}✗{_RESET}"
 
         cred_text = (
@@ -140,10 +135,7 @@ def handle_mcp_doctor_command(project_dir: Path | None = None) -> int:
         # Two-line per entry: status + indent for hint
         print(f"  {icon} {_BOLD}{entry.id:<14}{_RESET} creds: {cred_text}")
         print(f"     {_DIM}markers:{_RESET} {marker_text}")
-        print(
-            f"     {_DIM}agents:{_RESET}  "
-            f"{_DIM}{', '.join(entry.default_for_agents)}{_RESET}"
-        )
+        print(f"     {_DIM}agents:{_RESET}  {_DIM}{', '.join(entry.default_for_agents)}{_RESET}")
 
         # Hint when creds are missing (and project markers would actually want this server)
         if creds and not creds.available and markers_ok:

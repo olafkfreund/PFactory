@@ -15,8 +15,8 @@ from .render import render_fix_request_md
 from .request import CorrectionRequest, Failure, build_correction_request
 
 __all__ = [
-    "Failure",
     "CorrectionRequest",
+    "Failure",
     "build_correction_request",
     "render_fix_request_md",
 ]

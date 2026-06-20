@@ -48,8 +48,7 @@ def derive_required_commands(plan: NormalizedPlan, epic: EpicPlan) -> list[str]:
     cmds: set[str] = set()
 
     python_ish = (
-        "pytest" in text or "python" in text or "uv " in text
-        or bool({"testing", "cicd"} & kinds)
+        "pytest" in text or "python" in text or "uv " in text or bool({"testing", "cicd"} & kinds)
     )
     if python_ish:
         cmds |= {"uv", "pytest", "ruff"}

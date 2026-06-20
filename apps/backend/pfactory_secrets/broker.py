@@ -214,9 +214,7 @@ class CredentialBroker:
         else:
             self._env[env_name] = secret.value
             source = secret.source
-        return CredentialStatus(
-            available=True, source=f"broker:{source}", env_vars=dict(self._env)
-        )
+        return CredentialStatus(available=True, source=f"broker:{source}", env_vars=dict(self._env))
 
     def materialise_credential(self, name: str, entry) -> str:
         """Resolve a `.pfactory.yml` credential entry and expose it.
@@ -224,9 +222,7 @@ class CredentialBroker:
         ``entry`` carries ``ref`` / ``as_`` (env var) / ``kind`` (``env``|``file``).
         Returns the env-var name set. Raises ``SecretsError`` on failure.
         """
-        ref = getattr(entry, "ref", None) or (
-            entry.get("ref") if isinstance(entry, dict) else None
-        )
+        ref = getattr(entry, "ref", None) or (entry.get("ref") if isinstance(entry, dict) else None)
         as_var = getattr(entry, "as_", None) or (
             entry.get("as") if isinstance(entry, dict) else None
         )
@@ -384,8 +380,8 @@ def reset_config_cache() -> None:
 
 
 __all__ = [
+    "CREDENTIALS_CONFIG_PATH",
     "CredentialBroker",
     "inject_task_credentials",
     "reset_config_cache",
-    "CREDENTIALS_CONFIG_PATH",
 ]

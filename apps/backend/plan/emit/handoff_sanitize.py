@@ -33,19 +33,19 @@ _MAX_JSON_BYTES = 32 * 1024  # 32KB whole-list budget
 # embed an account id) is masked whole before the bare-12-digit rule fires.
 _REDACT = "[redacted]"
 _REDACTORS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"AKIA[0-9A-Z]{16}"),                          # AWS access key id
-    re.compile(r"arn:[^\s\"']+"),                             # ARN
-    re.compile(r"\bi-[0-9a-f]{6,}\b"),                        # EC2 instance id
-    re.compile(r"\bsg-[0-9a-f]{6,}\b"),                       # security-group id
-    re.compile(                                              # IPv4 (optional CIDR)
+    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access key id
+    re.compile(r"arn:[^\s\"']+"),  # ARN
+    re.compile(r"\bi-[0-9a-f]{6,}\b"),  # EC2 instance id
+    re.compile(r"\bsg-[0-9a-f]{6,}\b"),  # security-group id
+    re.compile(  # IPv4 (optional CIDR)
         r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b"
     ),
-    re.compile(                                              # IPv6 (optional CIDR)
+    re.compile(  # IPv6 (optional CIDR)
         r"\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4}(?:/\d{1,3})?\b"
     ),
-    re.compile(r"\b\d{12}\b"),                                # AWS account id
-    re.compile(r"\b[0-9a-fA-F]{32,}\b"),                     # long hex token
-    re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b"),            # long base64 token
+    re.compile(r"\b\d{12}\b"),  # AWS account id
+    re.compile(r"\b[0-9a-fA-F]{32,}\b"),  # long hex token
+    re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b"),  # long base64 token
 )
 
 
@@ -137,7 +137,9 @@ def _reduce_resources(resources: Any) -> dict[str, Any]:
         # Shape map of type → count/shape; cap key count, redact keys defensively.
         reduced: dict[str, Any] = {}
         for name, shape in list(instance_types.items())[:_MAX_INSTANCE_TYPES]:
-            reduced[redact(name)[:_MAX_STR]] = shape if isinstance(shape, (int, float, str)) else None
+            reduced[redact(name)[:_MAX_STR]] = (
+                shape if isinstance(shape, (int, float, str)) else None
+            )
         out["instance_types"] = reduced
     elif isinstance(instance_types, list):
         out["instance_types"] = sorted(

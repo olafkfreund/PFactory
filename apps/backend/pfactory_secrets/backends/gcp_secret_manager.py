@@ -51,7 +51,7 @@ class GcpSecretManagerBackend(SecretsBackend):
         try:
             client = secretmanager.SecretManagerServiceClient()
             resp = client.access_secret_version(name=name)
-        except Exception as exc:  # noqa: BLE001 - google raises various types
+        except Exception as exc:
             if exc.__class__.__name__ in ("NotFound", "PermissionDenied"):
                 raise SecretNotFoundError(
                     f"GCP secret {name!r} not found / not accessible"
@@ -60,7 +60,9 @@ class GcpSecretManagerBackend(SecretsBackend):
 
         value = resp.payload.data.decode("utf-8")
         return SecretValue(
-            value=value, backend=self.name, ref=ref.raw,
+            value=value,
+            backend=self.name,
+            ref=ref.raw,
             source=f"gcp-sm:{project}/{ref.locator}/{version}",
         )
 

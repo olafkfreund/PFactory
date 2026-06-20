@@ -209,9 +209,7 @@ def detect_work_type(subtask: dict) -> list[str]:
     service = subtask.get("service", "").lower()
 
     # API endpoint detection
-    if any(
-        kw in description for kw in ["endpoint", "api", "route", "request", "response"]
-    ):
+    if any(kw in description for kw in ["endpoint", "api", "route", "request", "response"]):
         work_types.append("api_endpoint")
     if any("routes" in f or "api" in f for f in files):
         work_types.append("api_endpoint")
@@ -235,9 +233,7 @@ def detect_work_type(subtask: dict) -> list[str]:
         work_types.append("celery_task")
 
     # Authentication detection
-    if any(
-        kw in description for kw in ["auth", "login", "password", "token", "session"]
-    ):
+    if any(kw in description for kw in ["auth", "login", "password", "token", "session"]):
         work_types.append("authentication")
 
     # Database query detection

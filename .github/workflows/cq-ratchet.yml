@@ -1,0 +1,148 @@
+name: code-quality (ratchet)
+
+# Factory Coding Standards adoption — Phase 0 (epic Factory#154, issues #192 #196).
+#
+# Enforcement model (standards/coding-standards.md sections 0 and 4.6), mirroring
+# the reference CFactory pattern:
+#   - The shared strict select set is governed by the repo's root ruff.toml,
+#     which adopts the vendored hub baseline (standards/ruff.toml).
+#   - ruff is enforced under a no-regression RATCHET (scripts/ratchet_lint.py,
+#     vendored verbatim from CFactory): per changed apps/backend Python file it
+#     counts ruff violations at the PR base vs HEAD and fails only if HEAD has
+#     MORE. Legacy hotspots stay green until touched; net-new violations block.
+#     This job is BLOCKING.
+#   - mypy --strict on changed files is INFORMATIONAL (continue-on-error): the
+#     legacy backend is largely untyped, so a blocking per-file mypy gate would
+#     report a large existing backlog. Promoting it to blocking is follow-up.
+#   - A whole-repo `ruff format --check` is BLOCKING (formatting is auto-applied,
+#     never reviewed — section 3.6) and pinned to the same ruff version that the
+#     tree was formatted with, so it is green.
+#   - A config-drift gate keeps the vendored baseline pinned to the hub.
+#
+# A whole-repo blocking `ruff check` / `mypy --strict` strict gate is
+# intentionally NOT used here (and the existing ci.yml ruff step was converted to
+# the same ratchet): the ~6.5k legacy violation count would make it instantly
+# red. Legacy is fixed on touch under the ratchet.
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: cq-ratchet-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Single source of truth for the ruff pin. MUST match ci.yml's RUFF_VERSION and
+  # the version the tree was formatted with, or format-check will be red.
+  RUFF_VERSION: "0.15.17"
+  MYPY_VERSION: "1.20.1"
+  PACKAGE_DIR: "apps/backend"
+
+jobs:
+  ratchet-ruff:
+    name: ratchet ruff (changed files, blocking) + mypy (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history back to the PR base for the diff-scoped ratchet.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Create venv + install lint toolchain (pinned) + backend deps
+        working-directory: apps/backend
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r ../web-server/requirements.txt
+          uv pip install -r ../../tests/requirements-test.txt
+          uv pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
+
+      - name: Determine base ref
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=HEAD~1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ratchet (ruff on changed files; blocks net-new violations)
+        run: |
+          # Put the venv's pinned ruff first on PATH so the ratchet shells out to
+          # it (the ratchet invokes `ruff` and `git` as plain commands).
+          export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
+          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}"
+
+      - name: mypy --strict on changed files (informational)
+        # Non-blocking for now: the legacy backend is largely untyped, so
+        # mypy --strict over touched files reports a large existing backlog. This
+        # surfaces type debt without making the adoption PR red.
+        continue-on-error: true
+        env:
+          MYPYPATH: apps/backend
+          PYTHONPATH: apps/backend
+        run: |
+          mapfile -t files < <(git diff --name-only --diff-filter=AM "${{ steps.base.outputs.ref }}...HEAD" -- "${PACKAGE_DIR}" | grep '\.py$' || true)
+          if [ ${#files[@]} -eq 0 ]; then echo "no changed Python files"; exit 0; fi
+          apps/backend/.venv/bin/mypy --config-file mypy.ini "${files[@]}" || true
+
+  format-check:
+    name: ruff format --check (whole repo, blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install ruff (pinned)
+        run: uv tool install "ruff==${RUFF_VERSION}"
+
+      - name: Ruff format check (apps/backend)
+        run: ruff format --check apps/backend
+
+  config-drift:
+    name: config drift (vendored baseline pinned to hub)
+    runs-on: ubuntu-latest
+    # The vendored standards/ copy must match the Factory hub at the pinned SHA
+    # (standards/README.md). Soft-skips on a network error fetching the hub so a
+    # GitHub outage cannot red the build.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Diff vendored baseline against pinned hub
+        env:
+          HUB_SHA: "93c3bb49ed5f3f3d3d46aae5f8a13ff601550702"
+        run: |
+          set -euo pipefail
+          base="https://raw.githubusercontent.com/olafkfreund/Factory/${HUB_SHA}/standards"
+          fail=0
+          for f in ruff.toml mypy.ini .editorconfig coding-standards.md; do
+            if ! curl -fsSL "${base}/${f}" -o "/tmp/hub-${f}"; then
+              echo "::warning::could not fetch ${f} from hub (${HUB_SHA}); skipping drift check"
+              continue
+            fi
+            if ! diff -u "/tmp/hub-${f}" "standards/${f}"; then
+              echo "::error::standards/${f} drifted from the pinned hub baseline"
+              fail=1
+            fi
+          done
+          exit $fail

@@ -173,11 +173,7 @@ def handle_workspace_choice(
             if worktree_path:
                 print(highlight(f"  cd {worktree_path}"))
             else:
-                print(
-                    highlight(
-                        f"  cd {project_dir}/.pfactory/worktrees/tasks/{spec_name}"
-                    )
-                )
+                print(highlight(f"  cd {project_dir}/.pfactory/worktrees/tasks/{spec_name}"))
 
         # Show likely test/run commands
         if staging_path:
@@ -218,11 +214,7 @@ def handle_workspace_choice(
         print()
         print("To see full details of changes:")
         if worktree_info:
-            print(
-                muted(
-                    f"  git diff {worktree_info.base_branch}...{worktree_info.branch}"
-                )
-            )
+            print(muted(f"  git diff {worktree_info.base_branch}...{worktree_info.branch}"))
         print()
         print("To test the feature:")
         if staging_path:
@@ -244,11 +236,7 @@ def handle_workspace_choice(
             if worktree_path:
                 print(highlight(f"  cd {worktree_path}"))
             else:
-                print(
-                    highlight(
-                        f"  cd {project_dir}/.pfactory/worktrees/tasks/{spec_name}"
-                    )
-                )
+                print(highlight(f"  cd {project_dir}/.pfactory/worktrees/tasks/{spec_name}"))
         print()
         print("When you're ready to add it:")
         print(highlight(f"  python pfactory/run.py --spec {spec_name} --merge"))

@@ -94,9 +94,7 @@ class TechnicalEvaluator(SubAgent):
         # Evaluate alternatives if provided
         alternative_recommendations = []
         if alternatives:
-            alternative_recommendations = self._evaluate_alternatives(
-                decision, alternatives
-            )
+            alternative_recommendations = self._evaluate_alternatives(decision, alternatives)
 
         # Calculate confidence based on analysis depth
         confidence = 0.7  # Base confidence for heuristic analysis
@@ -120,21 +118,13 @@ class TechnicalEvaluator(SubAgent):
         # Generate recommendations
         recommendations = []
         if security_concerns:
-            recommendations.append(
-                f"Address {len(security_concerns)} security concerns"
-            )
+            recommendations.append(f"Address {len(security_concerns)} security concerns")
         if performance_concerns:
-            recommendations.append(
-                "Consider performance implications"
-            )
+            recommendations.append("Consider performance implications")
         if scalability_concerns:
-            recommendations.append(
-                "Plan for scalability challenges"
-            )
+            recommendations.append("Plan for scalability challenges")
         if alternative_recommendations:
-            recommendations.append(
-                "Review alternative approaches"
-            )
+            recommendations.append("Review alternative approaches")
 
         recommendations.extend(best_practices[:3])  # Top 3 best practices
 
@@ -165,9 +155,7 @@ class TechnicalEvaluator(SubAgent):
             },
         )
 
-    def _assess_risk(
-        self, decision: str, context: str, constraints: list[str]
-    ) -> dict[str, Any]:
+    def _assess_risk(self, decision: str, context: str, constraints: list[str]) -> dict[str, Any]:
         """Assess overall risk level of the technical decision."""
         risk_factors = []
         risk_score = 0
@@ -376,9 +364,7 @@ class TechnicalEvaluator(SubAgent):
 
         return recommendations[:8]  # Top 8 recommendations
 
-    def _evaluate_alternatives(
-        self, decision: str, alternatives: list[str]
-    ) -> list[str]:
+    def _evaluate_alternatives(self, decision: str, alternatives: list[str]) -> list[str]:
         """Evaluate alternative approaches."""
         evaluations = []
 
@@ -387,17 +373,11 @@ class TechnicalEvaluator(SubAgent):
 
             # Simple heuristic evaluation
             if "simpler" in alt_lower or "easier" in alt_lower:
-                evaluations.append(
-                    f"Alternative {i}: {alt} - May reduce complexity"
-                )
+                evaluations.append(f"Alternative {i}: {alt} - May reduce complexity")
             elif "proven" in alt_lower or "established" in alt_lower:
-                evaluations.append(
-                    f"Alternative {i}: {alt} - Lower risk, established solution"
-                )
+                evaluations.append(f"Alternative {i}: {alt} - Lower risk, established solution")
             elif "flexible" in alt_lower or "scalable" in alt_lower:
-                evaluations.append(
-                    f"Alternative {i}: {alt} - Better long-term flexibility"
-                )
+                evaluations.append(f"Alternative {i}: {alt} - Better long-term flexibility")
             else:
                 evaluations.append(f"Alternative {i}: {alt} - Consider trade-offs")
 
@@ -417,9 +397,7 @@ class TechnicalEvaluator(SubAgent):
         parts.append(f"Risk level: {risk_assessment['level']}")
 
         if risk_assessment["factors"]:
-            parts.append(
-                f"Risk factors: {', '.join(risk_assessment['factors'][:3])}"
-            )
+            parts.append(f"Risk factors: {', '.join(risk_assessment['factors'][:3])}")
 
         if pros:
             parts.append(f"Advantages: {len(pros)} identified")

@@ -263,16 +263,12 @@ def setup_workspace(
     # Copy .env files to worktree so user can run the project
     copied_env_files = copy_env_files_to_worktree(project_dir, worktree_info.path)
     if copied_env_files:
-        print_status(
-            f"Environment files copied: {', '.join(copied_env_files)}", "success"
-        )
+        print_status(f"Environment files copied: {', '.join(copied_env_files)}", "success")
 
     # Copy spec files to worktree if provided
     localized_spec_dir = None
     if source_spec_dir and source_spec_dir.exists():
-        localized_spec_dir = copy_spec_to_worktree(
-            source_spec_dir, worktree_info.path, spec_name
-        )
+        localized_spec_dir = copy_spec_to_worktree(source_spec_dir, worktree_info.path, spec_name)
         print_status("Spec files copied to workspace", "success")
 
     print_status(f"Workspace ready: {worktree_info.path.name}", "success")

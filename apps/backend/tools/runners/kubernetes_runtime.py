@@ -35,8 +35,8 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 # kubectl prints a forwarding line per bound loopback address once the tunnel is
 # live, e.g. "Forwarding from 127.0.0.1:8080 -> 80" and/or
@@ -121,11 +121,7 @@ class KubernetesRuntime:
             raise KubernetesRuntimeError(
                 f"kubernetes target {t.name!r} requires 'port' to port-forward"
             )
-        local = (
-            self._requested_local_port
-            if self._requested_local_port is not None
-            else t.port
-        )
+        local = self._requested_local_port if self._requested_local_port is not None else t.port
         argv = list(self.kubectl_cmd)
         if self.kubeconfig:
             argv += ["--kubeconfig", str(self.kubeconfig)]
@@ -192,8 +188,7 @@ class KubernetesRuntime:
             if match:
                 return int(match.group(1))
         raise KubernetesRuntimeError(
-            f"kubectl port-forward did not become ready within "
-            f"{self.readiness_timeout}s"
+            f"kubectl port-forward did not become ready within {self.readiness_timeout}s"
         )
 
     def stop(self) -> None:

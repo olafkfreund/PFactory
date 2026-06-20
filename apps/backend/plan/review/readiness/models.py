@@ -10,7 +10,7 @@ the plan's substance and the waiver (like the approval) is invalidated.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from plan.review.models import Citation, Severity
@@ -27,7 +27,7 @@ CheckStatus = Literal["pass", "fail", "not_applicable", "skipped"]
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class ReadinessCheckResult(BaseModel):
@@ -107,9 +107,7 @@ class ReadinessReport(BaseModel):
         self, plan: NormalizedPlan | None = None
     ) -> list[ReadinessCheckResult]:
         """Hard failures not cleared by a valid waiver."""
-        return [
-            r for r in self.hard_failures() if not self._is_waived(r.check_id, plan)
-        ]
+        return [r for r in self.hard_failures() if not self._is_waived(r.check_id, plan)]
 
     def is_ready(self, plan: NormalizedPlan | None = None) -> bool:
         """True when no hard failure remains unwaived."""

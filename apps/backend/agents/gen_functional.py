@@ -36,7 +36,7 @@ import json
 import logging as _logging
 import os
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -49,7 +49,7 @@ _gen_log = _logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _read_status(spec_dir: Path) -> dict:
@@ -236,8 +236,7 @@ def _resolve_runner_fn(framework_descriptor=None):
         image = _DEFAULT_IMAGE
     else:
         image = (
-            getattr(getattr(framework_descriptor, "runtime", None), "image", None)
-            or _DEFAULT_IMAGE
+            getattr(getattr(framework_descriptor, "runtime", None), "image", None) or _DEFAULT_IMAGE
         )
 
     from tools.runners.docker_runner import DockerRunner
@@ -475,9 +474,7 @@ async def run_gen_functional(
             is_python = (subtask.language or "python") == "python"
 
             # 5. Pre-flight static check (commit 2) — Python only.
-            pre = (
-                preflight_check(source, project_dir=project_dir) if is_python else None
-            )
+            pre = preflight_check(source, project_dir=project_dir) if is_python else None
             if pre is not None and not pre.ok:
                 test_path.unlink(missing_ok=True)
                 reasons = (
@@ -506,10 +503,7 @@ async def run_gen_functional(
             if flake is not None and not flake.ok:
                 test_path.unlink(missing_ok=True)
                 reasons = (
-                    "; ".join(
-                        f"L{h.lineno} {h.pattern}: {h.detail[:60]}"
-                        for h in flake.rejected
-                    )
+                    "; ".join(f"L{h.lineno} {h.pattern}: {h.detail[:60]}" for h in flake.rejected)
                     or flake.summary()
                 )
                 _write_replan_request(

@@ -134,11 +134,7 @@ def handle_build_command(
         if force_bypass_approval:
             # User explicitly bypassed approval check
             print()
-            print(
-                warning(
-                    f"{icon(Icons.WARNING)} WARNING: Bypassing approval check with --force"
-                )
-            )
+            print(warning(f"{icon(Icons.WARNING)} WARNING: Bypassing approval check with --force"))
             print(muted("This spec has not been approved for building."))
             print()
         else:
@@ -177,9 +173,7 @@ def handle_build_command(
                 # CLI mode - exit with error to block execution
                 sys.exit(1)
     else:
-        debug_success(
-            "run.py", "Review approval validated", approved_by=review_state.approved_by
-        )
+        debug_success("run.py", "Review approval validated", approved_by=review_state.approved_by)
 
     # Check for existing build
     if get_existing_build_worktree(project_dir, spec_dir.name):
@@ -296,16 +290,12 @@ def handle_build_command(
                     print("\nSome issues require manual attention.")
                     print(f"See: {spec_dir / 'qa_report.md'}")
                     print(f"Or:  {spec_dir / 'QA_FIX_REQUEST.md'}")
-                    print(
-                        f"\nResume QA: python pfactory/run.py --spec {spec_dir.name} --qa\n"
-                    )
+                    print(f"\nResume QA: python pfactory/run.py --spec {spec_dir.name} --qa\n")
 
                 # Sync implementation plan to main project after QA
                 # This ensures the main project has the latest status (human_review)
                 if sync_plan_to_source(spec_dir, source_spec_dir):
-                    debug_info(
-                        "run.py", "Implementation plan synced to main project after QA"
-                    )
+                    debug_info("run.py", "Implementation plan synced to main project after QA")
             except KeyboardInterrupt:
                 print("\n\nQA validation paused.")
                 print(f"Resume: python pfactory/run.py --spec {spec_dir.name} --qa")
@@ -338,9 +328,7 @@ def handle_build_command(
                 worktree_manager,
                 auto_continue=auto_continue,
             )
-            handle_workspace_choice(
-                choice, project_dir, spec_dir.name, worktree_manager
-            )
+            handle_workspace_choice(choice, project_dir, spec_dir.name, worktree_manager)
 
     except KeyboardInterrupt:
         _handle_build_interrupt(
@@ -465,9 +453,7 @@ def _handle_build_interrupt(
                 "",
                 f"Saved to: {highlight(str(input_file.name))}",
                 "",
-                muted(
-                    "The agent will read and follow these instructions when you resume."
-                ),
+                muted("The agent will read and follow these instructions when you resume."),
             ]
             print()
             print(box(content, width=70, style="heavy"))

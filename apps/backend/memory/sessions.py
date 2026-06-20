@@ -8,7 +8,7 @@ Functions for saving and loading session insights.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +22,7 @@ from .paths import get_session_insights_dir
 logger = logging.getLogger(__name__)
 
 
-def save_session_insights(
-    spec_dir: Path, session_num: int, insights: dict[str, Any]
-) -> None:
+def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, Any]) -> None:
     """
     Save insights from a completed session.
 
@@ -62,7 +60,7 @@ def save_session_insights(
     # Build complete insight structure
     session_data = {
         "session_number": session_num,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "subtasks_completed": insights.get("subtasks_completed", []),
         "discoveries": insights.get(
             "discoveries",
@@ -70,9 +68,7 @@ def save_session_insights(
         ),
         "what_worked": insights.get("what_worked", []),
         "what_failed": insights.get("what_failed", []),
-        "recommendations_for_next_session": insights.get(
-            "recommendations_for_next_session", []
-        ),
+        "recommendations_for_next_session": insights.get("recommendations_for_next_session", []),
     }
 
     # Write to file (always use file-based storage)

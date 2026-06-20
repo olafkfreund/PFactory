@@ -349,9 +349,7 @@ def load_task_metadata(spec_dir: Path) -> TaskMetadataConfig | None:
         try:
             with open(requirements_path) as f:
                 requirements = json.load(f)
-                if "metadata" in requirements and isinstance(
-                    requirements["metadata"], dict
-                ):
+                if "metadata" in requirements and isinstance(requirements["metadata"], dict):
                     return requirements["metadata"]
         except (json.JSONDecodeError, OSError):
             pass
@@ -568,9 +566,7 @@ def get_fast_mode(spec_dir: Path) -> bool:
     if metadata:
         enabled = bool(metadata.get("fastMode", False))
         if enabled:
-            logger.info(
-                "[Fast Mode] ENABLED — read fastMode=true from task_metadata.json"
-            )
+            logger.info("[Fast Mode] ENABLED — read fastMode=true from task_metadata.json")
         else:
             logger.info("[Fast Mode] disabled — fastMode not set in task_metadata.json")
         return enabled
@@ -689,8 +685,7 @@ def _load_openai_endpoint_by_label(label: str) -> dict | None:
     try:
         conn = sqlite3.connect(str(_LLM_ENDPOINTS_DB_PATH))
         row = conn.execute(
-            "SELECT base_url, api_key, default_model FROM llm_endpoints "
-            "WHERE label = ? LIMIT 1",
+            "SELECT base_url, api_key, default_model FROM llm_endpoints WHERE label = ? LIMIT 1",
             (label,),
         ).fetchone()
         conn.close()
@@ -777,18 +772,13 @@ def get_provider_extra_kwargs(provider_name: str, model: str) -> dict:
     endpoint = _load_first_openai_endpoint()
     if endpoint:
         return {
-            "model": stripped
-            if stripped and stripped != "default"
-            else endpoint["default_model"],
+            "model": stripped if stripped and stripped != "default" else endpoint["default_model"],
             "base_url": endpoint["base_url"],
             "api_key": endpoint["api_key"],
         }
 
     # 3) No DB row at all — env-var fallback for power users / CLI usage
-    base_url = (
-        os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "").strip()
-        or "https://api.openai.com"
-    )
+    base_url = os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "").strip() or "https://api.openai.com"
     api_key = (
         os.environ.get("OPENAI_COMPATIBLE_API_KEY", "").strip()
         or os.environ.get("OPENAI_API_KEY", "").strip()

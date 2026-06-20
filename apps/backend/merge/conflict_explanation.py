@@ -34,9 +34,7 @@ def explain_conflict(conflict: ConflictRegion) -> str:
     ]
 
     if conflict.can_auto_merge:
-        lines.append(
-            f"Can be auto-merged using strategy: {conflict.merge_strategy.value}"
-        )
+        lines.append(f"Can be auto-merged using strategy: {conflict.merge_strategy.value}")
     else:
         lines.append("Cannot be auto-merged:")
         lines.append(f"  Reason: {conflict.reason}")

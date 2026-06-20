@@ -54,7 +54,7 @@ Usage::
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +68,7 @@ from .schema import CatalogEntry, TestsCatalog
 def _mtime_iso(path: Path) -> str:
     """Return the file's modification time as an ISO-8601 UTC string."""
     mtime = path.stat().st_mtime
-    dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+    dt = datetime.fromtimestamp(mtime, tz=UTC)
     # Format as "2026-05-28T10:30:00Z" (strip microseconds, replace +00:00 with Z)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 

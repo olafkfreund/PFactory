@@ -88,9 +88,7 @@ class RequirementsAnalyst(SubAgent):
         questions = self._generate_questions(requirements_text, context)
 
         # Calculate overall confidence
-        confidence = (
-            completeness_analysis["score"] + clarity_analysis["score"]
-        ) / 2.0
+        confidence = (completeness_analysis["score"] + clarity_analysis["score"]) / 2.0
 
         # Compile issues and recommendations
         issues = []
@@ -232,16 +230,12 @@ class RequirementsAnalyst(SubAgent):
                 # Check if there's a conflicting requirement nearby
                 for j in range(max(0, i - 3), min(len(lines), i + 4)):
                     if i != j and "must" in lines[j].lower():
-                        conflicts.append(
-                            f"Potential conflict between lines {i+1} and {j+1}"
-                        )
+                        conflicts.append(f"Potential conflict between lines {i + 1} and {j + 1}")
                         break
 
         return conflicts[:5]  # Limit to top 5 conflicts
 
-    def _generate_questions(
-        self, requirements: str, context: str
-    ) -> list[str]:
+    def _generate_questions(self, requirements: str, context: str) -> list[str]:
         """Generate clarification questions.
 
         Based on missing elements and ambiguities, generate questions
@@ -281,26 +275,18 @@ class RequirementsAnalyst(SubAgent):
         """Generate reasoning explanation for the analysis."""
         parts = []
 
-        parts.append(
-            f"Requirements completeness: {int(completeness['score'] * 100)}%"
-        )
+        parts.append(f"Requirements completeness: {int(completeness['score'] * 100)}%")
         if completeness["missing"]:
-            parts.append(
-                f"Missing elements: {', '.join(completeness['missing'])}"
-            )
+            parts.append(f"Missing elements: {', '.join(completeness['missing'])}")
 
         parts.append(f"Requirements clarity: {int(clarity['score'] * 100)}%")
         if clarity["ambiguous"]:
-            parts.append(
-                f"Found {len(clarity['ambiguous'])} ambiguous terms"
-            )
+            parts.append(f"Found {len(clarity['ambiguous'])} ambiguous terms")
 
         if conflicts:
             parts.append(f"Detected {len(conflicts)} potential conflicts")
 
         if questions:
-            parts.append(
-                f"Generated {len(questions)} clarification questions"
-            )
+            parts.append(f"Generated {len(questions)} clarification questions")
 
         return ". ".join(parts) + "."

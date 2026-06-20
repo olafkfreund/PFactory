@@ -57,30 +57,21 @@ def _patch_sdk_message_parser() -> None:
             except MessageParseError as e:
                 msg = str(e)
                 if "Unknown message type" in msg:
-                    msg_type = (
-                        data.get("type", "unknown")
-                        if isinstance(data, dict)
-                        else "unknown"
-                    )
+                    msg_type = data.get("type", "unknown") if isinstance(data, dict) else "unknown"
                     # Rate limit events deserve a visible warning; others just debug-level
                     if "rate_limit" in msg_type:
                         retry_after = (
-                            data.get("retry_after")
-                            or data.get("data", {}).get("retry_after")
+                            data.get("retry_after") or data.get("data", {}).get("retry_after")
                             if isinstance(data, dict)
                             else None
                         )
-                        retry_info = (
-                            f" (retry_after={retry_after}s)" if retry_after else ""
-                        )
+                        retry_info = f" (retry_after={retry_after}s)" if retry_after else ""
                         logger.warning(
                             f"Rate limit event received from CLI{retry_info} — "
                             f"the SDK will handle backoff automatically"
                         )
                     else:
-                        logger.debug(
-                            f"SDK received unhandled message type '{msg_type}', skipping"
-                        )
+                        logger.debug(f"SDK received unhandled message type '{msg_type}', skipping")
                     return SystemMessage(
                         subtype=f"unknown_{msg_type}",
                         data=data if isinstance(data, dict) else {},
@@ -148,9 +139,7 @@ def _get_cached_project_data(
 
     if debug:
         load_duration = (time.time() - load_start) * 1000
-        print(
-            f"[ClientCache] Cache MISS - loaded project index in {load_duration:.1f}ms"
-        )
+        print(f"[ClientCache] Cache MISS - loaded project index in {load_duration:.1f}ms")
 
     # Store in cache with lock - use double-checked locking pattern
     # Re-check if another thread populated the cache while we were loading
@@ -161,9 +150,7 @@ def _get_cached_project_data(
             if cache_age < _CACHE_TTL_SECONDS:
                 # Another thread already cached valid data while we were loading
                 if debug:
-                    print(
-                        "[ClientCache] Cache was populated by another thread, using cached data"
-                    )
+                    print("[ClientCache] Cache was populated by another thread, using cached data")
                 # Return deep copies to prevent callers from corrupting the cache
                 return copy.deepcopy(cached_index), copy.deepcopy(cached_capabilities)
         # Either no cache entry or it's expired - store our fresh data
@@ -345,8 +332,7 @@ def _validate_custom_mcp_server(server: dict) -> bool:
             if not isinstance(server["headers"], dict):
                 return False
             if not all(
-                isinstance(k, str) and isinstance(v, str)
-                for k, v in server["headers"].items()
+                isinstance(k, str) and isinstance(v, str) for k, v in server["headers"].items()
             ):
                 return False
 
@@ -412,19 +398,14 @@ def load_project_mcp_config(project_dir: Path) -> dict:
                     key = key.strip()
                     value = value.strip().strip("\"'")
                     # Include global MCP toggles
-                    if key in mcp_keys:
-                        config[key] = value
-                    # Include per-agent MCP overrides (AGENT_MCP_<agent>_ADD/REMOVE)
-                    elif key.startswith("AGENT_MCP_"):
+                    if key in mcp_keys or key.startswith("AGENT_MCP_"):
                         config[key] = value
                     # Include custom MCP servers (parse JSON with schema validation)
                     elif key == "CUSTOM_MCP_SERVERS":
                         try:
                             parsed = json.loads(value)
                             if not isinstance(parsed, list):
-                                logger.warning(
-                                    "CUSTOM_MCP_SERVERS must be a JSON array"
-                                )
+                                logger.warning("CUSTOM_MCP_SERVERS must be a JSON array")
                                 config["CUSTOM_MCP_SERVERS"] = []
                             else:
                                 # Validate each server and filter out invalid ones
@@ -438,9 +419,7 @@ def load_project_mcp_config(project_dir: Path) -> dict:
                                         )
                                 config["CUSTOM_MCP_SERVERS"] = valid_servers
                         except json.JSONDecodeError:
-                            logger.warning(
-                                f"Failed to parse CUSTOM_MCP_SERVERS JSON: {value}"
-                            )
+                            logger.warning(f"Failed to parse CUSTOM_MCP_SERVERS JSON: {value}")
                             config["CUSTOM_MCP_SERVERS"] = []
     except Exception as e:
         logger.debug(f"Failed to load project MCP config from {env_path}: {e}")
@@ -482,7 +461,7 @@ def load_claude_md(project_dir: Path) -> str | None:
     if claude_md_path.exists():
         try:
             return claude_md_path.read_text(encoding="utf-8")
-        except Exception:
+        except Exception:  # noqa: BLE001 - never let credential wiring break the agent
             return None
     return None
 
@@ -574,7 +553,7 @@ def create_client(
         from pfactory_secrets.broker import inject_task_credentials
 
         inject_task_credentials(sdk_env, project_dir, spec_dir)
-    except Exception:  # noqa: BLE001 - never let credential wiring break the agent
+    except Exception:
         pass
 
     # Fast mode requires the CLI to read "fastMode" from user settings.
@@ -587,13 +566,9 @@ def create_client(
 
             ensure_fast_mode_in_user_settings()
         except ImportError:
-            logger.warning(
-                "Fast mode requested but core.fast_mode module not available"
-            )
+            logger.warning("Fast mode requested but core.fast_mode module not available")
         logger.info("[Fast Mode] ACTIVE — will enable user setting source for fastMode")
-        print(
-            "[Fast Mode] ACTIVE — enabling user settings source for CLI to read fastMode"
-        )
+        print("[Fast Mode] ACTIVE — enabling user settings source for CLI to read fastMode")
     else:
         logger.info("[Fast Mode] inactive — not requested for this client")
 
@@ -687,9 +662,12 @@ def create_client(
     # container — bwrap can't mount /proc even with CAP_SYS_ADMIN), where it
     # breaks every agent bash command. Gate behind AIFACTORY_BASH_SANDBOX
     # (default on) so such clusters disable it; real fix is gVisor (AIFactory #363).
-    bash_sandbox_enabled = os.environ.get(
-        "AIFACTORY_BASH_SANDBOX", "true"
-    ).strip().lower() not in ("0", "false", "no", "off")
+    bash_sandbox_enabled = os.environ.get("AIFACTORY_BASH_SANDBOX", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
     security_settings = {
         "sandbox": {"enabled": bash_sandbox_enabled, "autoAllowBashIfSandboxed": True},
@@ -730,11 +708,7 @@ def create_client(
                     if "context7" in required_servers
                     else []
                 ),
-                *(
-                    [f"{tool}(*)" for tool in GRAPHITI_MCP_TOOLS]
-                    if graphiti_mcp_enabled
-                    else []
-                ),
+                *([f"{tool}(*)" for tool in GRAPHITI_MCP_TOOLS] if graphiti_mcp_enabled else []),
                 *[f"{tool}(*)" for tool in browser_tools_permissions],
                 # PFactory MCP tools for build management
                 *(
@@ -793,9 +767,7 @@ def create_client(
     # Show detected project capabilities for QA agents
     if agent_type in ("qa_reviewer", "qa_fixer") and any(project_capabilities.values()):
         caps = [
-            k.replace("is_", "").replace("has_", "")
-            for k, v in project_capabilities.items()
-            if v
+            k.replace("is_", "").replace("has_", "") for k, v in project_capabilities.items() if v
         ]
         print(f"   - Project capabilities: {', '.join(caps)}")
     print()

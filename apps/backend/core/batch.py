@@ -133,9 +133,7 @@ def _parse_individual_response(item: Any) -> BatchResult:
             "input_tokens": usage_obj.input_tokens,
             "output_tokens": usage_obj.output_tokens,
             "cache_read_input_tokens": getattr(usage_obj, "cache_read_input_tokens", None),
-            "cache_creation_input_tokens": getattr(
-                usage_obj, "cache_creation_input_tokens", None
-            ),
+            "cache_creation_input_tokens": getattr(usage_obj, "cache_creation_input_tokens", None),
             "service_tier": getattr(usage_obj, "service_tier", None),
         }
         return BatchResult(
@@ -218,10 +216,7 @@ async def submit_batch(
     # require anthropic to be installed.
     from anthropic import AsyncAnthropic
 
-    sdk_requests = [
-        {"custom_id": r.custom_id, "params": _build_params(r)}
-        for r in requests
-    ]
+    sdk_requests = [{"custom_id": r.custom_id, "params": _build_params(r)} for r in requests]
 
     client = AsyncAnthropic(api_key=_resolve_api_key(api_key))
     async with client:
@@ -261,9 +256,7 @@ async def await_batch(
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError(
-                    f"Batch {batch_id} did not complete within {timeout}s"
-                )
+                raise TimeoutError(f"Batch {batch_id} did not complete within {timeout}s")
 
             batch = await client.messages.batches.retrieve(
                 batch_id,
@@ -348,7 +341,7 @@ def extract_savings(results: list[BatchResult]) -> dict[str, Any]:
 __all__ = [
     "BatchRequest",
     "BatchResult",
-    "submit_batch",
     "await_batch",
     "extract_savings",
+    "submit_batch",
 ]

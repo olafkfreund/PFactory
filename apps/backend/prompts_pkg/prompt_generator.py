@@ -252,9 +252,7 @@ def generate_planner_prompt(spec_dir: Path, project_dir: Path | None = None) -> 
     if planner_file.exists():
         prompt = planner_file.read_text()
     else:
-        prompt = (
-            "Read spec.md and create test_plan.json with phases and subtasks."
-        )
+        prompt = "Read spec.md and create test_plan.json with phases and subtasks."
 
     # Use project_dir for relative paths, or infer from spec_dir
     if project_dir is None:
@@ -318,9 +316,7 @@ def load_subtask_context(
                 lines = full_path.read_text().split("\n")
                 if len(lines) > max_file_lines:
                     content = "\n".join(lines[:max_file_lines])
-                    content += (
-                        f"\n\n... (truncated, {len(lines) - max_file_lines} more lines)"
-                    )
+                    content += f"\n\n... (truncated, {len(lines) - max_file_lines} more lines)"
                 else:
                     content = "\n".join(lines)
                 context["patterns"][pattern_path] = content
@@ -335,9 +331,7 @@ def load_subtask_context(
                 lines = full_path.read_text().split("\n")
                 if len(lines) > max_file_lines:
                     content = "\n".join(lines[:max_file_lines])
-                    content += (
-                        f"\n\n... (truncated, {len(lines) - max_file_lines} more lines)"
-                    )
+                    content += f"\n\n... (truncated, {len(lines) - max_file_lines} more lines)"
                 else:
                     content = "\n".join(lines)
                 context["files_to_modify"][file_path] = content

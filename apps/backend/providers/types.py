@@ -94,9 +94,9 @@ class UserMessage:
 # ---------------------------------------------------------------------------
 
 __all__ = [
-    "TextBlock",
-    "ToolUseBlock",
-    "ToolResultBlock",
     "AssistantMessage",
+    "TextBlock",
+    "ToolResultBlock",
+    "ToolUseBlock",
     "UserMessage",
 ]

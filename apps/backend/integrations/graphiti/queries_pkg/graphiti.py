@@ -10,7 +10,7 @@ Provides a high-level interface that delegates to specialized modules:
 
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from graphiti_config import GraphitiConfig, GraphitiState
@@ -77,9 +77,7 @@ class GraphitiMemory:
 
         # Log provider configuration if enabled
         if self._available:
-            logger.info(
-                f"Graphiti configured with providers: {self.config.get_provider_summary()}"
-            )
+            logger.info(f"Graphiti configured with providers: {self.config.get_provider_summary()}")
 
     @property
     def is_enabled(self) -> bool:
@@ -139,12 +137,8 @@ class GraphitiMemory:
             logger.warning(
                 f"⚠️  Embedding provider changed: {migration_info['old_provider']} → {migration_info['new_provider']}"
             )
-            logger.warning(
-                "   This requires migration to prevent dimension mismatch errors."
-            )
-            logger.warning(
-                f"   Episodes in old database: {migration_info['episode_count']}"
-            )
+            logger.warning("   This requires migration to prevent dimension mismatch errors.")
+            logger.warning(f"   Episodes in old database: {migration_info['episode_count']}")
             logger.warning("   Run: python integrations/graphiti/migrate_embeddings.py")
             logger.warning(
                 f"   Or start fresh by removing: {self.spec_dir / '.graphiti_state.json'}"
@@ -167,7 +161,7 @@ class GraphitiMemory:
                 self.state = GraphitiState()
                 self.state.initialized = True
                 self.state.database = self.config.database
-                self.state.created_at = datetime.now(timezone.utc).isoformat()
+                self.state.created_at = datetime.now(UTC).isoformat()
                 self.state.llm_provider = self.config.llm_provider
                 self.state.embedder_provider = self.config.embedder_provider
                 self.state.save(self.spec_dir)
@@ -282,9 +276,7 @@ class GraphitiMemory:
         if not await self._ensure_initialized():
             return False
 
-        result = await self._queries.add_task_outcome(
-            task_id, success, outcome, metadata
-        )
+        result = await self._queries.add_task_outcome(task_id, success, outcome, metadata)
 
         if result and self.state:
             self.state.episode_count += 1
@@ -317,9 +309,7 @@ class GraphitiMemory:
         if not await self._ensure_initialized():
             return []
 
-        return await self._search.get_relevant_context(
-            query, num_results, include_project_context
-        )
+        return await self._search.get_relevant_context(query, num_results, include_project_context)
 
     async def get_session_history(
         self,
@@ -367,9 +357,7 @@ class GraphitiMemory:
         if not await self._ensure_initialized():
             return [], []
 
-        return await self._search.get_patterns_and_gotchas(
-            query, num_results, min_score
-        )
+        return await self._search.get_patterns_and_gotchas(query, num_results, min_score)
 
     # Status and utility methods
 
@@ -388,9 +376,7 @@ class GraphitiMemory:
             "group_id": self.group_id,
             "group_id_mode": self.group_id_mode,
             "llm_provider": self.config.llm_provider if self.is_enabled else None,
-            "embedder_provider": self.config.embedder_provider
-            if self.is_enabled
-            else None,
+            "embedder_provider": self.config.embedder_provider if self.is_enabled else None,
             "episode_count": self.state.episode_count if self.state else 0,
             "last_session": self.state.last_session if self.state else None,
             "errors": len(self.state.error_log) if self.state else 0,

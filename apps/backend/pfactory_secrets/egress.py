@@ -77,16 +77,11 @@ class EgressManifest:
                 "|---|---|---|---|",
             ]
             for r in self.rows:
-                lines.append(
-                    f"| {r.name} | {r.backend} | {r.badge} | `{r.as_var}` ({r.kind}) |"
-                )
+                lines.append(f"| {r.name} | {r.backend} | {r.badge} | `{r.as_var}` ({r.kind}) |")
             lines.append("")
         if self.destinations:
             lines += ["**Declared destinations:**", ""]
-            lines += [
-                f"- {d.get('name', '?')} → `{d.get('host', '?')}`"
-                for d in self.destinations
-            ]
+            lines += [f"- {d.get('name', '?')} → `{d.get('host', '?')}`" for d in self.destinations]
             lines.append("")
         return "\n".join(lines)
 
@@ -100,12 +95,8 @@ def build_manifest(credentials: dict | None, egress_cfg) -> EgressManifest:
     enabled = bool(egress_cfg and getattr(egress_cfg, "enabled", False))
     rows: list[ManifestRow] = []
     for cred_name, entry in (credentials or {}).items():
-        ref = getattr(entry, "ref", None) or (
-            entry.get("ref") if isinstance(entry, dict) else None
-        )
-        as_var = getattr(entry, "as_", None) or (
-            entry.get("as") if isinstance(entry, dict) else ""
-        )
+        ref = getattr(entry, "ref", None) or (entry.get("ref") if isinstance(entry, dict) else None)
+        as_var = getattr(entry, "as_", None) or (entry.get("as") if isinstance(entry, dict) else "")
         kind = getattr(entry, "kind", None) or (
             entry.get("kind", "env") if isinstance(entry, dict) else "env"
         )
@@ -140,9 +131,9 @@ def build_manifest(credentials: dict | None, egress_cfg) -> EgressManifest:
 
 
 __all__ = [
-    "egress_enabled",
-    "badge_for",
-    "build_manifest",
     "EgressManifest",
     "ManifestRow",
+    "badge_for",
+    "build_manifest",
+    "egress_enabled",
 ]
