@@ -24,6 +24,10 @@
       "type": "string",
       "description": "RFC-0001 correlation key: the GitHub issue number as a string, or a synthetic <prefix>-<id>."
     },
+    "epic_ref": {
+      "type": "string",
+      "description": "Short, always-scalar epic identifier for downstream task descriptions (e.g. AIFactory's \"Correlation epic #<id>\"): the GitHub issue number when known, else the plan_id. Consumers must use this and never str() the session's epic object."
+    },
     "provenance": {
       "type": "object",
       "description": "Where the contract came from.",

@@ -113,3 +113,37 @@ def test_empty_epic_yields_no_phases_but_still_validates_required() -> None:
     # phases empty → schema requires >=1 phase, so this is reported invalid,
     # which is the correct signal (an undecomposed plan must not be emitted).
     assert any("phases" in e for e in validate_contract(contract))
+
+
+def _epic_with_children() -> EpicPlan:
+    return _epic([ChildIssue(key="C1", title="Implement API", kind="feature")])
+
+
+def test_epic_ref_is_a_short_scalar_not_the_plan_dict() -> None:
+    # The contract must carry a short, scalar epic reference so downstream
+    # consumers (e.g. AIFactory's "Correlation epic #<id>") never str() the
+    # whole epic object — which produced the cockpit "wall of text" bug.
+    contract = build_task_contract(_plan(), _epic_with_children())
+    epic_ref = contract["epic_ref"]
+    assert isinstance(epic_ref, str)
+    # No plan-dict guts ever leak into the reference.
+    assert "{" not in epic_ref
+    assert "children" not in epic_ref
+    assert "epic_title" not in epic_ref
+
+
+def test_epic_ref_falls_back_to_plan_id_without_issue_number() -> None:
+    contract = build_task_contract(_plan(), _epic_with_children())
+    # No numeric correlation_key (no issue emitted yet) → short plan_id.
+    assert contract["epic_ref"] == "001-widget"
+
+
+def test_epic_ref_prefers_numeric_issue_correlation_key() -> None:
+    contract = build_task_contract(_plan(), _epic_with_children(), correlation_key="101")
+    assert contract["epic_ref"] == "101"
+
+
+def test_epic_ref_uses_plan_id_for_synthetic_correlation_key() -> None:
+    contract = build_task_contract(_plan(), _epic_with_children(), correlation_key="pf-abc123")
+    # A synthetic <prefix>-<id> key is not the issue number → keep the plan_id.
+    assert contract["epic_ref"] == "001-widget"
