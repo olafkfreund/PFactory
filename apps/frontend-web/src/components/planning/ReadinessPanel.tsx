@@ -272,8 +272,13 @@ function CheckRow({ check, waivers, sessionId, onWaived }: CheckRowProps) {
               <p className="text-[11px] text-muted-foreground leading-relaxed">{check.remediation}</p>
             </div>
           )}
-          {check.evidence && (
-            <p className="text-[11px] font-mono text-muted-foreground/70 truncate">{check.evidence}</p>
+          {check.evidence && Object.keys(check.evidence).length > 0 && (
+            <pre
+              className="text-[11px] font-mono text-muted-foreground/70 leading-relaxed whitespace-pre-wrap break-all rounded-md bg-background/60 border border-border/40 px-2.5 py-1.5"
+              data-testid={`readiness-evidence-${check.check_id}`}
+            >
+              {JSON.stringify(check.evidence, null, 2)}
+            </pre>
           )}
           {check.severity && (
             <p className="text-[11px] text-muted-foreground">
