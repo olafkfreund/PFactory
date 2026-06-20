@@ -30,6 +30,11 @@ from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply
 from plan.detect.target_classifier import classify_plan
+from plan.feasibility.deployment import (
+    assess_deployment_readiness,
+    deployment_findings,
+    inject_deployment_acs,
+)
 from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import NormalizedPlan
 from plan.plan_types import apply as plan_type_apply
@@ -211,6 +216,25 @@ def _route_tier(current: str | None, *, is_migration: bool) -> str | None:
     if not candidates:
         return None
     return max(candidates, key=lambda t: _TIER_RANK[t])
+
+
+def _attach_deployment(plan: NormalizedPlan, epic: EpicPlan) -> list:
+    """Derive + attach the RFC-0013 deployment block; return its review findings.
+
+    Stamps ``epic.deployment`` and injects the deployment ACs when a deployment
+    dimension exists. Additive + safe: returns ``[]`` (and leaves the epic
+    untouched) when there is no deployment surface or analysis fails — deployment
+    analysis must never break a plan run.
+    """
+    try:
+        block = assess_deployment_readiness(plan, epic)
+    except Exception:  # noqa: BLE001 — deployment analysis must never break a run
+        return []
+    if block is None:
+        return []
+    epic.deployment = block
+    inject_deployment_acs(epic, block)
+    return deployment_findings(block)
 
 
 class PlanServiceError(RuntimeError):
@@ -487,25 +511,9 @@ class PlanService:
         # block — CI/deploy surface, risk/scan/gate policy, best-effort DORA
         # context, deploy readiness — from reconnaissance + blast radius. Runs
         # BETWEEN feasibility and gates so the deployment ACs + readiness gaps it
-        # injects are seen and enforced by review. Additive: returns None (no
-        # block, no findings) when there is no deployment dimension. Never raises.
-        from plan.feasibility.deployment import (
-            assess_deployment_readiness,
-            deployment_findings,
-            inject_deployment_acs,
-        )
-
-        deployment_block: dict | None = None
-        deployment_review_findings: list = []
-        try:
-            deployment_block = assess_deployment_readiness(plan, epic)
-            if deployment_block is not None:
-                epic.deployment = deployment_block
-                inject_deployment_acs(epic, deployment_block)
-                deployment_review_findings = deployment_findings(deployment_block)
-        except Exception:  # noqa: BLE001 — deployment analysis must never break a run
-            deployment_block = None
-            deployment_review_findings = []
+        # injects are seen and enforced by review. Additive: yields no block/no
+        # findings when there is no deployment dimension. Never raises.
+        deployment_review_findings = _attach_deployment(plan, epic)
 
         # Template policy (#E). Enforcement is OPT-IN: a template's embedded policy
         # (required tags / allowed regions / IAM / baselines) gates review only when

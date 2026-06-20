@@ -429,7 +429,7 @@ def _env_buildable(
 
 @check("deployment-pipeline-present")
 def _deployment_pipeline_present(
-    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+    _plan: NormalizedPlan, epic: EpicPlan, _ctx: ReadinessContext
 ) -> ReadinessCheckResult:
     """A deployable change must ride a usable CI/CD pipeline (RFC-0013, #190).
 
