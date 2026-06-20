@@ -120,6 +120,10 @@ class PlanSession(BaseModel):
     emit_result: dict | None = None
     docs_result: list[dict] | None = None  # docs emit per-target results (P1)
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
+    # RFC-0016 #190: object-store references (URIs, never blobs) to the plan's
+    # emitted documents (plan/spec markdown + audit pack), uploaded best-effort
+    # on terminal emit and mirrored onto the durable job_states `artifacts[]`.
+    artifact_refs: list[dict] = Field(default_factory=list)
     # RFC-0007 (#86): human-verified access curation. `access_approvals` maps a
     # resource -> approval record (applied at the next emit); `access_audit` is the
     # append-only RFC-0001a curation trail (refs only, never secrets).
@@ -379,6 +383,7 @@ class PlanService:
                 result=result,
                 error=error,
                 usage=session.usage.model_dump() if session.usage else None,
+                artifacts=session.artifact_refs or None,
             )
         except Exception as exc:  # noqa: BLE001 — durable mirror is best-effort
             logger.warning(
@@ -1017,6 +1022,22 @@ class PlanService:
                     )
             except Exception:
                 logger.warning("plan docs emit failed", exc_info=True)
+            # RFC-0016 #190: upload the plan's documents (plan/spec markdown +
+            # audit pack) to the object store and stamp the artifacts[] URIs onto
+            # the durable row (via _save -> _mirror -> upsert). Fail-open: never
+            # blocks or changes the emit.
+            try:
+                from plan.emit.plan_artifacts import (  # noqa: PLC0415 - lazy by design
+                    emit_plan_artifacts,
+                )
+
+                session.artifact_refs = emit_plan_artifacts(
+                    session,
+                    job_id=session.session_id,
+                    correlation_key=session.correlation_key or session.emitted_issue_number,
+                )
+            except Exception:  # noqa: BLE001 — artifact emit must never break a plan emit
+                logger.warning("plan artifact emit failed", exc_info=True)
         self._save(session)
         return session
 
