@@ -12,8 +12,10 @@ Flow:  ingest → process (detect → plan-type → decompose → synthesize →
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -179,10 +181,26 @@ class PlanService:
 
     def __init__(self, *, store_dir: Path | None = None, persist: bool | None = None) -> None:
         self._sessions: dict[str, PlanSession] = {}
+        # RFC-0016 (#217): process() now runs in a worker thread (see
+        # `process_async`), so concurrent offloaded runs mutate the shared
+        # `_sessions` store + the `_next_seq` counter from different threads.
+        # This lock guards every mutation of `_sessions` / persistence / the
+        # sequence so the store cannot be corrupted or collide on the seq. It is
+        # a plain re-usable mutex (held only for the brief dict/disk write, never
+        # across the long pipeline body) — minimal and correct.
+        self._store_lock = threading.Lock()
+        # Monotonic sequence counter (RFC-0016 #217). Was derived as
+        # ``len(_sessions)+1`` at each call — a TOCTOU race under concurrent
+        # ingests (two readers see the same length → identical seq → identical
+        # plan_id → a lost session). A dedicated counter, bumped atomically under
+        # the lock, never reuses a value. Seeded below from the loaded store so
+        # the first id after a restart keeps the historical numbering.
+        self._seq = 0
         self._persist = _persist_enabled() if persist is None else persist
         self._store_dir = store_dir or _default_store_dir()
         if self._persist:
             self._load_all()
+        self._seq = len(self._sessions)
 
     # ── persistence (opt-in via PFACTORY_PLAN_PERSIST) ──────────────────
 
@@ -215,20 +233,28 @@ class PlanService:
         """
         if not self._persist:
             return
-        try:
-            self._store_dir.mkdir(parents=True, exist_ok=True)
-            dest = self._store_dir / f"{session.session_id}.json"
-            tmp = dest.with_suffix(".json.tmp")
-            tmp.write_text(session.model_dump_json())
-            tmp.replace(dest)
-        except Exception as exc:  # noqa: BLE001 — disk hiccup must not break a run
-            logger.warning("failed to persist plan session %s: %s", session.session_id, exc)
+        # Serialise concurrent disk writes (RFC-0016 #217): two offloaded runs
+        # writing the same/neighbouring session files must not interleave. The
+        # lock is held only for this one session's atomic temp-write + rename.
+        with self._store_lock:
+            try:
+                self._store_dir.mkdir(parents=True, exist_ok=True)
+                dest = self._store_dir / f"{session.session_id}.json"
+                tmp = dest.with_suffix(".json.tmp")
+                tmp.write_text(session.model_dump_json())
+                tmp.replace(dest)
+            except Exception as exc:  # noqa: BLE001 — disk hiccup must not break a run
+                logger.warning("failed to persist plan session %s: %s", session.session_id, exc)
 
     # ── ingest ─────────────────────────────────────────────────────────
 
     def _store(self, plan: NormalizedPlan) -> PlanSession:
         session = PlanSession(session_id=plan.plan_id, plan=plan)
-        self._sessions[session.session_id] = session
+        # Guard the shared-store insertion so a concurrent offloaded run (or a
+        # concurrent ingest) cannot lose this session via a non-atomic dict
+        # write (RFC-0016 #217). `_save` takes the lock separately afterwards.
+        with self._store_lock:
+            self._sessions[session.session_id] = session
         self._save(session)
         return session
 
@@ -287,7 +313,12 @@ class PlanService:
         return session
 
     def _next_seq(self) -> int:
-        return len(self._sessions) + 1
+        # Atomic increment under the lock so two concurrent ingests can never
+        # mint the same sequence number (and hence the same plan_id) — see the
+        # `_seq` note in __init__ (RFC-0016 #217).
+        with self._store_lock:
+            self._seq += 1
+            return self._seq
 
     # ── query ──────────────────────────────────────────────────────────
 
@@ -345,6 +376,59 @@ class PlanService:
         session.status = "processed"
         self._save(session)
         return session
+
+    # ── async offload + admission control (RFC-0016 #217) ───────────────
+
+    def _admission_semaphore(self) -> asyncio.Semaphore | None:
+        """The per-event-loop admission gate, or ``None`` when unlimited.
+
+        ``process()`` is CPU/IO-bound (git clone, decompose, gates). Running it
+        in a worker thread (see :meth:`process_async`) frees the event loop, but
+        an unbounded fan-out of worker threads is its own hazard — so we cap the
+        number of in-flight runs with an :class:`asyncio.Semaphore` sized from
+        ``PFACTORY_MAX_CONCURRENT_PLANS`` (default 4; ``<=0`` means unlimited).
+
+        The semaphore is created lazily and cached *per running loop* (it must be
+        bound to the loop that awaits it), so a fresh test loop gets a fresh gate.
+        """
+        try:
+            cap = int(os.environ.get("PFACTORY_MAX_CONCURRENT_PLANS", "4"))
+        except ValueError:
+            cap = 4
+        if cap <= 0:
+            return None  # unlimited — no admission gate
+        loop = asyncio.get_running_loop()
+        cached = getattr(self, "_admission", None)
+        if cached is None or cached[0] is not loop or cached[1] != cap:
+            sem = asyncio.Semaphore(cap)
+            self._admission = (loop, cap, sem)
+            return sem
+        return cached[2]
+
+    async def process_async(
+        self, session_id: str, *, external_runner=None, llm=None
+    ) -> PlanSession:
+        """Run :meth:`process` off the event loop, under the admission cap.
+
+        Behaviour-identical to ``await``-ing the synchronous :meth:`process`: the
+        return value and exceptions are unchanged. The difference is *where* the
+        blocking pipeline runs — in a worker thread via :func:`asyncio.to_thread`
+        — so the single uvicorn event loop stays free to serve ``/api/health``
+        and other sessions concurrently while one plan is being processed.
+
+        When the admission cap is reached, callers WAIT (queue) on the semaphore
+        rather than erroring; ``/api/health`` never goes through this path so it
+        is unaffected.
+        """
+        sem = self._admission_semaphore()
+        if sem is None:
+            return await asyncio.to_thread(
+                self.process, session_id, external_runner=external_runner, llm=llm
+            )
+        async with sem:
+            return await asyncio.to_thread(
+                self.process, session_id, external_runner=external_runner, llm=llm
+            )
 
     def _detect_and_plan_type(self, session: PlanSession) -> tuple[NormalizedPlan, object]:
         """Detect → reconnoiter → route tier → enrich → plan-type select.
