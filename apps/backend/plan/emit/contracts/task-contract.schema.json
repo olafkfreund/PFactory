@@ -292,7 +292,7 @@
     },
     "execution": {
       "type": "object",
-      "description": "HOW to execute \u2014 computed by PFactory, consumed by AIFactory. Absent => AIFactory uses its own defaults/planning.",
+      "description": "HOW to execute — computed by PFactory, consumed by AIFactory. Absent => AIFactory uses its own defaults/planning.",
       "additionalProperties": true,
       "properties": {
         "complexity": {
@@ -421,7 +421,7 @@
     },
     "tfactory": {
       "type": "object",
-      "description": "VERIFY profile \u2014 computed by PFactory, carried by AIFactory, consumed by TFactory. Absent => TFactory infers.",
+      "description": "VERIFY profile — computed by PFactory, carried by AIFactory, consumed by TFactory. Absent => TFactory infers.",
       "additionalProperties": true,
       "properties": {
         "lanes": {
@@ -502,7 +502,7 @@
                 "string",
                 "null"
               ],
-              "description": "Path to the golden-corpus MANIFEST (input vectors declared by PFactory). Expected outputs are captured by TFactory by running the legacy source in its hermetic sandbox \u2014 NEVER by the planner. The captured corpus is content-hash addressed so the differential lane proves the same corpus ran against both impls."
+              "description": "Path to the golden-corpus MANIFEST (input vectors declared by PFactory). Expected outputs are captured by TFactory by running the legacy source in its hermetic sandbox — NEVER by the planner. The captured corpus is content-hash addressed so the differential lane proves the same corpus ran against both impls."
             },
             "parity_threshold": {
               "type": [
@@ -579,6 +579,9 @@
           "$ref": "#/$defs/house_standards"
         }
       }
+    },
+    "deployment": {
+      "$ref": "#/$defs/deployment"
     }
   },
   "$defs": {
@@ -664,7 +667,7 @@
     "access": {
       "type": "object",
       "additionalProperties": false,
-      "description": "RFC-0007 access requirements discovered at planning time. Absent => the task needs no external/authenticated resource. The curation gate sets curated/human_approval; TFactory consumes credential_ref; the VAL gate (RFC-0006) treats an un-curated requirement as a VAL-3 not_run. Secrets are NEVER stored here \u2014 only broker refs.",
+      "description": "RFC-0007 access requirements discovered at planning time. Absent => the task needs no external/authenticated resource. The curation gate sets curated/human_approval; TFactory consumes credential_ref; the VAL gate (RFC-0006) treats an un-curated requirement as a VAL-3 not_run. Secrets are NEVER stored here — only broker refs.",
       "required": [
         "requirements"
       ],
@@ -693,7 +696,7 @@
                   "C-ephemeral-target",
                   "D-un-automatable"
                 ],
-                "description": "A: OIDC federation / service account / scoped token (no MFA in path). B: device-code / refresh token / TOTP-seed-as-secret / captured session (human clears MFA once). C: disposable target the pipeline owns (no prod cred). D: interactive MFA (push / hardware key / SMS) \u2014 refused or assisted, never faked."
+                "description": "A: OIDC federation / service account / scoped token (no MFA in path). B: device-code / refresh token / TOTP-seed-as-secret / captured session (human clears MFA once). C: disposable target the pipeline owns (no prod cred). D: interactive MFA (push / hardware key / SMS) — refused or assisted, never faked."
               },
               "credential_ref": {
                 "type": [
@@ -756,7 +759,7 @@
     "environment": {
       "type": "object",
       "additionalProperties": false,
-      "description": "RFC-0005 environment manifest \u2014 the single source of truth for the per-task toolchain, so the build env (AIFactory) and verify env (TFactory) cannot drift. The planner writes it; the provisioner materializes a throwaway sandbox from it (Tier A Nix preferred). Absent => the task runs in whatever the consumer's default runner provides.",
+      "description": "RFC-0005 environment manifest — the single source of truth for the per-task toolchain, so the build env (AIFactory) and verify env (TFactory) cannot drift. The planner writes it; the provisioner materializes a throwaway sandbox from it (Tier A Nix preferred). Absent => the task runs in whatever the consumer's default runner provides.",
       "properties": {
         "language": {
           "type": [
@@ -835,7 +838,7 @@
         "proof": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Materialize-or-HALT evidence (RFC-0005 \u00a73.4): commands that must succeed in the provisioned env before coding/verifying proceeds.",
+          "description": "Materialize-or-HALT evidence (RFC-0005 §3.4): commands that must succeed in the provisioned env before coding/verifying proceeds.",
           "properties": {
             "verify": {
               "type": "array",
@@ -995,7 +998,7 @@
         "VAL-3",
         "VAL-4"
       ],
-      "description": "Verification Assurance Level (RFC-0006). VAL-0 static \u00b7 VAL-1 unit \u00b7 VAL-2 ephemeral integration \u00b7 VAL-3 sandbox target \u00b7 VAL-4 production (never autonomous)."
+      "description": "Verification Assurance Level (RFC-0006). VAL-0 static · VAL-1 unit · VAL-2 ephemeral integration · VAL-3 sandbox target · VAL-4 production (never autonomous)."
     },
     "verification": {
       "type": "object",
@@ -1049,7 +1052,7 @@
               },
               "reason": {
                 "type": "string",
-                "description": "Why not passed \u2014 REQUIRED for failed/not_run/skipped."
+                "description": "Why not passed — REQUIRED for failed/not_run/skipped."
               },
               "risk": {
                 "type": "string",
@@ -1084,6 +1087,205 @@
         "claim": {
           "type": "string",
           "description": "Mandatory honest one-liner stating what was and was NOT verified."
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "RFC-0013 deployment-aware planning: what PFactory discovered about how this change ships (CI system, deploy mechanism, target environments), the risk/scan/system-gate policy that follows from it, best-effort DORA context from the deployment-metrics MCP, and the DRY-RUN deploy-verification policy. Fully additive and OPTIONAL — absent => the task has no deployment dimension (contract_version stays \"2\"). Open object; consumers ignore unknown keys. Discovery degrades, never fabricates: dora_context.available=false means metrics were unreachable, NOT that delivery is healthy. Production deploys are VAL-4 and NEVER autonomous.",
+      "properties": {
+        "ci_system": {
+          "type": "string",
+          "enum": [
+            "github-actions",
+            "gitlab-ci",
+            "azure-pipelines",
+            "none"
+          ],
+          "description": "The CI provider detected in the target repo. 'none' => no CI configuration was found."
+        },
+        "ci_exists": {
+          "type": "boolean",
+          "description": "true when a CI pipeline definition already exists in the repo (so the change rides existing CI rather than needing one created)."
+        },
+        "ci_pipeline_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths to the discovered CI pipeline files, e.g. ['.github/workflows/deploy.yml']."
+        },
+        "needs_pipeline": {
+          "type": "boolean",
+          "description": "true when the task requires a CI/CD pipeline to be created or extended (no usable pipeline exists for this change)."
+        },
+        "deploy_system": {
+          "type": "string",
+          "enum": [
+            "argocd",
+            "helm",
+            "terraform",
+            "kubectl",
+            "unknown",
+            "none"
+          ],
+          "description": "The deploy mechanism detected. 'unknown' => deployment indicators present but mechanism unresolved; 'none' => no deployment surface."
+        },
+        "deploy_target_environments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Environments this change can reach, e.g. ['dev', 'staging', 'production']."
+        },
+        "production_classification": {
+          "type": "string",
+          "enum": [
+            "production",
+            "preprod",
+            "internal",
+            "unknown"
+          ],
+          "description": "Highest-blast-radius environment class this change touches. 'production' forces the VAL-4 / never-autonomous deploy policy."
+        },
+        "risk_class": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "Deployment risk tier derived from blast radius, production_classification, and destructive_iac. Drives required_scans and system_gates floors."
+        },
+        "required_scans": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Security/quality scans that MUST run before this change can deploy, e.g. ['sast', 'dependency-audit', 'iac-scan', 'secret-scan']."
+        },
+        "system_gates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Named pre-deploy gates that MUST pass, e.g. ['ci-green', 'human-approval', 'change-window']. Production carries 'human-approval' (never autonomous)."
+        },
+        "dora_context": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Best-effort DORA delivery context from the deployment-metrics MCP (deploy_history / dora_metrics tools). Degrades, never fabricates: available=false => metrics were unreachable and downstream policy treats delivery health as UNKNOWN, never healthy.",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "Where the metrics came from, e.g. 'stub', 'github-deployments', 'datadog'."
+            },
+            "available": {
+              "type": "boolean",
+              "description": "false when DORA metrics could not be retrieved. Numeric fields are then null."
+            },
+            "deploy_success_rate": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Recent deploy success ratio with its window, e.g. {\"value\": 0.94, \"window_days\": 30, \"sample\": 50}."
+            },
+            "lead_time_p50_hours": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Median lead time for change (commit to deploy) in hours. null when unavailable."
+            },
+            "change_fail_rate": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Change failure rate (0..1). null when unavailable."
+            },
+            "last_deploy": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "The most recent deploy seen, e.g. {\"env\": \"production\", \"status\": \"success\", \"at\": \"2026-06-18T10:00:00Z\"}."
+            }
+          }
+        },
+        "readiness": {
+          "type": "array",
+          "description": "Deploy-readiness checklist. Every check that did not pass MUST carry a reason (honest-reporting, mirrors $defs.verification). A 'fail'/'not_run' without a reason is invalid.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "check",
+              "status"
+            ],
+            "properties": {
+              "check": {
+                "type": "string",
+                "description": "What was checked, e.g. 'ci-pipeline-present', 'rollback-defined', 'secrets-provisioned'."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "not_run"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why not passed — REQUIRED for fail/not_run."
+              },
+              "action": {
+                "type": "string",
+                "description": "Remediation the planner recommends to clear this check."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "fail",
+                        "not_run"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "reason"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "deploy_verification": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The DRY-RUN deploy-verification policy for this change. Production deploys are VAL-4 and NEVER executed autonomously — verification stops at a dry-run/plan (VAL-2/VAL-3) and the real production apply requires the system_gates human-approval.",
+          "properties": {
+            "target_level": {
+              "$ref": "#/$defs/valLevel"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "dry-run",
+                "plan-only",
+                "ephemeral-apply",
+                "production-apply"
+              ],
+              "description": "How far deploy verification goes. 'dry-run'/'plan-only' for non-prod automation; 'ephemeral-apply' against a disposable target (VAL-3); 'production-apply' (VAL-4) is gated and never autonomous."
+            }
+          }
         }
       }
     }
