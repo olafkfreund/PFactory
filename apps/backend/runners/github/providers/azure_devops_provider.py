@@ -97,7 +97,9 @@ class AzureDevOpsProvider:
                         changes_url = f"{self._base_url}/{self._org}/{self._proj}/_apis/git/repositories/{self._repo_id}/pullrequests/{number}/iterations/{latest_iter}/changes?api-version=7.1"
                         changes_resp = await client.get(changes_url)
                         if changes_resp.status_code == 200:
-                            change_entries = changes_resp.json().get("changeEntries", [])
+                            change_entries = changes_resp.json().get(
+                                "changeEntries", []
+                            )
                             for entry in change_entries:
                                 path = entry.get("item", {}).get("path", "")
                                 change_type = entry.get("changeType", "edit")
@@ -113,7 +115,11 @@ class AzureDevOpsProvider:
                 logger.error(f"Error fetching ADO PR changes: {e}")
 
             # Map ADO status (active, completed, abandoned) to standard (open, merged, closed)
-            status_map = {"active": "open", "completed": "merged", "abandoned": "closed"}
+            status_map = {
+                "active": "open",
+                "completed": "merged",
+                "abandoned": "closed",
+            }
             raw_status = pr_data.get("status", "active")
             state = status_map.get(raw_status, "open")
 
@@ -125,8 +131,12 @@ class AzureDevOpsProvider:
                 or pr_data.get("createdBy", {}).get("displayName")
                 or "",
                 state=state,
-                source_branch=pr_data.get("sourceRefName", "").replace("refs/heads/", ""),
-                target_branch=pr_data.get("targetRefName", "").replace("refs/heads/", ""),
+                source_branch=pr_data.get("sourceRefName", "").replace(
+                    "refs/heads/", ""
+                ),
+                target_branch=pr_data.get("targetRefName", "").replace(
+                    "refs/heads/", ""
+                ),
                 additions=additions,
                 deletions=deletions,
                 changed_files=len(files),
@@ -276,6 +286,19 @@ class AzureDevOpsProvider:
             resp = await client.patch(url, json={"status": "abandoned"})
             return resp.status_code == 200
 
+    async def enable_auto_merge(
+        self, pr_number: int, merge_method: str = "squash"
+    ) -> bool:
+        """Not yet implemented for Azure DevOps (RFC-0011 #637).
+
+        ADO's auto-complete (completionOptions on the PR) maps here, but is
+        deferred — the low-tier auto-merge fast path is GitHub-first for now.
+        """
+        raise NotImplementedError(
+            "enable_auto_merge is not implemented for the Azure DevOps provider "
+            "yet; use the merge_policy decision + manual/CI completion for ADO PRs."
+        )
+
     # -------------------------------------------------------------------------
     # Issue (Work Item) Operations
     # -------------------------------------------------------------------------
@@ -288,10 +311,14 @@ class AzureDevOpsProvider:
             wi = resp.json()
             return self._parse_work_item(wi)
 
-    async def fetch_issues(self, filters: IssueFilters | None = None) -> list[IssueData]:
+    async def fetch_issues(
+        self, filters: IssueFilters | None = None
+    ) -> list[IssueData]:
         """Fetch issues using WIQL (Work Item Query Language) queries."""
         filters = filters or IssueFilters()
-        url = f"{self._base_url}/{self._org}/{self._proj}/_apis/wit/wiql?api-version=7.1"
+        url = (
+            f"{self._base_url}/{self._org}/{self._proj}/_apis/wit/wiql?api-version=7.1"
+        )
 
         # Build WIQL state filter
         state_condition = ""
@@ -331,18 +358,24 @@ class AzureDevOpsProvider:
     ) -> IssueData:
         """Create a new Azure DevOps work item (Issue)."""
         # Creation uses JSON Patch (Content-Type: application/json-patch+json)
-        url = (
-            f"{self._base_url}/{self._org}/{self._proj}/_apis/wit/workitems/$Issue?api-version=7.1"
-        )
+        url = f"{self._base_url}/{self._org}/{self._proj}/_apis/wit/workitems/$Issue?api-version=7.1"
         patch = [
             {"op": "add", "path": "/fields/System.Title", "value": title},
             {"op": "add", "path": "/fields/System.Description", "value": body},
         ]
         if assignees:
-            patch.append({"op": "add", "path": "/fields/System.AssignedTo", "value": assignees[0]})
+            patch.append(
+                {
+                    "op": "add",
+                    "path": "/fields/System.AssignedTo",
+                    "value": assignees[0],
+                }
+            )
 
         if labels:
-            patch.append({"op": "add", "path": "/fields/System.Tags", "value": "; ".join(labels)})
+            patch.append(
+                {"op": "add", "path": "/fields/System.Tags", "value": "; ".join(labels)}
+            )
 
         headers = self._headers.copy()
         headers["Content-Type"] = "application/json-patch+json"
@@ -371,7 +404,9 @@ class AzureDevOpsProvider:
         # Try PR comment first, if fails then try work item comment
         url_pr = f"{self._base_url}/{self._org}/{self._proj}/_apis/git/repositories/{self._repo_id}/pullrequests/{issue_or_pr_number}/threads?api-version=7.1"
         thread = {
-            "comments": [{"parentCommentId": 0, "content": body, "commentType": "text"}],
+            "comments": [
+                {"parentCommentId": 0, "content": body, "commentType": "text"}
+            ],
             "status": "active",
         }
         async with self._client() as client:
@@ -404,7 +439,13 @@ class AzureDevOpsProvider:
             all_tags = list(set(existing_tags + labels))
 
             url = f"{self._base_url}/{self._org}/{self._proj}/_apis/wit/workitems/{issue_or_pr_number}?api-version=7.1"
-            patch = [{"op": "add", "path": "/fields/System.Tags", "value": "; ".join(all_tags)}]
+            patch = [
+                {
+                    "op": "add",
+                    "path": "/fields/System.Tags",
+                    "value": "; ".join(all_tags),
+                }
+            ]
             headers = self._headers.copy()
             headers["Content-Type"] = "application/json-patch+json"
             async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
@@ -421,7 +462,11 @@ class AzureDevOpsProvider:
 
             url = f"{self._base_url}/{self._org}/{self._proj}/_apis/wit/workitems/{issue_or_pr_number}?api-version=7.1"
             patch = [
-                {"op": "add", "path": "/fields/System.Tags", "value": "; ".join(filtered_tags)}
+                {
+                    "op": "add",
+                    "path": "/fields/System.Tags",
+                    "value": "; ".join(filtered_tags),
+                }
             ]
             headers = self._headers.copy()
             headers["Content-Type"] = "application/json-patch+json"

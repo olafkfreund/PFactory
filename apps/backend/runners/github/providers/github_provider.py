@@ -128,11 +128,20 @@ class GitHubProvider:
         result = []
         for pr_data in prs:
             # Apply additional filters
-            if filters.author and pr_data.get("author", {}).get("login") != filters.author:
+            if (
+                filters.author
+                and pr_data.get("author", {}).get("login") != filters.author
+            ):
                 continue
-            if filters.base_branch and pr_data.get("baseRefName") != filters.base_branch:
+            if (
+                filters.base_branch
+                and pr_data.get("baseRefName") != filters.base_branch
+            ):
                 continue
-            if filters.head_branch and pr_data.get("headRefName") != filters.head_branch:
+            if (
+                filters.head_branch
+                and pr_data.get("headRefName") != filters.head_branch
+            ):
                 continue
             if filters.labels:
                 pr_labels = [label.get("name") for label in pr_data.get("labels", [])]
@@ -197,6 +206,30 @@ class GitHubProvider:
         except Exception:
             return False
 
+    async def enable_auto_merge(
+        self,
+        pr_number: int,
+        merge_method: str = "squash",
+    ) -> bool:
+        """Enable GitHub auto-merge (RFC-0011 low tier: auto-merge-when-green).
+
+        Uses ``gh pr merge --auto``: GitHub merges the PR automatically once the
+        required status checks pass. Requires auto-merge to be enabled on the
+        repo (Settings -> Allow auto-merge).
+        """
+        cmd = ["pr", "merge", str(pr_number), "--auto"]
+        if merge_method == "merge":
+            cmd.append("--merge")
+        elif merge_method == "rebase":
+            cmd.append("--rebase")
+        else:
+            cmd.append("--squash")
+        try:
+            await self._gh_client.run(cmd)
+            return True
+        except Exception:  # noqa: BLE001 - best-effort; non-fatal
+            return False
+
     # -------------------------------------------------------------------------
     # Issue Operations
     # -------------------------------------------------------------------------
@@ -220,7 +253,9 @@ class GitHubProvider:
         issue_data = await self._gh_client.issue_get(number, json_fields=fields)
         return self._parse_issue_data(issue_data)
 
-    async def fetch_issues(self, filters: IssueFilters | None = None) -> list[IssueData]:
+    async def fetch_issues(
+        self, filters: IssueFilters | None = None
+    ) -> list[IssueData]:
         """Fetch issues with optional filters."""
         filters = filters or IssueFilters()
 
@@ -249,10 +284,15 @@ class GitHubProvider:
                 continue
 
             # Apply filters
-            if filters.author and issue_data.get("author", {}).get("login") != filters.author:
+            if (
+                filters.author
+                and issue_data.get("author", {}).get("login") != filters.author
+            ):
                 continue
             if filters.labels:
-                issue_labels = [label.get("name") for label in issue_data.get("labels", [])]
+                issue_labels = [
+                    label.get("name") for label in issue_data.get("labels", [])
+                ]
                 if not all(label in issue_labels for label in filters.labels):
                     continue
 
@@ -333,7 +373,9 @@ class GitHubProvider:
 
         owner, name = self._repo.split("/", 1)
         wants_copilot = any(a.strip().lower() == self._COPILOT_ALIAS for a in assignees)
-        regular_logins = [a for a in assignees if a.strip().lower() != self._COPILOT_ALIAS]
+        regular_logins = [
+            a for a in assignees if a.strip().lower() != self._COPILOT_ALIAS
+        ]
 
         # Resolve actor node IDs. suggestedActors is the only way to get
         # the Copilot bot's GraphQL node ID; it also tells us whether the
@@ -350,7 +392,9 @@ class GitHubProvider:
         """
         actors_resp = await self._graphql(actors_query, {"owner": owner, "name": name})
         repo_node = actors_resp.get("data", {}).get("repository") or {}
-        nodes = repo_node.get("suggestedActors", {}).get("nodes", []) if repo_node else []
+        nodes = (
+            repo_node.get("suggestedActors", {}).get("nodes", []) if repo_node else []
+        )
 
         actor_ids: list[str] = []
 
@@ -377,7 +421,9 @@ class GitHubProvider:
                 (
                     n.get("id")
                     for n in nodes
-                    if n.get("__typename") == "User" and n.get("login") == login and n.get("id")
+                    if n.get("__typename") == "User"
+                    and n.get("login") == login
+                    and n.get("id")
                 ),
                 None,
             )
@@ -398,7 +444,9 @@ class GitHubProvider:
             """,
             {"owner": owner, "name": name, "number": issue_number},
         )
-        assignable_id = issue_resp.get("data", {}).get("repository", {}).get("issue", {}).get("id")
+        assignable_id = (
+            issue_resp.get("data", {}).get("repository", {}).get("issue", {}).get("id")
+        )
         if not assignable_id:
             return
 

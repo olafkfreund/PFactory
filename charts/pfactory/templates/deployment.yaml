@@ -76,6 +76,14 @@ spec:
             - configMapRef:
                 name: {{ include "pfactory.fullname" . }}-config
           env:
+            # FACTORY_SERVICE_NAME: this service's identity for the shared
+            # factory-github VCS-client layer (canonical in the Factory hub,
+            # Factory#157). The GitLab Duo-Workflow "goal" string reads this so
+            # the canonical file stays byte-identical across the fleet while each
+            # service still names itself. Behaviour-preserving default in code is
+            # "the Factory"; here we restore PFactory's prior wording.
+            - name: FACTORY_SERVICE_NAME
+              value: "PFactory"
             # DATABASE_URL: produced by ExternalSecret OR by an
             # out-of-band Secret named values.postgres.externalSecretName.
             - name: DATABASE_URL

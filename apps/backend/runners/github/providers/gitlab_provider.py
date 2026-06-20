@@ -8,6 +8,7 @@ Implements the GitProvider protocol for GitLab using standard HTTP/REST APIs.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -58,7 +59,9 @@ class GitLabProvider:
     # Helper to construct clients
     # -------------------------------------------------------------------------
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=self._base_url, headers=self._headers, timeout=30.0)
+        return httpx.AsyncClient(
+            base_url=self._base_url, headers=self._headers, timeout=30.0
+        )
 
     # -------------------------------------------------------------------------
     # Pull (Merge) Request Operations
@@ -127,7 +130,9 @@ class GitLabProvider:
                 reviewers=[r.get("username", "") for r in mr_data.get("reviewers", [])]
                 if mr_data.get("reviewers")
                 else [],
-                is_draft=mr_data.get("work_in_progress") or mr_data.get("draft") or False,
+                is_draft=mr_data.get("work_in_progress")
+                or mr_data.get("draft")
+                or False,
                 mergeable=mr_data.get("merge_status") == "can_be_merged",
                 provider=ProviderType.GITLAB,
                 raw_data=mr_data,
@@ -159,9 +164,15 @@ class GitLabProvider:
                         continue
 
                 # Apply branch filter
-                if filters.base_branch and mr.get("target_branch") != filters.base_branch:
+                if (
+                    filters.base_branch
+                    and mr.get("target_branch") != filters.base_branch
+                ):
                     continue
-                if filters.head_branch and mr.get("source_branch") != filters.head_branch:
+                if (
+                    filters.head_branch
+                    and mr.get("source_branch") != filters.head_branch
+                ):
                     continue
 
                 # Fetch full MR details (including diffs) for conformance
@@ -169,7 +180,9 @@ class GitLabProvider:
                     full_pr = await self.fetch_pr(mr["iid"])
                     results.append(full_pr)
                 except Exception as e:
-                    logger.error(f"Error fetching GitLab MR details for iid {mr.get('iid')}: {e}")
+                    logger.error(
+                        f"Error fetching GitLab MR details for iid {mr.get('iid')}: {e}"
+                    )
 
             return results
 
@@ -243,7 +256,9 @@ class GitLabProvider:
         # `draft` boolean works only on newer GitLab versions; the prefix is
         # universally supported and matches what the web UI does).
         effective_title = (
-            f"Draft: {title}" if draft and not title.lower().startswith("draft:") else title
+            f"Draft: {title}"
+            if draft and not title.lower().startswith("draft:")
+            else title
         )
         payload = {
             "source_branch": source_branch,
@@ -263,7 +278,8 @@ class GitLabProvider:
                 "web_url": data.get("web_url") or "",
                 "source_branch": data.get("source_branch") or source_branch,
                 "target_branch": data.get("target_branch") or target_branch,
-                "draft": bool(data.get("draft")) or effective_title.lower().startswith("draft:"),
+                "draft": bool(data.get("draft"))
+                or effective_title.lower().startswith("draft:"),
             }
 
     async def merge_pr(
@@ -298,18 +314,35 @@ class GitLabProvider:
             )
             return resp.status_code == 200
 
+    async def enable_auto_merge(
+        self, pr_number: int, merge_method: str = "squash"
+    ) -> bool:
+        """Not yet implemented for GitLab (RFC-0011 #637).
+
+        GitLab's "merge when pipeline succeeds" maps here, but is deferred — the
+        low-tier auto-merge fast path is GitHub-first for now.
+        """
+        raise NotImplementedError(
+            "enable_auto_merge is not implemented for the GitLab provider yet; "
+            "use the merge_policy decision + manual/CI merge for GitLab MRs."
+        )
+
     # -------------------------------------------------------------------------
     # Issue Operations
     # -------------------------------------------------------------------------
     async def fetch_issue(self, number: int) -> IssueData:
         """Fetch a GitLab issue by its IID."""
         async with self._client() as client:
-            resp = await client.get(f"/api/v4/projects/{self._project_id}/issues/{number}")
+            resp = await client.get(
+                f"/api/v4/projects/{self._project_id}/issues/{number}"
+            )
             resp.raise_for_status()
             issue = resp.json()
             return self._parse_issue_data(issue)
 
-    async def fetch_issues(self, filters: IssueFilters | None = None) -> list[IssueData]:
+    async def fetch_issues(
+        self, filters: IssueFilters | None = None
+    ) -> list[IssueData]:
         """Fetch issues with optional filters."""
         filters = filters or IssueFilters()
         params: dict[str, Any] = {"per_page": filters.limit}
@@ -320,7 +353,9 @@ class GitLabProvider:
             params["state"] = "closed"
 
         async with self._client() as client:
-            resp = await client.get(f"/api/v4/projects/{self._project_id}/issues", params=params)
+            resp = await client.get(
+                f"/api/v4/projects/{self._project_id}/issues", params=params
+            )
             resp.raise_for_status()
             issues_list = resp.json()
 
@@ -353,13 +388,17 @@ class GitLabProvider:
             if assignees:
                 assignee_ids = []
                 for username in assignees:
-                    user_resp = await client.get("/api/v4/users", params={"username": username})
+                    user_resp = await client.get(
+                        "/api/v4/users", params={"username": username}
+                    )
                     if user_resp.status_code == 200 and user_resp.json():
                         assignee_ids.append(user_resp.json()[0]["id"])
                 if assignee_ids:
                     payload["assignee_ids"] = assignee_ids
 
-            resp = await client.post(f"/api/v4/projects/{self._project_id}/issues", json=payload)
+            resp = await client.post(
+                f"/api/v4/projects/{self._project_id}/issues", json=payload
+            )
             resp.raise_for_status()
             return self._parse_issue_data(resp.json())
 
@@ -420,7 +459,9 @@ class GitLabProvider:
             return
 
         wants_duo = any(a.strip().lower() in self._DUO_ALIASES for a in assignees)
-        regular_logins = [a for a in assignees if a.strip().lower() not in self._DUO_ALIASES]
+        regular_logins = [
+            a for a in assignees if a.strip().lower() not in self._DUO_ALIASES
+        ]
 
         if wants_duo:
             await self._trigger_duo_workflow(issue_number)
@@ -460,12 +501,21 @@ class GitLabProvider:
             project_numeric_id = self._project_id
 
         # Build a "goal" string the Duo agent can use as its prompt. The
-        # PFactory enrichment comment (posted by delegation_runner BEFORE
-        # this call) already lives on the issue, so a short reference is
-        # sufficient — the Duo agent will read the issue context itself.
+        # per-service enrichment comment (posted by that service's
+        # delegation_runner BEFORE this call) already lives on the issue, so a
+        # short reference is sufficient — the Duo agent will read the issue
+        # context itself. The service name is the one genuine per-service
+        # identity in this otherwise-shared layer (Factory#157): each repo names
+        # *itself* ("AIFactory"/"PFactory"/"TFactory"). Rather than fork the
+        # file per service, it is parameterised via FACTORY_SERVICE_NAME so the
+        # canonical stays byte-identical across the fleet and each service
+        # supplies its own identity at runtime. The default is deliberately
+        # neutral and behaviour-equivalent — the Duo agent reads the issue
+        # regardless of the exact wording.
+        service_name = os.environ.get("FACTORY_SERVICE_NAME", "the Factory")
         goal = (
             f"Implement the change requested in issue #{issue_iid}. "
-            "See the PFactory enrichment comment on the issue for the "
+            f"See the {service_name} enrichment comment on the issue for the "
             "structured implementation plan."
         )
 
@@ -520,7 +570,9 @@ class GitLabProvider:
         async with self._client() as client:
             assignee_ids: list[int] = []
             for username in usernames:
-                user_resp = await client.get("/api/v4/users", params={"username": username})
+                user_resp = await client.get(
+                    "/api/v4/users", params={"username": username}
+                )
                 if user_resp.status_code == 200 and user_resp.json():
                     assignee_ids.append(user_resp.json()[0]["id"])
             if not assignee_ids:
@@ -562,9 +614,15 @@ class GitLabProvider:
 
     async def create_label(self, label: LabelData) -> None:
         """Create a new label in the repository."""
-        payload = {"name": label.name, "color": label.color, "description": label.description}
+        payload = {
+            "name": label.name,
+            "color": label.color,
+            "description": label.description,
+        }
         async with self._client() as client:
-            await client.post(f"/api/v4/projects/{self._project_id}/labels", json=payload)
+            await client.post(
+                f"/api/v4/projects/{self._project_id}/labels", json=payload
+            )
 
     async def list_labels(self) -> list[LabelData]:
         """List all project labels."""
@@ -601,7 +659,8 @@ class GitLabProvider:
         async with self._client() as client:
             # Query members endpoint to get access levels
             resp = await client.get(
-                f"/api/v4/projects/{self._project_id}/members/all", params={"query": username}
+                f"/api/v4/projects/{self._project_id}/members/all",
+                params={"query": username},
             )
             if resp.status_code == 200 and resp.json():
                 user_info = resp.json()[0]
@@ -647,7 +706,9 @@ class GitLabProvider:
             assignees=[a.get("username", "") for a in issue.get("assignees", [])]
             if issue.get("assignees")
             else [],
-            milestone=issue.get("milestone", {}).get("title") if issue.get("milestone") else None,
+            milestone=issue.get("milestone", {}).get("title")
+            if issue.get("milestone")
+            else None,
             provider=ProviderType.GITLAB,
             raw_data=issue,
         )
