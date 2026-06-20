@@ -20,6 +20,7 @@ from plan.emit.contract_builder import build_task_contract
 from plan.emit.environment_block import attach_environment
 from plan.emit.execution_profile import attach_execution
 from plan.emit.handoff_sanitize import attach_constraints
+from plan.emit.house_standards import attach_house_standards
 from plan.emit.migration_block import attach_migration
 from plan.emit.review_tier import attach_review_tier
 from plan.emit.signing import attach_signature, key_from_env
@@ -154,6 +155,11 @@ def assemble_contract(
     attach_migration(contract, plan)
     # Carry sanitized live-cloud enrichment as epic_context constraints (#80).
     attach_constraints(contract, plan)
+    # RFC-0012: surface the team's house standards (RFC-0010 baseline conventions
+    # + best-effort Backstage lookup) so the fleet can FOLLOW them and the
+    # standards_conformance gate can prove they were applied. Best-effort, never
+    # raises; baseline-only when Backstage is unavailable.
+    attach_house_standards(contract, plan)
     # RFC-0007: access requirements discovered from .pfactory.yml (#84) + recorded
     # human-verified curation applied (#86).
     attach_access(contract, config, spec_text, approvals=approvals)
