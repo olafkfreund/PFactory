@@ -427,6 +427,63 @@ def _env_buildable(
     )
 
 
+@check("deployment-pipeline-present")
+def _deployment_pipeline_present(
+    plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
+) -> ReadinessCheckResult:
+    """A deployable change must ride a usable CI/CD pipeline (RFC-0013, #190).
+
+    Reads the derived ``deployment`` block. When the change has a deployment
+    surface but no usable pipeline (``needs_pipeline``), this is a hard (waivable)
+    failure — the plan injected a pipeline AC, and review must surface the gap so a
+    human approves building/extending the pipeline (or waives). No deployment
+    block (a library/docs change) => not_applicable.
+    """
+    block = epic.deployment
+    if not block:
+        return ReadinessCheckResult(
+            check_id="deployment-pipeline-present",
+            title="Deployable change has a usable CI/CD pipeline",
+            status="not_applicable",
+            detail="No deployment dimension — nothing to ship.",
+            hard=True,
+            waivable=True,
+        )
+    needs = bool(block.get("needs_pipeline"))
+    return ReadinessCheckResult(
+        check_id="deployment-pipeline-present",
+        title="Deployable change has a usable CI/CD pipeline",
+        status="fail" if needs else "pass",
+        severity="info" if not needs else "high",
+        hard=True,
+        waivable=True,
+        detail=(
+            ""
+            if not needs
+            else (
+                "A deployable surface was found but no usable CI pipeline exists "
+                f"(ci_system={block.get('ci_system')}, deploy_system="
+                f"{block.get('deploy_system')}). The change would deploy with no "
+                "pipeline to build/scan/gate it."
+            )
+        ),
+        remediation=(
+            ""
+            if not needs
+            else "Create or extend a CI/CD pipeline that builds, scans, and deploys this change."
+        ),
+        evidence=(
+            {}
+            if not needs
+            else {
+                "ci_system": block.get("ci_system"),
+                "deploy_system": block.get("deploy_system"),
+                "risk_class": block.get("risk_class"),
+            }
+        ),
+    )
+
+
 @check("enrichment-integrity")
 def _enrichment_integrity(
     plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext

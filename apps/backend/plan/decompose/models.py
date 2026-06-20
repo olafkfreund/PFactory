@@ -9,7 +9,7 @@ body, labels, a kind, dependencies, and a complexity hint.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -101,6 +101,10 @@ class EpicPlan(BaseModel):
     cost_estimate: CostEstimate | None = None
     effort_estimate: EffortEstimate | None = None
     access_requirements: list[AccessRequirement] = Field(default_factory=list)
+    # RFC-0013 deployment-aware planning: the derived ``deployment`` contract
+    # block (CI/deploy surface, risk/scan/gate policy, DORA context, readiness,
+    # deploy-verification). None => no deployment dimension (additive/back-compat).
+    deployment: dict[str, Any] | None = None
     # How this epic was produced (gap #6: detect a silent LLM→heuristic fallback).
     decompose_method: DecomposeMethod = "heuristic"
     decompose_errors: list[str] = Field(default_factory=list)

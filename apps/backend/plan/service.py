@@ -483,6 +483,30 @@ class PlanService:
         epic.effort_estimate = feasibility.effort
         epic.access_requirements = feasibility.access
 
+        # Deployment-aware planning (RFC-0013, #190): derive the `deployment`
+        # block — CI/deploy surface, risk/scan/gate policy, best-effort DORA
+        # context, deploy readiness — from reconnaissance + blast radius. Runs
+        # BETWEEN feasibility and gates so the deployment ACs + readiness gaps it
+        # injects are seen and enforced by review. Additive: returns None (no
+        # block, no findings) when there is no deployment dimension. Never raises.
+        from plan.feasibility.deployment import (
+            assess_deployment_readiness,
+            deployment_findings,
+            inject_deployment_acs,
+        )
+
+        deployment_block: dict | None = None
+        deployment_review_findings: list = []
+        try:
+            deployment_block = assess_deployment_readiness(plan, epic)
+            if deployment_block is not None:
+                epic.deployment = deployment_block
+                inject_deployment_acs(epic, deployment_block)
+                deployment_review_findings = deployment_findings(deployment_block)
+        except Exception:  # noqa: BLE001 — deployment analysis must never break a run
+            deployment_block = None
+            deployment_review_findings = []
+
         # Template policy (#E). Enforcement is OPT-IN: a template's embedded policy
         # (required tags / allowed regions / IAM / baselines) gates review only when
         # the user explicitly selected it at intake — auto-matching is recorded as a
@@ -506,6 +530,7 @@ class PlanService:
         def _composed_runner(p, e):
             out = list(external_runner(p, e)) if external_runner else []
             out.extend(feasibility.findings)
+            out.extend(deployment_review_findings)
             out.extend(template_findings)
             return out
 
