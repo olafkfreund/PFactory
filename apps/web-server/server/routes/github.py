@@ -533,7 +533,10 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
             title=pr.get("title") or f"PR #{pr_number}",
             channel="github_issue",
         )
-        SERVICE.process(session.session_id)
+        # RFC-0016 (#217): offload the blocking pipeline off the event loop (this
+        # handler is async) under the admission cap; await keeps behaviour/return
+        # identical while /api/health and other requests stay served.
+        await SERVICE.process_async(session.session_id)
     except (PlanServiceError, ValueError) as exc:
         return JSONResponse(
             status_code=400, content={"success": False, "error": str(exc)}

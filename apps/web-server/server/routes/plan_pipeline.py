@@ -203,8 +203,12 @@ async def audit_pack(session_id: str, format: str = "json"):
 
 @router.post("/{session_id}/process")
 async def process(session_id: str) -> dict:
+    # RFC-0016 (#217): offload the blocking pipeline (recon clone, decompose,
+    # gates) off the event loop into a worker thread, under an admission cap, so
+    # /api/health and other sessions keep being served while this runs. Behaviour
+    # and return are unchanged — we still await the offloaded call.
     try:
-        return _session_dict(SERVICE.process(session_id))
+        return _session_dict(await SERVICE.process_async(session_id))
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
