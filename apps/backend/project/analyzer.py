@@ -8,7 +8,7 @@ Coordinates stack detection, framework detection, and structure analysis.
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .command_registry import (
@@ -245,7 +245,7 @@ class ProjectAnalyzer:
         self._build_stack_commands()
 
         # Finalize
-        self.profile.created_at = datetime.now().isoformat()
+        self.profile.created_at = datetime.now(UTC).isoformat()
         self.profile.project_hash = self.compute_project_hash()
 
         # Save

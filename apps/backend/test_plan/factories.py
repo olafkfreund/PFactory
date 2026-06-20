@@ -7,7 +7,7 @@ Factory functions for creating different types of implementation plans:
 feature plans, investigation plans, and refactor plans.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from .enums import PhaseType, WorkflowType
 from .phase import Phase
@@ -49,7 +49,7 @@ def create_feature_plan(
         workflow_type=WorkflowType.FEATURE,
         services_involved=services,
         phases=phases,
-        created_at=datetime.now().isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -121,7 +121,7 @@ def create_investigation_plan(
         workflow_type=WorkflowType.INVESTIGATION,
         services_involved=services,
         phases=phases,
-        created_at=datetime.now().isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -156,5 +156,5 @@ def create_refactor_plan(
         workflow_type=WorkflowType.REFACTOR,
         services_involved=services,
         phases=phases,
-        created_at=datetime.now().isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     )

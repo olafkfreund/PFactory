@@ -8,7 +8,7 @@ This extends the subtask model to include product-oriented story structure.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 from .enums import SubtaskStatus
 from .verification import Verification
@@ -222,14 +222,14 @@ class Story:
     def start(self, session_id: int):
         """Mark story as in progress."""
         self.status = SubtaskStatus.IN_PROGRESS
-        self.started_at = datetime.now().isoformat()
+        self.started_at = datetime.now(UTC).isoformat()
         self.session_id = session_id
         self.completed_at = None
 
     def complete(self, output: str | None = None):
         """Mark story as done."""
         self.status = SubtaskStatus.COMPLETED
-        self.completed_at = datetime.now().isoformat()
+        self.completed_at = datetime.now(UTC).isoformat()
         # Note: Stories don't have actual_output field like subtasks
 
     def fail(self, reason: str | None = None):

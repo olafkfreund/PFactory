@@ -8,7 +8,7 @@ and output capabilities.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 from .enums import Lane, SubtaskStatus, _parse_lane_str
 from .verification import Verification
@@ -183,7 +183,7 @@ class Subtask:
     def start(self, session_id: int):
         """Mark subtask as in progress."""
         self.status = SubtaskStatus.IN_PROGRESS
-        self.started_at = datetime.now().isoformat()
+        self.started_at = datetime.now(UTC).isoformat()
         self.session_id = session_id
         # Clear stale data from previous runs to ensure clean state
         self.completed_at = None
@@ -192,7 +192,7 @@ class Subtask:
     def complete(self, output: str | None = None):
         """Mark subtask as done."""
         self.status = SubtaskStatus.COMPLETED
-        self.completed_at = datetime.now().isoformat()
+        self.completed_at = datetime.now(UTC).isoformat()
         if output:
             self.actual_output = output
 
