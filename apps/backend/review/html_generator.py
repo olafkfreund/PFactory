@@ -7,7 +7,7 @@ Generates an interactive HTML version of the implementation plan for better read
 
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
@@ -227,7 +227,7 @@ def generate_html_plan_review(spec_dir: Path, output_path: Path | None = None) -
         "created_at": requirements.get("created_at", metadata.get("created_at", "Unknown")),
         "services_involved": plan.get("services_involved", []),
         "recommended_workers": parallelism.get("recommended_workers"),
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     # Load template

@@ -9,7 +9,7 @@ tracking, status management, and follow-up capabilities.
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .enums import PhaseType, SubtaskStatus, WorkflowType
@@ -99,7 +99,7 @@ class ImplementationPlan:
 
     def save(self, path: Path):
         """Save plan to JSON file."""
-        self.updated_at = datetime.now().isoformat()
+        self.updated_at = datetime.now(UTC).isoformat()
         if not self.created_at:
             self.created_at = self.updated_at
 

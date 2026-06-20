@@ -9,7 +9,7 @@ Tracks approval status, feedback, and detects changes to specs after approval.
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 # State file name
@@ -143,7 +143,7 @@ class ReviewState:
         """
         self.approved = True
         self.approved_by = approved_by
-        self.approved_at = datetime.now().isoformat()
+        self.approved_at = datetime.now(UTC).isoformat()
         self.spec_hash = _compute_spec_hash(spec_dir)
         self.review_count += 1
 
@@ -181,7 +181,7 @@ class ReviewState:
             spec_dir: Spec directory path (required if auto_save=True)
             auto_save: Whether to automatically save after adding feedback
         """
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
         self.feedback.append(f"[{timestamp}] {feedback}")
 
         if auto_save and spec_dir:
