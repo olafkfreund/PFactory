@@ -200,7 +200,13 @@ export interface ReadinessCheck {
   waivable: boolean;
   detail: string;
   remediation: string;
-  evidence: string;
+  /**
+   * Machine-readable evidence keyed by check (matches the backend
+   * ReadinessCheckResult.evidence dict, e.g. {"uncovered_acs": [...]}). Empty
+   * object when the check passed with nothing to report. MUST NOT be rendered
+   * directly as a React child — render via JSON.stringify (see ReadinessPanel).
+   */
+  evidence: Record<string, unknown>;
 }
 
 export interface ReadinessWaiver {
