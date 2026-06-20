@@ -19,8 +19,11 @@ env:
   # Shared lint baseline pin (matches standards/ + the hub baseline SHA). The
   # whole-repo strict select set has ~6.5k legacy violations, so ruff is enforced
   # under a no-regression RATCHET (scripts/ratchet_lint.py), never as a whole-repo
-  # blocking `ruff check`. Keep this in lockstep with cq-ratchet.yml.
+  # blocking `ruff check`. The same ratchet now ALSO blocks net-new mypy --strict
+  # errors on changed files (issue #192), so mypy is pinned + installed here too.
+  # Keep both pins in lockstep with cq-ratchet.yml.
   RUFF_VERSION: "0.15.17"
+  MYPY_VERSION: "1.20.1"
 
 jobs:
   backend-lint-test:
@@ -49,19 +52,21 @@ jobs:
           uv pip install -r requirements.txt
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
-          uv pip install "ruff==${RUFF_VERSION}"
+          uv pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
 
-      - name: Ruff ratchet (diff-scoped, blocks net-new violations)
+      - name: Lint ratchet (diff-scoped ruff + mypy, blocks net-new violations)
         # The shared strict select set (root ruff.toml -> standards/ruff.toml) has
         # ~6.5k legacy violations whole-repo, so a blocking whole-repo `ruff check`
         # would be permanently red at adoption. Instead enforce the strict bar on
         # the PR's CHANGED apps/backend Python files only: a changed file may not
-        # GAIN ruff violations vs the PR base (coding-standards.md sections 0/4.6).
-        # Pure formatting/cleanup can't increase the count, so this PR stays green;
-        # legacy is fixed on touch. Vendored from CFactory (cross-service reuse).
+        # GAIN ruff OR mypy --strict violations vs the PR base (coding-standards.md
+        # sections 0/4.6). Pure formatting/cleanup can't increase the count, so
+        # this PR stays green; legacy is fixed on touch. Originally vendored from
+        # CFactory; the blocking mypy half is issue #192.
         run: |
-          # Put the venv's pinned ruff first on PATH so the ratchet shells out to
-          # it (the ratchet invokes `ruff` and `git` as plain commands).
+          # Put the venv's pinned ruff+mypy first on PATH so the ratchet shells
+          # out to them (the ratchet invokes `ruff`, `mypy` and `git` as plain
+          # commands).
           export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="origin/${{ github.base_ref }}"
@@ -114,12 +119,13 @@ jobs:
           uv pip install -r requirements.txt
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
-          uv pip install "ruff==${RUFF_VERSION}"
+          uv pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
 
-      - name: Ruff ratchet (diff-scoped, blocks net-new violations)
+      - name: Lint ratchet (diff-scoped ruff + mypy, blocks net-new violations)
         # Same no-regression ratchet as the full backend job (see its comment):
-        # the strict bar is enforced on changed apps/backend files only, never as
-        # a whole-repo blocking gate (~6.5k legacy violations at adoption).
+        # the strict bar (ruff + mypy --strict) is enforced on changed apps/backend
+        # files only, never as a whole-repo blocking gate (~6.5k legacy violations
+        # at adoption).
         run: |
           export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then

@@ -4,31 +4,48 @@
 Implements the Factory coding-standards ratchet (coding-standards.md sections 0
 and 4.6): the strict bar (`ruff` with the shared select set + `mypy --strict`)
 is enforced on the files a PR changes, and a changed file MAY NOT REGRESS - i.e.
-it may not gain ruff violations relative to the PR base. Untouched legacy
+it may not gain ruff OR mypy violations relative to the PR base. Untouched legacy
 hotspots are allowed until touched, and the existing legacy backlog inside a
 touched file does not block (a whole-repo strict gate would be instantly red:
 hundreds of legacy violations at adoption). New code and any net-new violation a
 PR introduces are blocked.
 
-Mechanism: for each changed Python file, count ruff violations (shared config)
-at the PR base and at HEAD; fail if HEAD has more. `ruff format` reflowing legacy
-lines never increases the count, so a pure-cleanup PR stays green while genuine
-new violations are caught.
+Mechanism (ruff): for each changed Python file, count ruff violations (shared
+config) at the PR base and at HEAD; fail if HEAD has more. `ruff format`
+reflowing legacy lines never increases the count, so a pure-cleanup PR stays
+green while genuine new violations are caught.
 
-Vendored verbatim from CFactory/scripts/ratchet_lint.py (intentional
-cross-service reuse of the Factory shared ratchet). Only the PACKAGE_DEFAULT
-differs to match this repo's backend layout.
+Mechanism (mypy): same no-regression model. For each changed Python file, run
+`mypy --strict` (standards/mypy.ini) and count the errors mypy attributes to
+that file, at the PR base and at HEAD; fail if HEAD has more. mypy needs the
+file at its real path for import resolution, so the base count is taken by
+swapping the file's content to its base version in place (HEAD content is
+restored afterwards, always). Errors mypy reports in OTHER files (imported
+modules) are not attributed to the changed file and so never gate it.
+
+Originally vendored from CFactory/scripts/ratchet_lint.py (intentional
+cross-service reuse of the Factory shared ratchet); PACKAGE_DEFAULT matches this
+repo's backend layout, and the blocking per-file mypy gate (issue #192) was
+added here.
 
 Usage:
-    python scripts/ratchet_lint.py --base <git-ref> [--package <dir>]
+    python scripts/ratchet_lint.py --base <git-ref> [--package <dir>] \\
+        [--mypy-config <ini>] [--no-mypy]
 
 Exit code 0 if no changed file regressed; 1 otherwise.
 """
+
+# This is a CLI ratchet tool: `print` IS its reporting surface (it writes the
+# gate verdict to stdout for CI logs), so T20 (no-print-in-service-code) does not
+# apply file-wide. Coded directive (not a blanket noqa) to satisfy PGH004.
+# ruff: noqa: T201
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,10 +53,15 @@ from collections import Counter
 from pathlib import Path
 
 PACKAGE_DEFAULT = "apps/backend"
+MYPY_CONFIG_DEFAULT = "standards/mypy.ini"
+# mypy emits "<path>:<line>: error: <msg>  [code]"; count only real errors.
+_MYPY_ERROR_RE = re.compile(r"^(?P<path>.+?):\d+: error:")
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+    # Inputs are tool/git argv assembled from CI-controlled config, not untrusted
+    # user data; this is a developer CI tool, not a network surface.
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
 
 
 def changed_python_files(base: str, package: str) -> list[str]:
@@ -99,10 +121,75 @@ def regressions(base: str, path: str) -> list[str]:
     return out
 
 
+def mypy_errors(path: str, package: str, mypy_config: str) -> int:
+    """Number of mypy --strict errors attributed to *path*.
+
+    Runs mypy on the file in place so imports resolve against the package, then
+    counts only error lines whose location is *path* itself (errors surfaced in
+    imported modules belong to those files, not the changed one).
+    """
+    env = dict(os.environ)
+    # Make the package importable so mypy can follow first-party imports.
+    for var in ("MYPYPATH", "PYTHONPATH"):
+        existing = env.get(var)
+        env[var] = f"{package}{os.pathsep}{existing}" if existing else package
+    # CI-controlled argv (see _run); mypy is resolved from PATH (the pinned venv
+    # is put first on PATH by the workflow), matching how the ruff ratchet shells
+    # out to `ruff`.
+    res = subprocess.run(  # noqa: S603
+        ["mypy", "--config-file", mypy_config, path],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    target = Path(path)
+    count = 0
+    for line in res.stdout.splitlines():
+        match = _MYPY_ERROR_RE.match(line)
+        if match is not None and Path(match.group("path")) == target:
+            count += 1
+    return count
+
+
+def mypy_regression(base: str, path: str, package: str, mypy_config: str) -> str | None:
+    """A no-regression message if *path* gains mypy errors vs *base*, else None.
+
+    The base count needs the file's base content at its real path (so imports
+    still resolve); the HEAD content is restored unconditionally afterwards.
+    """
+    head_n = mypy_errors(path, package, mypy_config)
+    base_src = file_at_base(base, path)
+    if base_src is None:
+        # New file: every error is net-new; base count is zero.
+        base_n = 0
+    else:
+        target = Path(path)
+        head_src = target.read_text()
+        try:
+            target.write_text(base_src)
+            base_n = mypy_errors(path, package, mypy_config)
+        finally:
+            target.write_text(head_src)
+    if head_n > base_n:
+        return f"{path}: mypy +{head_n - base_n} errors (base {base_n} -> head {head_n})"
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", required=True, help="git ref to diff against")
     parser.add_argument("--package", default=PACKAGE_DEFAULT)
+    parser.add_argument(
+        "--mypy-config",
+        default=MYPY_CONFIG_DEFAULT,
+        help="mypy config file for the strict per-file gate",
+    )
+    parser.add_argument(
+        "--no-mypy",
+        action="store_true",
+        help="skip the mypy no-regression gate (ruff-only)",
+    )
     args = parser.parse_args()
 
     files = changed_python_files(args.base, args.package)
@@ -112,14 +199,31 @@ def main() -> int:
 
     print("ratchet: gating changed files:\n  " + "\n  ".join(files))
 
-    all_regressions: list[str] = []
+    ruff_regressions: list[str] = []
     for path in files:
-        all_regressions.extend(regressions(args.base, path))
+        ruff_regressions.extend(regressions(args.base, path))
 
-    if all_regressions:
+    mypy_regressions: list[str] = []
+    if not args.no_mypy:
+        for path in files:
+            msg = mypy_regression(args.base, path, args.package, args.mypy_config)
+            if msg is not None:
+                mypy_regressions.append(msg)
+
+    failed = False
+    if ruff_regressions:
+        failed = True
         print("\nratchet FAILED: changed files gained ruff violations (shared strict bar):")
-        for line in all_regressions:
+        for line in ruff_regressions:
             print(f"  {line}")
+
+    if mypy_regressions:
+        failed = True
+        print("\nratchet FAILED: changed files gained mypy --strict errors:")
+        for line in mypy_regressions:
+            print(f"  {line}")
+
+    if failed:
         print(
             "\nFix the new violations (or clean the file further). The ratchet only "
             "blocks NET-NEW violations - pre-existing legacy in a touched file is "
@@ -127,7 +231,8 @@ def main() -> int:
         )
         return 1
 
-    print("ratchet PASSED: no changed file regressed; new violations: none.")
+    suffix = "" if args.no_mypy else " (ruff + mypy)"
+    print(f"ratchet PASSED: no changed file regressed{suffix}; new violations: none.")
     return 0
 
 
