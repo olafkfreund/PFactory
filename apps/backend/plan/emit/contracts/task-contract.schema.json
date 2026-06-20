@@ -569,9 +569,98 @@
     },
     "verification": {
       "$ref": "#/$defs/verification"
+    },
+    "epic_context": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Sanitized enrichment carried alongside the plan for the downstream agents (constraints, knowledge links, and RFC-0012 house standards). Open object; consumers ignore unknown keys.",
+      "properties": {
+        "house_standards": {
+          "$ref": "#/$defs/house_standards"
+        }
+      }
     }
   },
   "$defs": {
+    "house_standards": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "RFC-0012 external-knowledge grounding: the team's house standards retrieved (best-effort) from RFC-0010 repo conventions and the live Backstage catalog/TechDocs/scaffolder templates, recorded so the fleet can FOLLOW them and the standards_conformance gate can prove they were applied. Retrieval degrades, never raises: available=false => retrieval was unavailable and the gate scores it not_applicable (never a false pass). Each source carries a content-hash so a standard cannot be silently swapped after approval, and waivers bind to that hash.",
+      "properties": {
+        "available": {
+          "type": "boolean",
+          "description": "false when the standards could not be retrieved (Backstage unreachable, no matching entity). A baseline-only manifest may still be available=true."
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why retrieval was unavailable, when available=false."
+        },
+        "sources": {
+          "type": "array",
+          "description": "The retrieved standards, one entry per source.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "source",
+              "content_hash"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "baseline",
+                  "backstage"
+                ],
+                "description": "'baseline' = RFC-0010 repo conventions (always offline-available); 'backstage' = pulled from the live catalog."
+              },
+              "kind": {
+                "type": "string",
+                "description": "What this source is, e.g. 'conventions', 'component', 'template'."
+              },
+              "content_hash": {
+                "type": "string",
+                "description": "Stable digest (sha256:...) of the source-of-truth. The conformance gate and any deviation waiver bind to this hash."
+              },
+              "entity_ref": {
+                "type": "string",
+                "description": "Backstage entity reference, e.g. 'component:default/aifactory' or 'template:default/rust-service'."
+              },
+              "techdocs_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "TechDocs ref URIs the agents must consult (refs only, not inlined bodies)."
+              },
+              "conventions": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Linter/formatter/test-layout conventions (baseline source)."
+              },
+              "lifecycle": {
+                "type": "string",
+                "description": "Catalog spec.lifecycle, e.g. 'production', 'experimental'."
+              },
+              "spec_type": {
+                "type": "string",
+                "description": "Catalog spec.type, e.g. 'service', 'library'."
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Catalog/template tags (used to match the golden-path stack)."
+              }
+            }
+          }
+        }
+      }
+    },
     "access": {
       "type": "object",
       "additionalProperties": false,
