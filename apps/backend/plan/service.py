@@ -783,11 +783,21 @@ class PlanService:
         if plan.target_kind == "non-software" or not session.repo:
             return plan
         repo_map = reconnoiter(session.repo, session.base_ref)
+        # RFC-0015 §3.1: capture the per-project constitution from the same
+        # read-only checkout so emit + the readiness check can consume it without
+        # cloning again. Best-effort: None when the repo carries no constitution.
+        from plan.emit.constitution import (  # noqa: PLC0415 - lazy: keep emit out of the service import graph
+            read_constitution_md,
+        )
+
+        constitution_md = read_constitution_md(session.repo, session.base_ref)
         # RFC-0010 #111: a directional rewrite ("port X from L1 to L2", L1 == repo
         # language) is a migration, not a #109 language conflict.
         signal = classify_migration(plan, repo_map)
         change_mode = classify_change_mode(repo_map, is_migration=signal.is_migration)
         update: dict = {"repo_map": repo_map, "change_mode": change_mode}
+        if constitution_md is not None:
+            update["constitution_md"] = constitution_md
         if signal.is_migration:
             update["source_language"] = signal.source_language
             update["target_language"] = signal.target_language

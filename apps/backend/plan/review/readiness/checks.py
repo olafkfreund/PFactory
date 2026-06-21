@@ -42,6 +42,13 @@ class ReadinessContext(BaseModel):
     # fully inert until a caller opts in by injecting a probe result.
     local_cluster: dict | None = None
 
+    # RFC-0015 §3.1: the per-project constitution block (built from the plan's
+    # captured .factory/constitution.md), or None when none was found. Read by
+    # constitution-grounded so the human approves a plan whose enforceable clauses
+    # are wired as HARD gate checks. None → the check is not_applicable, so this is
+    # inert until a caller injects it.
+    constitution: dict | None = None
+
 
 CheckFn = Callable[["NormalizedPlan", "EpicPlan", ReadinessContext], ReadinessCheckResult]
 
@@ -162,6 +169,66 @@ def _language_reconciled(
             "spec_language": rec.spec_language,
             "repo_language": rec.repo_language,
             "change_mode": plan.change_mode,
+        },
+    )
+
+
+@check("constitution-grounded")
+def _constitution_grounded(
+    plan: NormalizedPlan,  # noqa: ARG001 - uniform check signature
+    epic: EpicPlan,  # noqa: ARG001 - uniform check signature
+    ctx: ReadinessContext,
+) -> ReadinessCheckResult:
+    """Surface the per-project constitution so the human approves grounded gates (RFC-0015).
+
+    The constitution feeds the planning prompt and the downstream
+    ``standards_conformance`` gate (enforceable clauses become HARD checks). This
+    check makes that visible at approval time. It is advisory: a project may have
+    no constitution (not_applicable) and that is fine. It only HARD-fails the
+    pathological case where a constitution was found but parsed to no usable
+    principles — a sign the file is malformed and the gate would silently enforce
+    nothing.
+    """
+    block = ctx.constitution
+    if not isinstance(block, dict) or not block.get("available"):
+        return ReadinessCheckResult(
+            check_id="constitution-grounded",
+            title="Project constitution surfaced",
+            status="not_applicable",
+            detail="No .factory/constitution.md found — no constitution to enforce.",
+        )
+    principles = block.get("principles") or []
+    enforceable = block.get("enforceable_ids") or []
+    if not principles:
+        return ReadinessCheckResult(
+            check_id="constitution-grounded",
+            title="Project constitution surfaced",
+            status="fail",
+            severity="medium",
+            hard=True,
+            waivable=True,
+            detail=(
+                "A constitution was found but no principles parsed — "
+                "the gate would enforce nothing."
+            ),
+            remediation=(
+                "Fix .factory/constitution.md: use '## P1: <principle>' headings or "
+                "'- **P1 (enforceable):** <principle>' bullets."
+            ),
+            evidence={"source": block.get("source")},
+        )
+    return ReadinessCheckResult(
+        check_id="constitution-grounded",
+        title="Project constitution surfaced",
+        status="pass",
+        detail=(
+            f"{len(principles)} principle(s); {len(enforceable)} enforced as HARD checks"
+            + (f" ({', '.join(map(str, enforceable))})" if enforceable else "")
+        ),
+        evidence={
+            "source": block.get("source"),
+            "principle_count": len(principles),
+            "enforceable_ids": list(enforceable),
         },
     )
 
@@ -694,21 +761,28 @@ def default_checks() -> list[CheckFn]:
     return [_REGISTRY[cid] for cid in _ORDER if cid in _REGISTRY]
 
 
-def run_readiness(
+def run_readiness(  # noqa: PLR0913 - readiness inputs are flat, optional keyword context
     plan: NormalizedPlan,
     epic: EpicPlan,
     *,
     checks: list[CheckFn] | None = None,
     blocking_findings: list[Finding] | None = None,
     local_cluster: dict | None = None,
+    constitution: dict | None = None,
 ) -> ReadinessReport:
     """Run every readiness check and collect the results into a report.
 
     ``local_cluster`` is an optional read-only local-cluster probe result
     (``agents.cloud.local_cluster.probe_cluster().to_dict()``); when omitted the
-    ``env-buildable`` check reports not_applicable.
+    ``env-buildable`` check reports not_applicable. ``constitution`` is the
+    RFC-0015 constitution block; when omitted the ``constitution-grounded`` check
+    reports not_applicable.
     """
-    ctx = ReadinessContext(blocking_findings=blocking_findings or [], local_cluster=local_cluster)
+    ctx = ReadinessContext(
+        blocking_findings=blocking_findings or [],
+        local_cluster=local_cluster,
+        constitution=constitution,
+    )
     fns = checks if checks is not None else default_checks()
     results = [fn(plan, epic, ctx) for fn in fns]
     return ReadinessReport(
