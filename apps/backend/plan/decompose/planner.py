@@ -175,6 +175,27 @@ def heuristic_decompose(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) ->
 # ── LLM-backed decomposer ──────────────────────────────────────────────────
 
 
+def _constitution_prompt(plan: NormalizedPlan) -> str:
+    """Render the plan's constitution as a decompose-prompt fragment (RFC-0015).
+
+    Best-effort: returns ``""`` when the plan carries no constitution or it does
+    not parse, leaving the prompt exactly as it was (today's behaviour).
+    """
+    text = getattr(plan, "constitution_md", None)
+    if not text:
+        return ""
+    try:
+        from plan.emit.constitution import (  # noqa: PLC0415 - lazy: avoid emit import in the decompose stage
+            build_constitution_block,
+            render_constitution_prompt,
+        )
+
+        block = build_constitution_block(text, source="plan")
+        return render_constitution_prompt(block)
+    except Exception:  # noqa: BLE001 — prompt injection is best-effort; a parse hiccup must not break decompose
+        return ""
+
+
 def build_decompose_prompt(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) -> str:
     """Build an instruction asking the model for an ``EpicPlan`` as JSON.
 
@@ -192,6 +213,11 @@ def build_decompose_prompt(plan: NormalizedPlan, descriptor: PlanTypeDescriptor)
     if stages.synthesize_cicd:
         stage_notes.append("include one 'cicd' child depending on all features")
     stage_text = "; ".join(stage_notes) or "no extra testing/cicd children needed"
+
+    # RFC-0015 §3.1: inject the per-project constitution (governing principles)
+    # the same way RFC-0012 injects house standards — so the decomposition honours
+    # it. Empty string when the repo carries no constitution (prompt unchanged).
+    constitution_text = _constitution_prompt(plan)
 
     return f"""\
 You are the Decompose stage of a planning factory. Break the plan below into an
@@ -227,7 +253,7 @@ Plan title: {plan.title}
 Plan description: {plan.description}
 Acceptance criteria:
 {criteria_lines}
-"""
+{constitution_text}"""
 
 
 def _extract_first_json_object(text: str) -> dict:
