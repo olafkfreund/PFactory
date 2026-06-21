@@ -92,8 +92,32 @@ def run_gates(
     # to the lens score: a high aggregate cannot mask a missing-information
     # blocker. Blocking review findings feed the no-blocking-findings check so the
     # report is a single audit surface for "why can't this emit".
-    review.readiness = run_readiness(plan, epic, blocking_findings=review.blocking_findings())
+    # RFC-0015 §3.1: build the constitution block from the plan's captured
+    # .factory/constitution.md so the constitution-grounded check surfaces the
+    # governing principles (and which are HARD) at approval time. Best-effort.
+    constitution = _constitution_for(plan)
+    review.readiness = run_readiness(
+        plan,
+        epic,
+        blocking_findings=review.blocking_findings(),
+        constitution=constitution,
+    )
     return review
+
+
+def _constitution_for(plan: NormalizedPlan) -> dict | None:
+    """Build the RFC-0015 constitution block from the plan, or None. Never raises."""
+    text = getattr(plan, "constitution_md", None)
+    if not text:
+        return None
+    try:
+        from plan.emit.constitution import (  # noqa: PLC0415 - lazy: avoid emit import in the review stage
+            build_constitution_block,
+        )
+
+        return build_constitution_block(text, source="plan")
+    except Exception:  # noqa: BLE001 — readiness grounding is best-effort; never break the gate
+        return None
 
 
 def _absorb_findings(

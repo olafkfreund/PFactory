@@ -93,6 +93,14 @@ class NormalizedPlan(BaseModel):
     # until classified; excluded from canonical_content() (a routing knob, not
     # plan substance — changing it must not invalidate a human approval).
     autonomy_tier: str | None = None
+    # RFC-0015 §3.1: the per-project constitution markdown captured from the
+    # target repo's ``.factory/constitution.md`` during reconnaissance (read-only
+    # checkout). Consumed by the decompose prompt + readiness check + the emitted
+    # ``epic_context.constitution`` block. None until recon reads it (or when the
+    # repo carries no constitution → today's behaviour). Excluded from
+    # canonical_content(): the constitution is governance grounding, not plan
+    # substance, so refreshing it must not invalidate a human approval.
+    constitution_md: str | None = None
     raw_text: str | None = None
     content_hash: str = ""
     ingested_at: str = Field(default_factory=_utcnow_iso)
