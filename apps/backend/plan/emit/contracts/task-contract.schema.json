@@ -641,6 +641,9 @@
       "properties": {
         "house_standards": {
           "$ref": "#/$defs/house_standards"
+        },
+        "constitution": {
+          "$ref": "#/$defs/constitution"
         }
       }
     },
@@ -1151,6 +1154,48 @@
         "claim": {
           "type": "string",
           "description": "Mandatory honest one-liner stating what was and was NOT verified."
+        },
+        "traceability": {
+          "type": "array",
+          "description": "RFC-0015 §4 D2 requirement->test->VAL matrix: every acceptance criterion mapped to the test(s) that cover it, the VAL level reached, and the verdict. Surfaces the AC->test mapping the fleet already computes internally; consumed by the CFactory matrix view (AC x test x VAL x verdict). Additive/optional — absent => no traceability surfaced (a producer omitting it is not penalized; it is still VAL-0 unless the levels block says otherwise).",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "ac_id",
+              "status"
+            ],
+            "properties": {
+              "ac_id": {
+                "type": "string",
+                "description": "Acceptance-criterion id, e.g. 'AC-1'."
+              },
+              "ac_text": {
+                "type": "string",
+                "description": "The acceptance-criterion text (optional, for the human-readable matrix)."
+              },
+              "tests": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Test ids/paths covering this AC, e.g. 'tests/test_login.py::test_ok'. Empty => the AC has no covering test (a traceability gap)."
+              },
+              "val_level": {
+                "$ref": "#/$defs/valLevel"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed",
+                  "not_run",
+                  "skipped"
+                ],
+                "description": "Verdict of this AC's covering tests."
+              }
+            }
+          }
         }
       }
     },
@@ -1350,6 +1395,55 @@
               "description": "How far deploy verification goes. 'dry-run'/'plan-only' for non-prod automation; 'ephemeral-apply' against a disposable target (VAL-3); 'production-apply' (VAL-4) is gated and never autonomous."
             }
           }
+        }
+      }
+    },
+    "constitution": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "RFC-0015 §3.1 constitution: the per-project, human-authored governing principles (repo .factory/constitution.md, mirrored to Backstage) every phase is checked against. Additive to RFC-0012 house_standards: PFactory injects it into planning/readiness, AIFactory coder/QA honour it, and the standards_conformance gate treats clauses tagged enforceable=true as HARD checks (closing spec-kit's soft-enforcement gap). Retrieval degrades, never fakes: available=false => the constitution was unavailable and the gate scores it not_applicable (never a false pass). Absent => today's behaviour.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Where the constitution came from, e.g. '.factory/constitution.md' or a Backstage entity ref."
+        },
+        "principles": {
+          "type": "array",
+          "description": "The governing principles, one entry each.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id",
+              "text",
+              "enforceable"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable principle id, e.g. 'P1', referenced by enforceable_ids and gate findings."
+              },
+              "text": {
+                "type": "string",
+                "description": "The principle statement (testing policy, architecture constraint, quality bar, security posture)."
+              },
+              "enforceable": {
+                "type": "boolean",
+                "description": "true => the standards_conformance gate treats this clause as a HARD check; false => advisory, injected into prompts only."
+              }
+            }
+          }
+        },
+        "enforceable_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The ids of the principles tagged enforceable=true — the subset the standards_conformance gate enforces as hard checks."
+        },
+        "available": {
+          "type": "boolean",
+          "description": "false when the constitution could not be retrieved (no .factory/constitution.md, Backstage unreachable). The gate then scores it not_applicable — never a false pass."
         }
       }
     }

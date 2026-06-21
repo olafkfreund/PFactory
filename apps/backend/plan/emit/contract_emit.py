@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from plan.emit.access_block import attach_access
+from plan.emit.constitution import attach_constitution
 from plan.emit.contract_builder import build_task_contract
 from plan.emit.cost_router import apply_cost_routing
 from plan.emit.environment_block import attach_environment
@@ -165,6 +166,12 @@ def assemble_contract(
     # standards_conformance gate can prove they were applied. Best-effort, never
     # raises; baseline-only when Backstage is unavailable.
     attach_house_standards(contract, plan)
+    # RFC-0015 §3.1: surface the per-project constitution (governing principles
+    # from .factory/constitution.md, captured during recon) so the fleet honours
+    # it and the standards_conformance gate enforces enforceable=true clauses as
+    # HARD checks. Additive to house_standards; best-effort, never raises;
+    # available=false when the repo carries no constitution.
+    attach_constitution(contract, plan)
     # RFC-0007: access requirements discovered from .pfactory.yml (#84) + recorded
     # human-verified curation applied (#86).
     attach_access(contract, config, spec_text, approvals=approvals)

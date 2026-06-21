@@ -1245,6 +1245,8 @@ CRITICAL_MODULES = frozenset(
         "test_cloud_issues",  # findings → GitHub issues (#133/#152)
         "test_cloud_store",  # multi-assessment portal store + downloads (#133/#152)
         "test_speckit_render",  # RFC-0015 §3.3 spec/plan/tasks markdown emit (#215)
+        "test_constitution",  # RFC-0015 §3.1 constitution parse/attach/inject (#213)
+        "test_speckit_ingest",  # RFC-0015 §3.2 spec-kit workspace ingest (#214)
     }
 )
 

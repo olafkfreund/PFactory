@@ -13,12 +13,22 @@ from plan.ingest.document_loaders import (
     ingest_document,
     load_document_text,
 )
+from plan.ingest.speckit import (
+    SpecKitError,
+    SpecKitWorkspace,
+    discover_workspace,
+    ingest_speckit,
+)
 
 __all__ = [
     "DocumentLoadError",
+    "SpecKitError",
+    "SpecKitWorkspace",
+    "discover_workspace",
     "extract_docx_text",
     "extract_pdf_text",
     "extract_text",
     "ingest_document",
+    "ingest_speckit",
     "load_document_text",
 ]
