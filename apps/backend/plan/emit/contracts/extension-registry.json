@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Factory Extension Registry",
+  "description": "RFC-0015 §4 D3 declarative extension/stage registry. One entry per Factory stage, gate, connector, and runtime, each tagged with a category (intake|plan|review|gate|runtime|connector|observe) and an effect (read-only|read-write), plus its operator-gating state (enabled) and the owning service. Makes the pipeline discoverable, toggleable, and auditable; unifies the RFC-0014 gated-runtime opt-in and the RFC-0012 connector probe chain under one manifest. enabled=false marks a runtime/extension that is GATED OFF until an operator opts in (RFC-0014). Open object; consumers ignore unknown keys.",
+  "version": "1",
+  "extensions": [
+    {
+      "name": "label-driven-intake",
+      "category": "intake",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0011 GitHub-issue intake: labels drive the difficulty tier (factory:low|medium|hard) and the normalizer maps the issue into a NormalizedPlan.",
+      "owner_service": "pfactory"
+    },
+    {
+      "name": "repo-reconnaissance",
+      "category": "plan",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0010 code-aware planning: PFactory statically reads the target repo (AST/manifest/HCL parsing, NEVER executes) to ground the plan and detect change_mode.",
+      "owner_service": "pfactory"
+    },
+    {
+      "name": "deploy-analysis",
+      "category": "plan",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0013 deployment-aware planning: discovers CI system, deploy mechanism, target environments, and the risk/scan/system-gate policy that follows.",
+      "owner_service": "pfactory"
+    },
+    {
+      "name": "red-team-review",
+      "category": "review",
+      "effect": "read-only",
+      "enabled": false,
+      "description": "RFC-0015 §4 D1 adversarial spec-review lens: pre-planning lens that tries to break the spec (ambiguous/contradictory/missing ACs, infeasible constraints, wrong-language mismatch). Blocking at/above the RFC-0014 risk threshold; gated until the PFactory lens ships.",
+      "owner_service": "pfactory"
+    },
+    {
+      "name": "standards-conformance-gate",
+      "category": "gate",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0012 fail-closed gate proving house standards (and RFC-0015 enforceable constitution clauses) were both retrieved AND applied. Degrades to not_applicable when standards are unavailable, never a false pass.",
+      "owner_service": "factory"
+    },
+    {
+      "name": "verification-gate",
+      "category": "gate",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0006 never-overclaim VAL gate: no level marked 'passed' above achieved_level; every un-run/failed level carries a reason. Producer omitting the block is treated as VAL-0.",
+      "owner_service": "factory"
+    },
+    {
+      "name": "ci-gated-auto-merge",
+      "category": "gate",
+      "effect": "read-write",
+      "enabled": true,
+      "description": "RFC-0009 provider-agnostic CI-gated auto-merge: a green PR is merged only after CI passes; production deploys (VAL-4) are never autonomous.",
+      "owner_service": "cfactory"
+    },
+    {
+      "name": "concurrency-budget-admission",
+      "category": "gate",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0016 admission control tying concurrency caps to the RFC-0014 budget: queue when the cap is full, deny when the spend ceiling would be exceeded, else admit.",
+      "owner_service": "factory"
+    },
+    {
+      "name": "runtime-claude",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": true,
+      "description": "RFC-0014 default execution runtime. Always available; all other runtimes are gated off until an operator opts in.",
+      "owner_service": "aifactory"
+    },
+    {
+      "name": "runtime-codex",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": false,
+      "description": "RFC-0014 gated runtime (OpenAI Codex). Manual operator enable (config/env allowlist + contract opt-in).",
+      "owner_service": "aifactory"
+    },
+    {
+      "name": "runtime-antigravity",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": false,
+      "description": "RFC-0014 gated runtime (Google Antigravity agent swarms). Manual operator enable; multiplies spend.",
+      "owner_service": "aifactory"
+    },
+    {
+      "name": "runtime-ollama",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": false,
+      "description": "RFC-0014 gated runtime (local Ollama models). Manual operator enable; local-priced (no $ estimate).",
+      "owner_service": "aifactory"
+    },
+    {
+      "name": "runtime-ollama-cloud",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": false,
+      "description": "RFC-0014 gated runtime (Ollama Cloud). Manual operator enable; subscription-priced.",
+      "owner_service": "aifactory"
+    },
+    {
+      "name": "runtime-claude-subagents",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": false,
+      "description": "RFC-0014 speed-up runtime: parallel Claude sub-agent fan-out. Manual operator enable only because it multiplies spend.",
+      "owner_service": "aifactory"
+    },
+    {
+      "name": "runtime-dynamic-workflow",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": false,
+      "description": "RFC-0014 speed-up runtime: scripted multi-agent orchestration. Manual operator enable only because it multiplies spend.",
+      "owner_service": "aifactory"
+    },
+    {
+      "name": "job-native-scale-out",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": true,
+      "description": "RFC-0016/RFC-0017 k8s Job-per-task dispatch on the thin nix-base image, KEDA-scaled from the job queue. Each PARR job (plan/build/verify) runs in its own ephemeral Job.",
+      "owner_service": "factory"
+    },
+    {
+      "name": "agent-sandbox",
+      "category": "runtime",
+      "effect": "read-write",
+      "enabled": true,
+      "description": "AIFactory in-pod unprivileged bwrap OS sandbox (default-on in Helm) isolating agent-run commands; per-task Nix toolchain provisioning (RFC-0005 Tier A).",
+      "owner_service": "aifactory"
+    },
+    {
+      "name": "backstage-catalog",
+      "category": "connector",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0012 Backstage Software Catalog probe (catalog_query-catalog-entities) keyed off provenance.repo. Best-effort; degrades to a baseline-only manifest when unreachable.",
+      "owner_service": "pfactory"
+    },
+    {
+      "name": "backstage-techdocs",
+      "category": "connector",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0012 Backstage TechDocs probe: records techdocs_refs (URIs, not inlined) the agents must consult. Best-effort.",
+      "owner_service": "pfactory"
+    },
+    {
+      "name": "backstage-scaffolder",
+      "category": "connector",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0012 Backstage Scaffolder probe: golden-path templates whose tags intersect the entity. Best-effort.",
+      "owner_service": "pfactory"
+    },
+    {
+      "name": "deployment-metrics-mcp",
+      "category": "connector",
+      "effect": "read-only",
+      "enabled": false,
+      "description": "RFC-0013 deployment-metrics MCP (deploy_history / dora_metrics). Currently a stub; degrades to available=false (delivery health UNKNOWN, never healthy) when unreachable.",
+      "owner_service": "factory"
+    },
+    {
+      "name": "cockpit-observability",
+      "category": "observe",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "CFactory cockpit: the single pane reconciling per-service status into the canonical taxonomy, live execution DAG, evidence, and billing-mode usage.",
+      "owner_service": "cfactory"
+    },
+    {
+      "name": "traceability-matrix",
+      "category": "observe",
+      "effect": "read-only",
+      "enabled": true,
+      "description": "RFC-0015 §4 D2 CFactory matrix view rendering verification.traceability[] as AC x test x VAL x verdict.",
+      "owner_service": "cfactory"
+    }
+  ]
+}
