@@ -38,7 +38,7 @@ nav_order: 1
 ## See it in action
 
 <video controls preload="metadata" playsinline
-       poster="{{ '/static/img/screenshots/10-feasibility.png' | relative_url }}"
+       poster="{{ '/static/img/screenshots/20-board.png' | relative_url }}"
        style="width:100%;max-width:960px;border-radius:12px;border:1px solid rgba(184,187,38,0.25);box-shadow:0 8px 40px rgba(0,0,0,0.4);">
   <source src="{{ '/static/videos/pfactory-walkthrough.mp4' | relative_url }}" type="video/mp4">
   Your browser can't play embedded video —
@@ -46,13 +46,13 @@ nav_order: 1
 </video>
 
 <p style="opacity:0.8;margin-top:0.75rem;">
-  <em>Upload a plan → process → <strong>live AWS feasibility</strong> (cost · time · technical access) →
-  cited review → honoured-document suggestions → board → approve →
-  <strong>emit tagged GitHub epics + issues</strong>. Captured from the real portal.</em>
+  <em>Ingest a plan → process → review across architecture · security · best-practice · feasibility lenses →
+  red-team / adversarial pass → board → approve →
+  <strong>emit tagged GitHub epics + issues</strong>. Captured from the live portal.</em>
 </p>
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0.75rem;margin-top:1.25rem;">
-{% assign shots = "01-portal-list:Planning portal,07-board:Plans on the board,10-feasibility:Cost · time · access feasibility,11-ai-context:Live AWS context,12-review:Cited multi-lens review,15-emit:Tagged emit preview" | split: "," %}
+{% assign shots = "20-board:Plans on the board,21-board-list:Plans in the list view,22-plan-needs-attention:A plan flagged needs-attention,23-plan-done:A verified, governed plan,29-index-memory:Code-aware project index,27-mcp:MCP servers per agent" | split: "," %}
 {% for s in shots %}{% assign p = s | split: ":" %}
   <a href="{{ '/static/img/screenshots/' | append: p[0] | append: '.png' | relative_url }}" title="{{ p[1] }}">
     <img src="{{ '/static/img/screenshots/' | append: p[0] | append: '.png' | relative_url }}" alt="{{ p[1] }}"
@@ -60,6 +60,10 @@ nav_order: 1
   </a>
 {% endfor %}
 </div>
+
+<p style="margin-top:0.75rem;">
+  <a class="hero__cta hero__cta--ghost" href="{{ '/gallery/' | relative_url }}">See the full portal tour →</a>
+</p>
 
 ## Why a planning factory
 

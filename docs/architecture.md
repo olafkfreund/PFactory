@@ -18,19 +18,22 @@ inspected, reviewed, and audited at every step.
 
 ## The pipeline
 
-`Ingest → Enrich/Discover → Detect → Decompose → CI/CD + Testing synthesis →
-Feasibility + Review-gates → Human-approval → Emit`
+`Ingest → Recon (code-aware) → Enrich/Discover → Detect → Decompose →
+CI/CD + Testing synthesis → Deployment derivation → Feasibility + Review-gates →
+Human-approval → Emit`
 
 | # | Stage | What it does |
 |---|-------|--------------|
 | 1 | **Ingest** | Parse an uploaded plan (docx / pdf / markdown) or one delivered via the MCP control plane, the CLI, or a GitHub issue, into a normalized model (`NormalizedPlan`). |
-| 2 | **Enrich / Discover** | Pull *live* context: internal wikis &amp; Backstage (catalog, TechDocs, golden-path templates) and *read-only* introspection of running Kubernetes / OpenShift / Azure / AWS / GCP + Terraform — workloads, resource limits, HPA, network policies, quotas, live load. |
-| 3 | **Detect** | Classify the deliverable as software vs non-software. Software unlocks the deep path (task breakdown + testing + CI/CD + code gates); other deliverables get review + decomposition. |
-| 4 | **Decompose** | Turn the plan into an epic + child issues with dependencies (`EpicPlan`). |
-| 5 | **Synthesize** | For software: generate a Testing Strategy and a CI/CD pipeline definition, each as a doc plus a dedicated child issue. |
-| 6 | **Feasibility + Review-gates** | **Feasibility:** price the proposed resource shape through the real cloud pricing APIs (AWS Price List · Azure Retail · GCP Catalog, static fallback), run `iam:SimulatePrincipalPolicy` for the actions the plan implies (grant/deny per action), and roll up a calibrated effort band — *before any code exists*. **Gates:** architecture / security / best-practice / feasibility lenses, a hybrid of deterministic policy-as-code (Checkov · OPA · cloud-native policy via MCP) and LLM reviewers, scored against a threshold. An over-budget or access-denied plan routes to a human — it never silently blocks. |
-| 7 | **Human-approval** | A single human approval gate. Gates must pass first; any edit to the plan invalidates the approval (content-hash check). |
-| 8 | **Emit** | Create the GitHub epic + child issues (the durable source of truth) and hand off to AIFactory — by writing a `requirements.json`, triggering its API, or via a labelled issue. A completion event is emitted on every terminal session, gated on evidence (see below). |
+| 2 | **Recon (code-aware)** | For a plan that targets an existing repo: a **static, read-only, never-executed** checkout (shallow / single-branch / blobless, hooks disabled, https-only, size/time caps, always torn down) builds a `RepoMap` — detected languages, a static Terraform / Helm / Kubernetes inventory, and a `change_mode` (greenfield / modify / migration). The planning language is reconciled against what the repo actually uses, and acceptance criteria map to real files. (RFC-0010.) |
+| 3 | **Enrich / Discover** | Pull *live* context: internal wikis &amp; Backstage (catalog, TechDocs, golden-path templates) and *read-only* introspection of running Kubernetes / OpenShift / Azure / AWS / GCP + Terraform — workloads, resource limits, HPA, network policies, quotas, live load. |
+| 4 | **Detect** | Classify the deliverable as software vs non-software. Software unlocks the deep path (task breakdown + testing + CI/CD + code gates); other deliverables get review + decomposition. |
+| 5 | **Decompose** | Turn the plan into an epic + child issues with dependencies (`EpicPlan`). A per-project **constitution** (if declared) is injected here and hard-checked against the result. (RFC-0015.) |
+| 6 | **Synthesize** | For software: generate a Testing Strategy and a CI/CD pipeline definition, each as a doc plus a dedicated child issue. |
+| 7 | **Deployment derivation** | Derive a `deployment` block on the Task Contract from the recon inventory — how and where the work is expected to run — so the contract a builder and tester receive targets the right environment. (RFC-0013; the live deploy-then-verify loop runs as a dry-run lane in the wider program.) |
+| 8 | **Feasibility + Review-gates** | **Feasibility:** price the proposed resource shape through the real cloud pricing APIs (AWS Price List · Azure Retail · GCP Catalog, static fallback), run `iam:SimulatePrincipalPolicy` for the actions the plan implies (grant/deny per action), and roll up a calibrated effort band — *before any code exists*. **Gates:** architecture / security / best-practice / feasibility lenses plus an adversarial **Red Team** lens that attacks the spec for missing failure modes, unstated assumptions, and criteria a broken build could satisfy — a hybrid of deterministic policy-as-code (Checkov · OPA · cloud-native policy via MCP) and LLM reviewers, scored against a threshold. An over-budget or access-denied plan routes to a human — it never silently blocks. (Red Team: RFC-0015.) |
+| 9 | **Human-approval** | A single human approval gate. Gates must pass first; any edit to the plan invalidates the approval (content-hash check). |
+| 10 | **Emit** | Create the GitHub epic + child issues (the durable source of truth) and hand off to AIFactory — by writing a `requirements.json`, triggering its API, or via a labelled issue. PFactory can also emit spec-kit-compatible spec / plan / tasks Markdown (RFC-0015). A completion event is emitted on every terminal session, gated on evidence (see below). |
 
 ## Data contracts
 
@@ -51,8 +54,12 @@ Feasibility + Review-gates → Human-approval → Emit`
 - **Task Contract** — the signed RFC-0002 contract handed to AIFactory carries,
   in addition to the plan and execution profile, the `tfactory` test lanes, the
   RFC-0005 `environment` manifest (per-task toolchain + Nix provisioning; see the
-  fleet guide "Reproducible test environments"), and the RFC-0007 `access` block
-  (auth requirements, broker refs only — never secrets).
+  fleet guide "Reproducible test environments"), the RFC-0007 `access` block
+  (auth requirements, broker refs only — never secrets), a `baseline` block
+  (RepoMap summary + blast radius from the recon stage, plus `provenance.base_ref`
+  / `baseline_commit`), and an RFC-0013 `deployment` block derived from the
+  target's live deployment reality. The per-phase execution model is routed on a
+  capability-vs-cost score (RFC-0014), overridable by a pinned agent profile.
 - **AIFactory handoff** — `{ title, description, metadata }` written to
   `.aifactory/specs/{id}/requirements.json` (preferred), POSTed to
   `/api/tasks/create-and-run`, or attached to a labelled GitHub issue.

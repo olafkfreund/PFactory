@@ -24,7 +24,8 @@ human waiver.
 ```mermaid
 flowchart TD
     S[Spec / issue / document] --> N[Normalize<br/>plan.models.NormalizedPlan]
-    N --> AC[Extract acceptance criteria<br/>C1..Cn]
+    N --> R[Recon: static read-only RepoMap<br/>change_mode + IaC inventory<br/>RFC-0010]
+    R --> AC[Extract acceptance criteria<br/>C1..Cn, mapped to real files]
     AC --> D{LLM decomposer available?}
     D -- yes --> L[decompose_with_llm<br/>one feature child per criterion]
     D -- no / on any error --> H[heuristic_decompose<br/>deterministic: one child per criterion]
@@ -32,11 +33,12 @@ flowchart TD
     H --> EP[Dependency layers<br/>phases ordered by deps]
     L --> EP
     EP --> EM[Emit contract blocks]
-    EM --> E1[execution profile]
+    EM --> E1[execution profile<br/>cost-aware model routing RFC-0014]
     EM --> E2[tfactory lanes + frameworks<br/>unit / api / browser / integration]
     EM --> E3[environment manifest<br/>toolchain + nix provisioning]
     EM --> E4[access block<br/>RFC-0007 auth requirements]
-    E1 & E2 & E3 & E4 --> G[Readiness + review gate]
+    EM --> E5[deployment block<br/>RFC-0013, derived from recon]
+    E1 & E2 & E3 & E4 & E5 --> G[Readiness + review gate<br/>incl. adversarial Red Team lens RFC-0015]
     G --> V{Ready?}
     V -- hard fail --> W[Block emission<br/>require audited human waiver]
     V -- ready / advisory only --> SIGN[Sign contract HMAC + emit]
@@ -51,8 +53,14 @@ What is deterministic vs model-driven (stated plainly):
   back to the deterministic heuristic on any prompt, parse, or timeout error** — and the
   `decompose-trustworthy` readiness check records when that fallback happened, so a
   degraded plan is visible, never silent.
-- Lane selection, framework choice, the environment manifest, and the access block are
-  deterministic derivations from the plan (`plan/emit/*`).
+- Lane selection, framework choice, the environment manifest, the access block, and the
+  RFC-0013 deployment block are deterministic derivations from the plan and the recon
+  RepoMap (`plan/emit/*`, `plan/recon/*`).
+- The review gate runs the architecture / security / best-practice / feasibility lenses
+  plus an adversarial **Red Team** lens (RFC-0015) that attacks the spec rather than
+  confirming it; its findings surface alongside the others before the single human
+  approval, not after the build. A per-project **constitution**, if declared, is injected
+  into decomposition and hard-checked against the emitted plan.
 
 ## 2. How the test lanes and toolchain are chosen
 

@@ -96,3 +96,4 @@ tests/fixtures/planner_smoke/project_tree/.pfactory/
 
 # demo capture intermediates
 docs/static/recordings/tmp/
+docs/.sass-cache/
