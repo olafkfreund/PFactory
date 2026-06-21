@@ -63,6 +63,26 @@ def default_lenses() -> list[Lens]:
         "best-practices",
         "completeness",
     ]
+
+    # RFC-0015 §4 D1: the adversarial red-team lens is gated — only register it in
+    # the default set when the declarative extension registry (D3) enables it (or
+    # an operator opts in via env). Until then it is absent, so it costs nothing.
+    from plan.review.extension_registry import is_enabled  # noqa: PLC0415
+
+    red_team_on = is_enabled("red-team-review")
+    if red_team_on:
+        from plan.review.lenses import red_team  # noqa: F401, PLC0415
+
+        order.append("red-team")
+
     seen = list(order)
-    seen.extend(n for n in _REGISTRY if n not in order)
+    # Any other registered lens (e.g. a test-injected one) tails the list, but the
+    # gated red-team lens is excluded unless explicitly enabled above — once its
+    # module is imported it lives in _REGISTRY, and we must not leak it back in.
+    for n in _REGISTRY:
+        if n in order:
+            continue
+        if n == "red-team" and not red_team_on:
+            continue  # gated lens never leaks back in via the registry tail
+        seen.append(n)
     return [_REGISTRY[n] for n in seen if n in _REGISTRY]

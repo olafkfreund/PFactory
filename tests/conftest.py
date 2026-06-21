@@ -1244,6 +1244,7 @@ CRITICAL_MODULES = frozenset(
         "test_cloud_remediation",  # cloud remediation plan (#133/#150)
         "test_cloud_issues",  # findings → GitHub issues (#133/#152)
         "test_cloud_store",  # multi-assessment portal store + downloads (#133/#152)
+        "test_red_team_lens",  # RFC-0015 §4 D1 adversarial red-team review lens (#216)
     }
 )
 
