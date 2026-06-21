@@ -58,6 +58,32 @@ def _record(uri: str, role: str, content: str) -> dict[str, Any]:
     }
 
 
+def _speckit_docs(session: PlanSession) -> list[tuple[str, str]]:
+    """Render the RFC-0015 §3.3 spec.md/plan.md/tasks.md mirror from the contract.
+
+    Reads the emitted contract off ``session.contract_result['contract']``;
+    returns ``[]`` when no contract has been emitted yet. ``description`` (spec
+    overview) + ``technical_notes`` (design intent) are sourced from the session
+    so the docs are rich even though those fields are not on the contract's plan
+    block. Pure-ish + best-effort.
+    """
+    contract = (session.contract_result or {}).get("contract")
+    if not isinstance(contract, dict):
+        return []
+
+    from plan.emit.docs.speckit_render import (  # noqa: PLC0415 - lazy by design
+        render_speckit_bundle,
+    )
+
+    description = getattr(session.plan, "description", "") or ""
+    epic = getattr(session, "epic", None)
+    technical_notes = getattr(epic, "epic_body", "") if epic is not None else ""
+    bundle = render_speckit_bundle(
+        contract, description=description, technical_notes=technical_notes
+    )
+    return [(name, md) for name, md in bundle.items() if md and md.strip()]
+
+
 def emit_plan_artifacts(
     session: PlanSession,
     *,
@@ -103,8 +129,11 @@ def emit_plan_artifacts(
             )
 
             bundle = render_plan_docs(session)
+            # The dense single-page summary is uploaded as overview.md; the
+            # canonical, sectioned spec-kit mirror (spec/plan/tasks) is added
+            # below (RFC-0015 §3.3) and is what the cockpit should render.
             if getattr(bundle, "markdown", None):
-                docs.append(("plan.md", bundle.markdown))
+                docs.append(("overview.md", bundle.markdown))
         except Exception:  # noqa: BLE001 — one render miss must not lose the rest
             logger.warning("[plan-artifacts] plan-docs render failed", exc_info=True)
         try:
@@ -118,6 +147,13 @@ def emit_plan_artifacts(
                 docs.append(("audit-pack.md", pack_md))
         except Exception:  # noqa: BLE001 — one render miss must not lose the rest
             logger.warning("[plan-artifacts] audit-pack render failed", exc_info=True)
+        # RFC-0015 §3.3: the canonical spec-kit-shaped Markdown mirror of the
+        # emitted contract (spec.md / plan.md / tasks.md) — consumable by spec-kit
+        # users and the cockpit (the durable fix for the Overview wall-of-text).
+        try:
+            docs.extend(_speckit_docs(session))
+        except Exception:  # noqa: BLE001 — one render miss must not lose the rest
+            logger.warning("[plan-artifacts] spec-kit docs render failed", exc_info=True)
 
         for name, content in docs:
             ref = ArtifactRef(
