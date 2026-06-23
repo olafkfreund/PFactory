@@ -18,6 +18,7 @@ so a notification can never break the pipeline. Stdlib-only.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +26,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from plan.service import PlanSession
+
+logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "pfactory"
 
@@ -168,3 +171,34 @@ def notify_completion(session: PlanSession, *, now: str | None = None) -> dict:
     _write_sentinel(event)
     _post_webhook(event)
     return event
+
+
+def emit_usage_snapshot(
+    session: PlanSession, *, now: str | None = None
+) -> dict[str, object] | None:
+    """Emit a NON-terminal, usage-bearing event so the cockpit reflects RUNNING
+    cost for a plan session that has spent LLM tokens but not yet reached a
+    terminal status (``emitted``/``rejected``) — e.g. ``processed`` + awaiting
+    human approval, or a run abandoned before approval.
+
+    Cost accrues continuously: a session that planned + ran governance gates has
+    already spent tokens, so usage must reach CFactory independent of terminal
+    completion (``notify_completion`` only fires on terminal statuses). Rides the
+    SAME envelope + transport (``build_completion_event`` carries the ``usage``
+    block with the session's current non-terminal status; CFactory records usage
+    from any event that carries it). Best-effort; returns ``None`` when there is
+    nothing to report (no usage yet) — never raises. Mirrors AIFactory's
+    ``emit_usage_snapshot``.
+    """
+    usage = getattr(session, "usage", None)
+    if usage is None or usage.total_tokens <= 0:
+        return None
+    try:
+        if not getattr(session, "correlation_key", None):
+            session.correlation_key = correlation_key_for(session)
+        event = build_completion_event(session, now=now)
+        _post_webhook(event)
+        return event
+    except Exception:  # noqa: BLE001 — usage reporting must never break planning
+        logger.debug("plan usage snapshot emit failed (best-effort)", exc_info=True)
+        return None

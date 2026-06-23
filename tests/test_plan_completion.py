@@ -41,7 +41,12 @@ Add a refund flow to the orders web app.
 """
 
 _RFC_ENVELOPE_KEYS = {
-    "correlation_key", "service", "task_id", "status", "phase", "updated_at",
+    "correlation_key",
+    "service",
+    "task_id",
+    "status",
+    "phase",
+    "updated_at",
 }
 
 
@@ -58,7 +63,7 @@ def test_event_carries_the_rfc_envelope_fields():
     session = svc.ingest_text(_PLAN, title="Refund flow")
     event = build_completion_event(session, now="2026-06-04T00:00:00+00:00")
 
-    assert _RFC_ENVELOPE_KEYS <= set(event)        # all six RFC fields present
+    assert _RFC_ENVELOPE_KEYS <= set(event)  # all six RFC fields present
     assert event["service"] == SERVICE_NAME == "pfactory"
     assert event["task_id"] == session.session_id
     assert event["updated_at"] == "2026-06-04T00:00:00+00:00"
@@ -83,7 +88,8 @@ def test_correlation_key_becomes_issue_number_after_emit(monkeypatch):
     svc = PlanService()
     session = _processed_session(svc)
     monkeypatch.setattr(
-        github_emitter, "emit_to_github",
+        github_emitter,
+        "emit_to_github",
         lambda *a, **k: EmitResult(dry_run=False, epic_number=101, errors=[]),
     )
     out = svc.emit(session.session_id, repo="acme/widget", dry_run=False)
@@ -102,12 +108,12 @@ def test_emit_fires_completion_on_live_success(monkeypatch):
     svc = PlanService()
     session = _processed_session(svc)
     monkeypatch.setattr(
-        github_emitter, "emit_to_github",
+        github_emitter,
+        "emit_to_github",
         lambda *a, **k: EmitResult(dry_run=False, epic_number=7, errors=[]),
     )
     fired: list = []
-    monkeypatch.setattr(service_mod, "notify_completion",
-                        lambda s, **k: fired.append(s) or {})
+    monkeypatch.setattr(service_mod, "notify_completion", lambda s, **k: fired.append(s) or {})
 
     svc.emit(session.session_id, repo="acme/widget", dry_run=False)
     assert len(fired) == 1 and fired[0].status == "emitted"
@@ -117,32 +123,30 @@ def test_dry_run_emit_does_not_fire_completion(monkeypatch):
     svc = PlanService()
     session = _processed_session(svc)
     fired: list = []
-    monkeypatch.setattr(service_mod, "notify_completion",
-                        lambda s, **k: fired.append(s) or {})
+    monkeypatch.setattr(service_mod, "notify_completion", lambda s, **k: fired.append(s) or {})
 
     out = svc.emit(session.session_id, repo="acme/widget", dry_run=True)
-    assert out.status != "emitted"        # dry-run is not terminal
-    assert fired == []                    # so nothing is notified
+    assert out.status != "emitted"  # dry-run is not terminal
+    assert fired == []  # so nothing is notified
 
 
 def test_reject_is_terminal_and_fires_synthetic_event(monkeypatch):
     svc = PlanService()
     session = _processed_session(svc)
     fired: list = []
-    monkeypatch.setattr(service_mod, "notify_completion",
-                        lambda s, **k: fired.append(s) or {})
+    monkeypatch.setattr(service_mod, "notify_completion", lambda s, **k: fired.append(s) or {})
 
     out = svc.reject(session.session_id, approver="olaf", feedback="no")
     assert out.status == "rejected"
-    assert out.correlation_key == f"pf-{out.session_id}"   # synthetic — no issue#
+    assert out.correlation_key == f"pf-{out.session_id}"  # synthetic — no issue#
     assert len(fired) == 1
 
 
 def test_process_does_not_set_a_correlation_key():
     svc = PlanService()
     out = _processed_session(svc)
-    assert out.status == "processed"          # not terminal
-    assert out.correlation_key is None        # so no key yet
+    assert out.status == "processed"  # not terminal
+    assert out.correlation_key is None  # so no key yet
 
 
 # ── transport is best-effort (webhook + sentinel) ────────────────────────────
@@ -161,11 +165,13 @@ def test_webhook_posts_the_envelope_when_configured(monkeypatch):
 
     def _fake_urlopen(req, timeout=0):
         import json
+
         captured["url"] = req.full_url
         captured["body"] = json.loads(req.data.decode())
         return _Resp()
 
     import urllib.request
+
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
     event = notify_completion(session)
@@ -183,9 +189,10 @@ def test_webhook_failure_never_raises(monkeypatch):
         raise OSError("connection refused")
 
     import urllib.request
+
     monkeypatch.setattr(urllib.request, "urlopen", _boom)
 
-    event = notify_completion(session)            # must not raise
+    event = notify_completion(session)  # must not raise
     assert event["service"] == "pfactory"
 
 
@@ -208,6 +215,7 @@ def test_sentinel_written_when_enabled(monkeypatch, tmp_path):
     sentinel = tmp_path / session.session_id / "COMPLETED.json"
     assert sentinel.exists()
     import json
+
     assert json.loads(sentinel.read_text())["correlation_key"] == event["correlation_key"]
 
 
@@ -217,7 +225,7 @@ def test_sentinel_skipped_without_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("PFACTORY_COMPLETION_SENTINEL", "1")
     monkeypatch.delenv("PFACTORY_COMPLETION_SENTINEL_DIR", raising=False)
     monkeypatch.delenv("PFACTORY_COMPLETION_WEBHOOK", raising=False)
-    notify_completion(session)                    # no dir → silent skip, no raise
+    notify_completion(session)  # no dir → silent skip, no raise
 
 
 # ── the chain is observable through the agent/MCP API ────────────────────────
@@ -228,9 +236,11 @@ def test_plan_status_surfaces_the_correlation_chain(monkeypatch):
     session = _processed_session(svc)
     # Point the agent_api singleton at our service for this test.
     import plan.agent_api as agent_api
+
     monkeypatch.setattr(agent_api, "SERVICE", svc)
     monkeypatch.setattr(
-        github_emitter, "emit_to_github",
+        github_emitter,
+        "emit_to_github",
         lambda *a, **k: EmitResult(dry_run=False, epic_number=55, errors=[]),
     )
     svc.emit(session.session_id, repo="acme/widget", dry_run=False)
@@ -250,7 +260,8 @@ def test_emit_with_no_epic_is_downgraded_to_failed(monkeypatch):
     svc = PlanService()
     session = _processed_session(svc)
     monkeypatch.setattr(
-        github_emitter, "emit_to_github",
+        github_emitter,
+        "emit_to_github",
         lambda *a, **k: EmitResult(dry_run=False, epic_number=None, errors=[]),
     )
     out = svc.emit(session.session_id, repo="acme/widget", dry_run=False)
@@ -264,7 +275,8 @@ def test_real_emit_passes_and_carries_issue_evidence(monkeypatch):
     svc = PlanService()
     session = _processed_session(svc)
     monkeypatch.setattr(
-        github_emitter, "emit_to_github",
+        github_emitter,
+        "emit_to_github",
         lambda *a, **k: EmitResult(dry_run=False, epic_number=101, errors=[]),
     )
     out = svc.emit(session.session_id, repo="acme/widget", dry_run=False)
@@ -282,7 +294,8 @@ def test_contract_handoff_with_no_epic_stays_emitted(monkeypatch):
     svc = PlanService()
     session = _processed_session(svc)
     monkeypatch.setattr(
-        github_emitter, "emit_to_github",
+        github_emitter,
+        "emit_to_github",
         lambda *a, **k: EmitResult(dry_run=False, epic_number=None, errors=[]),
     )
     out = svc.emit(session.session_id, repo="acme/widget", dry_run=False)
@@ -292,3 +305,35 @@ def test_contract_handoff_with_no_epic_stays_emitted(monkeypatch):
     assert "halt_reason" not in event
     assert event["evidence"]["proof_kind"] == "contract"
     assert event["evidence"]["aifactory_task_id"] == "9d2ce435:031-python-hello-world-greeting-li"
+
+
+# ── running cost: usage snapshot for a non-terminal (processed) session ───────
+
+
+def test_emit_usage_snapshot_reports_running_cost_when_not_terminal(monkeypatch):
+    from plan.usage import PlanUsage
+
+    svc = PlanService()
+    session = _processed_session(svc)  # any internal emit is a no-op at zero usage
+    posted: list = []
+    monkeypatch.setattr(completion, "_post_webhook", lambda e: posted.append(e))
+    session.usage = PlanUsage(input_tokens=1000, output_tokens=500, model="claude-sonnet-4-6")
+
+    ev = completion.emit_usage_snapshot(session)
+    assert ev is not None
+    assert len(posted) == 1
+    # Non-terminal status + the accrued usage block.
+    assert posted[0]["status"] == "processed"
+    assert posted[0]["status"] not in TERMINAL_STATUSES
+    assert posted[0]["usage"]["total_tokens"] == 1500
+
+
+def test_emit_usage_snapshot_noop_without_usage(monkeypatch):
+    svc = PlanService()
+    session = _processed_session(svc)
+    posted: list = []
+    monkeypatch.setattr(completion, "_post_webhook", lambda e: posted.append(e))
+    session.usage = None  # nothing spent
+
+    assert completion.emit_usage_snapshot(session) is None
+    assert posted == []

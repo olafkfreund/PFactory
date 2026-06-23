@@ -20,7 +20,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from plan.annotate import AnnotationResult, annotate_plan
-from plan.completion import correlation_key_for, notify_completion
+from plan.completion import (
+    correlation_key_for,
+    emit_usage_snapshot,
+    notify_completion,
+)
 from plan.decompose.migration_planner import (
     build_equivalence_block,
     build_golden_corpus_manifest,
@@ -521,6 +525,12 @@ class PlanService:
         session.annotation = annotate_plan(plan, review)
         session.status = "processed"
         self._save(session)
+        # Running-cost: planning + governance gates spent LLM tokens, but the
+        # session is only ``processed`` (awaiting human approval), not terminal —
+        # notify_completion fires only on emitted/rejected, so the accrued cost
+        # would never reach the cockpit for a plan parked at review (or abandoned
+        # before approval). Emit a non-terminal usage snapshot here. Best-effort.
+        emit_usage_snapshot(session)
         return session
 
     # ── execution model: pooled worker, NOT Job-per-task (RFC-0016 #218) ─
