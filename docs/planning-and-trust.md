@@ -159,6 +159,27 @@ Known limitations we do not paper over:
   coverage and blocking findings, not subtle misinterpretation. That is why TFactory
   independently verifies against the real built code.
 
+## 4.5 Cost is a running figure, not a terminal one
+
+A plan session runs a real LLM pipeline — detect, decompose, synthesize, and the
+governance gates above — and most of that cost is spent *before* a human ever approves
+anything. A plan can sit at `processed` awaiting approval, or be abandoned, and still
+have cost real money to produce.
+
+So PFactory reports cost as it accrues, not only on a terminal outcome. The moment a
+session reaches `processed` (post-pipeline, awaiting approval), it emits a
+**non-terminal usage snapshot** — `plan.completion.emit_usage_snapshot`, carried on the
+same signed completion envelope as the terminal events, with the session's current
+status and accrued token usage. CFactory records usage from any event that carries it,
+so the cockpit shows the planning-and-gate cost of a plan regardless of whether it is
+later approved, rejected, or simply left parked. This mirrors AIFactory's running-cost
+emit on the build side, so the same plan's cost reads consistently across the fleet.
+
+The honest line on figures: a money number only appears for **metered** billing modes
+(API / managed cloud). On a subscription or a local model the snapshot reports tokens
+and wall-clock, not a notional dollar amount — because inventing a price for a flat-rate
+plan would be a worse answer than the truth.
+
 ## 5. What teams do
 
 1. Write specs with clear, testable acceptance criteria (one measurable statement per
