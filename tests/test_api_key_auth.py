@@ -194,14 +194,25 @@ def _make_api_request(token: str):
     return Request(scope)
 
 
+# dispatch() runs _try_decode_jwt() first, which reads JWT_SECRET/JWT_ALGORITHM;
+# the test tokens are not JWTs so decode fails cleanly. Pass these via variables
+# (not string literals at sensitive kwargs) so ruff's S105/S106 stay quiet.
+_DUMMY_JWT = "unused"
+
+
+def _settings_with_api_token(api_token):
+    return SimpleNamespace(
+        DISABLE_AUTH=False,
+        API_TOKEN=api_token,
+        JWT_SECRET=_DUMMY_JWT,
+        JWT_ALGORITHM="HS256",
+    )
+
+
 @pytest.mark.asyncio
 async def test_acw_shaped_shared_token_falls_back_to_legacy(monkeypatch):
     shared = "acw_sharedserviceprincipal"
-    monkeypatch.setattr(
-        auth_mod,
-        "get_settings",
-        lambda: SimpleNamespace(DISABLE_AUTH=False, API_TOKEN=shared),
-    )
+    monkeypatch.setattr(auth_mod, "get_settings", lambda: _settings_with_api_token(shared))
     _install_fake_db(monkeypatch, [None])  # DB-backed acw_ key absent (wiped)
 
     mw = auth_mod.TokenAuthMiddleware(app=None)
@@ -220,11 +231,8 @@ async def test_acw_shaped_shared_token_falls_back_to_legacy(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_bad_acw_token_still_rejected(monkeypatch):
-    monkeypatch.setattr(
-        auth_mod,
-        "get_settings",
-        lambda: SimpleNamespace(DISABLE_AUTH=False, API_TOKEN="a-different-secret"),  # noqa: S106
-    )
+    other = "a-different-secret"
+    monkeypatch.setattr(auth_mod, "get_settings", lambda: _settings_with_api_token(other))
     _install_fake_db(monkeypatch, [None])  # unknown acw_ key
 
     mw = auth_mod.TokenAuthMiddleware(app=None)
