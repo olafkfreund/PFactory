@@ -248,10 +248,27 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             }
             return await call_next(request)
 
-        # Strategy 2: Personal API key (acw_) with the ``api`` scope (Issue #93).
+        # Strategy 2: legacy shared service principal (APP_API_TOKEN). Checked
+        # BEFORE the acw_ DB lookup — mirroring the MCP auth path
+        # (mcp_stdio/auth.py compares the legacy token first) — so a token
+        # configured as the shared APP_API_TOKEN still authenticates even when it
+        # is acw_-shaped and its DB-backed key is absent (e.g. the api_keys table
+        # was wiped on a cluster rebuild). Without this ordering an acw_-prefixed
+        # shared token falls into Strategy 3, fails the DB lookup, and 401s
+        # without ever reaching here.
+        if token == settings.API_TOKEN:
+            # Legacy token — populate a default user so notifications still work
+            request.state.user = {
+                "id": "default",
+                "email": None,
+                "role": "user",
+            }
+            return await call_next(request)
+
+        # Strategy 3: Personal API key (acw_) with the ``api`` scope (Issue #93).
         # Lets a logged-in user mint a GitHub-PAT-style token from Settings and
         # use it as ``Authorization: Bearer acw_…`` against /api/* (and the MCP
-        # server + /handover), retiring the shared APP_API_TOKEN stopgap.
+        # server + /handover).
         if token.startswith(API_KEY_PREFIX):
             api_user = await _try_authenticate_api_key(token)
             if api_user is not None:
@@ -262,17 +279,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
-        # Strategy 3: Fall back to legacy bearer token
-        if token == settings.API_TOKEN:
-            # Legacy token — populate a default user so notifications still work
-            request.state.user = {
-                "id": "default",
-                "email": None,
-                "role": "user",
-            }
-            return await call_next(request)
-
-        # Neither JWT nor legacy token matched
+        # Neither JWT, legacy shared token, nor a valid acw_ key matched
         return JSONResponse(
             {"error": "Invalid token"},
             status_code=status.HTTP_401_UNAUTHORIZED,

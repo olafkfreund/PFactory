@@ -171,3 +171,70 @@ def test_digest_matches_api_keys_route():
     # or no key would ever match.
     raw = "acw_abc123"
     assert auth_mod._hash_api_key(raw) == _digest(raw)
+
+
+# ---------------------------------------------------------------------------
+# Middleware ordering: legacy shared token is checked BEFORE the acw_ DB lookup
+# so an acw_-shaped APP_API_TOKEN still authenticates when its DB-backed key is
+# absent (e.g. api_keys wiped on a cluster rebuild). Regression for the
+# CFactory -> PFactory /api 401 (2026-06-25).
+# ---------------------------------------------------------------------------
+
+
+def _make_api_request(token: str):
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/projects",
+        "headers": [(b"authorization", f"Bearer {token}".encode())],
+        "query_string": b"",
+    }
+    return Request(scope)
+
+
+@pytest.mark.asyncio
+async def test_acw_shaped_shared_token_falls_back_to_legacy(monkeypatch):
+    shared = "acw_sharedserviceprincipal"
+    monkeypatch.setattr(
+        auth_mod,
+        "get_settings",
+        lambda: SimpleNamespace(DISABLE_AUTH=False, API_TOKEN=shared),
+    )
+    _install_fake_db(monkeypatch, [None])  # DB-backed acw_ key absent (wiped)
+
+    mw = auth_mod.TokenAuthMiddleware(app=None)
+    request = _make_api_request(shared)
+    called = {}
+
+    async def call_next(_req):
+        called["downstream"] = True
+        return SimpleNamespace(status_code=200)
+
+    resp = await mw.dispatch(request, call_next)
+    assert called.get("downstream"), "legacy fallback must authenticate the shared token"
+    assert resp.status_code == 200
+    assert request.state.user["id"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_bad_acw_token_still_rejected(monkeypatch):
+    monkeypatch.setattr(
+        auth_mod,
+        "get_settings",
+        lambda: SimpleNamespace(DISABLE_AUTH=False, API_TOKEN="a-different-secret"),  # noqa: S106
+    )
+    _install_fake_db(monkeypatch, [None])  # unknown acw_ key
+
+    mw = auth_mod.TokenAuthMiddleware(app=None)
+    request = _make_api_request("acw_bogus")
+    called = {}
+
+    async def call_next(_req):
+        called["downstream"] = True
+        return SimpleNamespace(status_code=200)
+
+    resp = await mw.dispatch(request, call_next)
+    assert not called.get("downstream"), "a bad acw_ key must not reach downstream"
+    assert resp.status_code == 401
