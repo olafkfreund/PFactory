@@ -133,6 +133,11 @@ class Task(TaskBase):
     branch_name: str | None = Field(None, description="Git branch name")
     metadata: TaskMetadata | None = Field(None, description="Task metadata")
     review_reason: str | None = Field(None, description="Reason for human review (e.g., 'plan_review')")
+    repo: str | None = Field(
+        None,
+        description="Target repo (owner/name) this task runs against, for "
+        "cross-portal tracking + visibility (W5, Factory #218).",
+    )
 
 
 class TaskList(BaseModel):
@@ -684,6 +689,34 @@ def load_spec_metadata(spec_dir: Path) -> dict:
     return metadata
 
 
+def project_repo(project_data: dict) -> str | None:
+    """Best-effort target repo (owner/name) for a project (W5, Factory #218).
+
+    Surfaced on every task so all four portals can show which repo a task runs
+    against. Prefers the ``repo`` stamped on a tracked project (W4), then the
+    project's git settings, falling back to parsing a clone URL. Returns
+    ``None`` when no repo is configured.
+    """
+    repo = project_data.get("repo")
+    if repo and "/" in str(repo):
+        return str(repo)
+    settings = project_data.get("settings") or {}
+    for key in ("githubRepo", "gitRepo", "github_repo"):
+        value = settings.get(key)
+        if value and "/" in str(value):
+            return str(value)
+    org, name = settings.get("gitOrg"), settings.get("gitProject")
+    if org and name:
+        return f"{org}/{name}"
+    git_url = project_data.get("gitUrl") or project_data.get("git_url")
+    if git_url:
+        # git@github.com:owner/name.git  or  https://host/owner/name(.git)
+        match = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?/?$", str(git_url))
+        if match:
+            return match.group(1)
+    return None
+
+
 def spec_to_task(project_id: str, spec_dir: Path) -> Task:
     """Convert a spec directory to a Task model."""
     metadata = load_spec_metadata(spec_dir)
@@ -926,6 +959,8 @@ def task_to_dict(task: Task) -> dict:
         "branchName": task.branch_name,
         "reviewReason": task.review_reason,
         "specsPath": specs_path,  # Path to spec directory for Files tab
+        # W5 (Factory #218): target repo (owner/name) for cross-portal tracking.
+        "repo": task.repo,
     }
 
     if execution_progress:
@@ -970,8 +1005,10 @@ async def list_tasks(
     for pid in project_ids:
         project_path = Path(projects[pid]["path"])
         spec_dirs = get_spec_dirs(project_path)
+        repo = project_repo(projects[pid])  # W5 (#218): target repo on every task
         for spec_dir in spec_dirs:
             task = spec_to_task(pid, spec_dir)
+            task.repo = repo
             if status is None or task.status == status:
                 all_tasks.append(task)
 
