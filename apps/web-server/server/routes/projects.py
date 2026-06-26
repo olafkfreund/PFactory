@@ -5,6 +5,7 @@ Handles CRUD operations for projects (git repositories that PFactory manages).
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -24,6 +25,7 @@ from ..config import get_settings
 from . import changelog, context, files, git, github
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Include project-specific sub-routers
 # These will be available under /api/projects/{projectId}/...
@@ -198,8 +200,51 @@ def save_projects(projects: dict[str, dict]) -> None:
     projects_file.write_text(json.dumps(projects, indent=2))
 
 
+def ensure_tracked_project(repo: str) -> str | None:
+    """Register a lightweight, repo-only project for a plan session (W4, #218).
+
+    A plan session targets a ``repo`` (owner/name) that often has no local clone
+    on the portal, so it never appears in the project dropdown. Upsert a minimal
+    tracked record (no ``path``) so the repo is visible/selectable; if a project
+    is already registered for this repo (e.g. a real local clone), reuse it and
+    don't clobber it. Returns the project id, or ``None`` for a falsy repo.
+    Best-effort: never raises.
+    """
+    if not repo or not repo.strip():
+        return None
+    repo = repo.strip()
+    try:
+        projects = load_projects()
+        # Reuse an existing project registered for this repo (don't overwrite a
+        # real clone's record).
+        for pid, pdata in projects.items():
+            if pdata.get("repo") == repo:
+                return pid
+        project_id = repo.replace("/", "-")
+        if project_id not in projects:
+            projects[project_id] = {
+                "name": repo.split("/")[-1],
+                "repo": repo,
+                "path": "",  # repo-only; no local clone yet
+                "source": "plan-session",
+                "created_at": datetime.now().isoformat(),
+            }
+            save_projects(projects)
+        return project_id
+    except Exception:  # noqa: BLE001 - visibility convenience must never break ingest
+        logger.exception("[projects] ensure_tracked_project failed for repo=%s", repo)
+        return None
+
+
 def analyze_project(path: str) -> dict:
-    """Analyze a project directory for git and PFactory status."""
+    """Analyze a project directory for git and PFactory status.
+
+    A repo-only "tracked" project (registered from a plan session, W4 / #218)
+    has no local clone yet, so ``path`` may be empty or not exist -- return
+    neutral defaults rather than touching the filesystem.
+    """
+    if not path or not Path(path).exists():
+        return {"is_git_repo": False, "has_magestic_ai": False, "task_count": 0}
     project_path = Path(path)
 
     # Check if it's a git repository
@@ -224,7 +269,8 @@ def analyze_project(path: str) -> dict:
 
 def project_to_response(project_id: str, project_data: dict) -> dict:
     """Convert stored project data to response dict matching frontend expectations."""
-    analysis = analyze_project(project_data["path"])
+    project_path_str = project_data.get("path") or ""
+    analysis = analyze_project(project_path_str)
 
     # Convert has_magestic_ai to autoBuildPath (string path or empty string)
     auto_build_path = ".pfactory" if analysis["has_magestic_ai"] else ""
@@ -255,8 +301,10 @@ def project_to_response(project_id: str, project_data: dict) -> dict:
 
     return {
         "id": project_id,
-        "path": project_data["path"],
-        "name": project_data.get("name", Path(project_data["path"]).name),
+        "path": project_path_str,
+        "name": project_data.get("name")
+        or (Path(project_path_str).name if project_path_str else project_id),
+        "repo": project_data.get("repo"),
         "createdAt": project_data.get("created_at", datetime.now().isoformat()),
         "updatedAt": project_data.get("updated_at", datetime.now().isoformat()),
         "autoBuildPath": auto_build_path,

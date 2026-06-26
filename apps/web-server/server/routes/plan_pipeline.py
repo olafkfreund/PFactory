@@ -143,6 +143,12 @@ async def ingest_text(body: IngestTextBody) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # W4 (#218): register the target repo as a tracked project so it appears in
+    # the portal's project dropdown (a plan session otherwise leaves it empty).
+    if body.repo:
+        from .projects import ensure_tracked_project
+
+        ensure_tracked_project(body.repo)
     return _session_dict(session)
 
 
@@ -168,6 +174,11 @@ async def ingest_upload(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # W4 (#218): register the target repo as a tracked project (see ingest-text).
+    if repo:
+        from .projects import ensure_tracked_project
+
+        ensure_tracked_project(repo)
     return _session_dict(session)
 
 
