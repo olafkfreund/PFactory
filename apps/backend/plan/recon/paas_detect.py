@@ -29,7 +29,14 @@ _TARGETS: dict[str, tuple[str, tuple[str, ...]]] = {
 
 # Managed data-service phrases -> the contract managed_services token.
 _SERVICES: dict[str, tuple[str, ...]] = {
-    "postgres": ("postgres", "postgresql", "cloud sql", "azure database for postgres", "rds", "aurora"),
+    "postgres": (
+        "postgres",
+        "postgresql",
+        "cloud sql",
+        "azure database for postgres",
+        "rds",
+        "aurora",
+    ),
     "redis": ("redis", "memorystore", "elasticache", "azure cache"),
     "mysql": ("mysql", "mariadb"),
     "mongodb": ("mongodb", "mongo", "cosmos db", "cosmosdb", "documentdb"),
@@ -63,9 +70,7 @@ def detect_paas_target(text: str) -> PaasTarget | None:
         return None
 
     services = sorted(
-        token
-        for token, phrases in _SERVICES.items()
-        if any(p in low for p in phrases)
+        token for token, phrases in _SERVICES.items() if any(p in low for p in phrases)
     )
     return PaasTarget(
         cloud=best_cloud,

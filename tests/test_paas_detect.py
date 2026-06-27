@@ -7,10 +7,7 @@ from pathlib import Path
 
 import importlib.util
 
-_MOD = (
-    Path(__file__).parent.parent
-    / "apps" / "backend" / "plan" / "recon" / "paas_detect.py"
-)
+_MOD = Path(__file__).parent.parent / "apps" / "backend" / "plan" / "recon" / "paas_detect.py"
 _spec = importlib.util.spec_from_file_location("paas_detect", _MOD)
 _pd = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_pd)
@@ -37,7 +34,9 @@ def test_azure_container_apps():
 
 
 def test_azure_app_service_phrase_maps_to_container_apps():
-    assert detect_paas_target("host on Azure App Service")["deploy_system"] == "azure-container-apps"
+    assert (
+        detect_paas_target("host on Azure App Service")["deploy_system"] == "azure-container-apps"
+    )
 
 
 def test_aws_app_runner():

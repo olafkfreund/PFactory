@@ -357,7 +357,6 @@ def test_deployment_findings_flag_production() -> None:
     assert any("human approval" in t.lower() for t in titles)
 
 
-
 # ── RFC-0013 producing side: managed-PaaS intent from plan text ──────────────
 
 
@@ -383,7 +382,10 @@ def test_no_paas_intent_leaves_deploy_system_unchanged() -> None:
     """No PaaS phrase in the text => no override, no block for a bare library."""
     rm = RepoMap(available=True, repo="o/lib", ci_system="none", deploy_system="none")
     plan = NormalizedPlan(
-        plan_id="p1", title="Add a parser helper", source_format="markdown",
-        repo_map=rm, change_mode="modify",
+        plan_id="p1",
+        title="Add a parser helper",
+        source_format="markdown",
+        repo_map=rm,
+        change_mode="modify",
     )
     assert assess_deployment_readiness(plan, _epic()) is None
