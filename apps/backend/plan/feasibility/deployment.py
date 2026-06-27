@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from plan.recon.delta import blast_radius, compute_footprints
 from plan.recon.dora_client import dora_context
+from plan.recon.paas_detect import detect_paas_target
 from plan.review.models import Citation, Finding
 
 if TYPE_CHECKING:
@@ -198,6 +199,17 @@ def _build_readiness(
     return readiness
 
 
+def _plan_text(plan: NormalizedPlan, epic: EpicPlan) -> str:
+    """All prose a PaaS target could be named in: the plan title/description, its
+    criteria, and the epic's child acceptance criteria + bodies."""
+    parts: list[str] = [plan.title or "", plan.description or ""]
+    parts.extend(c.text or "" for c in (plan.criteria or []))
+    for child in epic.children:
+        parts.append(child.body or "")
+        parts.extend(child.acceptance_criteria or [])
+    return "\n".join(parts)
+
+
 def assess_deployment_readiness(
     plan: NormalizedPlan,
     epic: EpicPlan,
@@ -221,13 +233,23 @@ def assess_deployment_readiness(
     radius = blast_radius(footprints, rm)
     touched = list(radius.get("files", []))
 
-    if not _has_deployment_surface(rm, radius):
+    # RFC-0013 (producing side): greenfield plans name a managed-PaaS target in
+    # prose ("deploy to GCP Cloud Run with Redis + Postgres") that the manifest
+    # probe can't see. Detect it from the plan text so the block carries a
+    # concrete deploy_system + managed_services instead of "unknown".
+    paas = detect_paas_target(_plan_text(plan, epic))
+
+    if not _has_deployment_surface(rm, radius) and paas is None:
         return None
 
     ci_system = rm.ci_system or "none"
     ci_pipeline_paths = list(rm.ci_pipeline_paths or [])
     ci_exists = ci_system != "none" and bool(ci_pipeline_paths)
     deploy_system = rm.deploy_system or "none"
+    # A named PaaS target wins only when the repo probe didn't resolve a concrete
+    # mechanism (never override a real argocd/helm/terraform/kubectl manifest).
+    if paas is not None and deploy_system in ("none", "unknown"):
+        deploy_system = paas["deploy_system"]
 
     # Environments come from the deploy-manifest probe; absent => unknown (never
     # fabricate a production target).
@@ -273,6 +295,7 @@ def assess_deployment_readiness(
         "needs_pipeline": needs_pipeline,
         "deploy_system": deploy_system,
         "deploy_target_environments": environments,
+        "managed_services": paas["managed_services"] if paas else [],
         "production_classification": prod_class,
         "risk_class": risk_class,
         "required_scans": required_scans,

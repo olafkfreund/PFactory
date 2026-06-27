@@ -1236,10 +1236,13 @@
             "helm",
             "terraform",
             "kubectl",
+            "gcp-cloud-run",
+            "azure-container-apps",
+            "aws-app-runner",
             "unknown",
             "none"
           ],
-          "description": "The deploy mechanism detected. 'unknown' => deployment indicators present but mechanism unresolved; 'none' => no deployment surface."
+          "description": "The deploy mechanism detected. PaaS targets (gcp-cloud-run/azure-container-apps/aws-app-runner) may be resolved from plan text. 'unknown' => deployment indicators present but mechanism unresolved; 'none' => no deployment surface."
         },
         "deploy_target_environments": {
           "type": "array",
@@ -1247,6 +1250,14 @@
             "type": "string"
           },
           "description": "Environments this change can reach, e.g. ['dev', 'staging', 'production']."
+        },
+        "managed_services": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["postgres", "mysql", "redis", "mongodb", "none"]
+          },
+          "description": "Managed data services a PaaS deploy provisions (RFC-0013). Empty/absent => none detected."
         },
         "production_classification": {
           "type": "string",
