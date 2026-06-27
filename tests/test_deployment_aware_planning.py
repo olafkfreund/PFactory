@@ -355,3 +355,37 @@ def test_deployment_findings_flag_production() -> None:
     }
     titles = [f.title for f in deployment_findings(block)]
     assert any("human approval" in t.lower() for t in titles)
+
+
+# ── RFC-0013 producing side: managed-PaaS intent from plan text ──────────────
+
+
+def test_paas_target_from_plan_text_enriches_block() -> None:
+    """A greenfield plan that names a managed-PaaS target in prose gets a concrete
+    deploy_system + managed_services even with no deploy manifests."""
+    rm = RepoMap(available=True, repo="o/app", ci_system="none", deploy_system="none")
+    plan = NormalizedPlan(
+        plan_id="p1",
+        title="Deploy tic-tac-toe to GCP Cloud Run with Redis and Postgres",
+        source_format="markdown",
+        repo_map=rm,
+        change_mode="modify",
+    )
+    block = assess_deployment_readiness(plan, _epic())
+    assert block is not None
+    assert block["deploy_system"] == "gcp-cloud-run"
+    assert block["managed_services"] == ["postgres", "redis"]
+    _validate_block(block)
+
+
+def test_no_paas_intent_leaves_deploy_system_unchanged() -> None:
+    """No PaaS phrase in the text => no override, no block for a bare library."""
+    rm = RepoMap(available=True, repo="o/lib", ci_system="none", deploy_system="none")
+    plan = NormalizedPlan(
+        plan_id="p1",
+        title="Add a parser helper",
+        source_format="markdown",
+        repo_map=rm,
+        change_mode="modify",
+    )
+    assert assess_deployment_readiness(plan, _epic()) is None
