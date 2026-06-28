@@ -32,6 +32,12 @@ jobs:
           fetch-depth: 0
 
       - name: Run PFactory plan review gates
+        # This job is advisory (it reviews Copilot plan-draft PRs); on a normal
+        # PR with no PFACTORY_URL secret the fallback Copilot CLI isn't
+        # authenticated in CI and exits non-zero. Don't let that mark unrelated
+        # PRs red — the review attempt still runs and posts when it can. Proper
+        # scoping to Copilot plan-draft PRs is tracked in #246.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PFACTORY_URL: ${{ secrets.PFACTORY_URL }}
