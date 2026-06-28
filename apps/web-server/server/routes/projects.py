@@ -193,6 +193,19 @@ def load_projects() -> dict[str, dict]:
     return {}
 
 
+def resolve_project_path(project_id: str) -> Path:
+    """Resolve a project id to its filesystem path, or raise 404.
+
+    Single source of truth for the ``load_projects() -> 404 -> Path(...)`` idiom
+    that several route modules each re-implemented. The 404 detail is kept
+    identical to those copies so callers behave exactly as before.
+    """
+    projects = load_projects()
+    if project_id not in projects:
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+    return Path(projects[project_id]["path"])
+
+
 def save_projects(projects: dict[str, dict]) -> None:
     """Save projects to disk."""
     projects_file = get_projects_file()

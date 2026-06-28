@@ -774,13 +774,11 @@ insights_router = APIRouter()
 
 
 def _get_project_path(project_id: str) -> FilePath:
-    """Get project path from project ID."""
-    # Import here to avoid circular import
-    from .projects import load_projects
-    projects = load_projects()
-    if project_id not in projects:
-        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
-    return FilePath(projects[project_id]["path"])
+    """Get project path from project ID (delegates to the canonical resolver)."""
+    # Import here to avoid circular import.
+    from .projects import resolve_project_path
+
+    return resolve_project_path(project_id)
 
 
 class InsightsMessageRequest(BaseModel):
