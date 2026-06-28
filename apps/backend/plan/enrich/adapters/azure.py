@@ -22,6 +22,7 @@ import os
 from typing import Protocol
 
 from ..base import InfraAdapter, InfraSnapshot, register_adapter
+from ._shared import parse_k8s_version
 
 # Kubernetes versions at/below this are flagged as outdated in findings.
 _OUTDATED_K8S_BELOW = (1, 28)
@@ -33,17 +34,6 @@ class AzureReader(Protocol):
     def list_resource_groups(self) -> list[dict]: ...
     def list_aks_clusters(self) -> list[dict]: ...
     def list_policy_assignments(self) -> list[dict]: ...
-
-
-def _parse_k8s_version(version: str | None) -> tuple[int, int] | None:
-    """Parse ``"1.27.3"`` -> ``(1, 27)``; return ``None`` if unparsable."""
-    if not version:
-        return None
-    parts = version.lstrip("v").split(".")
-    try:
-        return (int(parts[0]), int(parts[1]))
-    except (IndexError, ValueError):
-        return None
 
 
 def _build_reader(subscription_id: str) -> AzureReader:  # pragma: no cover
@@ -157,7 +147,7 @@ class AzureAdapter(InfraAdapter):
                     "region": region,
                 }
             )
-            parsed = _parse_k8s_version(version)
+            parsed = parse_k8s_version(version)
             if parsed is not None and parsed < _OUTDATED_K8S_BELOW:
                 findings.append(f"AKS cluster {name} runs an outdated k8s version {version}")
 

@@ -21,6 +21,7 @@ import os
 from typing import Protocol
 
 from ..base import InfraAdapter, InfraSnapshot, register_adapter
+from ._shared import parse_k8s_version
 
 # Kubernetes versions at/below this are flagged as outdated in findings.
 _OUTDATED_K8S_BELOW = (1, 28)
@@ -32,17 +33,6 @@ class GcpReader(Protocol):
     def list_gke_clusters(self) -> list[dict]: ...
     def list_instances(self) -> list[dict]: ...
     def list_projects(self) -> list[dict]: ...
-
-
-def _parse_k8s_version(version: str | None) -> tuple[int, int] | None:
-    """Parse ``"1.27.3-gke.100"`` -> ``(1, 27)``; ``None`` if unparsable."""
-    if not version:
-        return None
-    parts = str(version).lstrip("v").split(".")
-    try:
-        return (int(parts[0]), int(parts[1]))
-    except (IndexError, ValueError):
-        return None
 
 
 def _build_reader(project: str) -> GcpReader:  # pragma: no cover
@@ -158,7 +148,7 @@ class GcpAdapter(InfraAdapter):
                     "location": location,
                 }
             )
-            parsed = _parse_k8s_version(version)
+            parsed = parse_k8s_version(version)
             if parsed is not None and parsed < _OUTDATED_K8S_BELOW:
                 findings.append(f"GKE cluster {name} runs an outdated k8s version {version}")
 
