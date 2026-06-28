@@ -18,11 +18,11 @@ deeply parsed and nothing is executed.
 
 from __future__ import annotations
 
-import contextlib
-import os
 import re
 from pathlib import Path
 from typing import Any
+
+from ._walk import iter_files
 
 # Bound the walk so a giant monorepo stays cheap (mirrors iac_probe).
 _MAX_FILES_SCANNED = 6000
@@ -44,28 +44,6 @@ _ENV_TOKENS: tuple[tuple[str, str], ...] = (
 )
 
 _K8S_KIND = re.compile(r"^\s*kind:\s*['\"]?([A-Za-z0-9]+)['\"]?\s*$", re.MULTILINE)
-
-
-def _iter_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
-    """Static, symlink-safe walk for files with the given suffixes."""
-    out: list[Path] = []
-    root = root.resolve()
-    count = 0
-    for dirpath, dirnames, filenames in os.walk(root):
-        if ".git" in dirnames:
-            dirnames.remove(".git")
-        for name in filenames:
-            count += 1
-            if count > _MAX_FILES_SCANNED:
-                return out
-            if name.endswith(suffixes):
-                fp = Path(dirpath) / name
-                if fp.is_symlink():
-                    continue
-                with contextlib.suppress(OSError):
-                    if root in fp.resolve().parents or fp.resolve() == root:
-                        out.append(fp)
-    return out
 
 
 def _read(fp: Path) -> str:
@@ -124,7 +102,7 @@ def probe_ci(root: Path) -> dict[str, Any]:
 def _find_argocd_apps(root: Path) -> list[str]:
     """Argo CD CRs: YAML docs whose ``kind`` is an Argo CD application kind."""
     found: list[str] = []
-    for fp in _iter_files(root, (".yaml", ".yml")):
+    for fp in iter_files(root, (".yaml", ".yml"), _MAX_FILES_SCANNED):
         text = _read(fp)
         if "argoproj.io" not in text and "argocd" not in text.lower():
             continue
@@ -137,9 +115,9 @@ def _find_argocd_apps(root: Path) -> list[str]:
 
 def _find_dockerfiles(root: Path) -> list[str]:
     out: list[str] = []
-    for fp in _iter_files(root, ("Dockerfile",)):
+    for fp in iter_files(root, ("Dockerfile",), _MAX_FILES_SCANNED):
         out.append(_rel(fp, root))
-    for fp in _iter_files(root, (".dockerfile",)):
+    for fp in iter_files(root, (".dockerfile",), _MAX_FILES_SCANNED):
         out.append(_rel(fp, root))
     return sorted(set(out))
 
