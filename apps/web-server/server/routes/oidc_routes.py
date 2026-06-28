@@ -36,7 +36,9 @@ from ..database.engine import get_db
 from ..database.models import OidcRefreshSession
 from ..oidc import get_oauth_client, is_oidc_enabled
 from ..oidc.provisioning import jit_provision_user
-from ..oidc.userinfo_cache import get_cached, invalidate, put as cache_put
+from ..oidc.userinfo_cache import get_cached, invalidate
+from ..oidc.userinfo_cache import put as cache_put
+from .auth_routes import create_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -49,28 +51,10 @@ router = APIRouter(prefix="/api/auth/oidc", tags=["Auth (OIDC)"])
 # ---------------------------------------------------------------------------
 
 
-def _create_access_token(user: User) -> str:
-    settings = get_settings()
-    expires = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-    payload = {
-        "sub": user.id,
-        "email": user.email,
-        "role": user.role,
-        "type": "access",
-        "exp": expires,
-        "iat": datetime.now(timezone.utc),
-    }
-    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
-
-
 def _create_refresh_token(user: User, jti: str) -> str:
     """Create a refresh token with a JTI that ties it to a RefreshSession row."""
     settings = get_settings()
-    expires = datetime.now(timezone.utc) + timedelta(
-        days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
-    )
+    expires = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": user.id,
         "type": "refresh",
@@ -88,6 +72,7 @@ def _post_login_redirect(request: Request) -> str:
     app's root.
     """
     import os
+
     return os.environ.get("APP_OIDC_POST_LOGIN_REDIRECT", "/")
 
 
@@ -113,18 +98,15 @@ async def oidc_login(request: Request):
         )
     import os
     import secrets as _secrets
+
     oauth = get_oauth_client()
-    redirect_uri = os.environ.get("APP_OIDC_REDIRECT_URI") or str(
-        request.url_for("oidc_callback")
-    )
+    redirect_uri = os.environ.get("APP_OIDC_REDIRECT_URI") or str(request.url_for("oidc_callback"))
     # OIDC requires the ID token to echo back the nonce we send in the
     # auth request — authlib validates this at /callback. authlib does
     # NOT auto-generate a nonce; we must pass one explicitly. Stored
     # in the session by authlib for the callback round-trip.
     nonce = _secrets.token_urlsafe(32)
-    return await oauth.oidc.authorize_redirect(
-        request, redirect_uri, nonce=nonce
-    )
+    return await oauth.oidc.authorize_redirect(request, redirect_uri, nonce=nonce)
 
 
 @router.get("/callback", summary="OIDC callback — exchange code for tokens", name="oidc_callback")
@@ -192,7 +174,7 @@ async def oidc_callback(request: Request, db: AsyncSession = Depends(get_db)):
     # Seed the userinfo cache while we have the validated claims.
     cache_put(sub, userinfo)
 
-    access_token = _create_access_token(user)
+    access_token = create_access_token(user)
     refresh_token = _create_refresh_token(user, jti=jti)
 
     redirect = RedirectResponse(url=_post_login_redirect(request))
@@ -240,6 +222,7 @@ async def _fetch_userinfo_from_idp(sub: str) -> dict | None:
     find the endpoint).
     """
     import os
+
     issuer = os.environ["APP_OIDC_ISSUER_URL"].rstrip("/")
     discovery_url = f"{issuer}/.well-known/openid-configuration"
     try:
@@ -312,6 +295,7 @@ async def _validate_against_idp(refresh_token: str) -> bool:
     # should use the actual refresh-token-rotate flow; tests pass via
     # this minimal path.
     import os
+
     issuer = os.environ["APP_OIDC_ISSUER_URL"].rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=10.0) as http:
@@ -365,14 +349,10 @@ async def oidc_refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=401, detail="Refresh token missing jti/sub")
 
     # Look up the session row.
-    result = await db.execute(
-        select(OidcRefreshSession).where(OidcRefreshSession.jti == jti)
-    )
+    result = await db.execute(select(OidcRefreshSession).where(OidcRefreshSession.jti == jti))
     session = result.scalar_one_or_none()
     if session is None:
-        raise HTTPException(
-            status_code=401, detail="Refresh session revoked or unknown"
-        )
+        raise HTTPException(status_code=401, detail="Refresh session revoked or unknown")
 
     # Try cache first.
     cached = get_cached(session.oidc_sub)
@@ -386,9 +366,7 @@ async def oidc_refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db))
             invalidate(session.oidc_sub)
             await db.delete(session)
             await db.commit()
-            raise HTTPException(
-                status_code=401, detail="IdP rejected refresh; session revoked"
-            )
+            raise HTTPException(status_code=401, detail="IdP rejected refresh; session revoked")
         # Re-cache (we don't have fresh userinfo here, but presence
         # in cache means "validated within TTL").
         cache_put(session.oidc_sub, {"sub": session.oidc_sub, "validated": True})
@@ -398,7 +376,7 @@ async def oidc_refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db))
     user = user_result.scalar_one()
     session.last_validated_at = datetime.utcnow()
     await db.commit()
-    return RefreshResponse(access_token=_create_access_token(user))
+    return RefreshResponse(access_token=create_access_token(user))
 
 
 # ---------------------------------------------------------------------------
@@ -434,9 +412,7 @@ async def oidc_logout(
             detail="OIDC SSO is not configured on this deployment",
         )
 
-    refresh_token = (body.refresh_token if body else None) or request.cookies.get(
-        "refresh_token"
-    )
+    refresh_token = (body.refresh_token if body else None) or request.cookies.get("refresh_token")
 
     if refresh_token:
         settings = get_settings()
@@ -464,6 +440,7 @@ async def oidc_logout(
 
     # Resolve the IdP's end_session_endpoint.
     import os
+
     issuer = os.environ["APP_OIDC_ISSUER_URL"].rstrip("/")
     discovery_url = f"{issuer}/.well-known/openid-configuration"
     end_session_url = None
@@ -477,6 +454,7 @@ async def oidc_logout(
     post_logout = os.environ.get("APP_OIDC_POST_LOGOUT_REDIRECT", "/")
     if end_session_url:
         from urllib.parse import urlencode
+
         redirect_url = f"{end_session_url}?{urlencode({'post_logout_redirect_uri': post_logout})}"
     else:
         redirect_url = post_logout

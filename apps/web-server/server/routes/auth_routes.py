@@ -87,7 +87,7 @@ class MessageResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _create_access_token(user: User) -> str:
+def create_access_token(user: User) -> str:
     """Create a short-lived access token containing user claims."""
     settings = get_settings()
     expires = datetime.now(timezone.utc) + timedelta(
@@ -107,9 +107,7 @@ def _create_access_token(user: User) -> str:
 def _create_refresh_token(user: User) -> str:
     """Create a long-lived refresh token containing only the user id."""
     settings = get_settings()
-    expires = datetime.now(timezone.utc) + timedelta(
-        days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
-    )
+    expires = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": user.id,
         "type": "refresh",
@@ -133,9 +131,7 @@ def _slugify(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def get_current_user(
-    request: Request, db: AsyncSession = Depends(get_db)
-) -> User:
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     """Dependency that extracts the authenticated user from request.state.
 
     The ``TokenAuthMiddleware`` populates ``request.state.user`` with
@@ -230,9 +226,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     # Create default organization
     slug = _slugify(body.name) + "-personal"
     # Ensure slug uniqueness by appending a short suffix if needed
-    existing_slug = await db.execute(
-        select(Organization).where(Organization.slug == slug)
-    )
+    existing_slug = await db.execute(select(Organization).where(Organization.slug == slug))
     if existing_slug.scalar_one_or_none() is not None:
         slug = f"{slug}-{user.id[:8]}"
 
@@ -260,7 +254,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
     return AuthResponse(
         user=UserResponse.model_validate(user),
-        access_token=_create_access_token(user),
+        access_token=create_access_token(user),
         refresh_token=_create_refresh_token(user),
     )
 
@@ -296,7 +290,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     return AuthResponse(
         user=UserResponse.model_validate(user),
-        access_token=_create_access_token(user),
+        access_token=create_access_token(user),
         refresh_token=_create_refresh_token(user),
     )
 
@@ -352,7 +346,7 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return TokenResponse(access_token=_create_access_token(user))
+    return TokenResponse(access_token=create_access_token(user))
 
 
 @router.post(
