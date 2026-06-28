@@ -14,11 +14,11 @@ multi-doc scan.
 
 from __future__ import annotations
 
-import contextlib
-import os
 import re
 from pathlib import Path
 from typing import Any
+
+from ._walk import iter_files
 
 # Bound the walk so a giant monorepo stays cheap.
 _MAX_FILES_SCANNED = 4000
@@ -32,29 +32,6 @@ _TF_PROVIDER = re.compile(r'provider\s+"([^"]+)"')
 # K8s manifest `kind:` (top-level, possibly quoted)
 _K8S_KIND = re.compile(r"^\s*kind:\s*['\"]?([A-Za-z0-9]+)['\"]?\s*$", re.MULTILINE)
 _K8S_APIVERSION = re.compile(r"^\s*apiVersion:\s*", re.MULTILINE)
-
-
-def _iter_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
-    """Static, symlink-safe walk for files with the given suffixes."""
-    out: list[Path] = []
-    root = root.resolve()
-    count = 0
-    for dirpath, dirnames, filenames in os.walk(root):
-        if ".git" in dirnames:
-            dirnames.remove(".git")
-        for name in filenames:
-            count += 1
-            if count > _MAX_FILES_SCANNED:
-                return out
-            if name.endswith(suffixes):
-                fp = Path(dirpath) / name
-                # confine to the clone; never follow symlinks out of it
-                if fp.is_symlink():
-                    continue
-                with contextlib.suppress(OSError):
-                    if root in fp.resolve().parents or fp.resolve() == root:
-                        out.append(fp)
-    return out
 
 
 def _read(fp: Path) -> str:
@@ -72,7 +49,7 @@ def _rel(fp: Path, root: Path) -> str:
 
 
 def _probe_terraform(root: Path) -> dict[str, Any] | None:
-    files = _iter_files(root, (".tf",))
+    files = iter_files(root, (".tf",), _MAX_FILES_SCANNED)
     if not files:
         return None
     resources: list[dict[str, str]] = []
@@ -109,7 +86,7 @@ def _probe_terraform(root: Path) -> dict[str, Any] | None:
 
 
 def _probe_helm(root: Path) -> dict[str, Any] | None:
-    charts = _iter_files(root, ("Chart.yaml", "Chart.yml"))
+    charts = iter_files(root, ("Chart.yaml", "Chart.yml"), _MAX_FILES_SCANNED)
     if not charts:
         return None
     out: list[dict[str, Any]] = []
@@ -117,7 +94,9 @@ def _probe_helm(root: Path) -> dict[str, Any] | None:
         chart_dir = fp.parent
         text = _read(fp)
         name_m = re.search(r"^\s*name:\s*['\"]?([^'\"\n]+)", text, re.MULTILINE)
-        templates = _iter_files(chart_dir / "templates", (".yaml", ".yml", ".tpl"))
+        templates = iter_files(
+            chart_dir / "templates", (".yaml", ".yml", ".tpl"), _MAX_FILES_SCANNED
+        )
         kinds: set[str] = set()
         for t in templates:
             kinds.update(_K8S_KIND.findall(_read(t)))
@@ -134,7 +113,7 @@ def _probe_helm(root: Path) -> dict[str, Any] | None:
 def _probe_kubernetes(root: Path, *, exclude: set[str]) -> dict[str, Any] | None:
     """Plain (non-Helm) K8s manifests: yaml docs with apiVersion + kind."""
     kinds: dict[str, list[str]] = {}
-    for fp in _iter_files(root, (".yaml", ".yml")):
+    for fp in iter_files(root, (".yaml", ".yml"), _MAX_FILES_SCANNED):
         rel = _rel(fp, root)
         if any(rel.startswith(p) or "/templates/" in rel for p in exclude):
             continue
