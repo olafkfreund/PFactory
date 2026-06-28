@@ -14,9 +14,8 @@ import json
 import os
 import re
 import shutil
-import subprocess
-import tempfile
 from pathlib import Path
+from .._pdf import render_pdf
 
 __all__ = ["download_path", "list_runs", "read_run", "store_root", "write_run"]
 
@@ -102,41 +101,6 @@ def read_run(run_id: str) -> dict | None:
     }
 
 
-def _render_pdf(d: Path, md_name: str) -> Path | None:
-    md = d / md_name
-    if not md.is_file():
-        return None
-    pdf = d / (md.stem + ".pdf")
-    if pdf.is_file() and pdf.stat().st_mtime >= md.stat().st_mtime:
-        return pdf
-    pandoc = shutil.which("pandoc")
-    chrome = shutil.which("google-chrome") or shutil.which("chromium")
-    if not pandoc or not chrome:
-        return None
-    with tempfile.TemporaryDirectory() as tmp:
-        html = Path(tmp) / "doc.html"
-        subprocess.run(
-            [pandoc, str(md), "-f", "gfm", "-t", "html", "-s", "-o", str(html)],
-            capture_output=True,
-            timeout=60,
-        )
-        if not html.is_file():
-            return None
-        subprocess.run(
-            [
-                chrome,
-                "--headless",
-                "--no-sandbox",
-                "--disable-gpu",
-                f"--print-to-pdf={pdf}",
-                f"file://{html}",
-            ],
-            capture_output=True,
-            timeout=120,
-        )
-    return pdf if pdf.is_file() else None
-
-
 def download_path(run_id: str, kind: str) -> Path | None:
     """Path to a downloadable artifact (None if absent)."""
     d = _safe_dir(run_id)
@@ -146,7 +110,7 @@ def download_path(run_id: str, kind: str) -> Path | None:
         p = d / _DOWNLOADS[kind]
         return p if p.is_file() else None
     if kind == "report.pdf":
-        return _render_pdf(d, "report.md")
+        return render_pdf(d, "report.md")
     if kind == "correction-plan.pdf":
-        return _render_pdf(d, "correction-plan.md")
+        return render_pdf(d, "correction-plan.md")
     return None
