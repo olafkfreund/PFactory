@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from providers import BaseLLMProvider
+from providers._gemini_cli import get_gemini_binary
 from providers.auth_policy import scrub_api_keys
 from providers.gemini import _emit_sunset_warning  # Issue #22
 from providers.types import AssistantMessage, TextBlock
@@ -51,23 +52,6 @@ _DEFAULT_GEMINI_PATH: str = "gemini"
 _DEFAULT_MODEL: str = "gemini-2.5-pro"
 _DEFAULT_TIMEOUT: int = 600  # 10 minutes for agentic tasks
 _MODEL_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$")
-
-
-def get_gemini_binary(custom_path: str | None = None) -> str:
-    """Dynamically resolve the gemini / antigravity binary path."""
-    if custom_path and custom_path != "gemini":
-        return custom_path
-    if shutil.which("antigravity"):
-        return "antigravity"
-    from pathlib import Path
-
-    custom_path_default = Path.home() / ".gemini" / "antigravity-cli" / "bin" / "antigravity"
-    if custom_path_default.exists():
-        return str(custom_path_default)
-    if shutil.which("gemini"):
-        return "gemini"
-    # Fallback to antigravity since we preinstall it by default
-    return "antigravity"
 
 
 class GeminiAgenticProvider(BaseLLMProvider):
