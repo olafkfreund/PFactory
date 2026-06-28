@@ -5,6 +5,7 @@ Handles CRUD operations for tasks (specs) within projects.
 """
 
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -17,6 +18,8 @@ from pydantic import BaseModel, Field
 
 from ..paths import get_data_dir, get_data_file
 from .projects import load_projects
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -334,8 +337,6 @@ def sync_worktree_to_main_spec(project_path: Path, spec_id: str) -> bool:
 
         # Only sync if worktree has more progress (more completed subtasks)
         if worktree_completed > main_completed:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info(
                 f"[WorktreeSync] Syncing plan for {spec_id}: "
                 f"worktree has {worktree_completed} completed vs main {main_completed}"
@@ -345,8 +346,7 @@ def sync_worktree_to_main_spec(project_path: Path, spec_id: str) -> bool:
 
         return False
     except (json.JSONDecodeError, OSError) as e:
-        import logging
-        logging.getLogger(__name__).warning(f"[WorktreeSync] Failed to sync {spec_id}: {e}")
+        logger.warning(f"[WorktreeSync] Failed to sync {spec_id}: {e}")
         return False
 
 
@@ -1230,16 +1230,13 @@ def _try_close_github_issue(project_path: Path, spec_dir: Path) -> None:
             cwd=str(project_path),
         )
         if result["success"]:
-            import logging
-            logging.getLogger(__name__).info(f"Auto-closed GitHub issue #{issue_number}")
+            logger.info(f"Auto-closed GitHub issue #{issue_number}")
         else:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 f"Failed to auto-close GitHub issue #{issue_number}: {result.get('error', 'unknown')}"
             )
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Error auto-closing GitHub issue: {e}")
+        logger.warning(f"Error auto-closing GitHub issue: {e}")
 
 
 class TaskStatusUpdate(BaseModel):
@@ -1532,8 +1529,6 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
     plan_updated = False
     if plan_file.exists():
         try:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info(f"[ApprovePlan] Reading plan file: {plan_file}")
             plan = json.loads(plan_file.read_text())
             logger.info(f"[ApprovePlan] Current status: {plan.get('status')}, planStatus: {plan.get('planStatus')}, reviewReason: {plan.get('reviewReason')}")
@@ -1547,11 +1542,9 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
             plan_updated = True
             logger.info("[ApprovePlan] Updated plan file - status: in_progress, planStatus: in_progress")
         except (json.JSONDecodeError, OSError) as e:
-            import logging
-            logging.getLogger(__name__).error(f"[ApprovePlan] Failed to update plan file: {e}")
+            logger.error(f"[ApprovePlan] Failed to update plan file: {e}")
     else:
-        import logging
-        logging.getLogger(__name__).warning(f"[ApprovePlan] Plan file does not exist: {plan_file}")
+        logger.warning(f"[ApprovePlan] Plan file does not exist: {plan_file}")
 
     # Emit status change via WebSocket
     from ..websockets.events import emit_task_status
@@ -1570,8 +1563,6 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
             # The spec_runner process may have exited but the monitor may not have
             # cleaned up running_tasks (e.g., if the process hung or monitor failed).
             if agent_service.is_running(task_id):
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.info(f"[ApprovePlan] Cleaning up stale spec creation process for {task_id}")
                 try:
                     await agent_service.stop_task(task_id)
@@ -1601,8 +1592,7 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
             auto_restarted = True
         except Exception as e:
             # If auto-restart fails, still return success for approval
-            import logging
-            logging.getLogger(__name__).warning(f"Auto-restart failed for {task_id}: {e}")
+            logger.warning(f"Auto-restart failed for {task_id}: {e}")
 
     return {
         "success": True,
@@ -1670,9 +1660,8 @@ async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanReque
             # Plan file unreadable — review state was already updated, so
             # the reject took effect even if the bookkeeping fails. Log
             # and continue.
-            import logging
 
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 f"[RejectPlan] couldn't update test_plan.json: {exc}"
             )
 
@@ -1902,8 +1891,6 @@ async def get_task_logs(task_id: str):
     Returns phase-based logs from task_logs.json if available,
     checking both main spec dir and worktree.
     """
-    import logging
-    logger = logging.getLogger(__name__)
 
     logger.info(f"[GetTaskLogs] Called with task_id: {task_id}")
 
@@ -2317,8 +2304,7 @@ async def get_worktree_merge_preview(task_id: str):
 
     except Exception as e:
         # Log but don't fail - semantic detection is optional enhancement
-        import logging
-        logging.getLogger(__name__).warning(f"Semantic conflict detection failed: {e}")
+        logger.warning(f"Semantic conflict detection failed: {e}")
 
     # Merge results: combine git conflicts with semantic conflicts
     all_conflicts = semantic_conflicts.copy()
@@ -2388,9 +2374,7 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
     3. If conflicts arise, uses AI to resolve each conflicted file
     4. Stages resolved files and commits the merge
     """
-    import logging
 
-    logger = logging.getLogger(__name__)
 
     if options is None:
         options = ConflictResolveOptions()
@@ -2674,9 +2658,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
     4. Writes merged content to working directory
     5. Drops the stash after successful merge
     """
-    import logging
 
-    logger = logging.getLogger(__name__)
     logger.info(f"Resolving uncommitted conflicts for task {task_id}")
 
     # Find the task's project
@@ -2937,9 +2919,7 @@ async def resolve_git_merge_conflicts(task_id: str):
     4. Write resolved content and stage the file
     5. Return success (user can then commit the merge)
     """
-    import logging
 
-    logger = logging.getLogger(__name__)
     logger.info(f"Resolving git merge conflicts for task {task_id}")
 
     # Find the task's project
@@ -3205,9 +3185,7 @@ async def abort_worktree_merge(task_id: str):
     unmerged/conflicted state. It runs `git merge --abort` in both the
     worktree and the main project to ensure a clean state.
     """
-    import logging
 
-    logger = logging.getLogger(__name__)
     logger.info(f"Aborting merge for task {task_id}")
 
     # Parse task_id to get spec_id
