@@ -15,7 +15,8 @@ import os
 import re
 import shutil
 from pathlib import Path
-from .._pdf import render_pdf
+
+from agents._pdf import render_pdf
 
 __all__ = ["download_path", "list_runs", "read_run", "store_root", "write_run"]
 
