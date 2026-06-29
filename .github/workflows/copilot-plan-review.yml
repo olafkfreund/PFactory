@@ -22,9 +22,23 @@ jobs:
     # PR only when it originates from a trusted association — the repo owner, an
     # org member, or an invited collaborator. Forks / drive-by external PRs do
     # not satisfy this and are skipped.
+    #
+    # Scope gate (#246): this job only reviews *Copilot plan-draft* PRs, so it
+    # must not run on ordinary human/refactor PRs (where the no-secret fallback
+    # fails). PFactory assigns the planning issue to the Copilot cloud agent
+    # (copilot-swe-agent[bot]); GitHub opens the resulting PR from a `copilot/`
+    # head branch authored by that agent. We narrow on those platform-stable
+    # markers. This is a *scope* condition layered on top of — never replacing —
+    # the trust gate above (so it is not the [bot]-suffix authorization anti-
+    # pattern of #127); it can only reduce when the job runs, never widen trust.
     if: >-
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
                github.event.pull_request.author_association)
+      && (
+           startsWith(github.event.pull_request.head.ref, 'copilot/')
+           || github.event.pull_request.user.login == 'Copilot'
+           || github.event.pull_request.user.login == 'copilot-swe-agent[bot]'
+         )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,11 +46,11 @@ jobs:
           fetch-depth: 0
 
       - name: Run PFactory plan review gates
-        # This job is advisory (it reviews Copilot plan-draft PRs); on a normal
-        # PR with no PFACTORY_URL secret the fallback Copilot CLI isn't
-        # authenticated in CI and exits non-zero. Don't let that mark unrelated
-        # PRs red — the review attempt still runs and posts when it can. Proper
-        # scoping to Copilot plan-draft PRs is tracked in #246.
+        # This job is advisory. It is now scoped to Copilot plan-draft PRs (the
+        # job-level `if`, #246), so it no longer runs on unrelated PRs. We keep
+        # continue-on-error as defense-in-depth: even on a genuine Copilot PR, if
+        # PFACTORY_URL is unset the fallback Copilot CLI isn't authenticated in
+        # CI and exits non-zero — that should degrade gracefully, not red-X the PR.
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
