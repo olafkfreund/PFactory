@@ -19,21 +19,12 @@ from plan.enrich.knowledge.base import (
     KnowledgeConnector,
     KnowledgeKind,
     KnowledgeRef,
+    _HttpResponse,
     register_connector,
 )
 
 _DEFAULT_LIMIT = 10
 _SNIPPET_LEN = 200
-
-
-class _HttpResponse(Protocol):
-    """Minimal response shape the connector relies on."""
-
-    status_code: int
-
-    def json(self) -> Any: ...
-
-    def raise_for_status(self) -> None: ...
 
 
 class _HttpClient(Protocol):
@@ -95,13 +86,6 @@ class ConfluenceConnector(KnowledgeConnector):
         else:
             self._http = requests.Session()
         return self._http
-
-    def _headers(self) -> dict[str, str]:
-        """Auth/accept headers for search requests."""
-        headers = {"Accept": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-        return headers
 
     def _get_json(self, url: str, params: dict[str, Any]) -> Any:
         """GET ``url`` with ``params`` and return parsed JSON."""

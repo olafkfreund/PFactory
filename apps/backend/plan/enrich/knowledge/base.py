@@ -13,11 +13,26 @@ Read-only: connectors only read/search; they never write back to the source.
 from __future__ import annotations
 
 import abc
-from typing import Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
 KnowledgeKind = Literal["policy", "doc", "adr", "template", "catalog", "best-practice"]
+
+
+class _HttpResponse(Protocol):
+    """Minimal response shape the HTTP-backed connectors rely on.
+
+    Shared by the notion/gitbook/backstage/confluence connectors (#257) — each
+    connector's own ``_HttpClient`` Protocol (which differs by verb/params)
+    returns this common response shape.
+    """
+
+    status_code: int
+
+    def json(self) -> Any: ...
+
+    def raise_for_status(self) -> None: ...
 
 
 class KnowledgeRef(BaseModel):
@@ -37,8 +52,25 @@ class KnowledgeConnector(abc.ABC):
 
     name: str = "base"
 
+    # HTTP-backed connectors set this in their __init__; declared here so the
+    # shared ``_headers`` helper (#257) can reference it on the base type.
+    token: str | None = None
+
     def __init__(self, **options: object) -> None:
         self.options = options
+
+    def _headers(self) -> dict[str, str]:
+        """Auth/accept headers for HTTP requests (#257).
+
+        The common form shared by the gitbook/backstage/confluence connectors:
+        ``Accept: application/json`` plus a bearer ``Authorization`` when a token
+        is configured. Connectors needing extra headers (e.g. Notion's
+        ``Notion-Version``) override this.
+        """
+        headers = {"Accept": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
 
     @abc.abstractmethod
     def available(self) -> bool:
