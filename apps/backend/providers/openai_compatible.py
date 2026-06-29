@@ -70,6 +70,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
 from providers import BaseLLMProvider
+from providers._openai_headers import OpenAICompatibleHeadersMixin
 from providers.types import AssistantMessage, TextBlock
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ _PATH_CHAT: str = "/v1/chat/completions"
 _PATH_MODELS: str = "/v1/models"
 
 
-class OpenAICompatibleProvider(BaseLLMProvider):
+class OpenAICompatibleProvider(OpenAICompatibleHeadersMixin, BaseLLMProvider):
     """LLM provider backed by any OpenAI-compatible ``/v1/chat/completions`` endpoint.
 
     The adapter sends the prompt as a single ``user`` message and yields the
@@ -202,14 +203,6 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         body.setdefault("temperature", 0)
         body.update(self._extra_options)
         return body
-
-    def _build_headers(self) -> dict[str, str]:
-        """Build request headers, including ``Authorization`` when an API key is set."""
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
-        headers.update(self._extra_headers)
-        return headers
 
     def _http_post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Synchronous HTTP POST — run inside ``asyncio.to_thread()``.
