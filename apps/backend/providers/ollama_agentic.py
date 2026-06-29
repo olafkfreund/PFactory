@@ -49,13 +49,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import urllib.error
-import urllib.request
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from typing import Any
 
 from providers import BaseLLMProvider
+from providers._ollama_http import OllamaHTTPMixin
 from providers.types import (
     AssistantMessage,
     TextBlock,
@@ -78,7 +77,6 @@ _DEFAULT_MAX_TURNS: int = 25
 _DEFAULT_TOOL_NAMES: list[str] = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 
 _PATH_CHAT: str = "/api/chat"
-_PATH_TAGS: str = "/api/tags"
 _MAX_TOOL_ARGS_LEN: int = 50_000  # 50 KB safety limit for tool argument strings
 
 
@@ -109,7 +107,7 @@ def _extract_text_tool_calls(text: str) -> list[dict]:
     return out
 
 
-class OllamaAgenticProvider(BaseLLMProvider):
+class OllamaAgenticProvider(OllamaHTTPMixin, BaseLLMProvider):
     """Agentic Ollama provider with native tool calling.
 
     Sends prompts to Ollama's ``/api/chat`` with tool definitions.  When the
@@ -422,59 +420,6 @@ class OllamaAgenticProvider(BaseLLMProvider):
         if self._extra_options:
             body["options"] = self._extra_options
         return body
-
-    def _http_post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Synchronous HTTP POST to the Ollama API.
-
-        Runs in a thread via ``asyncio.to_thread()`` to avoid blocking.
-        """
-        body_bytes = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=body_bytes,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
-        try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
-                raw = resp.read()
-        except urllib.error.HTTPError as exc:
-            error_body = ""
-            try:
-                error_body = exc.read().decode("utf-8", errors="replace")[:500]
-            except Exception:
-                pass
-            raise RuntimeError(
-                f"Ollama API HTTP error {exc.code}: {exc.reason}. Response body: {error_body}"
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(
-                f"Cannot reach Ollama server at '{self._base_url}': {exc.reason}. "
-                "Ensure Ollama is running (ollama serve) and base_url is correct."
-            ) from exc
-
-        try:
-            return json.loads(raw.decode("utf-8", errors="replace"))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"Ollama API returned invalid JSON: {exc}") from exc
-
-    def _verify_connection(self) -> None:
-        """Synchronous health check via ``GET /api/tags``."""
-        url = f"{self._base_url}{_PATH_TAGS}"
-        req = urllib.request.Request(url, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                resp.read()
-        except urllib.error.URLError as exc:
-            raise RuntimeError(
-                f"Cannot reach Ollama server at '{self._base_url}': {exc.reason}. "
-                "Ensure Ollama is running (ollama serve) and base_url is correct."
-            ) from exc
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(
-                f"Ollama server health check failed — HTTP {exc.code}: {exc.reason}."
-            ) from exc
 
     # ------------------------------------------------------------------
     # Async context manager
