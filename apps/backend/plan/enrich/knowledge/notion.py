@@ -19,6 +19,7 @@ from plan.enrich.knowledge.base import (
     KnowledgeConnector,
     KnowledgeKind,
     KnowledgeRef,
+    _HttpResponse,
     register_connector,
 )
 
@@ -26,16 +27,6 @@ _DEFAULT_LIMIT = 10
 _SNIPPET_LEN = 200
 _API_URL = "https://api.notion.com/v1/search"
 _NOTION_VERSION = "2022-06-28"
-
-
-class _HttpResponse(Protocol):
-    """Minimal response shape the connector relies on."""
-
-    status_code: int
-
-    def json(self) -> Any: ...
-
-    def raise_for_status(self) -> None: ...
 
 
 class _HttpClient(Protocol):
