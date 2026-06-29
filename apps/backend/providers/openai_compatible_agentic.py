@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from providers import BaseLLMProvider
+from providers._openai_headers import OpenAICompatibleHeadersMixin
 from providers.types import (
     AssistantMessage,
     TextBlock,
@@ -74,7 +75,7 @@ _PATH_MODELS: str = "/v1/models"
 _MAX_TOOL_ARGS_LEN: int = 50_000  # 50 KB safety limit
 
 
-class OpenAICompatibleAgenticProvider(BaseLLMProvider):
+class OpenAICompatibleAgenticProvider(OpenAICompatibleHeadersMixin, BaseLLMProvider):
     """Agentic OpenAI-compatible provider with native tool calling.
 
     Sends prompts to any server speaking ``/v1/chat/completions`` with the
@@ -362,13 +363,6 @@ class OpenAICompatibleAgenticProvider(BaseLLMProvider):
         body.setdefault("temperature", 0)
         body.update(self._extra_options)
         return body
-
-    def _build_headers(self) -> dict[str, str]:
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
-        headers.update(self._extra_headers)
-        return headers
 
     def _http_post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         body_bytes = json.dumps(payload).encode("utf-8")
