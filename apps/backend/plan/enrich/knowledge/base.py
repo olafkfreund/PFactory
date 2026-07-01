@@ -44,7 +44,7 @@ class KnowledgeRef(BaseModel):
     uri: str = ""
     snippet: str = ""
     score: float = 0.0  # relevance 0–1 (connector-defined)
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class KnowledgeConnector(abc.ABC):
@@ -52,9 +52,12 @@ class KnowledgeConnector(abc.ABC):
 
     name: str = "base"
 
-    # HTTP-backed connectors set this in their __init__; declared here so the
-    # shared ``_headers`` helper (#257) can reference it on the base type.
+    # HTTP-backed connectors set these in their __init__; declared here so the
+    # shared ``_headers`` / ``_lazy_http_client`` helpers (#257) can reference
+    # them on the base type. ``_http`` is a duck-typed client (each connector's
+    # ``_HttpClient`` Protocol differs by verb/params) held as ``object``.
     token: str | None = None
+    _http: object | None = None
 
     def __init__(self, **options: object) -> None:
         self.options = options
@@ -72,6 +75,26 @@ class KnowledgeConnector(abc.ABC):
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
+    def _lazy_http_client(self) -> object:
+        """Return the injected HTTP client, or lazily build a real one (#257).
+
+        The identical ``requests`` → ``httpx`` lazy builder shared by the
+        HTTP-backed connectors. Each connector's ``_client`` wraps this and casts
+        the result to its own ``_HttpClient`` Protocol (which differs by
+        verb/params), so the ~10-line body lives here once instead of x4.
+        """
+        if self._http is not None:
+            return self._http
+        try:
+            import requests  # noqa: PLC0415 - lazy import keeps deps optional
+        except ImportError:  # pragma: no cover - fall back to httpx
+            import httpx  # noqa: PLC0415
+
+            self._http = httpx.Client()
+        else:
+            self._http = requests.Session()
+        return self._http
+
     @abc.abstractmethod
     def available(self) -> bool:
         """True if the source is configured (path/URL/token present)."""
@@ -84,7 +107,7 @@ class KnowledgeConnector(abc.ABC):
         """Optionally fetch the full text of a ref. Default: not supported."""
         raise NotImplementedError(f"{self.name} does not support fetch()")
 
-    def to_enrichment(self, query: str, *, limit: int = 10) -> list[dict]:
+    def to_enrichment(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         """Search and return JSON-able dicts for ``enrichment.knowledge``.
 
         Never raises: failures degrade to an empty list.

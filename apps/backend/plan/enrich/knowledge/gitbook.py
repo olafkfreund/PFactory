@@ -13,7 +13,7 @@ Read-only: the connector only reads/searches content; it never writes back.
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from plan.enrich.knowledge.base import (
     KnowledgeConnector,
@@ -74,18 +74,8 @@ class GitBookConnector(KnowledgeConnector):
         return bool(self.token)
 
     def _client(self) -> _HttpClient:
-        """Return the injected client, or lazily build a real one."""
-        if self._http is not None:
-            return self._http
-        try:
-            import requests  # noqa: PLC0415 - lazy import keeps deps optional
-        except ImportError:  # pragma: no cover - fall back to httpx
-            import httpx  # noqa: PLC0415
-
-            self._http = httpx.Client()
-        else:
-            self._http = requests.Session()
-        return self._http
+        """Return the injected client, or lazily build a real one (#257)."""
+        return cast(_HttpClient, self._lazy_http_client())
 
     def _get_json(self, url: str, params: dict[str, Any]) -> Any:
         """GET ``url`` with ``params`` and return parsed JSON."""
