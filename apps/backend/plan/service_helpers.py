@@ -27,6 +27,7 @@ from plan.feasibility.deployment import (
     deployment_findings,
     inject_deployment_acs,
 )
+from plan.recon.dora_github import make_github_dora_client
 
 if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
@@ -143,9 +144,17 @@ def attach_deployment(plan: NormalizedPlan, epic: EpicPlan) -> list:
     dimension exists. Additive + safe: returns ``[]`` (and leaves the epic
     untouched) when there is no deployment surface or analysis fails — deployment
     analysis must never break a plan run.
+
+    DORA context is populated by the optional GitHub Deployments provider
+    (:func:`plan.recon.dora_github.make_github_dora_client`). When no token is
+    configured the provider is ``None`` and the block carries
+    ``dora_context: {available: false}`` — the previous behaviour. Any runtime
+    error inside the provider degrades to the same ``available: false`` outcome
+    inside :func:`plan.recon.dora_client.dora_context`; a broken DORA provider
+    never breaks a plan run.
     """
     try:
-        block = assess_deployment_readiness(plan, epic)
+        block = assess_deployment_readiness(plan, epic, dora_mcp_client=make_github_dora_client())
     except Exception:  # noqa: BLE001 — deployment analysis must never break a run
         return []
     if block is None:
