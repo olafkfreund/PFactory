@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import { Sidebar, type SidebarView } from './components/Sidebar';
+import { CommandPalette, type PaletteCommand, type PaletteTask } from './components/CommandPalette';
 import { ProjectTabBar } from './components/ProjectTabBar';
 import { TerminalGrid } from './components/TerminalGrid';
 import { Worktrees } from './components/Worktrees';
@@ -105,6 +106,51 @@ function AuthenticatedApp() {
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [isAddProjectModalOpen, setIsAddProjectModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Command palette (⌘K / Ctrl-K): jump to any view or plan, run actions.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); };
+  }, []);
+
+  const paletteCommands: PaletteCommand[] = useMemo(() => {
+    const views: { id: SidebarView; label: string }[] = [
+      { id: 'planning', label: 'Planning' },
+      { id: 'editor', label: 'Editor' },
+      { id: 'insights', label: 'Insights' },
+      { id: 'terminals', label: 'Terminals' },
+      { id: 'agent-tools', label: 'Agent Tools' },
+      { id: 'skills', label: 'Skills' },
+      { id: 'changelog', label: 'Changelog' },
+      { id: 'worktrees', label: 'Worktrees' },
+      { id: 'context', label: 'Context' },
+      { id: 'cloud', label: 'Cloud' },
+      { id: 'visual-reports', label: 'Visual Reports' },
+    ];
+    const nav: PaletteCommand[] = views.map((v) => ({
+      id: `view-${v.id}`,
+      group: 'Go to',
+      label: v.label,
+      keywords: v.id,
+      run: () => { setActiveView(v.id); },
+    }));
+    const actions: PaletteCommand[] = [
+      { id: 'act-settings', group: 'Actions', label: 'Open settings', keywords: 'preferences config theme', run: () => { setIsSettingsDialogOpen(true); } },
+    ];
+    return [...nav, ...actions];
+  }, []);
+
+  const paletteTasks: PaletteTask[] = useMemo(
+    () => tasks.map((t) => ({ id: t.id, title: t.title ?? t.specId })),
+    [tasks]
+  );
 
   const selectedProject = projects.find((p) => p.id === (activeProjectId || selectedProjectId));
 
@@ -415,6 +461,18 @@ function AuthenticatedApp() {
             open={isAddProjectModalOpen}
             onOpenChange={setIsAddProjectModalOpen}
             onProjectAdded={handleProjectAdded}
+          />
+
+          {/* Command palette (⌘K) */}
+          <CommandPalette
+            open={paletteOpen}
+            onClose={() => { setPaletteOpen(false); }}
+            commands={paletteCommands}
+            tasks={paletteTasks}
+            onOpenTask={(t) => {
+              setSelectedTaskId(t.id);
+              setActiveView('planning');
+            }}
           />
 
           {/* Settings Dialog */}
