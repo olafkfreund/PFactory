@@ -74,7 +74,9 @@ export function ThemeSelector({ settings, onSettingsChange }: ThemeSelectorProps
         </div>
       </div>
 
-      {/* Color Theme */}
+      {/* Color Theme — only shown once a second palette exists; a one-option
+          picker reads as unfinished, so hide it until then. */}
+      {COLOR_THEMES.length > 1 && (
       <div className="space-y-3">
         <Label className="text-sm font-medium text-foreground">Color Theme</Label>
         <p className="text-sm text-muted-foreground">
@@ -113,6 +115,7 @@ export function ThemeSelector({ settings, onSettingsChange }: ThemeSelectorProps
           })}
         </div>
       </div>
+      )}
 
     </div>
   );
