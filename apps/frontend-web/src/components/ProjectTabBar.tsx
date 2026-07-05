@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import { SortableProjectTab } from './SortableProjectTab';
 import { ProjectSelector } from './settings/ProjectSelector';
+import { PortalSwitcher } from './PortalSwitcher';
 import { ClaudeCodeStatusBadge } from './ClaudeCodeStatusBadge';
 import { CLIToolStatusBadge } from './CLIToolStatusBadge';
 import { OpenAIEndpointsStatusBadge } from './OpenAIEndpointsStatusBadge';
@@ -133,6 +134,8 @@ export function ProjectTabBar({
       </div>
 
       <div className="flex items-center gap-2 px-2 py-1">
+        <PortalSwitcher />
+        <Separator orientation="vertical" className="h-4 mx-0.5" />
         <div className="w-48">
           <ProjectSelector
             selectedProjectId={selectedProjectId}
