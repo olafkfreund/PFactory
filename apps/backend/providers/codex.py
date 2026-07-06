@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_CODEX_PATH: str = "codex"
-_DEFAULT_MODEL: str = "o4-mini"
+_DEFAULT_MODEL: str = "gpt-5.3-codex"
 _DEFAULT_TIMEOUT: int = 300  # seconds
 
 

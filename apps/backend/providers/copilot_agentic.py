@@ -43,7 +43,7 @@ from providers.types import AssistantMessage, TextBlock
 logger = logging.getLogger(__name__)
 
 _DEFAULT_COPILOT_PATH: str = "copilot"
-_DEFAULT_MODEL: str = "claude-sonnet-4.5"
+_DEFAULT_MODEL: str = "claude-sonnet-4.6"
 _DEFAULT_TIMEOUT: int = 600  # 10 minutes for agentic tasks
 _MODEL_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$")
 

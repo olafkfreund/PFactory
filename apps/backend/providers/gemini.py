@@ -100,7 +100,7 @@ def _emit_sunset_warning() -> None:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_GEMINI_PATH: str = "gemini"
-_DEFAULT_MODEL: str = "gemini-2.0-flash"
+_DEFAULT_MODEL: str = "gemini-3.5-flash"
 _DEFAULT_TIMEOUT: int = 300  # seconds
 
 

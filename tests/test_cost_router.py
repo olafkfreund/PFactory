@@ -124,7 +124,8 @@ def test_free_runtimes_preferred_for_planning_only():
 
 def test_medium_tier_coding_resolves_to_sonnet_by_default():
     # The common case (medium tier, full catalog): coding/qa/test_gen resolve to
-    # claude-sonnet-4-6, matching AIFactory's DEFAULT_PHASE_MODELS["coding"].
+    # the cheapest balanced-class model — the router's tie-break lands on
+    # claude-sonnet-4-6 (Sonnet 5 is the same $3/$15 balanced tier).
     contract = {"execution": {"autonomy_tier": "medium"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_CATALOG)
     pm = out["phase_models"]
