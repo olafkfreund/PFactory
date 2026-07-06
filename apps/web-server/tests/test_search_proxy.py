@@ -86,3 +86,36 @@ def test_cockpit_error_degrades_to_empty():
     resp = _Resp({}, error=httpx.HTTPError("boom"))
     out = _run(resp, captured, q="widgets")
     assert out == {"query": "widgets", "count": 0, "results": []}
+
+
+# --- needs-you count proxy --------------------------------------------------
+
+
+def test_needs_you_proxies_and_forwards_read_key():
+    captured: dict = {}
+    resp = _Resp({"count": 3})
+    with (
+        patch.object(search, "get_settings", return_value=_settings()),
+        patch.object(search.httpx, "AsyncClient", lambda **_kw: _Client(resp, captured)),
+    ):
+        out = asyncio.run(search.needs_you_count(_user=None))
+    assert out == {"count": 3}
+    assert captured["url"] == "http://cockpit:3111/api/needs-you/count"
+    assert captured["headers"]["Authorization"] == "Bearer cfr_test"
+
+
+def test_needs_you_unconfigured_returns_zero():
+    with patch.object(search, "get_settings", return_value=_settings(url="")):
+        out = asyncio.run(search.needs_you_count(_user=None))
+    assert out == {"count": 0}
+
+
+def test_needs_you_cockpit_error_degrades_to_zero():
+    captured: dict = {}
+    resp = _Resp({}, error=httpx.HTTPError("boom"))
+    with (
+        patch.object(search, "get_settings", return_value=_settings()),
+        patch.object(search.httpx, "AsyncClient", lambda **_kw: _Client(resp, captured)),
+    ):
+        out = asyncio.run(search.needs_you_count(_user=None))
+    assert out == {"count": 0}

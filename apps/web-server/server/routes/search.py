@@ -50,3 +50,27 @@ async def federated_search(
         return resp.json()
     except (httpx.HTTPError, ValueError):
         return {"query": q, "count": 0, "results": []}
+
+
+@router.get("/api/needs-you/count")
+async def needs_you_count(
+    _user: Annotated[object, Depends(get_current_user)],
+) -> dict:
+    """Proxy the cockpit's fleet human-blocked count (#148/#149) for the shared
+    top-bar badge. Degrades to zero when the cockpit is unreachable/unconfigured.
+    """
+    settings = get_settings()
+    base = (settings.CFACTORY_SEARCH_URL or "").rstrip("/")
+    if not base:
+        return {"count": 0}
+
+    headers = {}
+    if settings.CFACTORY_READ_KEY:
+        headers["Authorization"] = f"Bearer {settings.CFACTORY_READ_KEY}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{base}/api/needs-you/count", headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+    except (httpx.HTTPError, ValueError):
+        return {"count": 0}
