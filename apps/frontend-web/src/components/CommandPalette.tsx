@@ -1,9 +1,11 @@
 // @factory/ui — Command palette (⌘K). Canonical shared component; vendored
 // byte-identical into each portal (see README.md). Jump to any view or task and
 // run actions from the keyboard. Self-contained: the host assembles the flat
-// command list (navigation + actions) and passes the live task list; this filters
-// with a case-insensitive substring match and drives selection with the keyboard.
-// role="dialog" + a listbox of role="option" rows, Escape to close, ↑↓ to move.
+// command list (navigation + actions) and supplies the task lane one of two
+// ways — a local `tasks` list (filtered here by case-insensitive substring), or
+// an async `onSearch(q)` that returns already-ranked results (federated search,
+// #149; debounced, stale-response-guarded). role="dialog" + a listbox of
+// role="option" rows, Escape to close, ↑↓ to move.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 
@@ -19,6 +21,7 @@ export interface PaletteCommand {
 export interface PaletteTask {
   id: string;
   title: string;
+  hint?: string; // right-aligned context, e.g. a status or portal
 }
 
 type Row =
@@ -31,17 +34,20 @@ export function CommandPalette({
   open,
   onClose,
   commands,
-  tasks,
+  tasks = [],
   onOpenTask,
+  onSearch,
 }: {
   open: boolean;
   onClose: () => void;
   commands: PaletteCommand[];
-  tasks: PaletteTask[];
+  tasks?: PaletteTask[];
   onOpenTask: (task: PaletteTask) => void;
+  onSearch?: (q: string) => Promise<PaletteTask[]>;
 }) {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
+  const [results, setResults] = useState<PaletteTask[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -52,19 +58,46 @@ export function CommandPalette({
     }
   }, [open]);
 
+  // Federated mode (#149): when the host supplies onSearch, debounce the query
+  // and render its ranked results; a stale in-flight response is discarded so
+  // the list always reflects the latest keystroke. No-op when onSearch is unset
+  // (the palette then filters the local `tasks` list, unchanged).
+  useEffect(() => {
+    if (!onSearch) return;
+    const needle = q.trim();
+    if (!open || !needle) {
+      setResults([]);
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      onSearch(needle)
+        .then((r) => {
+          if (!stale) setResults(r);
+        })
+        .catch(() => {
+          if (!stale) setResults([]);
+        });
+    }, 140);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [q, open, onSearch]);
+
   const rows: Row[] = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const cmdRows: Row[] = commands
       .filter((c) => !needle || has(`${c.label} ${c.keywords ?? ''}`, needle))
       .map((c) => ({ kind: 'cmd', group: c.group, cmd: c }));
+    const matched = onSearch
+      ? results
+      : tasks.filter((t) => has(t.title, needle)).slice(0, 8);
     const taskRows: Row[] = !needle
       ? []
-      : tasks
-          .filter((t) => has(t.title, needle))
-          .slice(0, 8)
-          .map((t) => ({ kind: 'task', group: 'Tasks', task: t }));
+      : matched.map((t) => ({ kind: 'task', group: 'Tasks', task: t }));
     return [...taskRows, ...cmdRows];
-  }, [q, commands, tasks]);
+  }, [q, commands, tasks, results, onSearch]);
 
   useEffect(() => {
     setSel((s) => Math.max(0, Math.min(s, rows.length - 1)));
@@ -158,6 +191,11 @@ export function CommandPalette({
                   <span className="min-w-0 flex-1 truncate">
                     {row.kind === 'cmd' ? row.cmd.label : row.task.title}
                   </span>
+                  {row.kind === 'task' && row.task.hint && (
+                    <span className="flex-none font-mono text-[0.62rem] uppercase tracking-wider text-muted-foreground">
+                      {row.task.hint}
+                    </span>
+                  )}
                 </button>
               </div>
             );
