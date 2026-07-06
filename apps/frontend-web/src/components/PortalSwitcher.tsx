@@ -5,6 +5,12 @@
 // "current" is the host's only per-portal input — pass it as a prop so this file
 // stays identical everywhere. Sibling hosts are build-time overridable via
 // VITE_*_URL, defaulting to the live portals.
+//
+// Optional `needsCount` (#148/#149) renders a small badge on the Cockpit chip —
+// the fleet count of work items blocked on a human — so every portal's top bar
+// shows the same "N need you" nudge toward the cockpit inbox. Omit it and the
+// component renders exactly as before (byte-identical for hosts that don't wire
+// the count).
 export type FactoryPortal = 'plan' | 'build' | 'test' | 'cockpit';
 
 // import.meta.env values are typed loosely; keep the URLs strictly string.
@@ -20,13 +26,20 @@ const PORTALS: { key: FactoryPortal; label: string; dot: string; url: string }[]
 
 const ITEM = 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-xs';
 
-export function PortalSwitcher({ current }: { current: FactoryPortal }) {
+export function PortalSwitcher({
+  current,
+  needsCount,
+}: {
+  current: FactoryPortal;
+  needsCount?: number;
+}) {
   return (
     <nav
       aria-label="Factory portals"
       className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5"
     >
       {PORTALS.map((p) => {
+        const badge = p.key === 'cockpit' && needsCount ? needsCount : 0;
         const inner = (
           <>
             <span
@@ -34,6 +47,14 @@ export function PortalSwitcher({ current }: { current: FactoryPortal }) {
               style={{ background: p.dot, boxShadow: `0 0 6px ${p.dot}` }}
             />
             <span className="hidden sm:inline">{p.label}</span>
+            {badge > 0 && (
+              <span
+                aria-label={`${String(badge)} need you`}
+                className="ml-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[0.6rem] font-semibold leading-4 text-primary-foreground"
+              >
+                {badge}
+              </span>
+            )}
           </>
         );
         return p.key === current ? (
