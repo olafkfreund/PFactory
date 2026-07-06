@@ -81,6 +81,14 @@ def _post_login_redirect(request: Request) -> str:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/enabled", summary="Whether OIDC SSO is available on this deployment")
+async def oidc_enabled() -> dict:
+    """Cheap probe (#149) so the login page can decide whether to auto-initiate a
+    silent SSO handoff. Avoids bouncing users to a 404 on installs without OIDC.
+    """
+    return {"enabled": is_oidc_enabled()}
+
+
 @router.get("/login", summary="Begin OIDC Authorization Code + PKCE flow")
 async def oidc_login(request: Request):
     """Redirect the browser to the IdP authorization endpoint.
@@ -106,7 +114,15 @@ async def oidc_login(request: Request):
     # NOT auto-generate a nonce; we must pass one explicitly. Stored
     # in the session by authlib for the callback round-trip.
     nonce = _secrets.token_urlsafe(32)
-    return await oauth.oidc.authorize_redirect(request, redirect_uri, nonce=nonce)
+    # Silent SSO handoff (#149): switching between portals that share the one
+    # Keycloak realm should not re-prompt. The frontend probes with ?prompt=none;
+    # we forward it so Keycloak returns error=login_required (handled gracefully
+    # at the callback) instead of showing its own login page when there is no
+    # session. Only "none" is forwarded — never a caller-chosen arbitrary prompt.
+    extra: dict[str, str] = {}
+    if request.query_params.get("prompt") == "none":
+        extra["prompt"] = "none"
+    return await oauth.oidc.authorize_redirect(request, redirect_uri, nonce=nonce, **extra)
 
 
 @router.get("/callback", summary="OIDC callback — exchange code for tokens", name="oidc_callback")
@@ -124,6 +140,17 @@ async def oidc_callback(request: Request, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="OIDC SSO is not configured on this deployment",
         )
+
+    # Silent-probe fallback (#149): a ?prompt=none login with no live Keycloak
+    # session comes back with error=login_required (and no code). That is the
+    # expected "not signed in yet" outcome — route to the manual login page
+    # instead of surfacing a 400. Also covers a user-declined/consent error.
+    if request.query_params.get("error"):
+        logger.info(
+            "OIDC callback returned error=%s — routing to /login",
+            str(request.query_params.get("error"))[:64],
+        )
+        return RedirectResponse(url="/login")
 
     oauth = get_oauth_client()
     try:
