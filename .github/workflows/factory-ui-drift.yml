@@ -35,7 +35,7 @@ permissions:
 env:
   # Pinned Factory hub commit carrying the canonical @factory/ui components.
   # Bump deliberately when re-vendoring (see header).
-  HUB_PIN_SHA: "8282f07415b5ec05c69f18d3fa8c494274959cb1"
+  HUB_PIN_SHA: "8cb8dbd3993415fa6a3d2f959077d330b3112a61"
 
 jobs:
   drift:

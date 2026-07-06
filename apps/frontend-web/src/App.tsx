@@ -5,6 +5,7 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import { Sidebar, type SidebarView } from './components/Sidebar';
 import { CommandPalette, type PaletteCommand, type PaletteTask } from './components/CommandPalette';
+import { apiRequest } from './lib/api-client';
 import { ProjectTabBar } from './components/ProjectTabBar';
 import { TerminalGrid } from './components/TerminalGrid';
 import { Worktrees } from './components/Worktrees';
@@ -147,10 +148,27 @@ function AuthenticatedApp() {
     return [...nav, ...actions];
   }, []);
 
-  const paletteTasks: PaletteTask[] = useMemo(
-    () => tasks.map((t) => ({ id: t.id, title: t.title ?? t.specId })),
-    [tasks]
-  );
+  // Federated fleet search (#149): the cockpit aggregates every portal's work
+  // and exposes a ranked /api/search; this portal proxies it same-origin
+  // (/api/search) so ⌘K searches across all four portals. Results deep-link into
+  // the cockpit's cross-portal task view.
+  const rawCockpit: unknown = import.meta.env.VITE_CFACTORY_URL;
+  const cockpitUrl = (
+    typeof rawCockpit === 'string' && rawCockpit.trim()
+      ? rawCockpit
+      : 'https://cfactory.freundcloud.org.uk'
+  ).replace(/\/+$/, '');
+  const searchFleet = useCallback(async (q: string): Promise<PaletteTask[]> => {
+    const res = await apiRequest<{
+      results: { correlation_key: string; title: string | null; status: string | null }[];
+    }>(`/search?q=${encodeURIComponent(q)}`);
+    if (!res.success || !res.data) return [];
+    return res.data.results.map((r) => ({
+      id: r.correlation_key,
+      title: r.title ?? `#${r.correlation_key}`,
+      hint: r.status ?? undefined,
+    }));
+  }, []);
 
   const selectedProject = projects.find((p) => p.id === (activeProjectId || selectedProjectId));
 
@@ -468,10 +486,9 @@ function AuthenticatedApp() {
             open={paletteOpen}
             onClose={() => { setPaletteOpen(false); }}
             commands={paletteCommands}
-            tasks={paletteTasks}
+            onSearch={searchFleet}
             onOpenTask={(t) => {
-              setSelectedTaskId(t.id);
-              setActiveView('planning');
+              window.location.href = `${cockpitUrl}/?task=${encodeURIComponent(t.id)}`;
             }}
           />
 
