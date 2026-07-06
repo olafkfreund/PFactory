@@ -1,13 +1,27 @@
 {
-  "$schema_note": "RFC-0014 single source of truth for model price + capability. One entry per known model, keyed by the model id (full id where one exists, otherwise a stable shorthand). Replaces per-repo MODEL_ID_MAP/price duplication. Full ids mirror AIFactory phase_config.MODEL_ID_MAP pins (opus=claude-opus-4-8, sonnet=claude-sonnet-4-6, haiku=claude-haiku-4-5-...). class in {frontier,balanced,cheap,local,subscription}; price.mode in {metered,subscription,local} mirrors CFactory billing-mode display (only metered yields a $ estimate). Open object; consumers ignore unknown keys.",
+  "$schema_note": "RFC-0014 single source of truth for model price + capability. One entry per known model, keyed by the model id (full id where one exists, otherwise a stable shorthand). Replaces per-repo MODEL_ID_MAP/price duplication. Full ids mirror AIFactory phase_config.MODEL_ID_MAP pins (opus=claude-opus-4-8, sonnet=claude-sonnet-5, haiku=claude-haiku-4-5-...). class in {frontier,balanced,cheap,local,subscription}; price.mode in {metered,subscription,local} mirrors CFactory billing-mode display (only metered yields a $ estimate). Open object; consumers ignore unknown keys.",
   "version": "1",
   "models": {
+    "claude-fable-5": {
+      "provider": "claude",
+      "class": "frontier",
+      "roles": ["planning", "coding", "qa", "test_gen"],
+      "price": { "mode": "metered", "in_per_mtok": 10, "out_per_mtok": 50 },
+      "caps": { "tools": true, "thinking": true, "context": 1000000 }
+    },
     "claude-opus-4-8": {
       "provider": "claude",
       "class": "frontier",
       "roles": ["planning", "coding", "qa", "test_gen"],
-      "price": { "mode": "metered", "in_per_mtok": 15, "out_per_mtok": 75 },
-      "caps": { "tools": true, "thinking": true, "context": 200000 }
+      "price": { "mode": "metered", "in_per_mtok": 5, "out_per_mtok": 25 },
+      "caps": { "tools": true, "thinking": true, "context": 1000000 }
+    },
+    "claude-sonnet-5": {
+      "provider": "claude",
+      "class": "balanced",
+      "roles": ["planning", "coding", "qa", "test_gen"],
+      "price": { "mode": "metered", "in_per_mtok": 3, "out_per_mtok": 15 },
+      "caps": { "tools": true, "thinking": true, "context": 1000000 }
     },
     "claude-sonnet-4-6": {
       "provider": "claude",

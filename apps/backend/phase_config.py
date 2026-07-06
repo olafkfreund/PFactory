@@ -16,10 +16,12 @@ logger = logging.getLogger(__name__)
 
 # Model shorthand to full model ID mapping
 MODEL_ID_MAP: dict[str, str] = {
-    "opus": "claude-opus-4-7",
+    "opus": "claude-opus-4-8",
+    "opus-4.7": "claude-opus-4-7",  # previous flagship — kept for pinning
     "opus-1m": "claude-opus-4-6",  # legacy alias — kept for users who pinned 4.6 + 1M beta
     "opus-4.5": "claude-opus-4-5-20251101",
-    "sonnet": "claude-sonnet-4-6",
+    "sonnet": "claude-sonnet-5",  # current Sonnet (near-Opus coding, 1M ctx)
+    "sonnet-4.6": "claude-sonnet-4-6",  # previous Sonnet — kept for pinning
     "haiku": "claude-haiku-4-5-20251001",
 }
 
@@ -63,8 +65,10 @@ EFFORT_LEVEL_MAP: dict[str, str] = {
 # Models that support adaptive thinking via effort level (env var)
 # These models get both max_thinking_tokens AND effort_level
 ADAPTIVE_THINKING_MODELS: set[str] = {
+    "claude-opus-4-8",
     "claude-opus-4-7",
     "claude-opus-4-6",
+    "claude-sonnet-5",
     "claude-sonnet-4-6",
 }
 
@@ -89,11 +93,13 @@ SPEC_PHASE_THINKING_LEVELS: dict[str, str] = {
 
 # Default phase configuration (fallback, matches 'Balanced' profile)
 DEFAULT_PHASE_MODELS: dict[str, str] = {
-    "spec": "sonnet",
-    "planning": "sonnet",  # Changed from "opus" (fix #433)
-    "coding": "sonnet",
-    "qa": "sonnet",
-    "qa_fixer": "sonnet",
+    # Default to Opus 4.8 (current flagship) for all stages — highest-capability
+    # coding/agentic model. Override per-task via the contract `phase_models`.
+    "spec": "opus",
+    "planning": "opus",
+    "coding": "opus",
+    "qa": "opus",
+    "qa_fixer": "opus",
 }
 
 DEFAULT_PHASE_THINKING: dict[str, str] = {
