@@ -1,23 +1,26 @@
-// Portal switcher — the four Factory portals as one product, in the topbar.
-// Plan (PFactory) is the current active entry; the others link out with their
-// per-service accent dot. Hosts are build-time overridable via VITE_*_URL,
-// defaulting to the live portals. Part of the unified shell across the family
-// (mirrors the CFactory cockpit switcher).
+// @factory/ui — Portal switcher. Canonical shared component; vendored
+// byte-identical into each portal (see README.md). Renders the four Factory
+// portals as one product in the topbar: the `current` portal is a static active
+// chip, the others link out with their per-service accent dot. Which portal is
+// "current" is the host's only per-portal input — pass it as a prop so this file
+// stays identical everywhere. Sibling hosts are build-time overridable via
+// VITE_*_URL, defaulting to the live portals.
+export type FactoryPortal = 'plan' | 'build' | 'test' | 'cockpit';
 
 // import.meta.env values are typed loosely; keep the URLs strictly string.
 const envUrl = (v: unknown, fallback: string): string =>
   typeof v === 'string' && v ? v : fallback;
 
-const PORTALS: { key: string; label: string; dot: string; url: string; current: boolean }[] = [
-  { key: 'plan', label: 'Plan', dot: '#d3869b', url: '', current: true },
-  { key: 'build', label: 'Build', dot: '#fabd2f', url: envUrl(import.meta.env.VITE_AIFACTORY_URL, 'https://aifactory.freundcloud.org.uk'), current: false },
-  { key: 'test', label: 'Test', dot: '#b8bb26', url: envUrl(import.meta.env.VITE_TFACTORY_URL, 'https://tfactory.freundcloud.org.uk'), current: false },
-  { key: 'cockpit', label: 'Cockpit', dot: '#83a598', url: envUrl(import.meta.env.VITE_CFACTORY_URL, 'https://cfactory.freundcloud.org.uk'), current: false },
+const PORTALS: { key: FactoryPortal; label: string; dot: string; url: string }[] = [
+  { key: 'plan', label: 'Plan', dot: '#d3869b', url: envUrl(import.meta.env.VITE_PFACTORY_URL, 'https://pfactory.freundcloud.org.uk') },
+  { key: 'build', label: 'Build', dot: '#fabd2f', url: envUrl(import.meta.env.VITE_AIFACTORY_URL, 'https://aifactory.freundcloud.org.uk') },
+  { key: 'test', label: 'Test', dot: '#b8bb26', url: envUrl(import.meta.env.VITE_TFACTORY_URL, 'https://tfactory.freundcloud.org.uk') },
+  { key: 'cockpit', label: 'Cockpit', dot: '#83a598', url: envUrl(import.meta.env.VITE_CFACTORY_URL, 'https://cfactory.freundcloud.org.uk') },
 ];
 
 const ITEM = 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-xs';
 
-export function PortalSwitcher() {
+export function PortalSwitcher({ current }: { current: FactoryPortal }) {
   return (
     <nav
       aria-label="Factory portals"
@@ -33,7 +36,7 @@ export function PortalSwitcher() {
             <span className="hidden sm:inline">{p.label}</span>
           </>
         );
-        return p.current ? (
+        return p.key === current ? (
           <span key={p.key} aria-current="page" className={`${ITEM} bg-muted text-foreground`}>
             {inner}
           </span>

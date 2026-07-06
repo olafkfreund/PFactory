@@ -1,9 +1,9 @@
-// Command palette (⌘K) — jump to any view or plan and run actions from
-// the keyboard. Self-contained: the host assembles the flat command list
-// (navigation + actions) and passes the live task list; this filters with a
-// case-insensitive substring match and drives selection with the keyboard.
-// Hand-rolled overlay (matches the cockpit sibling) with role="dialog" + a
-// listbox of role="option" rows, Escape to close, up/down to move, Enter to run.
+// @factory/ui — Command palette (⌘K). Canonical shared component; vendored
+// byte-identical into each portal (see README.md). Jump to any view or task and
+// run actions from the keyboard. Self-contained: the host assembles the flat
+// command list (navigation + actions) and passes the live task list; this filters
+// with a case-insensitive substring match and drives selection with the keyboard.
+// role="dialog" + a listbox of role="option" rows, Escape to close, ↑↓ to move.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 

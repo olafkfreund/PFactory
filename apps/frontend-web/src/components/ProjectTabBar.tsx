@@ -134,7 +134,7 @@ export function ProjectTabBar({
       </div>
 
       <div className="flex items-center gap-2 px-2 py-1">
-        <PortalSwitcher />
+        <PortalSwitcher current="plan" />
         <Separator orientation="vertical" className="h-4 mx-0.5" />
         <div className="w-48">
           <ProjectSelector
