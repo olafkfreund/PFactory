@@ -2,7 +2,7 @@
 layout: post
 title: "Planning joins the shell: one product, one sign-on, the latest models"
 subtitle: "PFactory's planning portal picks up the fleet-wide command palette, needs-you badge, and silent single sign-on — and moves onto Claude Opus 4.8. A one-page showcase is ready to download."
-date: 2026-07-07 12:00:00
+date: 2026-07-07 06:00:00
 author: DataSeek Team
 ---
 
