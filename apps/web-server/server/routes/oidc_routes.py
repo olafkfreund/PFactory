@@ -147,10 +147,13 @@ async def oidc_callback(request: Request, db: AsyncSession = Depends(get_db)):
     # instead of surfacing a 400. Also covers a user-declined/consent error.
     if request.query_params.get("error"):
         logger.info(
-            "OIDC callback returned error=%s — routing to /login",
+            "OIDC callback returned error=%s — routing home",
             str(request.query_params.get("error"))[:64],
         )
-        return RedirectResponse(url="/login")
+        # Redirect to the SPA root, NOT "/login": /login is a client-side React
+        # route and this portal's web-server 404s a server request for it. The
+        # SPA at "/" renders the login form client-side when unauthenticated.
+        return RedirectResponse(url="/")
 
     oauth = get_oauth_client()
     try:

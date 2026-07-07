@@ -64,7 +64,7 @@ def test_callback_error_redirects_to_login():
     with patch.object(oidc_routes, "is_oidc_enabled", return_value=True):
         out = asyncio.run(oidc_routes.oidc_callback(req, db=None))
     assert out.status_code in (302, 307)
-    assert out.headers["location"] == "/login"
+    assert out.headers["location"] == "/"
 
 
 def test_enabled_reports_true():
