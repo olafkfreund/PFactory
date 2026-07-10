@@ -32,6 +32,7 @@ CLI invocation shape::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -69,12 +70,13 @@ _warned_sunset = False
 
 def _emit_sunset_warning() -> None:
     """Emit the Gemini CLI sunset DeprecationWarning at most once per process."""
-    global _warned_sunset
+    global _warned_sunset  # noqa: PLW0603 — process-wide once-only warning flag
     if _warned_sunset:
         return
     _warned_sunset = True
     warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=3)
     logger.warning("Gemini CLI sunset: %s", _DEPRECATION_MESSAGE)
+
 
 _DEFAULT_GEMINI_PATH: str = "gemini"
 _DEFAULT_MODEL: str = "gemini-2.5-pro"
@@ -185,11 +187,9 @@ class GeminiAgenticProvider(BaseLLMProvider):
 
         except TimeoutError:
             if proc is not None:
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     proc.kill()
-                except ProcessLookupError:
-                    pass
-            raise TimeoutError(f"Gemini CLI (yolo) timed out after {self._timeout}s.")
+            raise TimeoutError(f"Gemini CLI (yolo) timed out after {self._timeout}s.") from None
 
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()

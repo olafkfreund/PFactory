@@ -117,16 +117,13 @@ from .factory import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 __all__ = [
-    # Abstract base
-    "BaseLLMProvider",
-    # Message protocol types
     "AssistantMessage",
+    "BaseLLMProvider",
     "TextBlock",
-    "ToolUseBlock",
     "ToolResultBlock",
+    "ToolUseBlock",
     "UserMessage",
-    # Factory
     "get_provider",
-    "list_providers",
     "list_provider_aliases",
+    "list_providers",
 ]

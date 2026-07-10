@@ -31,6 +31,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import shutil
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -279,10 +280,8 @@ def get_tool_fallback_provider(
     Returns:
         A ``BaseLLMProvider`` instance, or ``None`` if no fallback is available.
     """
-    import shutil
-
     # CLI executable names for each provider
-    _CLI_NAMES: dict[str, str] = {
+    cli_names: dict[str, str] = {
         "claude": "claude",
         "codex": "codex",
         "gemini": "gemini",
@@ -292,7 +291,7 @@ def get_tool_fallback_provider(
         if provider_name == exclude:
             continue
 
-        cli_name = _CLI_NAMES.get(provider_name, provider_name)
+        cli_name = cli_names.get(provider_name, provider_name)
         if shutil.which(cli_name) is None:
             logger.debug(
                 "get_tool_fallback_provider: %s CLI not found, skipping",
