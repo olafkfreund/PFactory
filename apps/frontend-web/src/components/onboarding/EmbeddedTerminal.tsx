@@ -3,7 +3,6 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { v4 as uuid } from 'uuid';
 
 interface EmbeddedTerminalProps {
   /** Command to run after the terminal shell is ready */
@@ -51,7 +50,7 @@ export function EmbeddedTerminal({ initialCommand, onExit, onUrlDetected, onToke
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const terminalIdRef = useRef<string>(uuid());
+  const terminalIdRef = useRef<string>(crypto.randomUUID());
   const isCreatedRef = useRef(false);
   const initialCommandSentRef = useRef(false);
   const detectedUrlsRef = useRef<Set<string>>(new Set());

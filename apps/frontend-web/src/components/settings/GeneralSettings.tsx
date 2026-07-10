@@ -89,24 +89,6 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between max-w-md">
-              <div className="space-y-1">
-                <Label htmlFor="bmadSessionSegmentation" className="text-sm font-medium text-foreground">
-                  {t('general.bmadSessionSegmentation')}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t('general.bmadSessionSegmentationDescription')}
-                </p>
-              </div>
-              <Switch
-                id="bmadSessionSegmentation"
-                checked={settings.bmadSessionSegmentation ?? false}
-                onCheckedChange={(checked) => onSettingsChange({ ...settings, bmadSessionSegmentation: checked })}
-              />
-            </div>
-          </div>
-
           {/* Feature Model Configuration */}
           <Collapsible open={featureModelOpen} onOpenChange={setFeatureModelOpen}>
             <div className="rounded-lg border border-border overflow-hidden">

@@ -2,31 +2,23 @@
 Unified LLM Provider Factory
 ==============================
 
-Phase-aware factory that routes to the correct provider (agentic vs text-only)
-based on the execution phase.
+Factory that routes a provider name to its agentic provider class. All
+execution phases use agentic providers (file ops + code execution); the
+former text-only tier has been removed.
 
-Two entry-points:
+Entry-point:
 
-1. ``get_provider(provider_name, phase, **kwargs)`` — new, phase-aware factory.
-   Automatically selects the agentic or text-only variant of a provider
-   based on whether the phase needs file operations (coding, planning, etc.)
-   or just text output (QA review).
-
-2. ``get_qa_llm_provider(provider_name, **kwargs)`` — legacy factory.
-   Always routes to the text-only provider variant.  Preserved for backward
-   compatibility with existing ``qa/loop.py`` callers.
+    ``get_provider(provider_name, phase, **kwargs)`` — resolves the provider
+    name/alias and instantiates the matching agentic provider. ``phase`` is
+    retained for logging and tool-fallback routing.
 
 Usage::
 
     from providers.factory import get_provider
 
-    # Agentic: coding phase with Codex → CodexAgenticProvider
+    # Coding phase with Codex → CodexAgenticProvider
     provider = get_provider("codex", phase="coding",
                             model="gpt-5.3-codex", working_dir=project_dir)
-
-    # Text-only: QA review phase with Gemini → GeminiCLIProvider
-    provider = get_provider("gemini", phase="qa",
-                            model="gemini-2.5-pro", working_dir=project_dir)
 
     async with provider:
         await provider.query(prompt)
@@ -47,7 +39,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Two-tier registry: agentic vs text-only providers
+# Provider registry (all agentic)
 # ---------------------------------------------------------------------------
 
 _AGENTIC_REGISTRY: dict[str, tuple[str, str]] = {
@@ -76,21 +68,6 @@ _AGENTIC_REGISTRY: dict[str, tuple[str, str]] = {
         "OpenAICompatibleAgenticProvider",
     ),
 }
-
-_TEXT_REGISTRY: dict[str, tuple[str, str]] = {
-    "claude": ("providers.claude", "ClaudeProvider"),
-    "codex": ("providers.codex", "CodexCLIProvider"),
-    "gemini": ("providers.gemini", "GeminiCLIProvider"),
-    "ollama": ("providers.ollama", "OllamaProvider"),
-    "openai-compatible": ("providers.openai_compatible", "OpenAICompatibleProvider"),
-    "github-models": ("providers.openai_compatible", "OpenAICompatibleProvider"),
-    "ollama-cloud": ("providers.openai_compatible", "OpenAICompatibleProvider"),
-}
-
-# Phases that need agentic capability (file ops, code execution)
-# QA needs agentic capability to update test_plan.json with qa_signoff
-_AGENTIC_PHASES = {"spec", "planning", "coding", "qa_fixer", "qa"}
-_TEXT_PHASES: set[str] = set()  # All phases now use agentic providers
 
 # Human-readable aliases (normalised to canonical names)
 _PROVIDER_ALIASES: dict[str, str] = {
@@ -201,18 +178,15 @@ def _instantiate(module_path: str, class_name: str, **kwargs: Any) -> BaseLLMPro
 
 
 # ---------------------------------------------------------------------------
-# Phase-aware factory (new)
+# Provider factory
 # ---------------------------------------------------------------------------
 
 
 def get_provider(provider_name: str, phase: str, **kwargs: Any) -> BaseLLMProvider:
-    """Get a provider appropriate for the given phase.
+    """Get the agentic provider for the given name.
 
-    Routes to agentic or text-only provider based on phase requirements.
-
-    Agentic phases (spec, planning, coding, qa_fixer) use providers that
-    support file operations and code execution.  Text-only phases (qa) use
-    lightweight providers that just return text analysis.
+    All execution phases use agentic providers (file operations + code
+    execution). ``phase`` is accepted for API stability and logging.
 
     Args:
         provider_name: Case-insensitive provider identifier (e.g. "codex",
@@ -225,8 +199,8 @@ def get_provider(provider_name: str, phase: str, **kwargs: Any) -> BaseLLMProvid
         A ``BaseLLMProvider`` instance (not yet entered).
 
     Raises:
-        ValueError: If provider_name is unrecognised, or if the provider
-            doesn't support the requested phase (e.g. Ollama for coding).
+        ValueError: If provider_name is unrecognised, or the provider has no
+            agentic implementation.
     """
     canonical = _resolve_canonical(provider_name)
 
@@ -239,66 +213,18 @@ def get_provider(provider_name: str, phase: str, **kwargs: Any) -> BaseLLMProvid
     elif canonical == "ollama-cloud":
         _apply_ollama_cloud_defaults(kwargs)
 
-    if phase in _AGENTIC_PHASES:
-        registry = _AGENTIC_REGISTRY
-        if canonical not in registry:
-            raise ValueError(
-                f"Provider '{provider_name}' does not support agentic mode "
-                f"needed for '{phase}' phase. Supported agentic providers: "
-                f"{sorted(_AGENTIC_REGISTRY.keys())}"
-            )
-    else:
-        registry = _TEXT_REGISTRY
+    if canonical not in _AGENTIC_REGISTRY:
+        raise ValueError(
+            f"Provider '{provider_name}' does not support agentic mode "
+            f"needed for '{phase}' phase. Supported agentic providers: "
+            f"{sorted(_AGENTIC_REGISTRY.keys())}"
+        )
 
-    module_path, class_name = registry[canonical]
+    module_path, class_name = _AGENTIC_REGISTRY[canonical]
 
     logger.debug(
         "get_provider: phase=%r canonical=%r class=%s kwargs_keys=%s",
         phase,
-        canonical,
-        class_name,
-        list(kwargs.keys()),
-    )
-
-    return _instantiate(module_path, class_name, **kwargs)
-
-
-# ---------------------------------------------------------------------------
-# Legacy factory (backward compatibility)
-# ---------------------------------------------------------------------------
-
-
-def get_qa_llm_provider(provider_name: str, **kwargs: Any) -> BaseLLMProvider:
-    """Instantiate a text-only ``BaseLLMProvider`` by name.
-
-    Legacy factory preserved for backward compatibility with ``qa/loop.py``.
-    Always routes to the text-only provider variant.
-
-    Raises ValueError with "Unknown QA LLM provider" message for backward
-    compatibility with existing tests and callers.
-
-    Args:
-        provider_name: Case-insensitive provider identifier.
-        **kwargs: Forwarded to the provider constructor.
-
-    Returns:
-        A ``BaseLLMProvider`` instance (not yet entered).
-    """
-    normalised = provider_name.strip().lower()
-    canonical = _PROVIDER_ALIASES.get(normalised)
-    if canonical is None:
-        known = sorted(_PROVIDER_ALIASES.keys())
-        raise ValueError(f"Unknown QA LLM provider: {provider_name!r}. Supported values: {known}")
-
-    if canonical == "github-models":
-        _apply_github_models_defaults(kwargs)
-    elif canonical == "ollama-cloud":
-        _apply_ollama_cloud_defaults(kwargs)
-
-    module_path, class_name = _TEXT_REGISTRY[canonical]
-
-    logger.debug(
-        "get_qa_llm_provider: canonical=%r class=%s kwargs_keys=%s",
         canonical,
         class_name,
         list(kwargs.keys()),
@@ -314,7 +240,7 @@ def get_qa_llm_provider(provider_name: str, **kwargs: Any) -> BaseLLMProvider:
 
 def list_providers() -> list[str]:
     """Return sorted list of all canonical provider names."""
-    return sorted(set(_TEXT_REGISTRY.keys()) | set(_AGENTIC_REGISTRY.keys()))
+    return sorted(_AGENTIC_REGISTRY.keys())
 
 
 def list_provider_aliases() -> dict[str, str]:
@@ -397,7 +323,6 @@ def get_tool_fallback_provider(
 
 __all__ = [
     "get_provider",
-    "get_qa_llm_provider",
     "get_tool_fallback_provider",
     "list_provider_aliases",
     "list_providers",

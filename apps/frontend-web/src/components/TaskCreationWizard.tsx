@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ClipboardEvent, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { v4 as uuid } from 'uuid';
 import { Loader2, ChevronDown, ChevronUp, Image as ImageIcon, X, RotateCcw, FolderTree, GitBranch, Cloud } from 'lucide-react';
 import {
   Dialog,
@@ -626,7 +625,7 @@ export function TaskCreationWizard({
       const fileName = match[1];
       if (!existingNames.has(fileName)) {
         newFiles.push({
-          id: uuid(),
+          id: crypto.randomUUID(),
           path: fileName, // Store relative path from @mention
           name: fileName,
           isDirectory: false,

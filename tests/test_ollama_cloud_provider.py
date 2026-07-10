@@ -132,19 +132,3 @@ def test_get_provider_routes_ollama_cloud_to_openai_compatible(monkeypatch):
     assert captured["kwargs"]["base_url"] == "https://ollama.com"
     assert captured["kwargs"]["model"] == "gpt-oss:120b"
     assert captured["kwargs"]["api_key"] == "ok_test"
-
-
-def test_get_qa_llm_provider_routes_ollama_cloud_to_text_backend(monkeypatch):
-    monkeypatch.setenv("OLLAMA_API_KEY", "ok_test")
-    captured = {}
-
-    def fake_instantiate(module_path, class_name, **kwargs):
-        captured["module_path"] = module_path
-        captured["kwargs"] = kwargs
-        return object()
-
-    monkeypatch.setattr(factory, "_instantiate", fake_instantiate)
-    factory.get_qa_llm_provider("ollama-cloud", model="glm-5:cloud")
-    assert captured["module_path"] == "providers.openai_compatible"
-    assert captured["kwargs"]["base_url"] == "https://ollama.com"
-    assert captured["kwargs"]["api_key"] == "ok_test"
