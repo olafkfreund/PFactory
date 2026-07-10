@@ -9,6 +9,7 @@ Reads configuration from task_metadata.json and provides resolved model IDs.
 import json
 import logging
 import os
+import sqlite3
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -240,7 +241,7 @@ def load_task_metadata(spec_dir: Path) -> TaskMetadataConfig | None:
     metadata_path = spec_dir / "task_metadata.json"
     if metadata_path.exists():
         try:
-            with open(metadata_path) as f:
+            with metadata_path.open() as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
             pass
@@ -249,7 +250,7 @@ def load_task_metadata(spec_dir: Path) -> TaskMetadataConfig | None:
     requirements_path = spec_dir / "requirements.json"
     if requirements_path.exists():
         try:
-            with open(requirements_path) as f:
+            with requirements_path.open() as f:
                 requirements = json.load(f)
                 if "metadata" in requirements and isinstance(requirements["metadata"], dict):
                     return requirements["metadata"]
@@ -415,7 +416,7 @@ def get_fast_mode(spec_dir: Path) -> bool:
     return False
 
 
-def infer_provider_from_model(model: str) -> str:
+def infer_provider_from_model(model: str) -> str:  # noqa: PLR0911 — linear model→provider dispatch
     """
     Infer the LLM provider from the model ID.  Works for any phase.
 
@@ -515,8 +516,6 @@ _LLM_ENDPOINTS_DB_PATH = Path.home() / ".pfactory" / "data.db"
 
 def _load_openai_endpoint_by_label(label: str) -> dict | None:
     """Look up an llm_endpoint row by label.  Returns None if not found."""
-    import sqlite3
-
     if not _LLM_ENDPOINTS_DB_PATH.exists():
         return None
     try:
@@ -535,8 +534,6 @@ def _load_openai_endpoint_by_label(label: str) -> dict | None:
 
 def _load_first_openai_endpoint() -> dict | None:
     """Return the oldest configured llm_endpoint — for single-endpoint users."""
-    import sqlite3
-
     if not _LLM_ENDPOINTS_DB_PATH.exists():
         return None
     try:
