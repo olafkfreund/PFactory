@@ -130,10 +130,6 @@ When `APP_DEBUG=true`, API docs are available at:
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/files/discover` | Discover projects in a folder |
-| `GET /api/files/{projectId}/list` | List directory contents |
-| `GET /api/files/{projectId}/read` | Read file content |
-| `PUT /api/files/{projectId}/write` | Write file content |
-| `GET /api/files/{projectId}/search` | Search files with ripgrep |
 
 ### Integration Routes
 
