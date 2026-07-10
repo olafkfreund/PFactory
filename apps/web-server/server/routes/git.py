@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from ..services.git_utils import run_git_command
+from ..services.git_utils import run_gh_command, run_git_command
 
 router = APIRouter()
 
@@ -200,14 +200,10 @@ async def install_ollama():
 @ollama_router.get("/models")
 async def list_ollama_models(baseUrl: str | None = Query(None)):
     """List available Ollama models."""
-    import json
-    import urllib.request
+    from ..services.ollama_utils import fetch_ollama_models
 
-    url = baseUrl or "http://localhost:11434"
     try:
-        response = urllib.request.urlopen(f"{url}/api/tags", timeout=10)
-        data = json.loads(response.read().decode())
-        models = [m["name"] for m in data.get("models", [])]
+        models = [m["name"] for m in await fetch_ollama_models(baseUrl)]
         return {"success": True, "data": models}
     except Exception:
         return {"success": True, "data": []}
@@ -216,17 +212,16 @@ async def list_ollama_models(baseUrl: str | None = Query(None)):
 @ollama_router.get("/embedding-models")
 async def list_ollama_embedding_models(baseUrl: str | None = Query(None)):
     """List Ollama embedding models with installation status."""
-    import json
-    import urllib.request
-
-    url = baseUrl or "http://localhost:11434"
+    from ..services.ollama_utils import (
+        OLLAMA_EMBEDDING_KEYWORDS,
+        fetch_ollama_models,
+        is_embedding_model,
+    )
 
     # Get installed models from Ollama
     installed_models = set()
     try:
-        response = urllib.request.urlopen(f"{url}/api/tags", timeout=10)
-        data = json.loads(response.read().decode())
-        for m in data.get("models", []):
+        for m in await fetch_ollama_models(baseUrl):
             name = m.get("name", "")
             installed_models.add(name)
             # Also add without :latest suffix
@@ -235,14 +230,13 @@ async def list_ollama_embedding_models(baseUrl: str | None = Query(None)):
     except Exception:
         pass
 
-    # Filter to embedding-capable models
-    embedding_keywords = ["embed", "nomic", "minilm", "bge", "gte", "e5"]
-    embedding_models = []
-
-    for name in installed_models:
-        name_lower = name.lower()
-        if any(kw in name_lower for kw in embedding_keywords):
-            embedding_models.append({"name": name, "installed": True})
+    # Filter to embedding-capable models (Ollama's base set plus "nomic")
+    keywords = OLLAMA_EMBEDDING_KEYWORDS | {"nomic"}
+    embedding_models = [
+        {"name": name, "installed": True}
+        for name in installed_models
+        if is_embedding_model(name, keywords)
+    ]
 
     return {"success": True, "data": {"embedding_models": embedding_models}}
 
@@ -1361,35 +1355,6 @@ class CreateReleaseRequest(BaseModel):
     version: str
     releaseNotes: str
     platform: str = "github"
-
-
-def run_gh_command(args: list[str], cwd: str) -> dict:
-    """Run a gh CLI command and return result.
-
-    Args:
-        args: Command arguments (without 'gh' prefix)
-        cwd: Working directory for command execution
-
-    Returns:
-        Dict with success status, output or error message
-    """
-    try:
-        result = subprocess.run(
-            ["gh"] + args,
-            capture_output=True,
-            text=True,
-            cwd=cwd,
-            timeout=30
-        )
-        if result.returncode != 0:
-            return {"success": False, "error": result.stderr.strip()}
-        return {"success": True, "output": result.stdout.strip()}
-    except FileNotFoundError:
-        return {"success": False, "error": "GitHub CLI (gh) not installed"}
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Command timed out"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 @releases_router.post("")
