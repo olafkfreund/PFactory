@@ -1,11 +1,10 @@
 /**
  * Frontend Logger
  *
- * Comprehensive logging service that:
- * - Stores logs in localStorage for persistence
- * - Supports multiple log levels (debug, info, warn, error)
- * - Provides export functionality
- * - Auto-rotates to prevent localStorage overflow
+ * In-memory ring buffer (read by the LogViewer settings panel) with:
+ * - localStorage persistence across reloads
+ * - level gating (debug in dev, info in prod)
+ * - error forwarding to the backend (/api/logs/frontend)
  */
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -32,8 +31,8 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   error: 3,
 };
 
-// Default minimum level (can be overridden)
-let minLevel: LogLevel = import.meta.env.DEV ? 'debug' : 'info';
+// Minimum level to record (debug in dev, info in prod)
+const minLevel: LogLevel = import.meta.env.DEV ? 'debug' : 'info';
 
 // Error batch for sending to backend
 let errorBatch: LogEntry[] = [];
@@ -42,33 +41,21 @@ let errorBatchTimer: ReturnType<typeof setTimeout> | null = null;
 class Logger {
   private logs: LogEntry[] = [];
   private listeners: Set<(entry: LogEntry) => void> = new Set();
-  private initialized = false;
 
   constructor() {
-    this.loadLogs();
-  }
-
-  private loadLogs(): void {
-    if (this.initialized) return;
-
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        this.logs = JSON.parse(stored);
-      }
+      if (stored) this.logs = JSON.parse(stored);
     } catch {
       this.logs = [];
     }
-    this.initialized = true;
   }
 
   private saveLogs(): void {
     try {
-      // Rotate logs if over limit
       if (this.logs.length > MAX_LOGS) {
         this.logs = this.logs.slice(-MAX_LOGS);
       }
-
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.logs));
     } catch (e) {
       // localStorage full - clear older logs
@@ -83,12 +70,8 @@ class Logger {
     }
   }
 
-  private shouldLog(level: LogLevel): boolean {
-    return LOG_LEVELS[level] >= LOG_LEVELS[minLevel];
-  }
-
   private log(level: LogLevel, category: string, message: string, data?: unknown): void {
-    if (!this.shouldLog(level)) return;
+    if (LOG_LEVELS[level] < LOG_LEVELS[minLevel]) return;
 
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
@@ -120,7 +103,7 @@ class Logger {
       }
     });
 
-    // Also log to console in development
+    // Also log to console
     const consoleMethod = level === 'debug' ? 'log' : level;
     const prefix = `[${category}]`;
     if (data !== undefined) {
@@ -134,13 +117,10 @@ class Logger {
     // Prevent circular references and limit depth
     try {
       return JSON.parse(JSON.stringify(data, (key, value) => {
-        // Skip functions
         if (typeof value === 'function') return '[Function]';
-        // Skip large arrays
         if (Array.isArray(value) && value.length > 100) {
           return [...value.slice(0, 100), `... ${value.length - 100} more items`];
         }
-        // Skip DOM elements
         if (value instanceof HTMLElement) return '[HTMLElement]';
         return value;
       }));
@@ -166,41 +146,10 @@ class Logger {
     this.log('error', category, message, data);
   }
 
-  // Get logs with optional filters
-  getLogs(options?: {
-    level?: LogLevel;
-    category?: string;
-    since?: Date;
-    limit?: number;
-  }): LogEntry[] {
-    let result = [...this.logs];
-
-    if (options?.level) {
-      const levelPriority = LOG_LEVELS[options.level];
-      result = result.filter(log => LOG_LEVELS[log.level] >= levelPriority);
-    }
-
-    if (options?.category) {
-      result = result.filter(log =>
-        log.category.toLowerCase().includes(options.category!.toLowerCase())
-      );
-    }
-
-    if (options?.since) {
-      const sinceTime = options.since.getTime();
-      result = result.filter(log => new Date(log.timestamp).getTime() >= sinceTime);
-    }
-
-    if (options?.limit) {
-      result = result.slice(-options.limit);
-    }
-
-    return result;
-  }
-
-  // Get error logs only
-  getErrors(limit = 50): LogEntry[] {
-    return this.getLogs({ level: 'error', limit });
+  // Get logs (optionally the last N). Read by the LogViewer panel.
+  getLogs(options?: { limit?: number }): LogEntry[] {
+    const result = [...this.logs];
+    return options?.limit ? result.slice(-options.limit) : result;
   }
 
   // Clear all logs
@@ -209,25 +158,18 @@ class Logger {
     localStorage.removeItem(STORAGE_KEY);
   }
 
-  // Export logs as JSON
-  exportJSON(): string {
-    return JSON.stringify(this.logs, null, 2);
-  }
-
-  // Export logs as text
-  exportText(): string {
-    return this.logs
-      .map(log => {
-        const data = log.data ? ` | ${JSON.stringify(log.data)}` : '';
-        const stack = log.stack ? `\n${log.stack}` : '';
-        return `${log.timestamp} | ${log.level.toUpperCase().padEnd(5)} | ${log.category} | ${log.message}${data}${stack}`;
-      })
-      .join('\n');
-  }
-
   // Download logs as file
   download(format: 'json' | 'text' = 'json'): void {
-    const content = format === 'json' ? this.exportJSON() : this.exportText();
+    const content =
+      format === 'json'
+        ? JSON.stringify(this.logs, null, 2)
+        : this.logs
+            .map(log => {
+              const data = log.data ? ` | ${JSON.stringify(log.data)}` : '';
+              const stack = log.stack ? `\n${log.stack}` : '';
+              return `${log.timestamp} | ${log.level.toUpperCase().padEnd(5)} | ${log.category} | ${log.message}${data}${stack}`;
+            })
+            .join('\n');
     const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -245,37 +187,18 @@ class Logger {
     return () => this.listeners.delete(listener);
   }
 
-  // Set minimum log level
-  setMinLevel(level: LogLevel): void {
-    minLevel = level;
-  }
-
-  // Get current log count
-  get count(): number {
-    return this.logs.length;
-  }
-
   // Get log statistics
   getStats(): { total: number; byLevel: Record<LogLevel, number> } {
-    const byLevel: Record<LogLevel, number> = {
-      debug: 0,
-      info: 0,
-      warn: 0,
-      error: 0,
-    };
-
+    const byLevel: Record<LogLevel, number> = { debug: 0, info: 0, warn: 0, error: 0 };
     this.logs.forEach(log => {
       byLevel[log.level]++;
     });
-
     return { total: this.logs.length, byLevel };
   }
 
   // Queue error for backend persistence
   private queueErrorForBackend(entry: LogEntry): void {
     errorBatch.push(entry);
-
-    // Start batch timer if not already running
     if (!errorBatchTimer) {
       errorBatchTimer = setTimeout(() => {
         this.flushErrorsToBackend();
@@ -284,25 +207,21 @@ class Logger {
   }
 
   // Send queued errors to backend
-  async flushErrorsToBackend(): Promise<void> {
+  private async flushErrorsToBackend(): Promise<void> {
     if (errorBatch.length === 0) return;
 
-    // Clear timer
     if (errorBatchTimer) {
       clearTimeout(errorBatchTimer);
       errorBatchTimer = null;
     }
 
-    // Take current batch and clear
     const batch = [...errorBatch];
     errorBatch = [];
 
     try {
       const response = await fetch('/api/logs/frontend', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           entries: batch.map(entry => ({
             timestamp: entry.timestamp,
@@ -316,20 +235,13 @@ class Logger {
       });
 
       if (!response.ok) {
-        // Put entries back in batch for retry
         errorBatch = [...batch, ...errorBatch];
         console.warn('[Logger] Failed to send errors to backend:', response.status);
       }
     } catch (err) {
-      // Put entries back in batch for retry
       errorBatch = [...batch, ...errorBatch];
       console.warn('[Logger] Failed to send errors to backend:', err);
     }
-  }
-
-  // Send all pending errors immediately (useful before page unload)
-  async sendPendingErrors(): Promise<void> {
-    await this.flushErrorsToBackend();
   }
 }
 
@@ -354,9 +266,8 @@ if (typeof window !== 'undefined') {
     });
   });
 
-  // Flush pending errors before page unload
+  // Flush pending errors before page unload (sendBeacon survives unload)
   window.addEventListener('beforeunload', () => {
-    // Use sendBeacon for reliability during page unload
     if (errorBatch.length > 0) {
       const payload = JSON.stringify({
         entries: errorBatch.map(entry => ({

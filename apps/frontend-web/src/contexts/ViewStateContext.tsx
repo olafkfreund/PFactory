@@ -1,87 +1,24 @@
-import { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
+import { create } from 'zustand';
 
-interface ViewState {
+interface ViewStateValue {
   showArchived: boolean;
-}
-
-interface ViewStateContextValue extends ViewState {
   setShowArchived: (show: boolean) => void;
   toggleShowArchived: () => void;
 }
 
-const ViewStateContext = createContext<ViewStateContextValue | null>(null);
-
-interface ViewStateProviderProps {
-  children: ReactNode;
-}
-
 /**
- * ViewStateProvider manages view state that needs to be shared across
- * different project pages (kanban, etc.).
- *
- * Currently manages:
- * - showArchived: Whether to show archived items in views
+ * View state shared across project pages (kanban, etc.).
+ * Currently just `showArchived`.
  */
-export function ViewStateProvider({ children }: ViewStateProviderProps) {
-  const [showArchived, setShowArchivedState] = useState(false);
+export const useViewState = create<ViewStateValue>((set) => ({
+  showArchived: false,
+  setShowArchived: (show) => set({ showArchived: show }),
+  toggleShowArchived: () => set((s) => ({ showArchived: !s.showArchived })),
+}));
 
-  const setShowArchived = useCallback((show: boolean) => {
-    setShowArchivedState(show);
-  }, []);
-
-  const toggleShowArchived = useCallback(() => {
-    setShowArchivedState((prev) => !prev);
-  }, []);
-
-  const value = useMemo<ViewStateContextValue>(
-    () => ({
-      showArchived,
-      setShowArchived,
-      toggleShowArchived,
-    }),
-    [showArchived, setShowArchived, toggleShowArchived]
-  );
-
-  return (
-    <ViewStateContext.Provider value={value}>
-      {children}
-    </ViewStateContext.Provider>
-  );
-}
-
-/**
- * Hook to access view state from within the ViewStateProvider tree.
- *
- * @throws Error if used outside of ViewStateProvider
- *
- * @example
- * ```tsx
- * function KanbanBoard() {
- *   const { showArchived, toggleShowArchived } = useViewState();
- *
- *   return (
- *     <button onClick={toggleShowArchived}>
- *       {showArchived ? 'Hide archived' : 'Show archived'}
- *     </button>
- *   );
- * }
- * ```
- */
-export function useViewState(): ViewStateContextValue {
-  const context = useContext(ViewStateContext);
-
-  if (!context) {
-    throw new Error('useViewState must be used within a ViewStateProvider');
-  }
-
-  return context;
-}
-
-/**
- * Optional hook that returns null if used outside provider.
- * Useful for components that may or may not be within the provider tree.
- */
-export function useViewStateOptional(): ViewStateContextValue | null {
-  return useContext(ViewStateContext);
+// ponytail: a zustand store needs no provider, but App.tsx still wraps the tree
+// in <ViewStateProvider>. Kept as a no-op passthrough so App.tsx needn't change.
+export function ViewStateProvider({ children }: { children: ReactNode }) {
+  return <>{children}</>;
 }

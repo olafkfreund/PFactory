@@ -20,7 +20,7 @@ from .analyzers import (
 from .ci_discovery import CIDiscovery
 
 # Import from analysis module root (these are other analysis tools)
-from .project_analyzer import ProjectAnalyzer
+from project import ProjectAnalyzer
 from .risk_classifier import RiskClassifier
 from .security_scanner import SecurityScanner
 from .test_discovery import TestDiscovery

@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { v4 as uuid } from 'uuid';
 import type { TerminalSession, TerminalWorktreeConfig } from '../shared/types';
 import { terminalBufferManager } from '../lib/terminal-buffer-manager';
 import { debugLog, debugError } from '../shared/utils/debug-logger';
@@ -73,7 +72,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }
 
     const newTerminal: Terminal = {
-      id: uuid(),
+      id: crypto.randomUUID(),
       title: `Terminal ${state.terminals.length + 1}`,
       status: 'idle',
       cwd: cwd || '~',

@@ -11,28 +11,14 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
+from ..services.git_utils import run_git_command
+
 router = APIRouter()
 
 
 # ============================================
 # Git Routes
 # ============================================
-
-def run_git_command(args: list[str], cwd: str) -> dict:
-    """Run a git command and return result."""
-    try:
-        result = subprocess.run(
-            ["git"] + args,
-            capture_output=True,
-            text=True,
-            cwd=cwd,
-            timeout=30
-        )
-        if result.returncode != 0:
-            return {"success": False, "error": result.stderr.strip()}
-        return {"success": True, "output": result.stdout.strip()}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 @router.get("/branches")
