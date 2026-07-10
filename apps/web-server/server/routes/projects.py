@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 MemoryBackendType = Literal["graphiti", "file"]
 
 from ..config import get_settings
-from . import changelog, context, files, git, github
+from . import changelog, context, files, git, github, insights
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 # These will be available under /api/projects/{projectId}/...
 router.include_router(github.project_router, prefix="/{projectId}/github", tags=["GitHub"])
 router.include_router(changelog.router, prefix="/{projectId}/changelog", tags=["Changelog"])
-router.include_router(changelog.insights_router, prefix="/{projectId}/insights", tags=["Insights"])
-router.include_router(files.insights_router, prefix="/{projectId}/files/insights", tags=["Files Insights"])
+router.include_router(insights.router, prefix="/{projectId}/insights", tags=["Insights"])
+router.include_router(insights.files_router, prefix="/{projectId}/files/insights", tags=["Files Insights"])
 router.include_router(context.project_router, prefix="/{projectId}", tags=["Context"])
 router.include_router(git.project_router, prefix="", tags=["Git"])
 router.include_router(git.releases_router, prefix="/{projectId}/releases", tags=["Releases"])

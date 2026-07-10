@@ -16,6 +16,8 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ..services.git_utils import run_gh_command
+
 router = APIRouter()
 
 
@@ -90,27 +92,6 @@ class PlanReviewPRRequest(BaseModel):
 # ============================================
 # GitHub CLI Helpers
 # ============================================
-
-def run_gh_command(args: list[str], cwd: str | None = None) -> dict:
-    """Run a gh CLI command and return the result."""
-    try:
-        result = subprocess.run(
-            ["gh"] + args,
-            capture_output=True,
-            text=True,
-            cwd=cwd,
-            timeout=30
-        )
-        if result.returncode != 0:
-            return {"success": False, "error": result.stderr.strip()}
-        return {"success": True, "output": result.stdout.strip()}
-    except FileNotFoundError:
-        return {"success": False, "error": "GitHub CLI (gh) not installed"}
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Command timed out"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
 
 def _persist_cli_token_to_project(project_id: str) -> bool:
     """Persist the gh CLI token to a project's .pfactory/.env file.

@@ -743,35 +743,31 @@ async def detect_local_llm_providers():
 async def list_ollama_models(ollamaBaseUrl: str = Query(default="http://localhost:11434")):
     """List available Ollama models."""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{ollamaBaseUrl}/api/tags")
-            response.raise_for_status()
-            data = response.json()
+        from ..services.ollama_utils import fetch_ollama_models, is_embedding_model
 
-            # Extract model list, filtering out embedding-only models
-            embedding_keywords = {"embed", "minilm", "bge", "gte", "e5"}
-            embedding_families = {"bert", "nomic-bert"}
-            models = []
-            for model in data.get("models", []):
-                name_lower = model["name"].lower()
-                details = model.get("details", {})
-                families = {f.lower() for f in details.get("families", [])}
+        raw_models = await fetch_ollama_models(ollamaBaseUrl)
 
-                # Skip embedding models (family is bert-based or name contains embedding keywords)
-                if families & embedding_families:
-                    continue
-                if any(kw in name_lower for kw in embedding_keywords):
-                    continue
+        # Extract model list, filtering out embedding-only models
+        embedding_families = {"bert", "nomic-bert"}
+        models = []
+        for model in raw_models:
+            details = model.get("details", {})
+            families = {f.lower() for f in details.get("families", [])}
 
-                models.append({
-                    "name": model["name"],
-                    "size": model["size"],
-                    "modified": model["modified_at"],
-                    "details": details,
-                })
+            # Skip embedding models (family is bert-based or name contains embedding keywords)
+            if families & embedding_families:
+                continue
+            if is_embedding_model(model["name"]):
+                continue
 
-            return {"models": models}
+            models.append({
+                "name": model["name"],
+                "size": model["size"],
+                "modified": model["modified_at"],
+                "details": details,
+            })
+
+        return {"models": models}
     except Exception as e:
         logger.warning(f"Failed to list Ollama models: {e}")
         return {"success": False, "error": str(e)}
@@ -1041,6 +1037,15 @@ def save_profiles(data: dict) -> None:
     profiles_file.chmod(0o600)
 
 
+def _upsert_by_id(items: list[dict], obj: dict, key: str = "id") -> None:
+    """Replace the item whose ``key`` matches ``obj[key]``; append if none match."""
+    for i, existing in enumerate(items):
+        if existing.get(key) == obj[key]:
+            items[i] = obj
+            return
+    items.append(obj)
+
+
 def _sync_env_token_for_active_profile(
     data: dict,
     profile_id: str | None,
@@ -1143,14 +1148,7 @@ async def save_claude_profile(profile: ClaudeProfile):
     }
 
     # Update or add profile
-    found = False
-    for i, p in enumerate(profiles):
-        if p.get("id") == profile.id:
-            profiles[i] = profile_data
-            found = True
-            break
-    if not found:
-        profiles.append(profile_data)
+    _upsert_by_id(profiles, profile_data)
 
     data["profiles"] = profiles
     save_profiles(data)  # This function sets secure file permissions (0o600)
@@ -1828,14 +1826,7 @@ async def save_api_profile(profile: dict):
         profile["id"] = str(uuid.uuid4())
 
     profiles = data.get("profiles", [])
-    found = False
-    for i, p in enumerate(profiles):
-        if p.get("id") == profile["id"]:
-            profiles[i] = profile
-            found = True
-            break
-    if not found:
-        profiles.append(profile)
+    _upsert_by_id(profiles, profile)
 
     data["profiles"] = profiles
     save_api_profiles(data)
