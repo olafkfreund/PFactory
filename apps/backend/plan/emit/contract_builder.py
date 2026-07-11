@@ -220,6 +220,10 @@ def build_task_contract(
         "plan_id": plan.plan_id,
         **({"repo": repo} if repo else {}),
     }
+    # Factory#273: carry the intake trust marking so downstream defenses
+    # (AIFactory scan gate) know issue/spec-derived text is untrusted.
+    if plan.content_trust:
+        provenance["content_trust"] = plan.content_trust
     if rm is not None and rm.available:
         if rm.base_ref:
             provenance["base_ref"] = rm.base_ref

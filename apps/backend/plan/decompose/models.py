@@ -100,6 +100,10 @@ class EpicPlan(BaseModel):
     # How this epic was produced (gap #6: detect a silent LLM→heuristic fallback).
     decompose_method: DecomposeMethod = "heuristic"
     decompose_errors: list[str] = Field(default_factory=list)
+    # RFC-0014 (#283): the routing decision the planning LLM call resolved
+    # ({stage, model, tier, source}) — evidence for the completion event.
+    # None on the deterministic/heuristic path.
+    routing: dict[str, Any] | None = None
 
     def child(self, key: str) -> ChildIssue | None:
         return next((c for c in self.children if c.key == key), None)

@@ -15,12 +15,17 @@ import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from plan.recon.models import RepoMap
 from pydantic import BaseModel, Field
+
+from plan.recon.models import RepoMap
 from spec_sources import NormalizedSpec
 
 TargetKind = Literal["software", "non-software", "undetermined"]
 SourceChannel = Literal["portal", "cli", "mcp", "github_issue", "github_discussion", "agent"]
+# Factory#273 (untrusted-content provenance): issue/spec-derived text is
+# untrusted user content; operator-authored specs arriving through the
+# authenticated API / CLI / MCP surfaces are trusted.
+ContentTrust = Literal["untrusted_user_content", "trusted"]
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -101,6 +106,11 @@ class NormalizedPlan(BaseModel):
     # canonical_content(): the constitution is governance grounding, not plan
     # substance, so refreshing it must not invalidate a human approval.
     constitution_md: str | None = None
+    # Factory#273: the trust marking for the plan's source text, stamped at the
+    # ingest seams and carried into the contract's ``provenance.content_trust``.
+    # None on plans predating the field (back-compat: absent => unmarked).
+    # Excluded from canonical_content(): a provenance marker, not plan substance.
+    content_trust: ContentTrust | None = None
     raw_text: str | None = None
     content_hash: str = ""
     ingested_at: str = Field(default_factory=_utcnow_iso)
@@ -156,7 +166,19 @@ class NormalizedPlan(BaseModel):
         raw_text: str | None = None,
     ) -> NormalizedPlan:
         """Build a :class:`NormalizedPlan` from an ingested
-        :class:`spec_sources.NormalizedSpec`, computing id + content hash."""
+        :class:`spec_sources.NormalizedSpec`, computing id + content hash.
+
+        ``content_trust`` is derived from the channel (Factory#273): GitHub
+        issue/discussion bodies are ``untrusted_user_content``; text arriving on
+        the authenticated operator surfaces (portal/cli/mcp/agent) is
+        ``trusted``. Ingest paths whose text is repo-authored despite the
+        channel (spec-kit workspaces) override it via ``model_copy``.
+        """
+        content_trust: ContentTrust = (
+            "untrusted_user_content"
+            if source_channel in ("github_issue", "github_discussion")
+            else "trusted"
+        )
         plan = cls(
             plan_id=plan_id or make_plan_id(seq, spec.title),
             title=spec.title,
@@ -165,5 +187,6 @@ class NormalizedPlan(BaseModel):
             source_channel=source_channel,
             criteria=[Criterion(id=c.id, text=c.text) for c in spec.criteria],
             raw_text=raw_text,
+            content_trust=content_trust,
         )
         return plan.with_hash()
