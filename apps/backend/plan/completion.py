@@ -121,6 +121,16 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
         event["evidence"] = evidence
     if halt_reason is not None:
         event["halt_reason"] = halt_reason
+    # RFC-0014 (#283): the routing decision the planning LLM call resolved —
+    # actual model + tier + precedence source (evidence-gate pattern). Absent on
+    # deterministic runs. Factory#273: the intake injection-scan verdict
+    # ({verdict: pass|flagged|skipped, reason}) so CFactory can display it.
+    routing = getattr(getattr(session, "epic", None), "routing", None)
+    if routing:
+        event["routing"] = routing
+    injection_scan = getattr(session, "injection_scan", None)
+    if injection_scan:
+        event["injection_scan"] = injection_scan
     return event
 
 

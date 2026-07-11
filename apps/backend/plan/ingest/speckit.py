@@ -284,7 +284,15 @@ def _spec_to_plan(spec: NormalizedSpec, *, raw_text: str) -> NormalizedPlan:
         seq=1,
         source_channel="cli",
         raw_text=raw_text,
-    ).model_copy(update={"source_format": "spec-kit", "target_kind": "software"})
+    ).model_copy(
+        update={
+            "source_format": "spec-kit",
+            "target_kind": "software",
+            # Factory#273: .specify spec text is authored inside the target
+            # repo, not by the authenticated operator — mark it untrusted.
+            "content_trust": "untrusted_user_content",
+        }
+    )
 
 
 def _epic_from_tasks(

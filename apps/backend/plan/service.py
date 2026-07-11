@@ -19,6 +19,8 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 from plan.annotate import AnnotationResult, annotate_plan
 from plan.completion import (
     correlation_key_for,
@@ -75,7 +77,6 @@ from plan.service_helpers import (
 from plan.synthesize.models import SynthesizedArtifact
 from plan.synthesize.run import synthesize
 from plan.usage import PlanUsage
-from pydantic import BaseModel, Field
 
 # Lifecycle status. The first five are persisted stages; `processing`/`reviewing`
 # are transient sub-states set during process() so the board shows live progress.
@@ -148,6 +149,12 @@ class PlanSession(BaseModel):
     # the additive `usage` block on the completion event (CFactory Tokens page).
     usage: PlanUsage = Field(default_factory=PlanUsage)
 
+    # Factory#273 intake injection-scan verdict: {"verdict": pass|flagged|skipped,
+    # "reason": str}. None until classification runs; surfaced on the completion
+    # event so CFactory can display it. A `flagged` verdict forces tier=hard
+    # (blocking human review) via route_tier — see _detect_and_plan_type.
+    injection_scan: dict | None = None
+
     def record_usage(self, usage: PlanUsage | None) -> None:
         """Fold an LLM call's usage into the run total (no-op for ``None``)."""
         self.usage.add(usage)
@@ -169,6 +176,7 @@ class PlanSession(BaseModel):
             "correlation_key": self.correlation_key,
             "issue_number": self.emitted_issue_number,
             "aifactory_task_id": self.aifactory_task_id,
+            "injection_scan": self.injection_scan,
         }
 
 
@@ -696,6 +704,12 @@ class PlanService:
         # plan-type selection, decomposition and the language used at emit.
         detected = detect_apply(session.plan)
         detected = self._reconnoiter(session, detected)
+        # Factory#273 (#283): lightweight injection scan over the intake TEXT of
+        # untrusted (issue/spec-derived) content — one more classification
+        # signal on the RFC-0011 tier seam, not a new pipeline stage. A flagged
+        # body forces tier=hard below, so it lands in human review instead of
+        # auto-tiering. Trusted operator text skips the scan.
+        session.injection_scan = self._scan_intake_text(detected)
         # RFC-0011 (#182): resolve the final difficulty tier now that recon has
         # set change_mode. A migration (rewrite) forces `hard` — opus, full
         # decompose (PFactory never skips planning in process — the wave executor
@@ -705,12 +719,34 @@ class PlanService:
         resolved_tier = _route_tier(
             detected.autonomy_tier,
             is_migration=detected.change_mode == "migration",
+            injection_flagged=session.injection_scan.get("verdict") == "flagged",
         )
         if resolved_tier is not None and resolved_tier != detected.autonomy_tier:
             detected = detected.model_copy(update={"autonomy_tier": resolved_tier})
         plan = self._enrich(plan_type_apply(detected))
         descriptor = select_for(plan)
         return plan, descriptor
+
+    @staticmethod
+    def _scan_intake_text(plan: NormalizedPlan) -> dict:
+        """Injection-scan verdict for the plan's intake text (Factory#273).
+
+        TEXT ONLY — scans the ingested issue/spec body (``raw_text``, falling
+        back to title + description), never repo content (that is AIFactory's
+        pre-coder gate, AIFactory#805). Trusted operator content is skipped.
+        """
+        from plan.detect.content_scan import scan_text  # noqa: PLC0415
+
+        if plan.content_trust != "untrusted_user_content":
+            return {"verdict": "skipped", "reason": "content not marked untrusted"}
+        text = plan.raw_text or f"{plan.title}\n{plan.description}"
+        hits = scan_text(text)
+        if hits:
+            return {
+                "verdict": "flagged",
+                "reason": f"likely injection payload: {'; '.join(hits[:3])}",
+            }
+        return {"verdict": "pass", "reason": ""}
 
     def _decompose(
         self, session: PlanSession, plan: NormalizedPlan, descriptor: object, *, llm=None

@@ -17,12 +17,16 @@ implement it. Two paths share the same entry point:
 from __future__ import annotations
 
 import json
+import logging
 from typing import Protocol, runtime_checkable
 
 from plan import plan_types
 from plan.decompose.models import ChildIssue, EpicPlan
+from plan.decompose.routing import resolve_planning_model
 from plan.models import NormalizedPlan
 from plan.plan_types import PlanTypeDescriptor
+
+logger = logging.getLogger(__name__)
 
 # ── LLM seam ───────────────────────────────────────────────────────────────
 
@@ -301,7 +305,24 @@ def decompose_with_llm(
     validation failure so the stage always yields a usable EpicPlan. When
     ``usage_sink`` is supplied, the call's token usage (if the response or the
     llm object exposes any) is appended to it for the run total (#60).
+
+    RFC-0014 (#283): the model for this call is resolved through the routing
+    precedence chain (pinned > override > policy > the llm's current default).
+    With no routing env set the decision is ``source="default"`` — a strict
+    no-op, today's behaviour. A non-default decision is applied best-effort to
+    the llm object's ``model`` attribute and recorded on ``epic.routing``.
     """
+    decision = resolve_planning_model(default_model=getattr(llm, "model", None))
+    if decision.source != "default" and decision.model:
+        try:
+            llm.model = decision.model  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 — an immutable llm keeps its own model
+            logger.warning(
+                "routing resolved model %s (%s) but the llm object does not "
+                "accept a model attribute; using its own model",
+                decision.model,
+                decision.source,
+            )
     try:
         prompt = build_decompose_prompt(plan, descriptor)
         completion, raw = _llm_call(llm, prompt)
@@ -317,6 +338,10 @@ def decompose_with_llm(
         if not epic.children:
             raise ValueError("llm produced an EpicPlan with no children")
         epic.decompose_method = "llm"
+        # Stamp the actual model used (evidence, RFC-0001a pattern): the llm's
+        # live model attribute when readable, else the routing decision's.
+        actual = getattr(llm, "model", None) or decision.model
+        epic.routing = {**decision.as_block(), "model": str(actual or "")}
         return epic
     except Exception as exc:
         # Record the failure instead of silently returning the heuristic, so the
