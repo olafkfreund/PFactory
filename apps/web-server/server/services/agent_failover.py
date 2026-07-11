@@ -303,7 +303,7 @@ class AgentFailoverMixin:
         project_path: Path,
         spec_id: str,  # noqa: ARG002
         cmd: list[str],
-        env: dict,
+        env: dict[str, str],
     ) -> asyncio.subprocess.Process | None:
         """Retry task execution with Claude Sonnet as fallback model.
 
@@ -368,7 +368,7 @@ class AgentFailoverMixin:
         project_path: Path,
         spec_id: str,  # noqa: ARG002
         cmd: list[str],
-        env: dict,
+        env: dict[str, str],
         failed_profile_id: str,
         reason: str,
     ) -> asyncio.subprocess.Process | None:
@@ -409,14 +409,14 @@ class AgentFailoverMixin:
         await self._emit_profile_switch(
             task_id=task_id,
             old_profile_id=failed_profile_id,
-            new_profile_id=profile_id,
-            new_profile_name=profile_name,
+            new_profile_id=profile_id,  # type: ignore[arg-type]
+            new_profile_name=profile_name,  # type: ignore[arg-type]
             reason=reason,
         )
 
         # Update active profile system-wide (only for rate limit, not early failure)
         if reason == "rate_limit":
-            self._update_active_profile(profile_id, profile_name, reason="reactive_failover")
+            self._update_active_profile(profile_id, profile_name, reason="reactive_failover")  # type: ignore[arg-type]
 
         # Update tracking
         if task_id in self._task_profiles:
@@ -431,7 +431,7 @@ class AgentFailoverMixin:
         import pty  # noqa: PLC0415
         master_fd, slave_fd = pty.openpty()  # noqa: RUF059
 
-        proc = await asyncio.create_subprocess_exec(  # noqa: F841
+        proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=slave_fd,
             stdout=asyncio.subprocess.PIPE,
@@ -442,3 +442,4 @@ class AgentFailoverMixin:
 
         os.close(slave_fd)
 
+        return proc

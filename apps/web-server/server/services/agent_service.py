@@ -19,6 +19,13 @@ from ..websockets.events import (
     emit_task_status,
     emit_task_update,
 )
+from .agent_failover import AgentFailoverMixin
+from .agent_process_monitor import AgentProcessMonitorMixin
+from .agent_worktree_sync import AgentWorktreeSyncMixin
+
+# TaskLogWriter moved to task_log_writer.py (Factory#255 seam b); re-exported
+# here so existing import paths keep working unchanged.
+from .task_log_writer import TaskLogWriter as TaskLogWriter  # noqa: PLC0414
 
 # Re-export the task-model cluster so all existing import paths keep working
 # unchanged. The ``X as X`` form is the mypy-standard explicit re-export idiom
@@ -32,13 +39,6 @@ from .task_models import _dedup_signature as _dedup_signature  # noqa: PLC0414
 from .task_models import phase_to_review_reason as phase_to_review_reason  # noqa: PLC0414
 from .task_models import phase_to_status as phase_to_status  # noqa: PLC0414
 from .task_models import scale_progress as scale_progress  # noqa: PLC0414
-
-# TaskLogWriter moved to task_log_writer.py (Factory#255 seam b); re-exported
-# here so existing import paths keep working unchanged.
-from .task_log_writer import TaskLogWriter as TaskLogWriter  # noqa: PLC0414
-from .agent_failover import AgentFailoverMixin
-from .agent_worktree_sync import AgentWorktreeSyncMixin
-from .agent_process_monitor import AgentProcessMonitorMixin
 
 
 class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonitorMixin):

@@ -20,7 +20,7 @@ import asyncio
 import json
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .task_models import TaskLog, TaskPhase, TaskProgress
 
@@ -102,7 +102,7 @@ class AgentProcessMonitorMixin:
             stop_after_planning: bool = False,
         ) -> asyncio.subprocess.Process: ...
 
-    def _parse_phase_event(self, line: str) -> dict | None:
+    def _parse_phase_event(self, line: str) -> dict[str, Any] | None:
         """Parse phase event from agent output.
 
         Supports two formats:
@@ -114,7 +114,7 @@ class AgentProcessMonitorMixin:
         if line.startswith(exec_phase_prefix):
             try:
                 json_str = line[len(exec_phase_prefix):]
-                event = json.loads(json_str)
+                event = cast(dict[str, Any], json.loads(json_str))
                 # Map 'progress' to 'percentage' for consistency
                 if "progress" in event:
                     event["percentage"] = event.pop("progress")
@@ -280,7 +280,7 @@ class AgentProcessMonitorMixin:
         project_path: Path | None = None,
         spec_id: str | None = None,
         cmd: list[str] | None = None,
-        env: dict | None = None
+        env: dict[str, str] | None = None
     ) -> None:
         """Monitor subprocess and clean up when it finishes.
 
@@ -397,7 +397,7 @@ class AgentProcessMonitorMixin:
                 logger.info(f"[AgentService] Fallback check: model={_fb_model!r}, attempt={_fb_attempt}, is_non_claude={_fb_is_non_claude}, cmd={'yes' if cmd else 'no'}, env={'yes' if env else 'no'}")  # noqa: E501
                 if _fb_is_non_claude and _fb_attempt <= 1:
                     new_proc = await self._retry_task_with_fallback_model(
-                        task_id, project_path, spec_id, cmd, env
+                        task_id, project_path, spec_id, cmd, env  # type: ignore[arg-type]
                     )
                     if new_proc:
                         self._task_rate_limits.pop(task_id, None)
@@ -410,13 +410,13 @@ class AgentProcessMonitorMixin:
 
                         asyncio.create_task(  # noqa: RUF006
                             self._process_output(
-                                task_id, new_proc.stdout, is_stderr=False,
+                                task_id, new_proc.stdout, is_stderr=False,  # type: ignore[arg-type]
                                 log_writer=log_writer, spec_id=spec_id,
                             )
                         )
                         asyncio.create_task(  # noqa: RUF006
                             self._process_output(
-                                task_id, new_proc.stderr, is_stderr=True,
+                                task_id, new_proc.stderr, is_stderr=True,  # type: ignore[arg-type]
                                 log_writer=log_writer, spec_id=spec_id,
                             )
                         )
@@ -635,7 +635,7 @@ class AgentProcessMonitorMixin:
                         asyncio.create_task(  # noqa: RUF006
                             self._process_output(
                                 task_id,
-                                new_proc.stdout,
+                                new_proc.stdout,  # type: ignore[arg-type]
                                 is_stderr=False,
                                 log_writer=log_writer,
                                 spec_id=spec_id,
@@ -644,7 +644,7 @@ class AgentProcessMonitorMixin:
                         asyncio.create_task(  # noqa: RUF006
                             self._process_output(
                                 task_id,
-                                new_proc.stderr,
+                                new_proc.stderr,  # type: ignore[arg-type]
                                 is_stderr=True,
                                 log_writer=log_writer,
                                 spec_id=spec_id,

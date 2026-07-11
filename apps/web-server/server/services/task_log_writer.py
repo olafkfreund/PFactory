@@ -16,6 +16,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 from ..websockets.events import emit_task_logs_stream  # noqa: TID252
 from .task_models import TaskPhase
@@ -62,12 +63,12 @@ class TaskLogWriter:
         self._text_emit_interval: float = 1.0  # seconds
         self._pending_text_lines: list[str] = []
 
-    def _ensure_initialized(self, spec_id: str) -> dict:
+    def _ensure_initialized(self, spec_id: str) -> dict[str, Any]:
         """Ensure task_logs.json exists with proper structure."""
         if self.log_file.exists():
             try:
                 with open(self.log_file) as f:  # noqa: PTH123
-                    return json.load(f)
+                    return cast(dict[str, Any], json.load(f))
             except (OSError, json.JSONDecodeError):
                 pass
 
@@ -102,7 +103,7 @@ class TaskLogWriter:
             }
         }
 
-    def _save(self, data: dict) -> None:
+    def _save(self, data: dict[str, Any]) -> None:
         """Save task_logs.json."""
         self.spec_dir.mkdir(parents=True, exist_ok=True)
         data["updated_at"] = datetime.now().isoformat()  # noqa: DTZ005
@@ -177,7 +178,7 @@ class TaskLogWriter:
 
         # Emit WebSocket event for real-time streaming to open task detail modals
         # Format as TaskLogStreamChunk to match frontend interface
-        stream_chunk = {
+        stream_chunk: dict[str, Any] = {
             "type": entry_type,
             "content": content,
             "phase": phase_key,
