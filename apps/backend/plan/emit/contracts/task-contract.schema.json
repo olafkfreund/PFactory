@@ -4,288 +4,118 @@
   "title": "Factory Task Contract v2",
   "description": "Canonical, signed cross-factory task contract (RFC-0002). Superset of AIFactory's implementation_plan.json adding execution + tfactory profiles. PFactory produces it; AIFactory executes it (skip planning); TFactory tests from it.",
   "type": "object",
-  "required": [
-    "contract_version",
-    "feature",
-    "workflow_type",
-    "phases"
-  ],
+  "required": ["contract_version", "feature", "workflow_type", "phases"],
   "additionalProperties": true,
   "properties": {
     "contract_version": {
       "type": "string",
       "description": "Contract schema version. '2' enables the execution/tfactory blocks.",
-      "enum": [
-        "1",
-        "2"
-      ]
+      "enum": ["1", "2"]
     },
     "correlation_key": {
       "type": "string",
       "description": "RFC-0001 correlation key: the GitHub issue number as a string, or a synthetic <prefix>-<id>."
-    },
-    "epic_ref": {
-      "type": "string",
-      "description": "Short, always-scalar epic identifier for downstream task descriptions (e.g. AIFactory's \"Correlation epic #<id>\"): the GitHub issue number when known, else the plan_id. Consumers must use this and never str() the session's epic object."
     },
     "provenance": {
       "type": "object",
       "description": "Where the contract came from.",
       "additionalProperties": true,
       "properties": {
-        "source": {
-          "type": "string",
-          "description": "Emitting system, e.g. 'pfactory'."
-        },
-        "session_id": {
-          "type": "string"
-        },
-        "issue_number": {
-          "type": "integer"
-        },
-        "repo": {
-          "type": "string",
-          "description": "owner/name of the target repo."
-        },
-        "base_ref": {
-          "type": "string",
-          "description": "RFC-0010 reconnaissance: the branch/tag the plan was built against, e.g. 'main'."
-        },
-        "baseline_commit": {
-          "type": "string",
-          "description": "RFC-0010 reconnaissance: the resolved commit SHA the RepoMap was built from. Lets AIFactory/TFactory anchor to the exact tree the human approved and detect drift."
-        }
+        "source": { "type": "string", "description": "Emitting system, e.g. 'pfactory'." },
+        "session_id": { "type": "string" },
+        "issue_number": { "type": "integer" },
+        "repo": { "type": "string", "description": "owner/name of the target repo." },
+        "base_ref": { "type": "string", "description": "RFC-0010 reconnaissance: the branch/tag the plan was built against, e.g. 'main'." },
+        "baseline_commit": { "type": "string", "description": "RFC-0010 reconnaissance: the resolved commit SHA the RepoMap was built from. Lets AIFactory/TFactory anchor to the exact tree the human approved and detect drift." },
+        "content_trust": { "$ref": "#/$defs/content_trust" }
       }
     },
     "approval": {
       "type": "object",
       "description": "HMAC trust envelope (AIFactory trusted_plan). Required for the skip-planning fast-path.",
-      "required": [
-        "approved_by",
-        "approval_timestamp",
-        "plan_contract_version",
-        "signature"
-      ],
+      "required": ["approved_by", "approval_timestamp", "plan_contract_version", "signature"],
       "additionalProperties": true,
       "properties": {
-        "approved_by": {
-          "type": "string",
-          "description": "Signing authority, e.g. 'pfactory' or 'cfactory'."
-        },
-        "approval_timestamp": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "plan_contract_version": {
-          "type": "string"
-        },
-        "signature": {
-          "type": "string",
-          "description": "HMAC-SHA256 hex over the canonical contract + approval metadata."
-        }
+        "approved_by": { "type": "string", "description": "Signing authority, e.g. 'pfactory' or 'cfactory'." },
+        "approval_timestamp": { "type": "string", "format": "date-time" },
+        "plan_contract_version": { "type": "string" },
+        "signature": { "type": "string", "description": "HMAC-SHA256 hex over the canonical contract + approval metadata." }
       }
     },
-    "feature": {
-      "type": "string",
-      "description": "Short feature/task name."
-    },
+
+    "feature": { "type": "string", "description": "Short feature/task name." },
     "workflow_type": {
       "type": "string",
-      "enum": [
-        "feature",
-        "refactor",
-        "investigation",
-        "migration",
-        "simple",
-        "development",
-        "enhancement"
-      ]
+      "enum": ["feature", "refactor", "investigation", "migration", "simple", "development", "enhancement"]
     },
-    "services_involved": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+    "change_mode": {
+      "type": "string",
+      "enum": ["greenfield", "modify", "migration"],
+      "description": "RFC-0010 reconnaissance verdict, distinct from workflow_type (which is the work-shape). greenfield => new code, no existing repo grounding. modify => edit existing code in place (the repo's language wins). migration => rewrite from source_language to target_language (the only case a language change is legitimate). Absent => greenfield (back-compat)."
     },
-    "final_acceptance": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
+    "services_involved": { "type": "array", "items": { "type": "string" } },
+    "final_acceptance": { "type": "array", "items": { "type": "string" } },
     "required_commands": {
       "type": "array",
       "description": "Global verification command NAMES granted into the security allowlist (uv/pytest/ruff/mypy/...).",
-      "items": {
-        "type": "string"
-      }
+      "items": { "type": "string" }
     },
+
     "phases": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": [
-          "phase",
-          "name",
-          "subtasks"
-        ],
+        "required": ["phase", "name", "subtasks"],
         "additionalProperties": true,
         "properties": {
-          "phase": {
-            "type": "integer"
-          },
-          "name": {
-            "type": "string"
-          },
+          "phase": { "type": "integer" },
+          "name": { "type": "string" },
           "type": {
             "type": "string",
-            "enum": [
-              "setup",
-              "implementation",
-              "investigation",
-              "integration",
-              "cleanup"
-            ]
+            "enum": ["setup", "implementation", "investigation", "integration", "cleanup"]
           },
           "depends_on": {
             "type": "array",
             "description": "Phase numbers, or planner slugs (e.g. 'phase-1-scaffold'), this phase depends on.",
-            "items": {
-              "type": [
-                "integer",
-                "string"
-              ]
-            }
+            "items": { "type": ["integer", "string"] }
           },
-          "parallel_safe": {
-            "type": "boolean"
-          },
+          "parallel_safe": { "type": "boolean" },
           "subtasks": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": [
-                "id",
-                "description"
-              ],
+              "required": ["id", "description"],
               "additionalProperties": true,
               "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "description": {
-                  "type": "string"
-                },
+                "id": { "type": "string" },
+                "description": { "type": "string" },
                 "status": {
                   "type": "string",
-                  "enum": [
-                    "pending",
-                    "in_progress",
-                    "completed",
-                    "blocked",
-                    "failed"
-                  ]
+                  "enum": ["pending", "in_progress", "completed", "blocked", "failed"]
                 },
-                "service": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "depends_on": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "model": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "description": "Per-subtask model override (right-sizing)."
-                },
-                "files_to_create": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "files_to_modify": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "patterns_from": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "required_commands": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
+                "service": { "type": ["string", "null"] },
+                "depends_on": { "type": "array", "items": { "type": "string" } },
+                "model": { "type": ["string", "null"], "description": "Per-subtask model override (right-sizing)." },
+                "files_to_create": { "type": "array", "items": { "type": "string" } },
+                "files_to_modify": { "type": "array", "items": { "type": "string" } },
+                "patterns_from": { "type": "array", "items": { "type": "string" } },
+                "required_commands": { "type": "array", "items": { "type": "string" } },
                 "verification": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
+                  "type": ["object", "null"],
                   "additionalProperties": true,
                   "properties": {
                     "type": {
                       "type": "string",
-                      "enum": [
-                        "command",
-                        "api",
-                        "browser",
-                        "component",
-                        "manual",
-                        "none",
-                        "e2e"
-                      ]
+                      "enum": ["command", "api", "browser", "component", "manual", "none", "e2e"]
                     },
-                    "run": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "url": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "method": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "expect_status": {
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    },
-                    "expect_contains": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "scenario": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
+                    "run": { "type": ["string", "null"] },
+                    "url": { "type": ["string", "null"] },
+                    "method": { "type": ["string", "null"] },
+                    "expect_status": { "type": ["integer", "null"] },
+                    "expect_contains": { "type": ["string", "null"] },
+                    "scenario": { "type": ["string", "null"] }
                   }
                 }
               }
@@ -294,105 +124,46 @@
         }
       }
     },
+
     "execution": {
       "type": "object",
       "description": "HOW to execute — computed by PFactory, consumed by AIFactory. Absent => AIFactory uses its own defaults/planning.",
       "additionalProperties": true,
       "properties": {
-        "complexity": {
-          "type": "string",
-          "enum": [
-            "simple",
-            "standard",
-            "complex"
-          ]
-        },
-        "model": {
-          "type": "string",
-          "description": "Default model (full id or shorthand opus/sonnet/haiku)."
-        },
+        "complexity": { "type": "string", "enum": ["simple", "standard", "complex"] },
+        "model": { "type": "string", "description": "Default model (full id or shorthand opus/sonnet/haiku)." },
         "provider": {
           "type": "string",
           "description": "Inferred from model via phase_config.infer_provider_from_model.",
-          "enum": [
-            "claude",
-            "codex",
-            "antigravity",
-            "ollama",
-            "copilot",
-            "opencode",
-            "openai-compatible",
-            "gemini"
-          ]
+          "enum": ["claude", "codex", "antigravity", "ollama", "copilot", "opencode", "openai-compatible", "gemini"]
         },
-        "provider_rationale": {
-          "type": "string"
-        },
+        "provider_rationale": { "type": "string" },
         "phase_models": {
           "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
+          "additionalProperties": { "type": "string" },
           "description": "Per-phase model overrides keyed by spec|planning|coding|qa|qa_fixer."
         },
         "phase_thinking": {
           "type": "object",
-          "additionalProperties": {
-            "type": "string",
-            "enum": [
-              "none",
-              "low",
-              "medium",
-              "high"
-            ]
-          }
+          "additionalProperties": { "type": "string", "enum": ["none", "low", "medium", "high"] }
         },
-        "parallel": {
-          "type": "boolean"
-        },
-        "workers": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "review_tier": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "async",
-            "blocking"
-          ]
-        },
+        "parallel": { "type": "boolean" },
+        "workers": { "type": "integer", "minimum": 1 },
+        "review_tier": { "type": "string", "enum": ["auto", "async", "blocking"] },
         "autonomy_tier": {
           "type": "string",
-          "enum": [
-            "low",
-            "medium",
-            "hard"
-          ],
+          "enum": ["low", "medium", "hard"],
           "description": "RFC-0011 label-driven difficulty tier (from factory:low|medium|hard). Drives model/planning/human-gate/verification/merge: low => cheap/local model (ollama->haiku), skip planning, no human, auto-merge when green; medium => sonnet, async human approval; hard => opus, PFactory planning, blocking human approval, highest verification (+equivalence lane for a rewrite). Precedence: highest wins; change_mode=migration forces hard. Absent => derived from complexity (back-compat)."
         },
         "agents": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "planner": {
-              "type": "boolean"
-            },
-            "coder": {
-              "type": "boolean"
-            },
-            "qa_reviewer": {
-              "type": "boolean"
-            },
-            "qa_fixer": {
-              "type": "boolean"
-            },
-            "subagents": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
+            "planner": { "type": "boolean" },
+            "coder": { "type": "boolean" },
+            "qa_reviewer": { "type": "boolean" },
+            "qa_fixer": { "type": "boolean" },
+            "subagents": { "type": "array", "items": { "type": "string" } }
           }
         },
         "skills": {
@@ -400,15 +171,9 @@
           "items": {
             "type": "object",
             "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "category": {
-                "type": "string"
-              }
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "category": { "type": "string" }
             }
           }
         },
@@ -428,26 +193,15 @@
           "properties": {
             "class": {
               "type": "string",
-              "enum": [
-                "economy",
-                "standard",
-                "premium",
-                "governed"
-              ],
+              "enum": ["economy", "standard", "premium", "governed"],
               "description": "Routing class from the task scorer (RFC-0014 §4). 'governed' (high risk / production) forces a frontier model for PLANNING even when coding/testing are cheap; it is never silently degraded."
             },
             "cost_estimate_usd": {
-              "type": [
-                "number",
-                "null"
-              ],
+              "type": ["number", "null"],
               "description": "Pre-execution rolled-up cost estimate in USD for the chosen per-role models. null when the selection is subscription- or local-priced (no $ estimate — costed as tokens/time, mirroring CFactory billing-mode display)."
             },
             "cost_ceiling_usd": {
-              "type": [
-                "number",
-                "null"
-              ],
+              "type": ["number", "null"],
               "description": "The cost ceiling the router targeted. The chosen selection keeps cost_estimate_usd under this ceiling where a $ estimate exists; null => no ceiling applied."
             },
             "policy": {
@@ -462,27 +216,17 @@
         },
         "runtime": {
           "type": "string",
-          "enum": [
-            "claude",
-            "codex",
-            "antigravity",
-            "ollama",
-            "ollama-cloud",
-            "claude-subagents",
-            "dynamic-workflow"
-          ],
+          "enum": ["claude", "codex", "antigravity", "ollama", "ollama-cloud", "claude-subagents", "dynamic-workflow"],
           "description": "RFC-0014 execution runtime. Default 'claude' (today's path, unchanged). All non-'claude' runtimes are GATED OFF unless the operator enables them in config/env allowlist AND the contract opts in. 'claude-subagents' and 'dynamic-workflow' are the speed-up runtimes (parallel sub-agent fan-out / scripted multi-agent orchestration) and are manual-enable only because they multiply spend. Absent => 'claude'."
         },
         "budget_mode": {
           "type": "string",
-          "enum": [
-            "observe",
-            "enforce"
-          ],
+          "enum": ["observe", "enforce"],
           "description": "RFC-0014 budget enforcement mode. 'observe' (default) keeps budget_usd as a post-hoc warning that never changes the run. 'enforce' (operator-gated) lets the router refuse a selection whose estimate exceeds the ceiling — downgrading within the capability floor, or failing fast with a named reason if even the floor exceeds it. A 'governed' task is never silently degraded. Absent => 'observe'."
         }
       }
     },
+
     "tfactory": {
       "type": "object",
       "description": "VERIFY profile — computed by PFactory, carried by AIFactory, consumed by TFactory. Absent => TFactory infers.",
@@ -490,70 +234,25 @@
       "properties": {
         "lanes": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "unit",
-              "api",
-              "browser",
-              "integration",
-              "security",
-              "mutation",
-              "equivalence"
-            ]
-          }
+          "items": { "type": "string", "enum": ["unit", "api", "browser", "integration", "security", "mutation", "equivalence"] }
         },
         "frameworks": {
           "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
+          "additionalProperties": { "type": "string" },
           "description": "Lane -> framework, e.g. {unit: pytest, browser: playwright}."
         },
         "endpoints": {
           "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
+          "additionalProperties": { "type": "string" },
           "description": "e.g. {api_base_url: http://localhost:8000}."
         },
-        "docker_compose": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Path to a compose file for integration lanes."
-        },
-        "coverage_target": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "maximum": 1
-        },
-        "mutation_scope": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Globs/files to mutate."
-        },
-        "security_scope": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Rule sets, e.g. owasp:* ; empty => out of scope."
-        },
+        "docker_compose": { "type": ["string", "null"], "description": "Path to a compose file for integration lanes." },
+        "coverage_target": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "mutation_scope": { "type": "array", "items": { "type": "string" }, "description": "Globs/files to mutate." },
+        "security_scope": { "type": "array", "items": { "type": "string" }, "description": "Rule sets, e.g. owasp:* ; empty => out of scope." },
         "ac_to_code_map": {
           "type": "object",
-          "additionalProperties": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
+          "additionalProperties": { "type": "array", "items": { "type": "string" } },
           "description": "Acceptance-criterion id -> files/functions it covers."
         },
         "equivalence": {
@@ -562,96 +261,127 @@
           "description": "RFC-0010 behavioral-equivalence profile for change_mode=migration. The differential lane runs the SAME golden corpus against the legacy source impl (reference oracle) and the new target impl, asserting parity. Absent => no equivalence testing.",
           "properties": {
             "golden_corpus_ref": {
-              "type": [
-                "string",
-                "null"
-              ],
+              "type": ["string", "null"],
               "description": "Path to the golden-corpus MANIFEST (input vectors declared by PFactory). Expected outputs are captured by TFactory by running the legacy source in its hermetic sandbox — NEVER by the planner. The captured corpus is content-hash addressed so the differential lane proves the same corpus ran against both impls."
             },
             "parity_threshold": {
-              "type": [
-                "number",
-                "null"
-              ],
+              "type": ["number", "null"],
               "minimum": 0,
               "maximum": 1,
               "description": "Minimum matching-vector ratio to pass (e.g. 1.0). Vectors flagged critical must all match regardless."
             },
             "differential_lanes": {
               "type": "array",
-              "items": {
-                "type": "string"
-              },
+              "items": { "type": "string" },
               "description": "Which lanes are run differentially (source-vs-target) rather than against the target alone."
             },
             "module_map": {
               "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              },
+              "additionalProperties": { "type": "string" },
               "description": "source_module -> target_module mapping driving the rewrite and the per-module parity report."
             }
           }
         }
       }
     },
-    "created_at": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "updated_at": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "spec_file": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "access": {
-      "$ref": "#/$defs/access"
-    },
-    "environment": {
-      "$ref": "#/$defs/environment"
-    },
-    "change_mode": {
-      "type": "string",
-      "enum": [
-        "greenfield",
-        "modify",
-        "migration"
-      ],
-      "description": "RFC-0010 reconnaissance verdict, distinct from workflow_type (which is the work-shape). greenfield => new code, no existing repo grounding. modify => edit existing code in place (the repo's language wins). migration => rewrite from source_language to target_language (the only case a language change is legitimate). Absent => greenfield (back-compat)."
-    },
-    "baseline": {
-      "$ref": "#/$defs/baseline"
-    },
-    "verification": {
-      "$ref": "#/$defs/verification"
-    },
+
+    "created_at": { "type": ["string", "null"] },
+    "updated_at": { "type": ["string", "null"] },
+    "spec_file": { "type": ["string", "null"] },
+
+    "verification": { "$ref": "#/$defs/verification" },
+
+    "access": { "$ref": "#/$defs/access" },
+
+    "environment": { "$ref": "#/$defs/environment" },
+
+    "baseline": { "$ref": "#/$defs/baseline" },
+
+    "deployment": { "$ref": "#/$defs/deployment" },
+
+    "routing": { "$ref": "#/$defs/routing" },
+
     "epic_context": {
       "type": "object",
       "additionalProperties": true,
       "description": "Sanitized enrichment carried alongside the plan for the downstream agents (constraints, knowledge links, and RFC-0012 house standards). Open object; consumers ignore unknown keys.",
       "properties": {
-        "house_standards": {
-          "$ref": "#/$defs/house_standards"
-        },
-        "constitution": {
-          "$ref": "#/$defs/constitution"
-        }
+        "house_standards": { "$ref": "#/$defs/house_standards" },
+        "constitution": { "$ref": "#/$defs/constitution" }
       }
-    },
-    "deployment": {
-      "$ref": "#/$defs/deployment"
     }
   },
   "$defs": {
+    "content_trust": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Untrusted-content provenance marking for prompt-injection defense (docs/security/untrusted-content-threat-model.md, issue #273). PFactory sets it at intake; every downstream service carries it through unchanged and wraps untrusted text in the canonical delimiter before prompt injection. Fully additive and OPTIONAL - ABSENT => consumers MUST assume untrusted_user_content (fail-closed default); the block exists to positively assert trust, never to let absence imply it.",
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": ["trusted", "untrusted_user_content"],
+          "description": "Trust class of the contract's free-text fields as a whole. 'untrusted_user_content' for anything derived from issue text, submitted specs, repo content, or MCP responses; 'trusted' ONLY for operator-authored input."
+        },
+        "sources": {
+          "type": "array",
+          "description": "Per-origin trust detail for mixed contracts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["source", "trust"],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": ["issue_text", "spec_file", "repo_content", "mcp_response", "operator"],
+                "description": "Where this content originated."
+              },
+              "trust": {
+                "type": "string",
+                "enum": ["trusted", "untrusted_user_content"]
+              },
+              "detail": {
+                "type": "string",
+                "description": "Concrete origin, e.g. 'github-issue:142', 'repo:owner/name@sha', 'mcp:backstage/techdocs'."
+              }
+            }
+          }
+        }
+      }
+    },
+    "constitution": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "RFC-0015 §3.1 constitution: the per-project, human-authored governing principles (repo .factory/constitution.md, mirrored to Backstage) every phase is checked against. Additive to RFC-0012 house_standards: PFactory injects it into planning/readiness, AIFactory coder/QA honour it, and the standards_conformance gate treats clauses tagged enforceable=true as HARD checks (closing spec-kit's soft-enforcement gap). Retrieval degrades, never fakes: available=false => the constitution was unavailable and the gate scores it not_applicable (never a false pass). Absent => today's behaviour.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Where the constitution came from, e.g. '.factory/constitution.md' or a Backstage entity ref."
+        },
+        "principles": {
+          "type": "array",
+          "description": "The governing principles, one entry each.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "text", "enforceable"],
+            "properties": {
+              "id": { "type": "string", "description": "Stable principle id, e.g. 'P1', referenced by enforceable_ids and gate findings." },
+              "text": { "type": "string", "description": "The principle statement (testing policy, architecture constraint, quality bar, security posture)." },
+              "enforceable": { "type": "boolean", "description": "true => the standards_conformance gate treats this clause as a HARD check; false => advisory, injected into prompts only." }
+            }
+          }
+        },
+        "enforceable_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The ids of the principles tagged enforceable=true — the subset the standards_conformance gate enforces as hard checks."
+        },
+        "available": {
+          "type": "boolean",
+          "description": "false when the constitution could not be retrieved (no .factory/constitution.md, Backstage unreachable). The gate then scores it not_applicable — never a false pass."
+        }
+      }
+    },
     "house_standards": {
       "type": "object",
       "additionalProperties": true,
@@ -662,10 +392,7 @@
           "description": "false when the standards could not be retrieved (Backstage unreachable, no matching entity). A baseline-only manifest may still be available=true."
         },
         "error": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "description": "Why retrieval was unavailable, when available=false."
         },
         "sources": {
@@ -674,17 +401,11 @@
           "items": {
             "type": "object",
             "additionalProperties": true,
-            "required": [
-              "source",
-              "content_hash"
-            ],
+            "required": ["source", "content_hash"],
             "properties": {
               "source": {
                 "type": "string",
-                "enum": [
-                  "baseline",
-                  "backstage"
-                ],
+                "enum": ["baseline", "backstage"],
                 "description": "'baseline' = RFC-0010 repo conventions (always offline-available); 'backstage' = pulled from the live catalog."
               },
               "kind": {
@@ -701,9 +422,7 @@
               },
               "techdocs_refs": {
                 "type": "array",
-                "items": {
-                  "type": "string"
-                },
+                "items": { "type": "string" },
                 "description": "TechDocs ref URIs the agents must consult (refs only, not inlined bodies)."
               },
               "conventions": {
@@ -721,478 +440,8 @@
               },
               "tags": {
                 "type": "array",
-                "items": {
-                  "type": "string"
-                },
+                "items": { "type": "string" },
                 "description": "Catalog/template tags (used to match the golden-path stack)."
-              }
-            }
-          }
-        }
-      }
-    },
-    "access": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "RFC-0007 access requirements discovered at planning time. Absent => the task needs no external/authenticated resource. The curation gate sets curated/human_approval; TFactory consumes credential_ref; the VAL gate (RFC-0006) treats an un-curated requirement as a VAL-3 not_run. Secrets are NEVER stored here — only broker refs.",
-      "required": [
-        "requirements"
-      ],
-      "properties": {
-        "requirements": {
-          "type": "array",
-          "description": "One entry per external/authenticated resource the task's tests must reach.",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "resource",
-              "auth_class",
-              "bootstrap"
-            ],
-            "properties": {
-              "resource": {
-                "type": "string",
-                "description": "What is being reached, e.g. 'staging-api', 'sandbox-aws', 'keycloak-realm'."
-              },
-              "auth_class": {
-                "type": "string",
-                "enum": [
-                  "A-machine-native",
-                  "B-bootstrap-once",
-                  "C-ephemeral-target",
-                  "D-un-automatable"
-                ],
-                "description": "A: OIDC federation / service account / scoped token (no MFA in path). B: device-code / refresh token / TOTP-seed-as-secret / captured session (human clears MFA once). C: disposable target the pipeline owns (no prod cred). D: interactive MFA (push / hardware key / SMS) — refused or assisted, never faked."
-              },
-              "credential_ref": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "Existing broker ref the test will use: env:NAME | vault:path#field | store:<id>. Never an inline secret."
-              },
-              "env_required": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Env var names the auth needs at runtime."
-              },
-              "bootstrap": {
-                "type": "string",
-                "enum": [
-                  "none",
-                  "human"
-                ],
-                "description": "human => a one-time human-verified login/seed/approval is required before this is usable."
-              },
-              "curated": {
-                "type": "boolean",
-                "description": "Set true ONLY by the curation gate once the credential/target is provisioned and a liveness check passes. VAL-3 stays not_run until true."
-              },
-              "human_approval": {
-                "type": [
-                  "object",
-                  "null"
-                ],
-                "additionalProperties": false,
-                "description": "Audit trail of the human bootstrap (RFC-0001a chain).",
-                "properties": {
-                  "approved_by": {
-                    "type": "string"
-                  },
-                  "approved_at": {
-                    "type": "string"
-                  },
-                  "scope": {
-                    "type": "string",
-                    "description": "What was granted, e.g. 'sandbox account, read+deploy, auto-teardown'."
-                  }
-                }
-              },
-              "mvp_note": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "For auth_class D: the honest reason testing cannot pass this gate autonomously."
-              }
-            }
-          }
-        }
-      }
-    },
-    "environment": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "RFC-0005 environment manifest — the single source of truth for the per-task toolchain, so the build env (AIFactory) and verify env (TFactory) cannot drift. The planner writes it; the provisioner materializes a throwaway sandbox from it (Tier A Nix preferred). Absent => the task runs in whatever the consumer's default runner provides.",
-      "properties": {
-        "language": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Primary language under test, e.g. 'python', 'rust', 'go', 'typescript'. For change_mode=migration this is the TARGET language (kept populated for back-compat consumers that read only `language`)."
-        },
-        "toolchain": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
-          "description": "Pinned tool => version map, e.g. {\"rust\": \"1.90\", \"cargo\": \"1.90\"}. Versions feed the flake/devcontainer the provisioner builds."
-        },
-        "system_packages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "OS/Nix package names the tests need beyond the language toolchain, e.g. ['pkg-config', 'openssl-dev', 'chromium']. For a browser lane: the browser + its libs (e.g. via nixpkgs playwright-driver.browsers)."
-        },
-        "build_commands": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Commands AIFactory runs to build the artifact in the materialized env."
-        },
-        "verify_commands": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Commands TFactory runs to verify in the SAME materialized env (no drift)."
-        },
-        "provisioning": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "method"
-          ],
-          "description": "How the consumer materializes this env. The provisioner resolves it tiered (A Nix, B image catalog, C on-demand build, D setup script).",
-          "properties": {
-            "method": {
-              "type": "string",
-              "enum": [
-                "nix",
-                "devcontainer",
-                "image",
-                "setup_script"
-              ],
-              "description": "nix => `nix develop -c` of `ref` (preferred, hermetic). devcontainer => devcontainer.json. image => a prebuilt registry image tag. setup_script => run `ref` inside the ephemeral container (last resort)."
-            },
-            "ref": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "description": "Path/identifier for the method: 'flake.nix' | '.devcontainer/devcontainer.json' | 'ghcr.io/.../rust:1.90' | '.factory/setup.sh'."
-            },
-            "generated": {
-              "type": "boolean",
-              "description": "true when the planner generated `ref` (and committed it as a deliverable) rather than the repo already carrying it."
-            }
-          }
-        },
-        "network": {
-          "type": "string",
-          "enum": [
-            "none",
-            "restricted"
-          ],
-          "description": "Egress posture for the materialized sandbox. 'none' for hermetic build/unit; 'restricted' when the lane must reach a declared target (RFC-0007 access)."
-        },
-        "proof": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Materialize-or-HALT evidence (RFC-0005 §3.4): commands that must succeed in the provisioned env before coding/verifying proceeds.",
-          "properties": {
-            "verify": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "Toolchain-presence checks, e.g. ['rustc --version', 'chromium --version']. A failure HALTs with a provisioning error, never a silent fallback."
-            }
-          }
-        },
-        "source_language": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "RFC-0010 migration only: the language being ported FROM (the legacy reference impl), e.g. 'python'. Absent outside migration."
-        },
-        "target_language": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "RFC-0010 migration only: the language being ported TO (the deliverable), e.g. 'rust'. Mirrors `language` for migration tasks."
-        },
-        "serve_command": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "How to start the app inside the materialized env for a lane that needs it running (browser/api against a live URL), e.g. 'python -m uvicorn app:app --port 8099'. Optional: when absent the consumer detects it from the checkout. Backgrounded by the runner, with a readiness wait, before the browser/api verify commands."
-        }
-      }
-    },
-    "baseline": {
-      "type": "object",
-      "additionalProperties": true,
-      "description": "RFC-0010 reconnaissance summary: what PFactory statically observed in the target repo and grounded the plan on. The planner reads code STATICALLY (AST/manifest/HCL parsing) and NEVER executes it. A stable digest of this block (commit + change_mode + resolved language + footprint) is folded into the approval content-hash, so the human approves a plan grounded in a known tree and approval invalidates if the repo drifts. Absent => the plan was not grounded in an existing repo (greenfield).",
-      "properties": {
-        "repo": {
-          "type": "string",
-          "description": "owner/name reconnoitred."
-        },
-        "base_ref": {
-          "type": "string",
-          "description": "Branch/tag reconnoitred."
-        },
-        "commit": {
-          "type": "string",
-          "description": "Resolved commit SHA the RepoMap was built from."
-        },
-        "available": {
-          "type": "boolean",
-          "description": "false when the repo could not be read (private/unreachable/empty). Recon degrades to greenfield rather than failing the run."
-        },
-        "error": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Why recon was unavailable, when available=false."
-        },
-        "languages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Detected languages, most-prevalent first."
-        },
-        "versions": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
-          "description": "Pinned tool/runtime versions discovered from the repo, e.g. {\"terraform\": \"1.7\", \"python\": \"3.11\"}."
-        },
-        "package_managers": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "frameworks": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "iac": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Infra-as-code tools present, e.g. ['terraform', 'helm', 'kubernetes']."
-        },
-        "iac_resources": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "Static IaC resource inventory keyed by tool, e.g. {\"terraform\": {\"resources\": [{\"type\": \"aws_eks_cluster\", \"name\": \"main\", \"file\": \"eks.tf\"}], \"modules\": [...], \"providers\": [...]}}."
-        },
-        "layout": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "Module/directory map and top-level packages."
-        },
-        "existing_test_command": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Discovered test/check command, e.g. 'make test', 'uv run pytest'."
-        },
-        "entrypoints": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "conventions": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "Linter/formatter/test-layout conventions to constrain generation (e.g. ruff, 4-space indent, tests/ layout)."
-        },
-        "dependency_graph": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "Best-effort intra-repo dependency edges (import graph for code; module source refs for IaC)."
-        },
-        "blast_radius": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "Impact of the planned change.",
-          "properties": {
-            "files": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "Files the plan will touch plus their reverse-dependents."
-            },
-            "destructive_iac": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "IaC changes that force resource replacement/destruction (high-severity advisory)."
-            }
-          }
-        }
-      }
-    },
-    "valLevel": {
-      "type": "string",
-      "enum": [
-        "VAL-0",
-        "VAL-1",
-        "VAL-2",
-        "VAL-3",
-        "VAL-4"
-      ],
-      "description": "Verification Assurance Level (RFC-0006). VAL-0 static · VAL-1 unit · VAL-2 ephemeral integration · VAL-3 sandbox target · VAL-4 production (never autonomous)."
-    },
-    "verification": {
-      "type": "object",
-      "description": "RFC-0006 honest-reporting block. A status is reported ONLY at achieved_level; every un-run/failed level carries a reason. A producer that omits this block is treated as VAL-0 (never 'tested'). The ordinal never-overclaim rule (no level marked 'passed' above achieved_level) is enforced by the verification gate (scripts/verification_gate.py), not expressible in JSON Schema alone.",
-      "additionalProperties": false,
-      "required": [
-        "target_level",
-        "achieved_level",
-        "levels"
-      ],
-      "properties": {
-        "target_level": {
-          "$ref": "#/$defs/valLevel"
-        },
-        "achieved_level": {
-          "$ref": "#/$defs/valLevel"
-        },
-        "levels": {
-          "type": "array",
-          "description": "Per-level outcome, bottom-up.",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "level",
-              "status"
-            ],
-            "properties": {
-              "level": {
-                "$ref": "#/$defs/valLevel"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "passed",
-                  "failed",
-                  "not_run",
-                  "skipped"
-                ]
-              },
-              "ran": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Commands actually executed."
-              },
-              "evidence": {
-                "type": "string",
-                "description": "Proof, e.g. 'idempotence: 0 changed'."
-              },
-              "reason": {
-                "type": "string",
-                "description": "Why not passed — REQUIRED for failed/not_run/skipped."
-              },
-              "risk": {
-                "type": "string",
-                "description": "Plain-language consequence of this gap for the user."
-              }
-            },
-            "allOf": [
-              {
-                "if": {
-                  "properties": {
-                    "status": {
-                      "enum": [
-                        "failed",
-                        "not_run",
-                        "skipped"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "status"
-                  ]
-                },
-                "then": {
-                  "required": [
-                    "reason"
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        "claim": {
-          "type": "string",
-          "description": "Mandatory honest one-liner stating what was and was NOT verified."
-        },
-        "traceability": {
-          "type": "array",
-          "description": "RFC-0015 §4 D2 requirement->test->VAL matrix: every acceptance criterion mapped to the test(s) that cover it, the VAL level reached, and the verdict. Surfaces the AC->test mapping the fleet already computes internally; consumed by the CFactory matrix view (AC x test x VAL x verdict). Additive/optional — absent => no traceability surfaced (a producer omitting it is not penalized; it is still VAL-0 unless the levels block says otherwise).",
-          "items": {
-            "type": "object",
-            "additionalProperties": true,
-            "required": [
-              "ac_id",
-              "status"
-            ],
-            "properties": {
-              "ac_id": {
-                "type": "string",
-                "description": "Acceptance-criterion id, e.g. 'AC-1'."
-              },
-              "ac_text": {
-                "type": "string",
-                "description": "The acceptance-criterion text (optional, for the human-readable matrix)."
-              },
-              "tests": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Test ids/paths covering this AC, e.g. 'tests/test_login.py::test_ok'. Empty => the AC has no covering test (a traceability gap)."
-              },
-              "val_level": {
-                "$ref": "#/$defs/valLevel"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "passed",
-                  "failed",
-                  "not_run",
-                  "skipped"
-                ],
-                "description": "Verdict of this AC's covering tests."
               }
             }
           }
@@ -1206,12 +455,7 @@
       "properties": {
         "ci_system": {
           "type": "string",
-          "enum": [
-            "github-actions",
-            "gitlab-ci",
-            "azure-pipelines",
-            "none"
-          ],
+          "enum": ["github-actions", "gitlab-ci", "azure-pipelines", "none"],
           "description": "The CI provider detected in the target repo. 'none' => no CI configuration was found."
         },
         "ci_exists": {
@@ -1220,9 +464,7 @@
         },
         "ci_pipeline_paths": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
+          "items": { "type": "string" },
           "description": "Paths to the discovered CI pipeline files, e.g. ['.github/workflows/deploy.yml']."
         },
         "needs_pipeline": {
@@ -1231,65 +473,37 @@
         },
         "deploy_system": {
           "type": "string",
-          "enum": [
-            "argocd",
-            "helm",
-            "terraform",
-            "kubectl",
-            "gcp-cloud-run",
-            "azure-container-apps",
-            "aws-app-runner",
-            "unknown",
-            "none"
-          ],
+          "enum": ["argocd", "helm", "terraform", "kubectl", "gcp-cloud-run", "azure-container-apps", "aws-app-runner", "unknown", "none"],
           "description": "The deploy mechanism detected. PaaS targets (gcp-cloud-run/azure-container-apps/aws-app-runner) may be resolved from plan text. 'unknown' => deployment indicators present but mechanism unresolved; 'none' => no deployment surface."
         },
         "deploy_target_environments": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
+          "items": { "type": "string" },
           "description": "Environments this change can reach, e.g. ['dev', 'staging', 'production']."
         },
         "managed_services": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "enum": ["postgres", "mysql", "redis", "mongodb", "none"]
-          },
+          "items": { "type": "string", "enum": ["postgres", "mysql", "redis", "mongodb", "none"] },
           "description": "Managed data services a PaaS deploy provisions (RFC-0013). Empty/absent => none detected."
         },
         "production_classification": {
           "type": "string",
-          "enum": [
-            "production",
-            "preprod",
-            "internal",
-            "unknown"
-          ],
+          "enum": ["production", "preprod", "internal", "unknown"],
           "description": "Highest-blast-radius environment class this change touches. 'production' forces the VAL-4 / never-autonomous deploy policy."
         },
         "risk_class": {
           "type": "string",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
+          "enum": ["low", "medium", "high"],
           "description": "Deployment risk tier derived from blast radius, production_classification, and destructive_iac. Drives required_scans and system_gates floors."
         },
         "required_scans": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
+          "items": { "type": "string" },
           "description": "Security/quality scans that MUST run before this change can deploy, e.g. ['sast', 'dependency-audit', 'iac-scan', 'secret-scan']."
         },
         "system_gates": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
+          "items": { "type": "string" },
           "description": "Named pre-deploy gates that MUST pass, e.g. ['ci-green', 'human-approval', 'change-window']. Production carries 'human-approval' (never autonomous)."
         },
         "dora_context": {
@@ -1311,17 +525,11 @@
               "description": "Recent deploy success ratio with its window, e.g. {\"value\": 0.94, \"window_days\": 30, \"sample\": 50}."
             },
             "lead_time_p50_hours": {
-              "type": [
-                "number",
-                "null"
-              ],
+              "type": ["number", "null"],
               "description": "Median lead time for change (commit to deploy) in hours. null when unavailable."
             },
             "change_fail_rate": {
-              "type": [
-                "number",
-                "null"
-              ],
+              "type": ["number", "null"],
               "description": "Change failure rate (0..1). null when unavailable."
             },
             "last_deploy": {
@@ -1337,52 +545,17 @@
           "items": {
             "type": "object",
             "additionalProperties": true,
-            "required": [
-              "check",
-              "status"
-            ],
+            "required": ["check", "status"],
             "properties": {
-              "check": {
-                "type": "string",
-                "description": "What was checked, e.g. 'ci-pipeline-present', 'rollback-defined', 'secrets-provisioned'."
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "pass",
-                  "fail",
-                  "not_run"
-                ]
-              },
-              "reason": {
-                "type": "string",
-                "description": "Why not passed — REQUIRED for fail/not_run."
-              },
-              "action": {
-                "type": "string",
-                "description": "Remediation the planner recommends to clear this check."
-              }
+              "check": { "type": "string", "description": "What was checked, e.g. 'ci-pipeline-present', 'rollback-defined', 'secrets-provisioned'." },
+              "status": { "type": "string", "enum": ["pass", "fail", "not_run"] },
+              "reason": { "type": "string", "description": "Why not passed — REQUIRED for fail/not_run." },
+              "action": { "type": "string", "description": "Remediation the planner recommends to clear this check." }
             },
             "allOf": [
               {
-                "if": {
-                  "properties": {
-                    "status": {
-                      "enum": [
-                        "fail",
-                        "not_run"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "status"
-                  ]
-                },
-                "then": {
-                  "required": [
-                    "reason"
-                  ]
-                }
+                "if": { "properties": { "status": { "enum": ["fail", "not_run"] } }, "required": ["status"] },
+                "then": { "required": ["reason"] }
               }
             ]
           }
@@ -1392,69 +565,254 @@
           "additionalProperties": true,
           "description": "The DRY-RUN deploy-verification policy for this change. Production deploys are VAL-4 and NEVER executed autonomously — verification stops at a dry-run/plan (VAL-2/VAL-3) and the real production apply requires the system_gates human-approval.",
           "properties": {
-            "target_level": {
-              "$ref": "#/$defs/valLevel"
-            },
+            "target_level": { "$ref": "#/$defs/valLevel" },
             "mode": {
               "type": "string",
-              "enum": [
-                "dry-run",
-                "plan-only",
-                "ephemeral-apply",
-                "production-apply"
-              ],
+              "enum": ["dry-run", "plan-only", "ephemeral-apply", "production-apply"],
               "description": "How far deploy verification goes. 'dry-run'/'plan-only' for non-prod automation; 'ephemeral-apply' against a disposable target (VAL-3); 'production-apply' (VAL-4) is gated and never autonomous."
             }
           }
         }
       }
     },
-    "constitution": {
+    "valLevel": {
+      "type": "string",
+      "enum": ["VAL-0", "VAL-1", "VAL-2", "VAL-3", "VAL-4"],
+      "description": "Verification Assurance Level (RFC-0006). VAL-0 static · VAL-1 unit · VAL-2 ephemeral integration · VAL-3 sandbox target · VAL-4 production (never autonomous)."
+    },
+    "verification": {
       "type": "object",
-      "additionalProperties": true,
-      "description": "RFC-0015 §3.1 constitution: the per-project, human-authored governing principles (repo .factory/constitution.md, mirrored to Backstage) every phase is checked against. Additive to RFC-0012 house_standards: PFactory injects it into planning/readiness, AIFactory coder/QA honour it, and the standards_conformance gate treats clauses tagged enforceable=true as HARD checks (closing spec-kit's soft-enforcement gap). Retrieval degrades, never fakes: available=false => the constitution was unavailable and the gate scores it not_applicable (never a false pass). Absent => today's behaviour.",
+      "description": "RFC-0006 honest-reporting block. A status is reported ONLY at achieved_level; every un-run/failed level carries a reason. A producer that omits this block is treated as VAL-0 (never 'tested'). The ordinal never-overclaim rule (no level marked 'passed' above achieved_level) is enforced by the verification gate (scripts/verification_gate.py), not expressible in JSON Schema alone.",
+      "additionalProperties": false,
+      "required": ["target_level", "achieved_level", "levels"],
       "properties": {
-        "source": {
-          "type": "string",
-          "description": "Where the constitution came from, e.g. '.factory/constitution.md' or a Backstage entity ref."
-        },
-        "principles": {
+        "target_level": { "$ref": "#/$defs/valLevel" },
+        "achieved_level": { "$ref": "#/$defs/valLevel" },
+        "levels": {
           "type": "array",
-          "description": "The governing principles, one entry each.",
+          "description": "Per-level outcome, bottom-up.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["level", "status"],
+            "properties": {
+              "level": { "$ref": "#/$defs/valLevel" },
+              "status": { "type": "string", "enum": ["passed", "failed", "not_run", "skipped"] },
+              "ran": { "type": "array", "items": { "type": "string" }, "description": "Commands actually executed." },
+              "evidence": { "type": "string", "description": "Proof, e.g. 'idempotence: 0 changed'." },
+              "reason": { "type": "string", "description": "Why not passed — REQUIRED for failed/not_run/skipped." },
+              "risk": { "type": "string", "description": "Plain-language consequence of this gap for the user." }
+            },
+            "allOf": [
+              {
+                "if": { "properties": { "status": { "enum": ["failed", "not_run", "skipped"] } }, "required": ["status"] },
+                "then": { "required": ["reason"] }
+              }
+            ]
+          }
+        },
+        "claim": { "type": "string", "description": "Mandatory honest one-liner stating what was and was NOT verified." },
+        "traceability": {
+          "type": "array",
+          "description": "RFC-0015 §4 D2 requirement->test->VAL matrix: every acceptance criterion mapped to the test(s) that cover it, the VAL level reached, and the verdict. Surfaces the AC->test mapping the fleet already computes internally; consumed by the CFactory matrix view (AC x test x VAL x verdict). Additive/optional — absent => no traceability surfaced (a producer omitting it is not penalized; it is still VAL-0 unless the levels block says otherwise).",
           "items": {
             "type": "object",
             "additionalProperties": true,
-            "required": [
-              "id",
-              "text",
-              "enforceable"
-            ],
+            "required": ["ac_id", "status"],
             "properties": {
-              "id": {
-                "type": "string",
-                "description": "Stable principle id, e.g. 'P1', referenced by enforceable_ids and gate findings."
+              "ac_id": { "type": "string", "description": "Acceptance-criterion id, e.g. 'AC-1'." },
+              "ac_text": { "type": "string", "description": "The acceptance-criterion text (optional, for the human-readable matrix)." },
+              "tests": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Test ids/paths covering this AC, e.g. 'tests/test_login.py::test_ok'. Empty => the AC has no covering test (a traceability gap)."
               },
-              "text": {
+              "val_level": { "$ref": "#/$defs/valLevel" },
+              "status": {
                 "type": "string",
-                "description": "The principle statement (testing policy, architecture constraint, quality bar, security posture)."
-              },
-              "enforceable": {
-                "type": "boolean",
-                "description": "true => the standards_conformance gate treats this clause as a HARD check; false => advisory, injected into prompts only."
+                "enum": ["passed", "failed", "not_run", "skipped"],
+                "description": "Verdict of this AC's covering tests."
               }
             }
           }
-        },
-        "enforceable_ids": {
+        }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "RFC-0007 access requirements discovered at planning time. Absent => the task needs no external/authenticated resource. The curation gate sets curated/human_approval; TFactory consumes credential_ref; the VAL gate (RFC-0006) treats an un-curated requirement as a VAL-3 not_run. Secrets are NEVER stored here — only broker refs.",
+      "required": ["requirements"],
+      "properties": {
+        "requirements": {
           "type": "array",
+          "description": "One entry per external/authenticated resource the task's tests must reach.",
           "items": {
-            "type": "string"
-          },
-          "description": "The ids of the principles tagged enforceable=true — the subset the standards_conformance gate enforces as hard checks."
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["resource", "auth_class", "bootstrap"],
+            "properties": {
+              "resource": { "type": "string", "description": "What is being reached, e.g. 'staging-api', 'sandbox-aws', 'keycloak-realm'." },
+              "auth_class": {
+                "type": "string",
+                "enum": ["A-machine-native", "B-bootstrap-once", "C-ephemeral-target", "D-un-automatable"],
+                "description": "A: OIDC federation / service account / scoped token (no MFA in path). B: device-code / refresh token / TOTP-seed-as-secret / captured session (human clears MFA once). C: disposable target the pipeline owns (no prod cred). D: interactive MFA (push / hardware key / SMS) — refused or assisted, never faked."
+              },
+              "credential_ref": { "type": ["string", "null"], "description": "Existing broker ref the test will use: env:NAME | vault:path#field | store:<id>. Never an inline secret." },
+              "env_required": { "type": "array", "items": { "type": "string" }, "description": "Env var names the auth needs at runtime." },
+              "bootstrap": { "type": "string", "enum": ["none", "human"], "description": "human => a one-time human-verified login/seed/approval is required before this is usable." },
+              "curated": { "type": "boolean", "description": "Set true ONLY by the curation gate once the credential/target is provisioned and a liveness check passes. VAL-3 stays not_run until true." },
+              "human_approval": {
+                "type": ["object", "null"],
+                "additionalProperties": false,
+                "description": "Audit trail of the human bootstrap (RFC-0001a chain).",
+                "properties": {
+                  "approved_by": { "type": "string" },
+                  "approved_at": { "type": "string" },
+                  "scope": { "type": "string", "description": "What was granted, e.g. 'sandbox account, read+deploy, auto-teardown'." }
+                }
+              },
+              "mvp_note": { "type": ["string", "null"], "description": "For auth_class D: the honest reason testing cannot pass this gate autonomously." }
+            }
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "RFC-0005 environment manifest — the single source of truth for the per-task toolchain, so the build env (AIFactory) and verify env (TFactory) cannot drift. The planner writes it; the provisioner materializes a throwaway sandbox from it (Tier A Nix preferred). Absent => the task runs in whatever the consumer's default runner provides.",
+      "properties": {
+        "language": { "type": ["string", "null"], "description": "Primary language under test, e.g. 'python', 'rust', 'go', 'typescript'. For change_mode=migration this is the TARGET language (kept populated for back-compat consumers that read only `language`)." },
+        "source_language": { "type": ["string", "null"], "description": "RFC-0010 migration only: the language being ported FROM (the legacy reference impl), e.g. 'python'. Absent outside migration." },
+        "target_language": { "type": ["string", "null"], "description": "RFC-0010 migration only: the language being ported TO (the deliverable), e.g. 'rust'. Mirrors `language` for migration tasks." },
+        "toolchain": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Pinned tool => version map, e.g. {\"rust\": \"1.90\", \"cargo\": \"1.90\"}. Versions feed the flake/devcontainer the provisioner builds."
         },
-        "available": {
-          "type": "boolean",
-          "description": "false when the constitution could not be retrieved (no .factory/constitution.md, Backstage unreachable). The gate then scores it not_applicable — never a false pass."
+        "system_packages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "OS/Nix package names the tests need beyond the language toolchain, e.g. ['pkg-config', 'openssl-dev', 'chromium']. For a browser lane: the browser + its libs (e.g. via nixpkgs playwright-driver.browsers)."
+        },
+        "build_commands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Commands AIFactory runs to build the artifact in the materialized env."
+        },
+        "verify_commands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Commands TFactory runs to verify in the SAME materialized env (no drift)."
+        },
+        "serve_command": {
+          "type": ["string", "null"],
+          "description": "How to start the app inside the materialized env for a lane that needs it running (browser/api against a live URL), e.g. 'python -m uvicorn app:app --port 8099'. Optional: when absent the consumer detects it from the checkout. Backgrounded by the runner, with a readiness wait, before the browser/api verify commands."
+        },
+        "provisioning": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method"],
+          "description": "How the consumer materializes this env. The provisioner resolves it tiered (A Nix, B image catalog, C on-demand build, D setup script).",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": ["nix", "devcontainer", "image", "setup_script"],
+              "description": "nix => `nix develop -c` of `ref` (preferred, hermetic). devcontainer => devcontainer.json. image => a prebuilt registry image tag. setup_script => run `ref` inside the ephemeral container (last resort)."
+            },
+            "ref": {
+              "type": ["string", "null"],
+              "description": "Path/identifier for the method: 'flake.nix' | '.devcontainer/devcontainer.json' | 'ghcr.io/.../rust:1.90' | '.factory/setup.sh'."
+            },
+            "generated": {
+              "type": "boolean",
+              "description": "true when the planner generated `ref` (and committed it as a deliverable) rather than the repo already carrying it."
+            }
+          }
+        },
+        "network": {
+          "type": "string",
+          "enum": ["none", "restricted"],
+          "description": "Egress posture for the materialized sandbox. 'none' for hermetic build/unit; 'restricted' when the lane must reach a declared target (RFC-0007 access)."
+        },
+        "proof": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Materialize-or-HALT evidence (RFC-0005 §3.4): commands that must succeed in the provisioned env before coding/verifying proceeds.",
+          "properties": {
+            "verify": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Toolchain-presence checks, e.g. ['rustc --version', 'chromium --version']. A failure HALTs with a provisioning error, never a silent fallback."
+            }
+          }
+        }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "RFC-0014 v1 static per-stage tier routing. PFactory writes `requested` from the operator's versioned routing policy at plan-emit; each service fills `actual` at its own model seam for audit (CFactory shows requested-vs-actual). Fully additive and OPTIONAL — absent => no routing policy applied, today's behaviour (contract_version stays \"2\"). Open object; consumers ignore unknown keys. Precedence (highest first): pinned_model > overrides[stage] > RFC-0011 tier floor > policy default. A stage is never routed BELOW its RFC-0011 tier floor, and provider fallback stays within the same tier. Distinct from execution.routing (the v2 cost-router decision record): this block is the v1 policy request/audit carrier.",
+      "properties": {
+        "routing_policy_version": {
+          "type": "string",
+          "description": "Version of the operator routing policy that produced `requested`, e.g. '2026-07-static-v1'. Lets a benchmark re-run pin exactly which policy it measured."
+        },
+        "pinned_model": {
+          "type": ["string", "null"],
+          "description": "ESCAPE HATCH — wins over everything. When set, every stage uses exactly this model (full id or shorthand) and the routing policy is bypassed entirely. Preserves pre-RFC-0014 behaviour for pinned runs."
+        },
+        "requested": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "enum": ["small", "mid", "frontier"] },
+          "description": "Stage -> tier the policy requested, keyed by intake|planning|coding|qa_quick|qa_full|test_gen|triage (RFC-0014 §2b.1 defaults: intake/qa_quick=small, coding/test_gen=mid, planning/qa_full/triage=frontier). Written by PFactory."
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "enum": ["small", "mid", "frontier"] },
+          "description": "Per-task stage -> tier overrides (same keys as `requested`). Beats the policy default but never the RFC-0011 tier floor or pinned_model."
+        },
+        "actual": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Stage -> concrete model id ACTUALLY used, filled by whichever service executed the stage (PFactory: intake/planning; AIFactory: coding/qa_quick/qa_full; TFactory: test_gen/triage). The audit trail for requested-vs-actual in CFactory."
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "RFC-0010 reconnaissance summary: what PFactory statically observed in the target repo and grounded the plan on. The planner reads code STATICALLY (AST/manifest/HCL parsing) and NEVER executes it. A stable digest of this block (commit + change_mode + resolved language + footprint) is folded into the approval content-hash, so the human approves a plan grounded in a known tree and approval invalidates if the repo drifts. Absent => the plan was not grounded in an existing repo (greenfield).",
+      "properties": {
+        "repo": { "type": "string", "description": "owner/name reconnoitred." },
+        "base_ref": { "type": "string", "description": "Branch/tag reconnoitred." },
+        "commit": { "type": "string", "description": "Resolved commit SHA the RepoMap was built from." },
+        "available": { "type": "boolean", "description": "false when the repo could not be read (private/unreachable/empty). Recon degrades to greenfield rather than failing the run." },
+        "error": { "type": ["string", "null"], "description": "Why recon was unavailable, when available=false." },
+        "languages": { "type": "array", "items": { "type": "string" }, "description": "Detected languages, most-prevalent first." },
+        "versions": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Pinned tool/runtime versions discovered from the repo, e.g. {\"terraform\": \"1.7\", \"python\": \"3.11\"}." },
+        "package_managers": { "type": "array", "items": { "type": "string" } },
+        "frameworks": { "type": "array", "items": { "type": "string" } },
+        "iac": { "type": "array", "items": { "type": "string" }, "description": "Infra-as-code tools present, e.g. ['terraform', 'helm', 'kubernetes']." },
+        "iac_resources": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Static IaC resource inventory keyed by tool, e.g. {\"terraform\": {\"resources\": [{\"type\": \"aws_eks_cluster\", \"name\": \"main\", \"file\": \"eks.tf\"}], \"modules\": [...], \"providers\": [...]}}."
+        },
+        "layout": { "type": "object", "additionalProperties": true, "description": "Module/directory map and top-level packages." },
+        "existing_test_command": { "type": ["string", "null"], "description": "Discovered test/check command, e.g. 'make test', 'uv run pytest'." },
+        "entrypoints": { "type": "array", "items": { "type": "string" } },
+        "conventions": { "type": "object", "additionalProperties": true, "description": "Linter/formatter/test-layout conventions to constrain generation (e.g. ruff, 4-space indent, tests/ layout)." },
+        "dependency_graph": { "type": "object", "additionalProperties": true, "description": "Best-effort intra-repo dependency edges (import graph for code; module source refs for IaC)." },
+        "blast_radius": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Impact of the planned change.",
+          "properties": {
+            "files": { "type": "array", "items": { "type": "string" }, "description": "Files the plan will touch plus their reverse-dependents." },
+            "destructive_iac": { "type": "array", "items": { "type": "string" }, "description": "IaC changes that force resource replacement/destruction (high-severity advisory)." }
+          }
         }
       }
     }
