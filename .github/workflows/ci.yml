@@ -85,7 +85,10 @@ jobs:
         env:
           GRAPHITI_ENABLED: "false"
           APP_DISABLE_AUTH: "true"  # endpoint tests use anonymous TestClient
-        run: apps/backend/.venv/bin/pytest tests/ -m "not slow" -q
+        # apps/web-server/tests/ was invisible to CI (only tests/ ran) until
+        # issue #288 — its own suite is included here now (venv already has
+        # web-server's requirements.txt from the install step above).
+        run: apps/backend/.venv/bin/pytest tests/ apps/web-server/tests/ -m "not slow" -q
 
   critical-fast:
     name: critical (fast PR gate)

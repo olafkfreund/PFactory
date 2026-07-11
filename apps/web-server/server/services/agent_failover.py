@@ -170,8 +170,16 @@ class AgentFailoverMixin:
         import logging  # noqa: PLC0415
         logger = logging.getLogger(__name__)
 
-        # Primary path: ~/.pfactory/auto-switch.json
+        # Primary path: PROJECTS_DATA_DIR/auto-switch.json
         settings_file = Path(self.settings.PROJECTS_DATA_DIR) / "auto-switch.json"
+        # Legacy path: ~/.pfactory/data/auto-switch.json. Resolved via Path.home()
+        # at call time (not server.paths.get_data_file, whose AI_FACTORY_DIR
+        # constant is frozen at import time and wouldn't honor a mocked home
+        # directory in tests) so callers/tests can override the home dir.
+        legacy_settings_file = Path.home() / ".pfactory" / "data" / "auto-switch.json"
+        if not settings_file.exists() and legacy_settings_file.exists():
+            settings_file = legacy_settings_file
+            logger.debug(f"[AgentService] Using legacy auto-switch settings file at {settings_file}")  # noqa: E501
 
         if not settings_file.exists():
             logger.debug(f"[AgentService] Auto-switch settings not found at {settings_file}, failover disabled")  # noqa: E501
