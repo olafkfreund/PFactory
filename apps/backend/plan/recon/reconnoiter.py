@@ -18,6 +18,7 @@ import logging
 import re
 from pathlib import Path
 
+from plan.recon._walk import is_excluded_dir
 from plan.recon.ci_probe import infer_environments, probe_ci, probe_deploy
 from plan.recon.clone import clone_for_recon
 from plan.recon.iac_probe import iac_tools, probe_iac
@@ -101,7 +102,7 @@ def _top_level_layout(root: Path) -> dict[str, list[str]]:
     files: list[str] = []
     try:
         for entry in sorted(root.iterdir()):
-            if entry.name == ".git":
+            if is_excluded_dir(entry.name):
                 continue
             (dirs if entry.is_dir() else files).append(entry.name)
     except OSError:
