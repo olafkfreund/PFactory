@@ -78,7 +78,7 @@ def test_contract_provenance_carries_content_trust() -> None:
     plan = channels.ingest_github_body(PLAN_TEXT, title="Refund API")
     epic = heuristic_decompose(plan, select_for(plan))
     contract = build_task_contract(plan, epic)
-    assert contract["provenance"]["content_trust"] == "untrusted_user_content"
+    assert contract["provenance"]["content_trust"] == {"default": "untrusted_user_content"}
 
 
 # ── intake injection scan ──────────────────────────────────────────────

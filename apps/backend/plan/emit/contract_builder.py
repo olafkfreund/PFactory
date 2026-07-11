@@ -223,7 +223,9 @@ def build_task_contract(
     # Factory#273: carry the intake trust marking so downstream defenses
     # (AIFactory scan gate) know issue/spec-derived text is untrusted.
     if plan.content_trust:
-        provenance["content_trust"] = plan.content_trust
+        # Canonical shape is an object (hub $defs/content_trust); the internal
+        # model keeps the plain string, wrapped only at the contract boundary.
+        provenance["content_trust"] = {"default": plan.content_trust}
     if rm is not None and rm.available:
         if rm.base_ref:
             provenance["base_ref"] = rm.base_ref
