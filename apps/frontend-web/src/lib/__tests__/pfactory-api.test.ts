@@ -252,7 +252,11 @@ describe.each([
 ] as const)('%s rejects bad spec_id client-side', (_name, fn) => {
   it('throws 400 without calling fetch', async () => {
     const fetchFn = makeFetch({ jsonBody: {} });
-    await expect((fn as Function)('../escape', { fetchFn })).rejects.toMatchObject({
+    await expect(
+      (fn as (specId: string, opts: { fetchFn: unknown }) => Promise<unknown>)('../escape', {
+        fetchFn,
+      }),
+    ).rejects.toMatchObject({
       status: 400,
     });
     expect((fetchFn as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
