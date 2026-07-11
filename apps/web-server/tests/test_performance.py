@@ -410,9 +410,8 @@ class TestConcurrentAccess:
         def read_profile(profile_id: str):
             """Simulate reading a profile."""
             try:
-                with file_lock:
-                    with open(mock_claude_profiles, "r") as f:
-                        data = json.load(f)
+                with file_lock, open(mock_claude_profiles, "r") as f:
+                    data = json.load(f)
 
                 for profile in data.get("profiles", []):
                     if profile["id"] == profile_id:

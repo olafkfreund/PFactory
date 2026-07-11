@@ -22,7 +22,6 @@ files is tracked separately.
 """
 
 import json
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -30,7 +29,6 @@ from typing import Generator
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 # Ensure the server package is importable when tests run from repository root
 # (matches the pattern used by tests/test_agent_service_failover.py).
