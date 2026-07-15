@@ -161,65 +161,29 @@ def mock_ideation_file(mock_settings_dir: Path):
 
 
 class TestFileLocking:
-    """Test concurrent file access to ensure no corruption."""
+    """Concurrent access smoke over raw file operations.
 
-    def test_concurrent_profile_updates(self, mock_claude_profiles: Path):
-        """Test concurrent updates to claude-profiles.json don't corrupt the file."""
-        results = []
-        errors = []
+    NOTE (#298): nothing in this class imports ``server``, so despite the name it
+    exercises no locking of ours — each test re-implements its own
+    read-modify-write inline. Real coverage of the application's write path lives
+    in ``test_atomic_secret_writes.py``.
 
-        def update_profile_name(profile_id: str, new_name: str):
-            """Simulate updating a profile name."""
-            try:
-                # Read current data
-                with open(mock_claude_profiles, "r") as f:
-                    data = json.load(f)
+    ``test_concurrent_profile_updates`` and ``test_concurrent_ideation_updates``
+    were REMOVED here. Unlike their siblings they took no ``threading.Lock``, yet
+    still slept between read and write "to increase chance of race condition" and
+    then asserted the file was uncorrupted — a property ten unsynchronised
+    writers cannot provide. They passed on lucky timing and failed under CI load
+    with ``JSONDecodeError: Extra data``, on PRs that had changed nothing.
 
-                # Find and update profile
-                for profile in data.get("profiles", []):
-                    if profile["id"] == profile_id:
-                        profile["name"] = new_name
-                        profile["updatedAt"] = int(time.time() * 1000)
-                        break
+    They were right to be nervous, just blind: ``save_profiles`` really was
+    non-atomic, and ``load_profiles`` turns a torn read into ``{"profiles": []}``
+    which the next save makes permanent — silently destroying every profile and
+    its OAuth token. Reproduced against the real load/save pair, fixed by
+    ``paths.atomic_write_secret_json``, and now guarded by a torn-file test that
+    was verified to FAIL against the old pattern.
 
-                # Small delay to increase chance of race condition
-                time.sleep(0.01)
-
-                # Write updated data
-                with open(mock_claude_profiles, "w") as f:
-                    json.dump(data, f, indent=2)
-
-                os.chmod(mock_claude_profiles, 0o600)
-                results.append((profile_id, new_name))
-            except Exception as e:
-                errors.append(str(e))
-
-        # Launch 10 concurrent updates
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = []
-            for i in range(10):
-                profile_id = f"profile-{(i % 3) + 1}"
-                new_name = f"Updated Account {i}"
-                futures.append(executor.submit(update_profile_name, profile_id, new_name))
-
-            # Wait for all to complete
-            for future in as_completed(futures):
-                future.result()
-
-        # Verify file is still valid JSON
-        with open(mock_claude_profiles, "r") as f:
-            data = json.load(f)
-
-        # Verify structure is intact
-        assert "activeProfileId" in data
-        assert "profiles" in data
-        assert isinstance(data["profiles"], list)
-        assert len(data["profiles"]) == 3
-
-        # Verify at least some updates succeeded
-        assert len(results) > 0
-        print(f"✅ Completed {len(results)} concurrent profile updates")
-        print(f"⚠️  Errors: {len(errors)}")
+    The tests that remain all hold a lock, so they are deterministic.
+    """
 
     def test_concurrent_api_profile_creation(self, mock_api_profiles: Path):
         """Test concurrent API profile creation doesn't corrupt the file."""
@@ -293,72 +257,6 @@ class TestFileLocking:
         # Verify no duplicate profile IDs
         profile_ids = [p["id"] for p in data["profiles"]]
         assert len(profile_ids) == len(set(profile_ids)), "Duplicate profile IDs detected!"
-
-    def test_concurrent_ideation_updates(self, mock_ideation_file: Path):
-        """Test concurrent ideation updates don't corrupt the file."""
-        results = []
-        errors = []
-
-        def update_idea_status(idea_id: str, status: str):
-            """Simulate updating an idea status."""
-            try:
-                # Read current data
-                with open(mock_ideation_file, "r") as f:
-                    data = json.load(f)
-
-                # Find and update idea
-                for idea in data.get("ideas", []):
-                    if idea["id"] == idea_id:
-                        idea["status"] = status
-                        break
-
-                # Update timestamp
-                data["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-                # Small delay to increase chance of race condition
-                time.sleep(0.01)
-
-                # Write updated data
-                with open(mock_ideation_file, "w") as f:
-                    json.dump(data, f, indent=2)
-
-                os.chmod(mock_ideation_file, 0o600)
-                results.append((idea_id, status))
-            except Exception as e:
-                errors.append(str(e))
-
-        # Launch 15 concurrent status updates
-        with ThreadPoolExecutor(max_workers=15) as executor:
-            futures = []
-            statuses = ["new", "accepted", "rejected", "archived"]
-            for i in range(15):
-                idea_id = f"idea-{(i % 2) + 1}"
-                status = statuses[i % len(statuses)]
-                futures.append(executor.submit(update_idea_status, idea_id, status))
-
-            # Wait for all to complete
-            for future in as_completed(futures):
-                future.result()
-
-        # Verify file is still valid JSON
-        with open(mock_ideation_file, "r") as f:
-            data = json.load(f)
-
-        # Verify structure is intact
-        assert "ideas" in data
-        assert isinstance(data["ideas"], list)
-        assert len(data["ideas"]) == 2
-
-        # Verify at least some updates succeeded
-        assert len(results) > 0
-        print(f"✅ Completed {len(results)} concurrent ideation updates")
-        print(f"⚠️  Errors: {len(errors)}")
-
-
-# ============================================================================
-# CONCURRENT ACCESS TESTS
-# ============================================================================
-
 
 class TestConcurrentAccess:
     """Test multiple simultaneous API requests complete successfully."""

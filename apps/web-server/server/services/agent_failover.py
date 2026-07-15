@@ -273,9 +273,13 @@ class AgentFailoverMixin:
             # Update active profile
             data["activeProfileId"] = profile_id
 
-            # Write back with secure permissions
-            profiles_file.write_text(json.dumps(data, indent=2))
-            profiles_file.chmod(0o600)
+            # Atomic + 0600 from birth (#298). This is a THIRD writer of
+            # claude-profiles.json; any non-atomic one of them tears the file for
+            # the others, and load_profiles turns a torn read into
+            # {"profiles": []} — which the next save makes permanent.
+            from ..paths import atomic_write_secret_json
+
+            atomic_write_secret_json(profiles_file, data)
 
             # Update env token to match active profile (if available)
             token = None
