@@ -54,6 +54,9 @@
         "baseline_commit": {
           "type": "string",
           "description": "RFC-0010 reconnaissance: the resolved commit SHA the RepoMap was built from. Lets AIFactory/TFactory anchor to the exact tree the human approved and detect drift."
+        },
+        "content_trust": {
+          "$ref": "#/$defs/content_trust"
         }
       }
     },
@@ -649,9 +652,112 @@
     },
     "deployment": {
       "$ref": "#/$defs/deployment"
+    },
+    "routing": {
+      "$ref": "#/$defs/routing"
     }
   },
   "$defs": {
+    "content_trust": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Untrusted-content provenance marking for prompt-injection defense (docs/security/untrusted-content-threat-model.md, issue #273). PFactory sets it at intake; every downstream service carries it through unchanged and wraps untrusted text in the canonical delimiter before prompt injection. Fully additive and OPTIONAL - ABSENT => consumers MUST assume untrusted_user_content (fail-closed default); the block exists to positively assert trust, never to let absence imply it.",
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": [
+            "trusted",
+            "untrusted_user_content"
+          ],
+          "description": "Trust class of the contract's free-text fields as a whole. 'untrusted_user_content' for anything derived from issue text, submitted specs, repo content, or MCP responses; 'trusted' ONLY for operator-authored input."
+        },
+        "sources": {
+          "type": "array",
+          "description": "Per-origin trust detail for mixed contracts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "source",
+              "trust"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "issue_text",
+                  "spec_file",
+                  "repo_content",
+                  "mcp_response",
+                  "operator"
+                ],
+                "description": "Where this content originated."
+              },
+              "trust": {
+                "type": "string",
+                "enum": [
+                  "trusted",
+                  "untrusted_user_content"
+                ]
+              },
+              "detail": {
+                "type": "string",
+                "description": "Concrete origin, e.g. 'github-issue:142', 'repo:owner/name@sha', 'mcp:backstage/techdocs'."
+              }
+            }
+          }
+        }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "RFC-0014 v1 static per-stage tier routing. PFactory writes `requested` from the operator's versioned routing policy at plan-emit; each service fills `actual` at its own model seam for audit (CFactory shows requested-vs-actual). Fully additive and OPTIONAL — absent => no routing policy applied, today's behaviour (contract_version stays \"2\"). Open object; consumers ignore unknown keys. Precedence (highest first): pinned_model > overrides[stage] > RFC-0011 tier floor > policy default. A stage is never routed BELOW its RFC-0011 tier floor, and provider fallback stays within the same tier. Distinct from execution.routing (the v2 cost-router decision record): this block is the v1 policy request/audit carrier.",
+      "properties": {
+        "routing_policy_version": {
+          "type": "string",
+          "description": "Version of the operator routing policy that produced `requested`, e.g. '2026-07-static-v1'. Lets a benchmark re-run pin exactly which policy it measured."
+        },
+        "pinned_model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "ESCAPE HATCH — wins over everything. When set, every stage uses exactly this model (full id or shorthand) and the routing policy is bypassed entirely. Preserves pre-RFC-0014 behaviour for pinned runs."
+        },
+        "requested": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "small",
+              "mid",
+              "frontier"
+            ]
+          },
+          "description": "Stage -> tier the policy requested, keyed by intake|planning|coding|qa_quick|qa_full|test_gen|triage (RFC-0014 §2b.1 defaults: intake/qa_quick=small, coding/test_gen=mid, planning/qa_full/triage=frontier). Written by PFactory."
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "small",
+              "mid",
+              "frontier"
+            ]
+          },
+          "description": "Per-task stage -> tier overrides (same keys as `requested`). Beats the policy default but never the RFC-0011 tier floor or pinned_model."
+        },
+        "actual": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Stage -> concrete model id ACTUALLY used, filled by whichever service executed the stage (PFactory: intake/planning; AIFactory: coding/qa_quick/qa_full; TFactory: test_gen/triage). The audit trail for requested-vs-actual in CFactory."
+        }
+      }
+    },
     "house_standards": {
       "type": "object",
       "additionalProperties": true,
