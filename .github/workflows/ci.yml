@@ -24,6 +24,14 @@ env:
   # Keep both pins in lockstep with cq-ratchet.yml.
   RUFF_VERSION: "0.15.17"
   MYPY_VERSION: "1.20.1"
+  # Pinned Factory hub commit holding the canonical RFC-0002 task-contract schema
+  # that the schema-drift guard checks the vendored copy against. Tracking the
+  # hub's moving `main` made the gate a function of wall-clock time: an unrelated
+  # hub commit turned every PR here red without a line changing in this repo
+  # (issue #302). Bump this deliberately AND re-vendor
+  # apps/backend/plan/emit/contracts/task-contract.schema.json in the same PR.
+  # Same convention as factory-github-drift.yml.
+  HUB_SHA: "565afeaf3748498f8bf70d836ff19a455b63cbe8"
 
 jobs:
   backend-lint-test:
@@ -75,17 +83,25 @@ jobs:
           fi
           apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${base}" --package apps/backend
 
-      - name: Schema-drift guard (RFC-0010)
-        # Fail if the vendored Task Contract schema drifts from the canonical
-        # copy in the Factory hub. Soft-skips on a network error fetching the
-        # canonical schema, so a GitHub outage can't red the build.
-        run: apps/backend/.venv/bin/python scripts/check_schema_drift.py
-
       - name: Pytest (skip slow)
         env:
           GRAPHITI_ENABLED: "false"
           APP_DISABLE_AUTH: "true"  # endpoint tests use anonymous TestClient
         run: apps/backend/.venv/bin/pytest tests/ -m "not slow" -q
+
+      - name: Schema-drift guard (RFC-0010)
+        # Fail if the vendored Task Contract schema drifts from the canonical
+        # copy in the Factory hub at the PINNED HUB_SHA above. Soft-skips on a
+        # network error fetching the canonical schema, so a GitHub outage can't
+        # red the build.
+        #
+        # Runs AFTER pytest, under !cancelled(), on purpose (issue #302). As a
+        # plain step BEFORE pytest it gated the test lane: a drift failure
+        # skipped pytest entirely, so a red drift guard silently meant the suite
+        # never ran and never gated the PR. Both are independent now — either can
+        # fail without masking the other's signal.
+        if: ${{ !cancelled() }}
+        run: apps/backend/.venv/bin/python scripts/check_schema_drift.py --ref "${HUB_SHA}"
 
   critical-fast:
     name: critical (fast PR gate)
