@@ -1,0 +1,111 @@
+name: auto-close referenced issues
+
+# Factory#293: close issues whose fix has actually shipped.
+#
+# GitHub only honours `Fixes #N` when a PR merges into the repository's DEFAULT
+# branch. This fleet merges feature PRs into `dev`, and reaches `main` only via a
+# later release PR. So a feature PR saying "Fixes #N" never closes anything: it
+# targeted `dev`. The issue stays open forever even though the fix is deployed.
+#
+# That is not cosmetic. On 2026-07-17 three of AIFactory's eight "open" issues
+# were already fixed and live (#847, #861, #848). #848 read "every build Job dies
+# unstarted - 342 retries, zero code written"; triaging by the tracker would have
+# treated it as a live P0 when it had been fixed for ages. A tracker that
+# over-reports open work manufactures phantom emergencies.
+#
+# Why this reads PR BODIES and not commit messages: verified against the real
+# 0.9.7 release range - the commits carried NO closing keywords. `Fixes #663`
+# existed only in a PR body. Scanning commit text would close nothing while
+# appearing to work.
+#
+# Why it asks the API which PRs contain a commit instead of regexing "(#N)" out
+# of squash subjects: that text is ambiguous. The 0.9.7 range contains
+# `release: 0.9.7 - secrets are 0600 from creation (#663)` where 663 is an
+# ISSUE, not a PR. /commits/{sha}/pulls is authoritative.
+#
+# Only close/fix/resolve close an issue. `Refs #N` deliberately does NOT - PRs
+# #675/#677 used `Refs #663` precisely because each was a partial fix.
+#
+# Deliberately standalone per repo, NOT a cross-repo reusable workflow: those
+# have broken this fleet's deploys at workflow-startup before.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  close-referenced:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the pushed range, not just the tip
+
+      - name: Close issues referenced by the shipped PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # An all-zero `before` means a new branch or a force-push: no meaningful
+          # range to scan, so do nothing rather than guess.
+          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+            echo "No previous SHA (new branch or force-push) - nothing to scan."
+            exit 0
+          fi
+
+          # 1. Every PR that contains a commit in the pushed range. Authoritative,
+          #    per the API - covers the release PR and the feature PRs it carries.
+          prs=$(for sha in $(git log --format=%H "${BEFORE}..${AFTER}"); do
+                  gh api "repos/${REPO}/commits/${sha}/pulls" --jq '.[].number' 2>/dev/null || true
+                done | sort -u)
+
+          if [ -z "${prs}" ]; then
+            echo "No PRs associated with ${BEFORE}..${AFTER}."
+            exit 0
+          fi
+          echo "PRs shipped in this push: $(echo ${prs} | tr '\n' ' ')"
+
+          # 2. Closing keywords from those PR bodies. NOT `Refs` - that is used
+          #    here to mean "related to", often for a partial fix.
+          nums=$(for p in ${prs}; do
+                   gh pr view "${p}" --repo "${REPO}" --json body -q '.body' 2>/dev/null || true
+                 done \
+                 | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[[:space:]]*#[0-9]+' \
+                 | grep -oE '[0-9]+' | sort -u)
+
+          if [ -z "${nums}" ]; then
+            echo "No closing keywords in those PR bodies."
+            exit 0
+          fi
+
+          # 3. Close the ones that are actually open issues in THIS repo.
+          for n in ${nums}; do
+            state=$(gh issue view "${n}" --repo "${REPO}" --json state -q .state 2>/dev/null || echo "MISSING")
+            case "${state}" in
+              OPEN)
+                echo "Closing #${n} - its fix reached main."
+                gh issue close "${n}" --repo "${REPO}" --comment "Closed automatically: the fix reached \`main\` and is deployable.
+
+          GitHub's own \`Fixes #N\` handling only fires for merges into the default branch. This fleet merges feature PRs into \`dev\` first, so this issue would otherwise have stayed open indefinitely despite being fixed (Factory#293).
+
+          Release run: ${RUN_URL}"
+                ;;
+              MISSING)
+                # A #N in a PR body is often a PR, or an issue in another repo.
+                echo "Skipping #${n}: not an issue in ${REPO}."
+                ;;
+              *)
+                echo "Skipping #${n}: already ${state}."
+                ;;
+            esac
+          done
