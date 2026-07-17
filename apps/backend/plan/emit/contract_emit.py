@@ -126,6 +126,7 @@ def assemble_contract(
     config: Any | None = None,
     spec_text: str = "",
     approvals: dict | None = None,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Compose the complete (unsigned) Task Contract from all #65 blocks.
 
@@ -136,6 +137,12 @@ def assemble_contract(
     existing callers are unaffected.
     """
     contract = build_task_contract(plan, epic, repo=repo, correlation_key=correlation_key)
+    # Multi-tenancy (#308): carry the tenant as OPTIONAL additive provenance
+    # metadata (the hub schema's provenance allows additional properties), so
+    # AIFactory can keep the PARR chain tenant-scoped. Omitted for the default
+    # tenant, keeping every existing single-tenant contract byte-identical.
+    if tenant_id and tenant_id != "default":
+        contract.setdefault("provenance", {})["tenant_id"] = tenant_id
     attach_execution(contract, plan, epic)
     if review is not None:
         attach_review_tier(contract, review)
@@ -284,6 +291,7 @@ def emit_contract(
     approvals: dict | None = None,
     max_retries: int = 2,
     dry_run: bool = True,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Assemble, validate, sign, and (unless dry-run) emit the contract.
 
@@ -315,6 +323,7 @@ def emit_contract(
         config=config,
         spec_text=spec_text,
         approvals=approvals,
+        tenant_id=tenant_id,
     )
     errors = validate_contract(contract)
     if errors:

@@ -108,6 +108,11 @@ class PlanSession(BaseModel):
     session_id: str
     status: SessionStatus = "ingested"
     plan: NormalizedPlan
+    # Multi-tenancy (#308): the tenant this session belongs to, resolved from the
+    # X-Tenant-Id header at intake when PFACTORY_MULTI_TENANT is on. Defaults to
+    # "default" so single-tenant behaviour (and old persisted sessions) are
+    # unchanged.
+    tenant_id: str = "default"
     # RFC-0010: the target repo this plan changes, captured at ingest so the
     # reconnaissance stage (Phase 2) can read it during process(). Today `repo`
     # was only known at emit; threading it here lets planning be code-aware.
@@ -172,6 +177,7 @@ class PlanSession(BaseModel):
     def summary(self) -> dict:
         return {
             "session_id": self.session_id,
+            "tenant_id": self.tenant_id,
             "title": self.plan.title,
             "status": self.status,
             "board_state": self.board_state(),
@@ -404,6 +410,7 @@ class PlanService:
                 error=error,
                 usage=session.usage.model_dump() if session.usage else None,
                 artifacts=session.artifact_refs or None,
+                tenant_id=session.tenant_id,
             )
         except Exception as exc:  # noqa: BLE001 — durable mirror is best-effort
             logger.warning(
@@ -436,12 +443,14 @@ class PlanService:
         base_ref: str | None = None,
         autonomy_tier: str | None = None,
         origin_issue_number: int | None = None,
+        tenant_id: str = "default",
     ) -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title, seq=self._next_seq())
         # RFC-0011: carry the label-driven difficulty tier from intake so process()
         # can route hard and emit can override the contract blocks (#182).
         plan = _carry_tier(plan, autonomy_tier)
         session = self._store(plan)
+        session.tenant_id = tenant_id or "default"  # #308: stamp at intake
         session.selected_category = category
         session.selected_template = template
         session.repo = repo or None  # RFC-0010: target repo for reconnaissance
@@ -468,6 +477,7 @@ class PlanService:
         repo: str | None = None,
         base_ref: str | None = None,
         autonomy_tier: str | None = None,
+        tenant_id: str = "default",
     ) -> PlanSession:
         plan = ingest_bytes(
             data,
@@ -478,6 +488,7 @@ class PlanService:
         )
         plan = _carry_tier(plan, autonomy_tier)  # RFC-0011 (#182)
         session = self._store(plan)
+        session.tenant_id = tenant_id or "default"  # #308: stamp at intake
         session.original_filename = filename  # preserve for honouring the doc (#D)
         session.selected_category = category
         session.selected_template = template
@@ -496,8 +507,16 @@ class PlanService:
 
     # ── query ──────────────────────────────────────────────────────────
 
-    def list_sessions(self) -> list[dict]:
-        return [s.summary() for s in self._sessions.values()]
+    def list_sessions(self, *, tenant_id: str | None = None) -> list[dict]:
+        """Session summaries; ``tenant_id`` filters to one tenant (#308).
+
+        ``None`` (the default, and the single-tenant path) lists everything.
+        """
+        return [
+            s.summary()
+            for s in self._sessions.values()
+            if tenant_id is None or s.tenant_id == tenant_id
+        ]
 
     def get(self, session_id: str) -> PlanSession:
         try:
@@ -1203,6 +1222,7 @@ class PlanService:
             spec_text=access_spec_text,
             approvals=session.access_approvals or None,
             dry_run=dry_run,
+            tenant_id=session.tenant_id,
         )
         session.contract_result = result
         if result.get("ok") and not dry_run:

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
+from ..tenancy import multi_tenant_enabled, resolve_tenant
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -147,12 +148,15 @@ def _session_dict(session) -> dict:
 
 
 @router.get("")
-async def list_sessions() -> dict:
-    return {"sessions": SERVICE.list_sessions()}
+async def list_sessions(request: Request) -> dict:
+    # Multi-tenancy (#308): with the flag on, list only the caller's tenant;
+    # off (the default) the filter is None and behaviour is unchanged.
+    tenant = resolve_tenant(request) if multi_tenant_enabled() else None
+    return {"sessions": SERVICE.list_sessions(tenant_id=tenant)}
 
 
 @router.post("/ingest-text")
-async def ingest_text(body: IngestTextBody) -> dict:
+async def ingest_text(body: IngestTextBody, request: Request) -> dict:
     try:
         session = SERVICE.ingest_text(
             body.text,
@@ -162,6 +166,7 @@ async def ingest_text(body: IngestTextBody) -> dict:
             template=body.template,
             repo=body.repo,
             base_ref=body.base_ref,
+            tenant_id=resolve_tenant(request),  # #308
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -175,7 +180,7 @@ async def ingest_text(body: IngestTextBody) -> dict:
 
 
 @router.post("/from-issue")
-async def ingest_from_issue(body: FromIssueBody) -> dict:
+async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
     """Turn an upstream issue into a plan session (RFC-0011 hard tier, #874).
 
     The door AIFactory's intake poller routes ``factory:hard`` issues through: an
@@ -195,6 +200,7 @@ async def ingest_from_issue(body: FromIssueBody) -> dict:
             repo=body.repo,
             autonomy_tier=body.autonomy_tier,
             origin_issue_number=body.issue_number,
+            tenant_id=resolve_tenant(request),  # #308
         )
     except ValueError as exc:  # SpecSourceError subclasses ValueError
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -207,6 +213,7 @@ async def ingest_from_issue(body: FromIssueBody) -> dict:
 
 @router.post("/ingest")
 async def ingest_upload(
+    request: Request,
     file: UploadFile = File(...),
     title: str | None = Form(None),
     category: str = Form(""),
@@ -224,6 +231,7 @@ async def ingest_upload(
             template=template,
             repo=repo,
             base_ref=base_ref,
+            tenant_id=resolve_tenant(request),  # #308
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -236,11 +244,16 @@ async def ingest_upload(
 
 
 @router.get("/{session_id}")
-async def get_session(session_id: str) -> dict:
+async def get_session(session_id: str, request: Request) -> dict:
     try:
-        return _session_dict(SERVICE.get(session_id))
+        session = SERVICE.get(session_id)
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # Multi-tenancy (#308): another tenant's session is indistinguishable from a
+    # missing one (404, not 403 — don't leak existence). Flag off => unchanged.
+    if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
+        raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
+    return _session_dict(session)
 
 
 @router.get("/{session_id}/audit-pack")

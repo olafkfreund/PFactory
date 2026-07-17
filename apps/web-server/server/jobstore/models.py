@@ -47,6 +47,16 @@ class JobState(Base):
     # synthetic pf-<id>). Stored as text so an integer issue# or a synthetic
     # string both fit. Indexed for cross-service joins.
     correlation_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # tenant_id — multi-tenancy (#308). Every pre-existing row (and every
+    # single-tenant write) is "default"; indexed so tenant-scoped reads are
+    # cheap. server_default doubles as the migration backfill.
+    tenant_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="default",
+        server_default="default",
+        index=True,
+    )
     # service / kind are constant for this table but stored so the row is a
     # faithful, self-describing job-state record (the schema requires them).
     service: Mapped[str] = mapped_column(String(32), nullable=False, default="pfactory")
