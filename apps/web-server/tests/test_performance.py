@@ -25,6 +25,8 @@ from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
+from server.paths import atomic_write_secret_json
+
 
 # ============================================================================
 # FIXTURES
@@ -217,8 +219,7 @@ class TestFileLocking:
                     data["profiles"].append(new_profile)
 
                     # Write updated data
-                    with open(mock_api_profiles, "w") as f:
-                        json.dump(data, f, indent=2)
+                    atomic_write_secret_json(mock_api_profiles, data)
 
                     os.chmod(mock_api_profiles, 0o600)
 
@@ -257,6 +258,7 @@ class TestFileLocking:
         # Verify no duplicate profile IDs
         profile_ids = [p["id"] for p in data["profiles"]]
         assert len(profile_ids) == len(set(profile_ids)), "Duplicate profile IDs detected!"
+
 
 class TestConcurrentAccess:
     """Test multiple simultaneous API requests complete successfully."""
@@ -335,8 +337,7 @@ class TestConcurrentAccess:
 
                     time.sleep(0.005)  # Simulate processing
 
-                    with open(mock_claude_profiles, "w") as f:
-                        json.dump(data, f, indent=2)
+                    atomic_write_secret_json(mock_claude_profiles, data)
 
                     os.chmod(mock_claude_profiles, 0o600)
 
@@ -402,8 +403,7 @@ class TestConcurrentAccess:
                 # Add some data
                 time.sleep(0.005)  # Simulate processing
 
-                with open(file_path, "w") as f:
-                    json.dump(data, f, indent=2)
+                atomic_write_secret_json(file_path, data)
 
                 os.chmod(file_path, 0o600)
 
@@ -459,8 +459,7 @@ class TestAPIRateLimits:
         # Simulate rate limit hit - switch to profile-2
         data["activeProfileId"] = "profile-2"
 
-        with open(mock_claude_profiles, "w") as f:
-            json.dump(data, f, indent=2)
+        atomic_write_secret_json(mock_claude_profiles, data)
 
         os.chmod(mock_claude_profiles, 0o600)
 
@@ -490,8 +489,7 @@ class TestAPIRateLimits:
             # Switch profile
             data["activeProfileId"] = next_profile
 
-            with open(mock_claude_profiles, "w") as f:
-                json.dump(data, f, indent=2)
+            atomic_write_secret_json(mock_claude_profiles, data)
 
             os.chmod(mock_claude_profiles, 0o600)
 
@@ -537,8 +535,7 @@ class TestAPIRateLimits:
                 if data["activeProfileId"] == current_profile:
                     data["activeProfileId"] = next_profile
 
-                    with open(mock_claude_profiles, "w") as f:
-                        json.dump(data, f, indent=2)
+                    atomic_write_secret_json(mock_claude_profiles, data)
 
                     os.chmod(mock_claude_profiles, 0o600)
 
@@ -602,8 +599,7 @@ class TestAPIRateLimits:
 
                 data["activeProfileId"] = next_profile
 
-                with open(mock_claude_profiles, "w") as f:
-                    json.dump(data, f, indent=2)
+                atomic_write_secret_json(mock_claude_profiles, data)
 
                 os.chmod(mock_claude_profiles, 0o600)
                 print(f"   Switched to profile: {next_profile}")
@@ -665,8 +661,7 @@ class TestPerformanceBenchmarks:
             # Make a small change
             data["profiles"][0]["updatedAt"] = int(time.time() * 1000)
 
-            with open(mock_claude_profiles, "w") as f:
-                json.dump(data, f, indent=2)
+            atomic_write_secret_json(mock_claude_profiles, data)
 
             os.chmod(mock_claude_profiles, 0o600)
 
