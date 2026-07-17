@@ -235,6 +235,7 @@ class JobStateStore:
         error: str | None = None,
         admission: dict[str, Any] | None = None,
         artifacts: list[dict[str, Any]] | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         """Create or update a job's row, mapping native status -> lifecycle.
 
@@ -256,6 +257,7 @@ class JobStateStore:
                 error=error,
                 admission=admission,
                 artifacts=artifacts,
+                tenant_id=tenant_id,
             )
         )
 
@@ -271,6 +273,7 @@ class JobStateStore:
         error: str | None,
         admission: dict[str, Any] | None,
         artifacts: list[dict[str, Any]] | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         lifecycle = lifecycle_state_for(service_status)
         terminal = lifecycle in TERMINAL_LIFECYCLE
@@ -290,6 +293,8 @@ class JobStateStore:
                 row.lifecycle_state = lifecycle
                 if correlation_key is not None:
                     row.correlation_key = str(correlation_key)
+                if tenant_id is not None:
+                    row.tenant_id = tenant_id  # #308: tenant-scope the row
                 if phase is not None:
                     row.phase = phase
                 if result is not None:
@@ -546,6 +551,7 @@ def _to_dict(row: JobState) -> dict[str, Any]:
         "schema_version": row.schema_version,
         "job_id": row.job_id,
         "correlation_key": row.correlation_key,
+        "tenant_id": row.tenant_id,
         "service": row.service,
         "kind": row.kind,
         "lifecycle_state": row.lifecycle_state,
