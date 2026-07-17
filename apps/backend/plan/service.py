@@ -141,6 +141,13 @@ class PlanSession(BaseModel):
     # rejected plan). The two ids below are the upstream/downstream links.
     correlation_key: str | None = None
     emitted_issue_number: int | None = None  # upstream link — the emitted epic issue#
+    # RFC-0011 hard tier (AIFactory#874): the ORIGIN issue this plan was raised
+    # from, when it arrived via from-issue intake. Distinct from
+    # `emitted_issue_number` (the epic PFactory *creates*) — this is the issue a
+    # human filed, and it is what `correlation_key_for` keys on so plan → code →
+    # verify thread back to the request rather than to PFactory's own output.
+    # None for every other channel (portal/CLI/MCP), which keeps prior behaviour.
+    origin_issue_number: int | None = None
     aifactory_task_id: str | None = None  # downstream link — the handed-off task
 
     # Token usage accumulated across the run's LLM seams (#60). Zero by default —
@@ -168,6 +175,7 @@ class PlanSession(BaseModel):
             "created_at": self.created_at,
             "correlation_key": self.correlation_key,
             "issue_number": self.emitted_issue_number,
+            "origin_issue_number": self.origin_issue_number,
             "aifactory_task_id": self.aifactory_task_id,
         }
 
@@ -419,6 +427,7 @@ class PlanService:
         repo: str | None = None,
         base_ref: str | None = None,
         autonomy_tier: str | None = None,
+        origin_issue_number: int | None = None,
     ) -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title, seq=self._next_seq())
         # RFC-0011: carry the label-driven difficulty tier from intake so process()
@@ -429,6 +438,13 @@ class PlanService:
         session.selected_template = template
         session.repo = repo or None  # RFC-0010: target repo for reconnaissance
         session.base_ref = base_ref or None
+        # RFC-0011 hard tier (AIFactory#874): record the origin issue and resolve
+        # the correlation key NOW rather than at emit, so the chain back to the
+        # filed issue is observable from the moment the session exists (and a
+        # session that never reaches emit still carries it).
+        session.origin_issue_number = origin_issue_number
+        if origin_issue_number is not None:
+            session.correlation_key = correlation_key_for(session)
         self._save(session)
         return session
 
