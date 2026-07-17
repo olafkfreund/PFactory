@@ -644,11 +644,23 @@ class PlanService:
         until a slot frees — preserving the in-memory semaphore's queue-don't-
         error behaviour. The terminal transition inside ``process`` flips the
         row off ``running`` via ``_save``/``_mirror``, freeing the slot.
+
+        Crash safety (#300): the two paths above only free the slot when this
+        process lives long enough to write. A SIGKILL (OOM, eviction, node loss,
+        a failed liveness probe) runs NO cleanup code — not ``except``, not
+        ``finally``, not an atexit/signal handler — so the row would stay
+        ``running`` forever and permanently burn one of the cap's slots for
+        every replica. We therefore hold a LEASE while ``process`` runs: the
+        grant stamps an expiry, ``_renew_lease`` below refreshes it from this
+        (free) event loop, and if this pod dies the lease simply lapses and the
+        next grant reclaims the row. Nothing here has to run for that to work —
+        that is the point.
         """
         # Deferred + optional import (see _resolve_job_store): only reached when
         # a durable store is configured, so server.jobstore is importable here.
         from server.jobstore import (  # type: ignore[import-not-found]  # noqa: PLC0415
             SlotDenied,
+            lease_heartbeat_interval,
         )
 
         store = self._job_store
@@ -663,6 +675,12 @@ class PlanService:
             except SlotDenied:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 1.0)  # bounded exponential backoff
+        # Renew this job's lease while the pipeline runs, so a HEALTHY long plan
+        # is never reclaimed as a dead one. Runs on the event loop, which the
+        # off-loop worker deliberately keeps free (#219).
+        renew = asyncio.create_task(
+            self._renew_lease(store, session_id, lease_heartbeat_interval())
+        )
         try:
             return await asyncio.to_thread(
                 self.process, session_id, external_runner=external_runner, llm=llm
@@ -685,6 +703,24 @@ class PlanService:
                     session_id,
                 )
             raise
+        finally:
+            renew.cancel()
+
+    @staticmethod
+    async def _renew_lease(store, job_id: str, interval: float) -> None:
+        """Refresh ``job_id``'s lease every ``interval`` seconds until cancelled.
+
+        Best-effort: a transient DB hiccup must not kill the run, and one missed
+        renewal is harmless (the TTL is several intervals wide). Stops early once
+        the row is no longer ``running`` — the job went terminal on its own.
+        """
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                if not await asyncio.to_thread(store.heartbeat, job_id):
+                    return
+            except Exception as exc:  # noqa: BLE001 — a renewal is best-effort
+                logger.warning("failed to renew the lease for plan %s: %s", job_id, exc)
 
     def _detect_and_plan_type(self, session: PlanSession) -> tuple[NormalizedPlan, object]:
         """Detect → reconnoiter → route tier → enrich → plan-type select.

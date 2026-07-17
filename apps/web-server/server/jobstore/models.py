@@ -72,6 +72,14 @@ class JobState(Base):
     usage: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Human-readable failure reason; required when failed/stuck.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lease expiry (#300). A `running` row is only trusted until this instant;
+    # its owner renews it while process() runs. A SIGKILL/OOM/eviction runs NO
+    # cleanup code, so the lease lapsing is the ONLY signal that the owner died
+    # — an expired `running` row is reclaimed (-> failed) so its admission slot
+    # is not leaked forever. NULL means "no lease" and is never reclaimed.
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Timestamps (UTC). created/updated default server-side; ended on terminal.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
