@@ -151,7 +151,8 @@ class GeminiAgenticProvider(BaseLLMProvider):
             else resolved_binary
         )
         if resolved_path is None or (
-            resolved_binary.startswith("/") and not Path(resolved_binary).exists()
+            resolved_binary.startswith("/")
+            and not await asyncio.to_thread(os.path.exists, resolved_binary)
         ):
             raise RuntimeError(
                 f"Gemini CLI executable not found: '{self._gemini_path}'. "
