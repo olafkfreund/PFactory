@@ -13,27 +13,18 @@ Read-only: the connector only reads/searches content; it never writes back.
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from plan.enrich.knowledge.base import (
     KnowledgeConnector,
     KnowledgeKind,
     KnowledgeRef,
+    _HttpResponse,
     register_connector,
 )
 
 _DEFAULT_LIMIT = 10
 _SNIPPET_LEN = 200
-
-
-class _HttpResponse(Protocol):
-    """Minimal response shape the connector relies on."""
-
-    status_code: int
-
-    def json(self) -> Any: ...
-
-    def raise_for_status(self) -> None: ...
 
 
 class _HttpClient(Protocol):
@@ -83,25 +74,8 @@ class ConfluenceConnector(KnowledgeConnector):
         return bool(self.base_url)
 
     def _client(self) -> _HttpClient:
-        """Return the injected client, or lazily build a real one."""
-        if self._http is not None:
-            return self._http
-        try:
-            import requests  # noqa: PLC0415 - lazy import keeps deps optional
-        except ImportError:  # pragma: no cover - fall back to httpx
-            import httpx  # noqa: PLC0415
-
-            self._http = httpx.Client()
-        else:
-            self._http = requests.Session()
-        return self._http
-
-    def _headers(self) -> dict[str, str]:
-        """Auth/accept headers for search requests."""
-        headers = {"Accept": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-        return headers
+        """Return the injected client, or lazily build a real one (#257)."""
+        return cast(_HttpClient, self._lazy_http_client())
 
     def _get_json(self, url: str, params: dict[str, Any]) -> Any:
         """GET ``url`` with ``params`` and return parsed JSON."""

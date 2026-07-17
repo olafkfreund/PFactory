@@ -43,6 +43,7 @@ from .routes import (
     organizations,
     projects,
     provider_runtimes,
+    search,
     skills,
     tasks,
     terminal,
@@ -313,6 +314,7 @@ def create_app() -> FastAPI:
     # consults this on load to know whether to render the Live Agent
     # Console tab.  The router already declares its own prefix.
     app.include_router(capabilities.router, tags=["Capabilities"])
+    app.include_router(search.router, tags=["Search"])
     app.include_router(mcp.router)
 
     # PFactory MCP server — planning-context tools over POST /mcp (epic #87 /

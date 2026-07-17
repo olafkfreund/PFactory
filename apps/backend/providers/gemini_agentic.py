@@ -79,7 +79,7 @@ def _emit_sunset_warning() -> None:
 
 
 _DEFAULT_GEMINI_PATH: str = "gemini"
-_DEFAULT_MODEL: str = "gemini-2.5-pro"
+_DEFAULT_MODEL: str = "gemini-3-pro"
 _DEFAULT_TIMEOUT: int = 600  # 10 minutes for agentic tasks
 _MODEL_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$")
 

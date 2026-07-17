@@ -7,7 +7,7 @@
  * (token login + OIDC SSO) are unchanged.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FlaskConical, KeyRound, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
 import { useAuthStore } from '../stores/auth-store';
@@ -18,6 +18,32 @@ export function LoginPage() {
   const [token, setToken] = useState(() => getAuthToken() || '');
   const { login, isLoading, error } = useAuthStore();
   const navigate = useNavigate();
+
+  // Silent SSO handoff (#149): switching between portals that share the one
+  // Keycloak realm shouldn't force a manual "Sign in with SSO" click. On first
+  // landing here with no session, probe silently (prompt=none) — if the realm
+  // session is live, Keycloak returns a code and we log in without a prompt; if
+  // not, the callback bounces back to /login with the guard already set, so the
+  // manual form shows and this never loops. Gated on OIDC actually being enabled
+  // (else a 404), and single-shot per tab via sessionStorage.
+  useEffect(() => {
+    if (sessionStorage.getItem('ssoAutoTried')) return;
+    let cancelled = false;
+    fetch('/api/auth/oidc/enabled')
+      .then((res) => (res.ok ? res.json() : { enabled: false }))
+      .then((data: { enabled?: boolean }) => {
+        if (!cancelled && data.enabled) {
+          sessionStorage.setItem('ssoAutoTried', '1');
+          window.location.href = '/api/auth/oidc/login?prompt=none';
+        }
+      })
+      .catch(() => {
+        /* stay on the manual login form */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

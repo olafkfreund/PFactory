@@ -27,6 +27,7 @@ from plan.feasibility.deployment import (
     deployment_findings,
     inject_deployment_acs,
 )
+from plan.recon.dora_github import make_github_dora_client
 
 if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
@@ -119,17 +120,21 @@ def carry_tier(plan: NormalizedPlan, tier: str | None) -> NormalizedPlan:
     return plan.model_copy(update={"autonomy_tier": canonical})
 
 
-def route_tier(current: str | None, *, is_migration: bool) -> str | None:
+def route_tier(
+    current: str | None, *, is_migration: bool, injection_flagged: bool = False
+) -> str | None:
     """Resolve the final tier for a plan (RFC-0011, #182).
 
-    ``change_mode == migration`` (a rewrite) forces ``hard``; otherwise the
-    highest of the carried tier wins. Returns ``None`` only when no tier was
-    carried and it is not a migration (back-compat: emit derives from complexity).
+    ``change_mode == migration`` (a rewrite) forces ``hard``; so does a flagged
+    intake injection scan (Factory#273, #283) — a suspicious issue body must
+    land in human review, never auto-tier. Otherwise the highest of the carried
+    tier wins. Returns ``None`` only when nothing forces a tier and none was
+    carried (back-compat: emit derives from complexity).
     """
     from plan.emit.tier_profile import normalize_tier  # noqa: PLC0415
 
     carried = normalize_tier(current)
-    forced = "hard" if is_migration else None
+    forced = "hard" if (is_migration or injection_flagged) else None
     candidates = [t for t in (carried, forced) if t is not None]
     if not candidates:
         return None
@@ -143,9 +148,17 @@ def attach_deployment(plan: NormalizedPlan, epic: EpicPlan) -> list:
     dimension exists. Additive + safe: returns ``[]`` (and leaves the epic
     untouched) when there is no deployment surface or analysis fails — deployment
     analysis must never break a plan run.
+
+    DORA context is populated by the optional GitHub Deployments provider
+    (:func:`plan.recon.dora_github.make_github_dora_client`). When no token is
+    configured the provider is ``None`` and the block carries
+    ``dora_context: {available: false}`` — the previous behaviour. Any runtime
+    error inside the provider degrades to the same ``available: false`` outcome
+    inside :func:`plan.recon.dora_client.dora_context`; a broken DORA provider
+    never breaks a plan run.
     """
     try:
-        block = assess_deployment_readiness(plan, epic)
+        block = assess_deployment_readiness(plan, epic, dora_mcp_client=make_github_dora_client())
     except Exception:  # noqa: BLE001 — deployment analysis must never break a run
         return []
     if block is None:

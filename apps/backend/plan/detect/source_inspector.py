@@ -18,6 +18,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from plan.recon._walk import is_excluded_dir, prune_dirnames
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,8 +77,7 @@ def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
 def _py_files(root: Path) -> list[Path]:
     out: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        if ".git" in dirnames:
-            dirnames.remove(".git")
+        prune_dirnames(dirnames)
         for name in filenames:
             if name.endswith(".py"):
                 out.append(Path(dirpath) / name)
@@ -99,7 +100,9 @@ def build_behavioral_contract(root: Path, language: str = "python") -> Behaviora
         modules = sorted(
             _rel(p, root)
             for p in root.rglob("*")
-            if p.is_file() and not p.is_symlink() and ".git/" not in _rel(p, root)
+            if p.is_file()
+            and not p.is_symlink()
+            and not any(is_excluded_dir(part) for part in _rel(p, root).split("/")[:-1])
         )
         return BehavioralContract(language=language, modules=modules[:500])
 

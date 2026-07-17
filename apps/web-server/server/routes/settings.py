@@ -33,6 +33,7 @@ MemoryEmbeddingProviderType = Literal[
 ]
 
 from ..config import get_settings
+from ..paths import atomic_write_secret_json
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1029,12 +1030,14 @@ def load_profiles() -> dict:
 
 
 def save_profiles(data: dict) -> None:
-    """Save Claude profiles with secure file permissions."""
-    profiles_file = get_profiles_file()
-    profiles_file.parent.mkdir(parents=True, exist_ok=True)
-    profiles_file.write_text(json.dumps(data, indent=2))
-    # Set secure file permissions (owner read/write only) since profiles contain tokens
-    profiles_file.chmod(0o600)
+    """Save Claude profiles atomically, mode 0600 (profiles hold OAuth tokens).
+
+    Atomic because load_profiles() silently returns {"profiles": []} on a
+    JSONDecodeError: a reader that catches a torn write concludes there are no
+    profiles, and the next save writes that back — destroying every token. See
+    paths.atomic_write_secret_json (#298).
+    """
+    atomic_write_secret_json(get_profiles_file(), data)
 
 
 def _upsert_by_id(items: list[dict], obj: dict, key: str = "id") -> None:
@@ -1799,16 +1802,13 @@ def load_api_profiles() -> dict:
 
 
 def save_api_profiles(data: dict) -> None:
-    """Save API profiles.
+    """Save API profiles atomically, mode 0600 (they hold API keys and tokens).
 
-    Security: Sets file permissions to 0o600 (owner read/write only) to protect
-    sensitive API keys and tokens stored in the profiles.
+    See paths.atomic_write_secret_json (#298): the previous write_text + chmod
+    left both a torn-read window (a reader gets invalid JSON) and a
+    world-readable window (created at umask, chmodded only after the keys landed).
     """
-    profiles_file = get_api_profiles_file()
-    profiles_file.parent.mkdir(parents=True, exist_ok=True)
-    profiles_file.write_text(json.dumps(data, indent=2))
-    # Set secure file permissions to protect API keys (owner read/write only)
-    profiles_file.chmod(0o600)
+    atomic_write_secret_json(get_api_profiles_file(), data)
 
 
 @router.get("/api-profiles")
@@ -2366,8 +2366,8 @@ async def import_claude_credentials():
     profiles_data["profiles"].append(new_profile)
     profiles_data["activeProfileId"] = profile_id
 
-    profiles_file.write_text(json.dumps(profiles_data, indent=2))
-    profiles_file.chmod(0o600)
+    # Atomic + 0600 from birth: this file holds oauthToken (#298).
+    atomic_write_secret_json(profiles_file, profiles_data)
 
     # Also set env var for immediate use
     os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = token

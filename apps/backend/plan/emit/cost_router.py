@@ -10,7 +10,17 @@ catalog model that meets the tier/class capability floor under the ceiling**:
     when the routing class is ``governed`` (a high-risk/production task is never
     silently planned by a weak model — RFC-0014 §2 + §4).
   - ``coding`` / ``qa`` / ``test_gen`` defer to the tier floor and are downgraded
-    to the cheapest capable model within it (strong-for-plan, cheap-for-code).
+    to the cheapest capable model within it (strong-for-plan, cheap-for-code) —
+    but ONLY among ``claude`` models. These three roles are mechanical
+    (agentic code/test writing), and a bare cheapest-wins search over the whole
+    catalog lets a flat-rate *subscription* model win cost ties at $0 by
+    alphabetical luck: that is how ``codex`` became the router's default coding
+    model even though codex agentic builds produce NO code (empty branch, 0/N
+    subtasks — AIFactory #779). Restricting these roles to ``claude`` keeps the
+    tier-aware cheapest-within-floor behavior (haiku/sonnet/opus) while making
+    the pick deterministic and known-to-actually-write-code. ``codex`` (and
+    other providers) remain valid catalog entries and explicit/opt-in choices —
+    they are just no longer auto-selected by the router for these roles.
 
 It writes (additively) onto the contract's ``execution`` block:
 
@@ -48,6 +58,18 @@ _CATALOG_PATH = Path(__file__).with_name("model-catalog.json")
 # rest defer to the tier floor.
 _ROLES = ("planning", "coding", "qa", "test_gen")
 
+# The mechanical roles: agentic code/test writing, not judgment calls. Restricted
+# to a single provider (below) so a cost tie among flat-rate subscription models
+# can never hand the pick to a model that doesn't reliably produce code
+# (AIFactory #779 — codex agentic builds exit with 0/N subtasks, empty branch).
+_MECHANICAL_ROLES = ("coding", "qa", "test_gen")
+
+# The provider mechanical roles are restricted to. claude's cheap/balanced/
+# frontier tiers (haiku/sonnet/opus) already span the full capability floor
+# ladder, so this preserves "cheapest capable within the tier floor" while
+# guaranteeing the pick is a model proven to write real code.
+_MECHANICAL_PROVIDER = "claude"
+
 # Per-role token estimates for the rolled cost figure (in_tokens, out_tokens).
 # Coarse, deterministic priors — planning reads more context and writes a plan;
 # coding/qa/test_gen are mechanical. Used ONLY to compare metered models under the
@@ -83,6 +105,11 @@ def _role_floor(role: str, tier: str, routing_class: str) -> str:
     return capability_floor_class(tier)
 
 
+def _restrict_provider(catalog: dict[str, Any], provider: str) -> dict[str, Any]:
+    """Return the subset of ``catalog`` whose entries are from ``provider``."""
+    return {mid: entry for mid, entry in catalog.items() if entry.get("provider") == provider}
+
+
 def select_phase_models(
     contract: dict[str, Any],
     *,
@@ -109,12 +136,23 @@ def select_phase_models(
     for role in _ROLES:
         floor = _role_floor(role, tier, routing_class)
         tokens = _ROLE_TOKENS[role]
-        pick = cheapest_capable_model(role, floor, ceiling, tokens, cat)
+        role_catalog = cat
+        if role in _MECHANICAL_ROLES:
+            # Mechanical roles never cost-shop across providers (see module
+            # docstring / AIFactory #779): restrict to claude so the tier-aware
+            # cheapest-within-floor pick (haiku/sonnet/opus) can never resolve to
+            # codex (or another provider) on a cost tie. Fall back to the full
+            # catalog only if it truly has no claude entries (defensive; never
+            # true for the real vendored catalog) so a role is never dropped.
+            claude_only = _restrict_provider(cat, _MECHANICAL_PROVIDER)
+            if claude_only:
+                role_catalog = claude_only
+        pick = cheapest_capable_model(role, floor, ceiling, tokens, role_catalog)
         if pick is None:
             # Nothing cheap enough at the floor: relax the ceiling for THIS role
             # (never below the floor) so a governed/high task is never starved of
             # a capable model — the ceiling is a budget hint, the floor is hard.
-            pick = cheapest_capable_model(role, floor, None, tokens, cat)
+            pick = cheapest_capable_model(role, floor, None, tokens, role_catalog)
             if pick is not None:
                 downgrades.append(f"{role}: ceiling relaxed (no model under ${ceiling:g})")
         if pick is None:

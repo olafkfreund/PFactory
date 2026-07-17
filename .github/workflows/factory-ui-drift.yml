@@ -1,0 +1,66 @@
+name: factory-ui drift gate
+
+# Blocking drift gate for the vendored @factory/ui portal chrome.
+#
+# PFactory hand-vendors two shared components from the Factory hub's canonical
+# shared/factory-ui/ surface:
+#   apps/frontend-web/src/components/CommandPalette.tsx
+#   apps/frontend-web/src/components/PortalSwitcher.tsx
+#
+# These copies MUST stay byte-identical to the hub canonical. This job checks out
+# the hub at a PINNED SHA and runs the hub's own drift gate
+# (scripts/check_factory_ui_drift.py) against this checkout. A byte mismatch
+# fails the build.
+#
+# To intentionally change a vendored component: land the change in the hub
+# canonical first, re-vendor it here byte-for-byte, and bump HUB_PIN_SHA below.
+
+on:
+  pull_request:
+    branches: [dev, main, "feat/**", "release/**"]
+    paths:
+      - "apps/frontend-web/src/components/CommandPalette.tsx"
+      - "apps/frontend-web/src/components/PortalSwitcher.tsx"
+      - ".github/workflows/factory-ui-drift.yml"
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: factory-ui-drift-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned Factory hub commit carrying the canonical @factory/ui components.
+  # Bump deliberately when re-vendoring (see header).
+  HUB_PIN_SHA: "9116e16bc024e936c70a20b3c229ab9cabc5a1a8"
+
+jobs:
+  drift:
+    name: vendored copies match the hub canonical (byte-exact)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this service
+        uses: actions/checkout@v4
+        with:
+          path: service
+
+      - name: Check out the Factory hub canonical at the pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: olafkfreund/Factory
+          ref: ${{ env.HUB_PIN_SHA }}
+          path: factory-hub
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run the hub drift gate against this service (blocking)
+        run: |
+          python factory-hub/scripts/check_factory_ui_drift.py \
+            --canonical factory-hub/shared/factory-ui \
+            --service pfactory \
+            --root service
