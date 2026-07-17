@@ -30,6 +30,14 @@ class Settings(BaseSettings):
 
     # Authentication
     API_TOKEN: str = ""  # Will generate default if not set
+
+    # Federated search (#149). The cockpit (CFactory) aggregates every portal's
+    # work and exposes a ranked /api/search; this portal proxies to it so its ⌘K
+    # palette offers the same cross-portal search same-origin. CFACTORY_SEARCH_URL
+    # is the cockpit's in-cluster base; CFACTORY_READ_KEY is a read-scoped cockpit
+    # key. Both empty = feature off (proxy returns an empty result set).
+    CFACTORY_SEARCH_URL: str = "http://cfactory.factory.svc.cluster.local:3111"
+    CFACTORY_READ_KEY: str = ""
     DISABLE_AUTH: bool = False  # Set to True to disable auth (dev only)
 
     # JWT Configuration

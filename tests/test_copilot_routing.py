@@ -58,7 +58,7 @@ def test_copilot_provider_strips_prefix_and_defaults():
 
     assert CopilotAgenticProvider(model="copilot:gpt-5")._model == "gpt-5"
     # Empty/unspecified model falls back to the default.
-    assert CopilotAgenticProvider(model="")._model == "claude-sonnet-4.5"
+    assert CopilotAgenticProvider(model="")._model == "claude-sonnet-4.6"
 
 
 def test_copilot_strip_trailer():

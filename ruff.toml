@@ -15,6 +15,17 @@
 
 extend = "standards/ruff.toml"
 
+# isort first-party detection (#254). The ratchet (scripts/ratchet_lint.py) checks
+# each changed file from a TEMP path, where ruff can no longer infer that `server`
+# (apps/web-server) or `plan`/`agents`/`core`/… (apps/backend) are first-party from
+# the directory layout — so it groups `from server.X import …` with third-party and
+# demands a different import order than the in-package gates, producing a spurious
+# net-new I001 on brand-new shared modules. Pinning `src` to the app roots makes
+# first-party detection CONFIG-driven (resolved relative to this file, so it holds
+# from any cwd or temp path), keeping the ratchet and the in-package gates in
+# agreement and unblocking the extract-to-a-new-module pattern (epic #154).
+src = ["apps/backend", "apps/web-server"]
+
 # The factory-github VCS-client layer under apps/backend/runners/github/ is a
 # VENDORED MIRROR of the Factory hub canonical (shared/factory-github/,
 # Factory#157). Its formatting is owned by the hub (the hub formats it at the

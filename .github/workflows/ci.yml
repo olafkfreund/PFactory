@@ -87,7 +87,10 @@ jobs:
         env:
           GRAPHITI_ENABLED: "false"
           APP_DISABLE_AUTH: "true"  # endpoint tests use anonymous TestClient
-        run: apps/backend/.venv/bin/pytest tests/ -m "not slow" -q
+        # apps/web-server/tests/ was invisible to CI (only tests/ ran) until
+        # issue #288 — its own suite is included here now (venv already has
+        # web-server's requirements.txt from the install step above).
+        run: apps/backend/.venv/bin/pytest tests/ apps/web-server/tests/ -m "not slow" -q
 
       - name: Schema-drift guard (RFC-0010)
         # Fail if the vendored Task Contract schema drifts from the canonical
@@ -566,6 +569,54 @@ jobs:
       - name: Type-check frontend
         run: npm -w apps/frontend-web run typecheck
 
+  frontend-test:
+    name: frontend (vitest)
+    runs-on: ubuntu-latest
+    # Blocking vitest gate (Factory hub #261): runs the apps/frontend-web
+    # component/unit suite so the tests can no longer silently rot.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace deps
+        run: npm ci --include=dev
+
+      - name: Run frontend tests
+        run: npm -w apps/frontend-web run test
+
+  frontend-lint:
+    name: frontend (eslint, blocking)
+    runs-on: ubuntu-latest
+    # Blocking ESLint gate (Factory hub #261): ESLint 9 flat config
+    # (typescript-eslint strictTypeChecked + react-hooks + jsx-a11y),
+    # mirroring AIFactory. Tuned green at adoption via a warning baseline
+    # (eslint . --max-warnings <baseline> in apps/frontend-web/package.json)
+    # so net-new ERRORS and net-new WARNINGS over the baseline both fail
+    # the build. Ratchet plan: see eslint.config.js TODOs.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace deps (incl. dev)
+        # --include=dev is explicit so the gate never silently skips the
+        # lint toolchain if the runner inherits NODE_ENV=production.
+        run: npm ci --include=dev
+
+      - name: ESLint (strictTypeChecked + react-hooks + jsx-a11y; warning baseline)
+        run: npm -w apps/frontend-web run lint
+
   docker-acceptance:
     name: docker (P0 acceptance)
     runs-on: ubuntu-latest
@@ -617,13 +668,6 @@ jobs:
         env:
           CI: "true"
         run: apps/backend/.venv/bin/pytest tests/docker/ -m docker -v
-
-      # NOTE: `npm -w apps/frontend-web run lint` invokes eslint which is
-      # not declared as a devDependency. To enable the lint step, add
-      # eslint + plugins to apps/frontend-web/package.json devDependencies
-      # and uncomment:
-      # - name: Lint frontend
-      #   run: npm -w apps/frontend-web run lint
 
   techdocs:
     name: techdocs (catalog + mkdocs build)

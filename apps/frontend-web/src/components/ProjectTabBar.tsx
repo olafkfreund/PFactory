@@ -1,10 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Settings, HelpCircle, Sun, Moon } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { apiRequest } from '../lib/api-client';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import { SortableProjectTab } from './SortableProjectTab';
 import { ProjectSelector } from './settings/ProjectSelector';
+import { PortalSwitcher } from './PortalSwitcher';
 import { ClaudeCodeStatusBadge } from './ClaudeCodeStatusBadge';
 import { CLIToolStatusBadge } from './CLIToolStatusBadge';
 import { OpenAIEndpointsStatusBadge } from './OpenAIEndpointsStatusBadge';
@@ -48,6 +50,29 @@ export function ProjectTabBar({
     updateStoreSettings({ theme: newTheme });
     saveSettings({ theme: newTheme });
   };
+
+  // Fleet 'needs you' count (#148/#149): poll the cockpit (via our same-origin
+  // proxy) so the shared switcher shows the same human-blocked badge as every
+  // other portal. Best-effort — a failed/absent cockpit just yields 0.
+  const [needsCount, setNeedsCount] = useState(0);
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      apiRequest<{ count: number }>('/needs-you/count')
+        .then((res) => {
+          if (active && res.success && res.data) setNeedsCount(res.data.count);
+        })
+        .catch(() => {
+          /* best-effort badge */
+        });
+    };
+    load();
+    const timer = setInterval(load, 30000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   // Keyboard shortcuts for tab navigation
   useEffect(() => {
@@ -133,6 +158,8 @@ export function ProjectTabBar({
       </div>
 
       <div className="flex items-center gap-2 px-2 py-1">
+        <PortalSwitcher current="plan" needsCount={needsCount} />
+        <Separator orientation="vertical" className="h-4 mx-0.5" />
         <div className="w-48">
           <ProjectSelector
             selectedProjectId={selectedProjectId}
