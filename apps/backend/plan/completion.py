@@ -51,8 +51,29 @@ def synthetic_key(session_id: str) -> str:
     return f"pf-{session_id}"
 
 
+def origin_key(repo: str | None, issue_number: int) -> str:
+    """Correlation key for a plan that originated from an upstream issue.
+
+    Repo-qualified because issue numbers only identify an issue *within* a repo
+    (``pf-`` synthetic keys already establish that a key need not be numeric).
+    """
+    return f"{repo}#{issue_number}" if repo else str(issue_number)
+
+
 def correlation_key_for(session: PlanSession) -> str:
-    """The shared correlation key: the emitted issue#, else a synthetic fallback."""
+    """The shared correlation key for a session.
+
+    Precedence — the ORIGIN issue the plan came from (RFC-0011 hard-tier intake,
+    AIFactory#874) wins over the emitted epic, because the origin issue is the
+    thing the whole PARR chain must thread back to: it is the issue a human
+    filed, and it is stable from ingest onward. The emitted epic is an artifact
+    PFactory *creates* downstream of it, so keying on the epic would silently
+    re-point the chain at PFactory's own output at emit time and lose the link to
+    the request. Falls back to the emitted epic issue# (the pre-#874 behaviour,
+    unchanged for every session with no origin), else a synthetic key.
+    """
+    if session.origin_issue_number is not None:
+        return origin_key(session.repo, session.origin_issue_number)
     if session.emitted_issue_number is not None:
         return str(session.emitted_issue_number)
     return synthetic_key(session.session_id)

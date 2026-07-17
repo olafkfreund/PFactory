@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +39,28 @@ class IngestTextBody(BaseModel):
     # can read its existing code at process() time. Optional → greenfield.
     repo: str | None = None
     base_ref: str | None = None  # branch/tag; default repo branch when omitted
+
+
+class FromIssueBody(BaseModel):
+    """Body for ``POST /api/plan/sessions/from-issue``.
+
+    Exactly the shape AIFactory's RFC-0011 intake poller sends for a
+    ``factory:hard`` issue (``intake_poller._route_hard``, AIFactory#874) — this
+    endpoint exists to accept that contract, so the field names are its field
+    names and must not drift from them.
+    """
+
+    repo: str
+    issue_number: int
+    title: str | None = None
+    body: str | None = None
+    provider: str = "github"
+    labels: list[str] = Field(default_factory=list)
+    autonomy_tier: str | None = None
+    # Accepted because the poller sends them, but not acted on here: the poller
+    # has already classified the tier from `labels`, and `change_mode` is an
+    # AIFactory build-time concern with no PFactory planning equivalent.
+    change_mode: str | None = None
 
 
 class ApproveBody(BaseModel):
@@ -152,6 +174,37 @@ async def ingest_text(body: IngestTextBody) -> dict:
     return _session_dict(session)
 
 
+@router.post("/from-issue")
+async def ingest_from_issue(body: FromIssueBody) -> dict:
+    """Turn an upstream issue into a plan session (RFC-0011 hard tier, #874).
+
+    The door AIFactory's intake poller routes ``factory:hard`` issues through: an
+    issue is just another intake channel, so this reuses the same
+    ``SERVICE.ingest_text`` seam as the portal (via the pre-existing
+    ``github_issue`` channel) and adds only what an issue has and a paste does
+    not — the origin issue number, which becomes the session's correlation key.
+    """
+    # The issue body IS the plan text. No title fallback: a bare title carries no
+    # acceptance criteria, so it cannot parse either way — better a 400 naming
+    # that than a session built from a one-line plan nobody can verify against.
+    try:
+        session = SERVICE.ingest_text(
+            body.body or "",
+            title=body.title,
+            channel="github_issue",
+            repo=body.repo,
+            autonomy_tier=body.autonomy_tier,
+            origin_issue_number=body.issue_number,
+        )
+    except ValueError as exc:  # SpecSourceError subclasses ValueError
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # W4 (#218): register the target repo as a tracked project (see ingest-text).
+    from .projects import ensure_tracked_project
+
+    ensure_tracked_project(body.repo)
+    return _session_dict(session)
+
+
 @router.post("/ingest")
 async def ingest_upload(
     file: UploadFile = File(...),
@@ -206,9 +259,7 @@ async def audit_pack(session_id: str, format: str = "json"):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     pack = build_audit_pack(session)
     if format == "markdown":
-        return PlainTextResponse(
-            render_markdown(pack), media_type="text/markdown"
-        )
+        return PlainTextResponse(render_markdown(pack), media_type="text/markdown")
     return pack.model_dump()
 
 
@@ -287,9 +338,7 @@ async def reject(session_id: str, body: RejectBody) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-async def _load_docs_connections(
-    request: Request, db: AsyncSession
-) -> list[dict] | None:
+async def _load_docs_connections(request: Request, db: AsyncSession) -> list[dict] | None:
     """Best-effort load of the caller's docs-target connections (P4b).
 
     Returns ``None`` when no user resolves (shared-token/MCP calls) or the user
