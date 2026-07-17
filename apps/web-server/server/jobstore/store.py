@@ -37,10 +37,10 @@ import logging
 import os
 import threading
 from concurrent.futures import Future
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import bindparam, func, select, text
+from sqlalchemy import bindparam, func, select, text, update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -62,6 +62,14 @@ logger = logging.getLogger(__name__)
 # (and every grant) contends on the SAME lock. Scoped to pfactory's plan
 # admission only.
 _ADMISSION_LOCK_KEY = 0x5046414354 & 0x7FFFFFFFFFFFFFFF  # "PFACT" as int, masked
+
+# Reason stamped on a row reclaimed from a dead owner (never-overclaim: a
+# terminal failure MUST carry a reason).
+_RECLAIM_ERROR = (
+    "lease expired: the owning replica died mid-plan (pod killed, OOM, "
+    "evicted or node lost) without stamping a terminal status; the row was "
+    "reclaimed so its admission slot is not leaked (#300)"
+)
 
 
 class SlotDenied(RuntimeError):
@@ -89,6 +97,32 @@ def lifecycle_filter() -> tuple[str, ...]:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def lease_ttl_seconds() -> int:
+    """How long a ``running`` row is trusted without a heartbeat (#300).
+
+    From ``PFACTORY_PLAN_LEASE_TTL_SECONDS`` (default 600s = 10min). This is a
+    calibration knob, not a constant: the TTL MUST exceed the longest gap
+    between two heartbeats of a HEALTHY plan, or a live long-running plan gets
+    reclaimed out from under itself — which is worse than the leak it fixes.
+    600s is ~10x the heartbeat interval below and comfortably longer than the
+    heaviest real plan (the RFC-0010 recon git-clone; the rest of planning is
+    deterministic and sub-second), so only a genuinely dead owner lapses.
+    """
+    try:
+        return int(os.environ.get("PFACTORY_PLAN_LEASE_TTL_SECONDS", "600"))
+    except ValueError:
+        return 600
+
+
+def lease_heartbeat_interval() -> float:
+    """Seconds between lease renewals — a quarter of the TTL (min 5s).
+
+    A quarter leaves room for three consecutive missed/slow renewals before a
+    healthy job's lease could lapse.
+    """
+    return max(lease_ttl_seconds() / 4, 5.0)
 
 
 class JobStateStore:
@@ -309,6 +343,92 @@ class JobStateStore:
             stmt = select(func.count()).where(JobState.lifecycle_state == "running")
             return int((await session.execute(stmt)).scalar_one())
 
+    # ── lease: heartbeat + reclaim (#300) ───────────────────────────────
+
+    def _lease_deadline(self, ttl_seconds: int | None = None) -> datetime:
+        ttl = lease_ttl_seconds() if ttl_seconds is None else ttl_seconds
+        return _now() + timedelta(seconds=ttl)
+
+    def heartbeat(self, job_id: str, *, ttl_seconds: int | None = None) -> bool:
+        """Renew ``job_id``'s lease; True when a ``running`` row was renewed.
+
+        Called periodically by the owner while ``process()`` runs (see
+        ``plan.service.PlanService._durable_admit``). False means the row is no
+        longer ``running`` (already terminal, or reclaimed) — the caller has
+        nothing to renew. ``ttl_seconds`` overrides the configured TTL (a
+        negative value backdates the lease, which is how tests simulate an
+        owner that died).
+        """
+        return self._run(self._heartbeat_async(job_id, ttl_seconds))
+
+    async def _heartbeat_async(self, job_id: str, ttl_seconds: int | None) -> bool:
+        async with self._sessionmaker() as session:
+            async with session.begin():
+                res = await session.execute(
+                    update(JobState)
+                    .where(
+                        JobState.job_id == job_id,
+                        JobState.lifecycle_state == "running",
+                    )
+                    .values(lease_expires_at=self._lease_deadline(ttl_seconds))
+                )
+                return int(res.rowcount or 0) > 0
+
+    def reclaim_expired(self) -> int:
+        """Reclaim every ``running`` row whose lease has expired; return the count.
+
+        This is the crash-safety path: a SIGKILL/OOM/eviction runs no cleanup
+        code, so nothing stamps a terminal status and the row would hold its
+        admission slot forever. Reclaimed rows go terminal ``failed`` (not back
+        to ``queued``: nothing in PFactory re-drives a queued row, so requeueing
+        would claim the plan is still coming when it is not — the honest state
+        is failed-with-a-reason, and re-ingest is the resume path).
+
+        Race-free across replicas by construction: ONE atomic conditional
+        ``UPDATE ... WHERE lifecycle_state='running' AND lease_expires_at < now``
+        — no read-then-write. Two replicas reclaiming the same row serialise on
+        the row lock, and the loser's predicate no longer matches (the state is
+        already ``failed``), so it reclaims 0 rows. Idempotent by the same rule.
+        """
+        return self._run(self._reclaim_expired_async())
+
+    async def _reclaim_expired_async(self) -> int:
+        async with self._sessionmaker() as session:
+            async with session.begin():
+                return await self._reclaim_on(session)
+
+    async def _reclaim_on(self, session: AsyncSession) -> int:
+        """The reclaim UPDATE on an existing session/transaction.
+
+        Shared by the public :meth:`reclaim_expired` and :meth:`try_start` (which
+        reclaims inline, inside its own admission transaction).
+        """
+        now = _now()
+        res = await session.execute(
+            update(JobState)
+            .where(
+                JobState.lifecycle_state == "running",
+                JobState.lease_expires_at.is_not(None),
+                JobState.lease_expires_at < now,
+            )
+            .values(
+                lifecycle_state="failed",
+                service_status="failed",
+                error=_RECLAIM_ERROR,
+                ended_at=now,
+                lease_expires_at=None,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        n = int(res.rowcount or 0)
+        if n:
+            logger.warning(
+                "reclaimed %d job_states row(s) whose lease expired: the owning "
+                "replica died mid-plan; their admission slots are now free (#300)",
+                n,
+            )
+        return n
+
     # ── admission: grant a concurrency slot under a row lock ─────────────
 
     def try_start(self, job_id: str) -> dict[str, Any]:
@@ -317,6 +437,8 @@ class JobStateStore:
         In ONE transaction, serialised against every other replica granting a
         slot: take the admission critical-section lock (a transaction-scoped
         ``pg_advisory_xact_lock`` on Postgres — see :meth:`_acquire_admission_lock`),
+        reclaim any ``running`` row whose lease expired (its owner died without
+        stamping a terminal status — see :meth:`reclaim_expired`, #300),
         count how many jobs are already ``running``, and only if that is below
         the cap flip this job's row to ``running`` + stamp
         ``admission.started_at``. The advisory lock (not per-row ``FOR UPDATE``
@@ -355,6 +477,17 @@ class JobStateStore:
                 # Enter the admission critical section (deadlock-free gate).
                 await self._acquire_admission_lock(session)
 
+                # Reclaim dead owners' rows BEFORE counting, inside this same
+                # transaction, so the count below sees the freed slots (#300).
+                # ponytail: admission IS the reclaim trigger — no sweeper task,
+                # no startup hook. The leak is only ever observable here (the
+                # cap), and _durable_admit retries try_start while it waits for
+                # a slot, so a wedged queue self-heals as the leases lapse. Add
+                # a periodic sweeper only if a stale `running` row ever needs to
+                # be cleared for something other than admission (e.g. a portal
+                # view), which nothing needs today.
+                await self._reclaim_on(session)
+
                 # Lock just THIS job's row so two grants of the same job_id
                 # serialise (idempotency) — a single row, so no ordering issue.
                 me = await session.get(JobState, job_id, with_for_update=self.supports_row_locking)
@@ -376,6 +509,10 @@ class JobStateStore:
 
                 me.lifecycle_state = "running"
                 me.service_status = "processing"
+                # Start the lease (#300). The owner renews it while process()
+                # runs; if the owner dies, the lease lapses and the row (and its
+                # slot) is reclaimed by the next grant.
+                me.lease_expires_at = self._lease_deadline()
                 me.admission = {
                     **(me.admission or {}),
                     "started_at": _now().isoformat(),

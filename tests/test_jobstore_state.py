@@ -32,6 +32,8 @@ from server.jobstore import (  # noqa: E402
     JobStateStore,
     SlotDenied,
     jobstore_enabled,
+    lease_heartbeat_interval,
+    lease_ttl_seconds,
     lifecycle_state_for,
 )
 from server.jobstore.models import JobState  # noqa: E402
@@ -288,3 +290,126 @@ def test_concurrent_grants_do_not_corrupt_store_on_sqlite(make_store):
         row = store.get(f"k{i}")
         assert row is not None
         assert row["lifecycle_state"] in ("queued", "running")
+
+
+# ── lease / reclaim: a killed owner must not leak its slot (#300) ────────────
+#
+# The bug these cover: try_start flips a row to `running`, and the ONLY things
+# that flip it back are (a) a terminal transition inside process() and (b) the
+# `except` in _durable_admit. A SIGKILL runs NEITHER, so the row stayed
+# `running` forever and its admission slot was gone for good — the cap decayed
+# toward zero across the whole fleet. Every test below fails without the lease.
+
+
+def _strand(store, job_id: str) -> None:
+    """Simulate an owner that was SIGKILLed: running, lease in the past.
+
+    A backdated lease is exactly the state a killed pod leaves behind — the row
+    is `running` and nothing will ever renew it again.
+    """
+    store.upsert(job_id, service_status="ingested")
+    store.try_start(job_id)
+    assert store.heartbeat(job_id, ttl_seconds=-1) is True
+
+
+def test_expired_lease_row_is_reclaimed(make_store):
+    store = make_store()
+    _strand(store, "dead")
+
+    assert store.reclaim_expired() == 1
+
+    row = store.get("dead")
+    assert row["lifecycle_state"] == "failed"  # terminal, off `running`
+    assert row["ended_at"] is not None
+    assert "lease expired" in row["error"]  # never-overclaim: carries a reason
+    assert store.running_count() == 0  # the slot is back
+
+
+def test_live_lease_row_is_not_reclaimed(make_store):
+    """A healthy, heartbeating plan MUST survive — reclaiming it is worse than
+    the leak it fixes."""
+    store = make_store()
+    store.upsert("alive", service_status="ingested")
+    store.try_start("alive")
+
+    assert store.reclaim_expired() == 0
+    assert store.heartbeat("alive") is True  # owner renews
+    assert store.reclaim_expired() == 0
+
+    assert store.get("alive")["lifecycle_state"] == "running"
+    assert store.running_count() == 1
+
+
+def test_admission_cap_recovers_after_a_strand(make_store):
+    """The user-visible bug: a killed pod's row wedges admission forever."""
+    store = make_store(max_concurrent=1)
+    _strand(store, "dead")
+
+    # Before the fix the slot is gone for good and this is unreachable.
+    store.upsert("next", service_status="ingested")
+    store.try_start("next")  # reclaims `dead` inline, then grants
+
+    assert store.get("dead")["lifecycle_state"] == "failed"
+    assert store.get("next")["lifecycle_state"] == "running"
+    assert store.running_count() == 1  # cap still honoured, not exceeded
+
+
+def test_reclaim_is_idempotent_and_single_shot_under_concurrency(make_store):
+    """Two replicas reclaiming the same row: exactly ONE reclaims it.
+
+    The atomic conditional UPDATE (no read-then-write) is what makes this hold:
+    the loser's `lifecycle_state='running'` predicate no longer matches once the
+    winner has committed.
+    """
+    store = make_store()
+    _strand(store, "dead")
+
+    counts: list[int] = []
+    lock = threading.Lock()
+
+    def worker() -> None:
+        try:
+            n = store.reclaim_expired()
+        except Exception as exc:  # noqa: BLE001 — sqlite writer contention
+            if "database is locked" not in str(exc).lower():
+                raise
+            return
+        with lock:
+            counts.append(n)
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert sum(counts) == 1, f"double-reclaimed: {counts}"
+    assert store.get("dead")["lifecycle_state"] == "failed"
+
+    # Idempotent: a settled row is never reclaimed again.
+    assert store.reclaim_expired() == 0
+
+
+def test_heartbeat_only_renews_a_running_row(make_store):
+    store = make_store()
+    store.upsert("q", service_status="ingested")
+    assert store.heartbeat("q") is False  # queued, not running -> nothing to renew
+    assert store.heartbeat("nonexistent") is False
+
+    store.try_start("q")
+    assert store.heartbeat("q") is True
+    store.upsert("q", service_status="emitted")
+    assert store.heartbeat("q") is False  # terminal -> the owner is done
+
+
+def test_lease_ttl_and_interval_are_configurable(monkeypatch):
+    monkeypatch.delenv("PFACTORY_PLAN_LEASE_TTL_SECONDS", raising=False)
+    assert lease_ttl_seconds() == 600
+    assert lease_heartbeat_interval() == 150.0
+    monkeypatch.setenv("PFACTORY_PLAN_LEASE_TTL_SECONDS", "60")
+    assert lease_ttl_seconds() == 60
+    assert lease_heartbeat_interval() == 15.0
+    monkeypatch.setenv("PFACTORY_PLAN_LEASE_TTL_SECONDS", "8")
+    assert lease_heartbeat_interval() == 5.0  # floor
+    monkeypatch.setenv("PFACTORY_PLAN_LEASE_TTL_SECONDS", "not-an-int")
+    assert lease_ttl_seconds() == 600  # bad value -> default, never raises

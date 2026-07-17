@@ -18,12 +18,21 @@ single-pod-dev fallback (and logs that it is not multi-replica safe).
 from __future__ import annotations
 
 from .lifecycle import lifecycle_state_for
-from .store import JobStateStore, SlotDenied, jobstore_enabled, lifecycle_filter
+from .store import (
+    JobStateStore,
+    SlotDenied,
+    jobstore_enabled,
+    lease_heartbeat_interval,
+    lease_ttl_seconds,
+    lifecycle_filter,
+)
 
 __all__ = [
     "JobStateStore",
     "SlotDenied",
     "jobstore_enabled",
+    "lease_heartbeat_interval",
+    "lease_ttl_seconds",
     "lifecycle_filter",
     "lifecycle_state_for",
 ]
