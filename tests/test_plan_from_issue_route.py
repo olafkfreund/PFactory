@@ -66,8 +66,15 @@ def service(monkeypatch) -> PlanService:
     return svc
 
 
+class _Request:
+    """Header-carrying Request stand-in for direct route calls (#308)."""
+
+    def __init__(self, headers: dict | None = None) -> None:
+        self.headers = headers or {}
+
+
 def _post(payload: dict) -> dict:
-    return asyncio.run(pp.ingest_from_issue(pp.FromIssueBody(**payload)))
+    return asyncio.run(pp.ingest_from_issue(pp.FromIssueBody(**payload), _Request()))
 
 
 def test_accepts_poller_shape_and_creates_a_session(service: PlanService) -> None:
