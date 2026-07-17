@@ -142,6 +142,13 @@ class PlanSession(BaseModel):
     # rejected plan). The two ids below are the upstream/downstream links.
     correlation_key: str | None = None
     emitted_issue_number: int | None = None  # upstream link — the emitted epic issue#
+    # RFC-0011 hard tier (AIFactory#874): the ORIGIN issue this plan was raised
+    # from, when it arrived via from-issue intake. Distinct from
+    # `emitted_issue_number` (the epic PFactory *creates*) — this is the issue a
+    # human filed, and it is what `correlation_key_for` keys on so plan → code →
+    # verify thread back to the request rather than to PFactory's own output.
+    # None for every other channel (portal/CLI/MCP), which keeps prior behaviour.
+    origin_issue_number: int | None = None
     aifactory_task_id: str | None = None  # downstream link — the handed-off task
 
     # Token usage accumulated across the run's LLM seams (#60). Zero by default —
@@ -175,6 +182,7 @@ class PlanSession(BaseModel):
             "created_at": self.created_at,
             "correlation_key": self.correlation_key,
             "issue_number": self.emitted_issue_number,
+            "origin_issue_number": self.origin_issue_number,
             "aifactory_task_id": self.aifactory_task_id,
             "injection_scan": self.injection_scan,
         }
@@ -427,6 +435,7 @@ class PlanService:
         repo: str | None = None,
         base_ref: str | None = None,
         autonomy_tier: str | None = None,
+        origin_issue_number: int | None = None,
     ) -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title, seq=self._next_seq())
         # RFC-0011: carry the label-driven difficulty tier from intake so process()
@@ -437,6 +446,13 @@ class PlanService:
         session.selected_template = template
         session.repo = repo or None  # RFC-0010: target repo for reconnaissance
         session.base_ref = base_ref or None
+        # RFC-0011 hard tier (AIFactory#874): record the origin issue and resolve
+        # the correlation key NOW rather than at emit, so the chain back to the
+        # filed issue is observable from the moment the session exists (and a
+        # session that never reaches emit still carries it).
+        session.origin_issue_number = origin_issue_number
+        if origin_issue_number is not None:
+            session.correlation_key = correlation_key_for(session)
         self._save(session)
         return session
 
@@ -652,11 +668,23 @@ class PlanService:
         until a slot frees — preserving the in-memory semaphore's queue-don't-
         error behaviour. The terminal transition inside ``process`` flips the
         row off ``running`` via ``_save``/``_mirror``, freeing the slot.
+
+        Crash safety (#300): the two paths above only free the slot when this
+        process lives long enough to write. A SIGKILL (OOM, eviction, node loss,
+        a failed liveness probe) runs NO cleanup code — not ``except``, not
+        ``finally``, not an atexit/signal handler — so the row would stay
+        ``running`` forever and permanently burn one of the cap's slots for
+        every replica. We therefore hold a LEASE while ``process`` runs: the
+        grant stamps an expiry, ``_renew_lease`` below refreshes it from this
+        (free) event loop, and if this pod dies the lease simply lapses and the
+        next grant reclaims the row. Nothing here has to run for that to work —
+        that is the point.
         """
         # Deferred + optional import (see _resolve_job_store): only reached when
         # a durable store is configured, so server.jobstore is importable here.
         from server.jobstore import (  # type: ignore[import-not-found]  # noqa: PLC0415
             SlotDenied,
+            lease_heartbeat_interval,
         )
 
         store = self._job_store
@@ -671,6 +699,12 @@ class PlanService:
             except SlotDenied:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 1.0)  # bounded exponential backoff
+        # Renew this job's lease while the pipeline runs, so a HEALTHY long plan
+        # is never reclaimed as a dead one. Runs on the event loop, which the
+        # off-loop worker deliberately keeps free (#219).
+        renew = asyncio.create_task(
+            self._renew_lease(store, session_id, lease_heartbeat_interval())
+        )
         try:
             return await asyncio.to_thread(
                 self.process, session_id, external_runner=external_runner, llm=llm
@@ -693,6 +727,24 @@ class PlanService:
                     session_id,
                 )
             raise
+        finally:
+            renew.cancel()
+
+    @staticmethod
+    async def _renew_lease(store, job_id: str, interval: float) -> None:
+        """Refresh ``job_id``'s lease every ``interval`` seconds until cancelled.
+
+        Best-effort: a transient DB hiccup must not kill the run, and one missed
+        renewal is harmless (the TTL is several intervals wide). Stops early once
+        the row is no longer ``running`` — the job went terminal on its own.
+        """
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                if not await asyncio.to_thread(store.heartbeat, job_id):
+                    return
+            except Exception as exc:  # noqa: BLE001 — a renewal is best-effort
+                logger.warning("failed to renew the lease for plan %s: %s", job_id, exc)
 
     def _detect_and_plan_type(self, session: PlanSession) -> tuple[NormalizedPlan, object]:
         """Detect → reconnoiter → route tier → enrich → plan-type select.

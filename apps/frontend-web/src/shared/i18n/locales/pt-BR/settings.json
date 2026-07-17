@@ -139,9 +139,7 @@
     "model": "Modelo",
     "thinkingLevel": "Nível de Raciocínio",
     "autoNameTerminals": "Nomear terminais automaticamente",
-    "autoNameTerminalsDescription": "Usar IA para gerar nomes descritivos para abas de terminal com base na atividade",
-    "bmadSessionSegmentation": "Segmentação de Sessão BMad",
-    "bmadSessionSegmentationDescription": "Ativar sessões por história com contexto mínimo para redução de 50-90% de tokens (experimental)"
+    "autoNameTerminalsDescription": "Usar IA para gerar nomes descritivos para abas de terminal com base na atividade"
   },
   "theme": {
     "title": "Aparência",

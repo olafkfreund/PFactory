@@ -199,9 +199,7 @@
     "model": "Model",
     "thinkingLevel": "Thinking Level",
     "autoNameTerminals": "Automatically name terminals",
-    "autoNameTerminalsDescription": "Use AI to generate descriptive names for terminal tabs based on their activity",
-    "bmadSessionSegmentation": "BMad Session Segmentation",
-    "bmadSessionSegmentationDescription": "Enable per-story sessions with minimal context for 50-90% token reduction (experimental)"
+    "autoNameTerminalsDescription": "Use AI to generate descriptive names for terminal tabs based on their activity"
   },
   "theme": {
     "title": "Appearance",

@@ -199,9 +199,7 @@
     "model": "Modèle",
     "thinkingLevel": "Niveau de réflexion",
     "autoNameTerminals": "Nommer automatiquement les terminaux",
-    "autoNameTerminalsDescription": "Utiliser l'IA pour générer des noms descriptifs pour les onglets de terminal en fonction de leur activité",
-    "bmadSessionSegmentation": "Segmentation de session BMad",
-    "bmadSessionSegmentationDescription": "Activer les sessions par histoire avec contexte minimal pour une réduction de 50-90% des tokens (expérimental)"
+    "autoNameTerminalsDescription": "Utiliser l'IA pour générer des noms descriptifs pour les onglets de terminal en fonction de leur activité"
   },
   "theme": {
     "title": "Apparence",

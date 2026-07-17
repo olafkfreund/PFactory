@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ..paths import get_data_dir, get_data_file
+from ..services.git_utils import run_git_command
 from .projects import load_projects
 
 logger = logging.getLogger(__name__)
@@ -2086,42 +2087,20 @@ async def get_worktree_merge_preview(task_id: str):
         return {"success": False, "error": "No worktree found for this task"}
 
     # Get the branch name from the worktree
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        worktree_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
+    branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
+    if not branch_result["success"]:
         return {"success": False, "error": "Could not determine worktree branch"}
+    worktree_branch = branch_result["output"]
 
     # Get the base branch (usually develop or main)
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        base_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
-        base_branch = "develop"
+    base_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_path)
+    base_branch = base_result["output"] if base_result["success"] else "develop"
 
     # Get list of changed files
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--name-status", f"{base_branch}...{worktree_branch}"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        changed_files = []
-        for line in result.stdout.strip().split("\n"):
+    changed_files = []
+    diff_result = run_git_command(["diff", "--name-status", f"{base_branch}...{worktree_branch}"], cwd=project_path)
+    if diff_result["success"]:
+        for line in diff_result["output"].split("\n"):
             if line:
                 parts = line.split("\t")
                 if len(parts) >= 2:
@@ -2131,8 +2110,6 @@ async def get_worktree_merge_preview(task_id: str):
                         "path": filename,
                         "status": "added" if status == "A" else "modified" if status == "M" else "deleted" if status == "D" else status
                     })
-    except subprocess.CalledProcessError:
-        changed_files = []
 
     # Check for potential conflicts using merge-tree (dry run)
     # Git 2.38+ uses new merge-tree format with --write-tree mode by default
@@ -2205,43 +2182,29 @@ async def get_worktree_merge_preview(task_id: str):
         merge_in_progress = True
 
     # Get commit counts
-    try:
-        result = subprocess.run(
-            ["git", "rev-list", "--count", f"{base_branch}..{worktree_branch}"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        commits_ahead = int(result.stdout.strip())
-    except (subprocess.CalledProcessError, ValueError):
-        commits_ahead = 0
+    commits_ahead = 0
+    ahead_result = run_git_command(["rev-list", "--count", f"{base_branch}..{worktree_branch}"], cwd=project_path)
+    if ahead_result["success"]:
+        try:
+            commits_ahead = int(ahead_result["output"])
+        except ValueError:
+            commits_ahead = 0
 
-    try:
-        result = subprocess.run(
-            ["git", "rev-list", "--count", f"{worktree_branch}..{base_branch}"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        commits_behind = int(result.stdout.strip())
-    except (subprocess.CalledProcessError, ValueError):
-        commits_behind = 0
+    commits_behind = 0
+    behind_result = run_git_command(["rev-list", "--count", f"{worktree_branch}..{base_branch}"], cwd=project_path)
+    if behind_result["success"]:
+        try:
+            commits_behind = int(behind_result["output"])
+        except ValueError:
+            commits_behind = 0
 
     # Detect uncommitted changes in the main project that could conflict
     uncommitted_files = []
     uncommitted_conflicting_files = []
-    try:
-        # Get uncommitted files in main project
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        for line in result.stdout.strip().split("\n"):
+    # Get uncommitted files in main project
+    status_result = run_git_command(["status", "--porcelain"], cwd=project_path)
+    if status_result["success"]:
+        for line in status_result["output"].split("\n"):
             if line:
                 # Format: "XY filename" or "XY original -> renamed"
                 parts = line[3:].split(" -> ")
@@ -2251,18 +2214,18 @@ async def get_worktree_merge_preview(task_id: str):
 
         # Get files modified in task branch (for conflict detection)
         if uncommitted_files:
-            task_files_result = subprocess.run(
-                ["git", "diff", "--name-only", f"{base_branch}...{worktree_branch}"],
+            task_files_result = run_git_command(
+                ["diff", "--name-only", f"{base_branch}...{worktree_branch}"],
                 cwd=project_path,
-                capture_output=True,
-                text=True
             )
-            if task_files_result.returncode == 0:
-                task_files = set(task_files_result.stdout.strip().split('\n'))
+            if task_files_result["success"]:
+                task_files = set(task_files_result["output"].split('\n'))
                 # Find files that overlap (uncommitted in main AND modified in task)
                 uncommitted_conflicting_files = list(set(uncommitted_files) & task_files)
 
                 # Filter out gitignored files (e.g. build artifacts)
+                # check-ignore prints matched paths to stdout and exits 1 when
+                # none match, so we need stdout regardless of exit code — kept raw.
                 if uncommitted_conflicting_files:
                     try:
                         ignored_result = subprocess.run(
@@ -2274,8 +2237,6 @@ async def get_worktree_merge_preview(task_id: str):
                         uncommitted_conflicting_files = [f for f in uncommitted_conflicting_files if f not in ignored]
                     except Exception:
                         pass
-    except subprocess.CalledProcessError:
-        pass  # Non-fatal - continue without uncommitted detection
 
     # Run semantic conflict detection using backend merge system
     semantic_conflicts = []
@@ -2419,17 +2380,10 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
         return {"success": False, "error": "No worktree found for this task"}
 
     # Get worktree branch name
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        worktree_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
+    branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
+    if not branch_result["success"]:
         return {"success": False, "error": "Could not determine worktree branch"}
+    worktree_branch = branch_result["output"]
 
     # Check if a merge is already in progress
     merge_head = project_path / ".git" / "MERGE_HEAD"
@@ -2448,11 +2402,9 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
         if merge_result.returncode == 0:
             # Clean merge, no conflicts - commit it
             logger.info(f"Clean merge for {task_id}, committing")
-            commit_result = subprocess.run(
-                ["git", "commit", "-m", f"Merge {worktree_branch} into current branch"],
+            run_git_command(
+                ["commit", "-m", f"Merge {worktree_branch} into current branch"],
                 cwd=project_path,
-                capture_output=True,
-                text=True
             )
             return {
                 "success": True,
@@ -2485,45 +2437,24 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
 
     # Get list of conflicted files
     conflicted_files = []
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=U"],
-            cwd=project_path,
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            conflicted_files = [f for f in result.stdout.strip().split('\n') if f]
-    except subprocess.CalledProcessError:
-        pass
+    diff_u_result = run_git_command(["diff", "--name-only", "--diff-filter=U"], cwd=project_path)
+    if diff_u_result["success"] and diff_u_result["output"]:
+        conflicted_files = [f for f in diff_u_result["output"].split('\n') if f]
 
     # Fallback: check git status for unmerged files
     if not conflicted_files:
-        try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=project_path,
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
-                    if line and line[:2] in ('UU', 'AA', 'DD', 'AU', 'UA', 'DU', 'UD'):
-                        file_path = line[3:].strip()
-                        if file_path:
-                            conflicted_files.append(file_path)
-        except subprocess.CalledProcessError:
-            pass
+        status_result = run_git_command(["status", "--porcelain"], cwd=project_path)
+        if status_result["success"]:
+            for line in status_result["output"].split('\n'):
+                if line and line[:2] in ('UU', 'AA', 'DD', 'AU', 'UA', 'DU', 'UD'):
+                    file_path = line[3:].strip()
+                    if file_path:
+                        conflicted_files.append(file_path)
 
     if not conflicted_files:
         # No conflicts found - the merge may have already been resolved
         # Try to commit
-        commit_result = subprocess.run(
-            ["git", "commit", "--no-edit"],
-            cwd=project_path,
-            capture_output=True,
-            text=True
-        )
+        run_git_command(["commit", "--no-edit"], cwd=project_path)
         return {
             "success": True,
             "data": {
@@ -2554,12 +2485,7 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
 
             if "<<<<<<< " not in content:
                 logger.info(f"File {file_path} has no conflict markers, staging")
-                subprocess.run(
-                    ["git", "add", file_path],
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True
-                )
+                run_git_command(["add", file_path], cwd=project_path)
                 resolved_files.append(file_path)
                 continue
 
@@ -2580,17 +2506,12 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
                 full_path.write_text(resolved_content)
                 logger.info(f"Wrote resolved content to {full_path}")
 
-                result = subprocess.run(
-                    ["git", "add", file_path],
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode == 0:
+                add_result = run_git_command(["add", file_path], cwd=project_path)
+                if add_result["success"]:
                     resolved_files.append(file_path)
                     logger.info(f"Staged resolved file: {file_path}")
                 else:
-                    failed_files.append({"file": file_path, "error": f"Failed to stage: {result.stderr}"})
+                    failed_files.append({"file": file_path, "error": f"Failed to stage: {add_result['error']}"})
             else:
                 error_msg = merge_result.get("error", "AI resolution failed")
                 logger.error(f"AI resolution failed for {file_path}: {error_msg}")
@@ -2615,21 +2536,16 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
     # All conflicts resolved - commit the merge
     try:
         commit_msg = f"Merge {worktree_branch} (AI-resolved conflicts)"
-        result = subprocess.run(
-            ["git", "commit", "-m", commit_msg],
-            cwd=project_path,
-            capture_output=True,
-            text=True
-        )
-        if result.returncode != 0:
-            logger.warning(f"Merge commit failed: {result.stderr}")
+        commit_result = run_git_command(["commit", "-m", commit_msg], cwd=project_path)
+        if not commit_result["success"]:
+            logger.warning(f"Merge commit failed: {commit_result['error']}")
             return {
                 "success": True,
                 "data": {
                     "resolved": resolved_files,
                     "remaining": [],
                     "stats": {
-                        "message": f"Resolved {len(resolved_files)} files but commit failed: {result.stderr.strip()}"
+                        "message": f"Resolved {len(resolved_files)} files but commit failed: {commit_result['error']}"
                     },
                 },
             }
@@ -2697,47 +2613,27 @@ async def resolve_uncommitted_conflicts(task_id: str):
         return {"success": False, "error": "No worktree found for this task"}
 
     # Get branch names
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        base_branch = result.stdout.strip()
-
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        spec_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
+    base_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_path)
+    spec_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
+    if not base_result["success"] or not spec_result["success"]:
         return {"success": False, "error": "Could not determine branches"}
+    base_branch = base_result["output"]
+    spec_branch = spec_result["output"]
 
     # Get uncommitted files that conflict with task
     uncommitted_files = []
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        for line in result.stdout.strip().split("\n"):
-            if line:
-                parts = line[3:].split(" -> ")
-                filename = parts[-1].strip()
-                if filename:
-                    uncommitted_files.append(filename)
-    except subprocess.CalledProcessError:
+    status_result = run_git_command(["status", "--porcelain"], cwd=project_path)
+    if not status_result["success"]:
         return {"success": False, "error": "Could not get uncommitted files"}
+    for line in status_result["output"].split("\n"):
+        if line:
+            parts = line[3:].split(" -> ")
+            filename = parts[-1].strip()
+            if filename:
+                uncommitted_files.append(filename)
 
-    # Get task branch files
+    # Get task branch files (returncode intentionally ignored — kept raw so an
+    # empty/failed diff still yields the same set semantics as before)
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", f"{base_branch}...{spec_branch}"],
@@ -2870,12 +2766,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
         # Drop the stash only if we created one
         if stash_created:
             try:
-                subprocess.run(
-                    ["git", "stash", "drop"],
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True
-                )
+                run_git_command(["stash", "drop"], cwd=project_path)
                 logger.info("Dropped stash after merge")
             except Exception:
                 logger.warning("Failed to drop stash - may need manual cleanup")
@@ -2974,41 +2865,25 @@ async def resolve_git_merge_conflicts(task_id: str):
 
     # Get list of files with unresolved conflicts
     conflicted_files = []
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=U"],
-            cwd=work_path,
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            conflicted_files = [f for f in result.stdout.strip().split('\n') if f]
-            logger.info(f"Found {len(conflicted_files)} conflicted files: {conflicted_files}")
-    except subprocess.CalledProcessError as e:
-        logger.warning(f"git diff --diff-filter=U failed: {e}")
+    diff_u_result = run_git_command(["diff", "--name-only", "--diff-filter=U"], cwd=work_path)
+    if diff_u_result["success"] and diff_u_result["output"]:
+        conflicted_files = [f for f in diff_u_result["output"].split('\n') if f]
+        logger.info(f"Found {len(conflicted_files)} conflicted files: {conflicted_files}")
 
     # If no conflicted files from git, scan for files with conflict markers
     if not conflicted_files:
         logger.info("No files from git diff --diff-filter=U, scanning for conflict markers...")
-        try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=work_path,
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
-                    if line and (line.startswith('UU') or line.startswith('AA') or
-                                 line.startswith('DD') or line.startswith('AU') or
-                                 line.startswith('UA') or line.startswith('DU') or
-                                 line.startswith('UD')):
-                        # Status codes indicate conflicts
-                        file_path = line[3:].strip()
-                        if file_path:
-                            conflicted_files.append(file_path)
-        except subprocess.CalledProcessError:
-            pass
+        status_result = run_git_command(["status", "--porcelain"], cwd=work_path)
+        if status_result["success"]:
+            for line in status_result["output"].split('\n'):
+                if line and (line.startswith('UU') or line.startswith('AA') or
+                             line.startswith('DD') or line.startswith('AU') or
+                             line.startswith('UA') or line.startswith('DU') or
+                             line.startswith('UD')):
+                    # Status codes indicate conflicts
+                    file_path = line[3:].strip()
+                    if file_path:
+                        conflicted_files.append(file_path)
 
     if not conflicted_files:
         return {
@@ -3043,12 +2918,7 @@ async def resolve_git_merge_conflicts(task_id: str):
             if "<<<<<<< " not in content:
                 logger.info(f"File {file_path} has no conflict markers, skipping")
                 # Stage it anyway since git thinks it's conflicted
-                subprocess.run(
-                    ["git", "add", file_path],
-                    cwd=work_path,
-                    capture_output=True,
-                    text=True
-                )
+                run_git_command(["add", file_path], cwd=work_path)
                 resolved_files.append(file_path)
                 continue
 
@@ -3072,18 +2942,13 @@ async def resolve_git_merge_conflicts(task_id: str):
                 logger.info(f"Wrote resolved content to {full_path}")
 
                 # Stage the file
-                result = subprocess.run(
-                    ["git", "add", file_path],
-                    cwd=work_path,
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode == 0:
+                add_result = run_git_command(["add", file_path], cwd=work_path)
+                if add_result["success"]:
                     resolved_files.append(file_path)
                     logger.info(f"Staged resolved file: {file_path}")
                 else:
-                    logger.warning(f"Failed to stage {file_path}: {result.stderr}")
-                    failed_files.append({"file": file_path, "error": f"Failed to stage: {result.stderr}"})
+                    logger.warning(f"Failed to stage {file_path}: {add_result['error']}")
+                    failed_files.append({"file": file_path, "error": f"Failed to stage: {add_result['error']}"})
             else:
                 error_msg = merge_result.get("error", "AI resolution failed")
                 logger.error(f"AI resolution failed for {file_path}: {error_msg}")
@@ -3113,29 +2978,19 @@ async def resolve_git_merge_conflicts(task_id: str):
         if merge_head_file.exists():
             merge_commit = merge_head_file.read_text().strip()[:8]
             # Try to get branch name from the merge
-            result = subprocess.run(
-                ["git", "name-rev", "--name-only", merge_commit],
-                cwd=work_path,
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                merge_branch = result.stdout.strip()
+            name_rev_result = run_git_command(["name-rev", "--name-only", merge_commit], cwd=work_path)
+            if name_rev_result["success"] and name_rev_result["output"]:
+                merge_branch = name_rev_result["output"]
 
         # Commit the merge
         commit_msg = f"Merge {merge_branch} (AI-resolved conflicts)"
-        result = subprocess.run(
-            ["git", "commit", "-m", commit_msg],
-            cwd=work_path,
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0:
+        commit_git_result = run_git_command(["commit", "-m", commit_msg], cwd=work_path)
+        if commit_git_result["success"]:
             commit_result = "Merge committed successfully"
             logger.info(f"Auto-committed merge: {commit_msg}")
         else:
-            commit_result = f"Commit failed: {result.stderr}"
-            logger.warning(f"Failed to auto-commit merge: {result.stderr}")
+            commit_result = f"Commit failed: {commit_git_result['error']}"
+            logger.warning(f"Failed to auto-commit merge: {commit_git_result['error']}")
     except Exception as e:
         commit_result = f"Commit error: {str(e)}"
         logger.error(f"Error during auto-commit: {e}")
@@ -3353,42 +3208,19 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
         return {"success": False, "error": "No worktree found for this task"}
 
     # Get the branch name from the worktree
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        worktree_branch = result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        return {"success": False, "error": f"Could not determine worktree branch: {e}"}
+    branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
+    if not branch_result["success"]:
+        return {"success": False, "error": f"Could not determine worktree branch: {branch_result['error']}"}
+    worktree_branch = branch_result["output"]
 
     # Get the base branch (from options or detect from main project)
     base_branch = options.baseBranch
     if not base_branch:
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=project_path,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            base_branch = result.stdout.strip()
-        except subprocess.CalledProcessError:
-            base_branch = "main"
+        base_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_path)
+        base_branch = base_result["output"] if base_result["success"] else "main"
 
     # Fetch latest base branch from remote
-    try:
-        subprocess.run(
-            ["git", "fetch", "origin", base_branch],
-            cwd=worktree_path,
-            capture_output=True, text=True, timeout=30
-        )
-    except Exception:
-        pass  # Non-fatal — rebase will use whatever is available
+    run_git_command(["fetch", "origin", base_branch], cwd=worktree_path)
 
     # Stash any uncommitted changes before rebasing
     stashed = False
@@ -3636,30 +3468,14 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
         return {"success": False, "error": "No worktree found for this task"}
 
     # Get the branch name from the worktree
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        worktree_branch = result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        return {"success": False, "error": f"Could not determine worktree branch: {e}"}
+    branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
+    if not branch_result["success"]:
+        return {"success": False, "error": f"Could not determine worktree branch: {branch_result['error']}"}
+    worktree_branch = branch_result["output"]
 
     # Get the current branch in main repo
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        base_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
-        base_branch = "develop"
+    base_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_path)
+    base_branch = base_result["output"] if base_result["success"] else "develop"
 
     # Clean up internal auto-generated files that can block merge
     # These are untracked files created by agents in worktrees that would
@@ -3696,22 +3512,16 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
         branch_deleted = False
         try:
             # Remove git worktree
-            cleanup_result = subprocess.run(
-                ["git", "worktree", "remove", str(worktree_path), "--force"],
+            worktree_deleted = run_git_command(
+                ["worktree", "remove", str(worktree_path), "--force"],
                 cwd=project_path,
-                capture_output=True,
-                text=True
-            )
-            worktree_deleted = cleanup_result.returncode == 0
+            )["success"]
 
             # Delete the branch (it's merged now)
-            branch_result = subprocess.run(
-                ["git", "branch", "-d", worktree_branch],
+            branch_deleted = run_git_command(
+                ["branch", "-d", worktree_branch],
                 cwd=project_path,
-                capture_output=True,
-                text=True
-            )
-            branch_deleted = branch_result.returncode == 0
+            )["success"]
         except Exception as e:
             logger.warning(f"Failed to cleanup worktree after merge: {e}")
             # Don't fail the merge just because cleanup failed
@@ -3750,8 +3560,6 @@ async def get_worktree_status(task_id: str):
     Returns information about the worktree including changed files count,
     additions/deletions, and whether it exists.
     """
-    import subprocess
-
     # Parse task_id to get project_id and spec_id
     if ":" in task_id:
         project_id, spec_id = task_id.split(":", 1)
@@ -3816,59 +3624,31 @@ async def get_worktree_status(task_id: str):
         }
 
     # Get worktree branch
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        worktree_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
-        worktree_branch = f"pfactory/{spec_id}"
+    branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
+    worktree_branch = branch_result["output"] if branch_result["success"] else f"pfactory/{spec_id}"
 
     # Get base branch from main project
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        base_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
-        base_branch = "develop"
+    base_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_path)
+    base_branch = base_result["output"] if base_result["success"] else "develop"
 
     # Count commits ahead
-    try:
-        result = subprocess.run(
-            ["git", "rev-list", "--count", f"{base_branch}..{worktree_branch}"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        commit_count = int(result.stdout.strip())
-    except (subprocess.CalledProcessError, ValueError):
-        commit_count = 0
+    commit_count = 0
+    count_result = run_git_command(["rev-list", "--count", f"{base_branch}..{worktree_branch}"], cwd=project_path)
+    if count_result["success"]:
+        try:
+            commit_count = int(count_result["output"])
+        except ValueError:
+            commit_count = 0
 
     # Get changed files stats
     files_changed = 0
     additions = 0
     deletions = 0
 
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--stat", f"{base_branch}...{worktree_branch}"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+    stat_result = run_git_command(["diff", "--stat", f"{base_branch}...{worktree_branch}"], cwd=project_path)
+    if stat_result["success"]:
         # Parse the last line for summary (e.g., "5 files changed, 100 insertions(+), 20 deletions(-)")
-        lines = result.stdout.strip().split('\n')
+        lines = stat_result["output"].split('\n')
         if lines:
             summary_line = lines[-1]
             import re
@@ -3881,8 +3661,6 @@ async def get_worktree_status(task_id: str):
             del_match = re.search(r'(\d+) deletions?\(-\)', summary_line)
             if del_match:
                 deletions = int(del_match.group(1))
-    except subprocess.CalledProcessError:
-        pass
 
     return {
         "success": True,
@@ -3963,42 +3741,18 @@ async def get_worktree_diff(task_id: str):
         }
 
     # Get worktree branch
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        worktree_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
-        worktree_branch = f"pfactory/{spec_id}"
+    branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
+    worktree_branch = branch_result["output"] if branch_result["success"] else f"pfactory/{spec_id}"
 
     # Get base branch from main project
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        base_branch = result.stdout.strip()
-    except subprocess.CalledProcessError:
-        base_branch = "develop"
+    base_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_path)
+    base_branch = base_result["output"] if base_result["success"] else "develop"
 
     # Get detailed diff with numstat
     files = []
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--numstat", f"{base_branch}...{worktree_branch}"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        for line in result.stdout.strip().split('\n'):
+    numstat_result = run_git_command(["diff", "--numstat", f"{base_branch}...{worktree_branch}"], cwd=project_path)
+    if numstat_result["success"]:
+        for line in numstat_result["output"].split('\n'):
             if line:
                 parts = line.split('\t')
                 if len(parts) >= 3:
@@ -4014,20 +3768,12 @@ async def get_worktree_diff(task_id: str):
                         "additions": additions,
                         "deletions": deletions,
                     })
-    except subprocess.CalledProcessError:
-        pass
 
     # Get file statuses (A/M/D/R)
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--name-status", f"{base_branch}...{worktree_branch}"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+    name_status_result = run_git_command(["diff", "--name-status", f"{base_branch}...{worktree_branch}"], cwd=project_path)
+    if name_status_result["success"]:
         status_map = {}
-        for line in result.stdout.strip().split('\n'):
+        for line in name_status_result["output"].split('\n'):
             if line:
                 parts = line.split('\t')
                 if len(parts) >= 2:
@@ -4048,8 +3794,6 @@ async def get_worktree_diff(task_id: str):
         for f in files:
             if f["path"] in status_map:
                 f["status"] = status_map[f["path"]]
-    except subprocess.CalledProcessError:
-        pass
 
     # Filter out internal pfactory files and agent artifacts (not relevant for user review)
     INTERNAL_FILES = {".pfactory-security.json", ".pfactory-status"}
@@ -4171,33 +3915,18 @@ async def discard_worktree(task_id: str):
         branch_name = f"pfactory/{spec_id}"
 
         # Remove worktree using git command
-        result = subprocess.run(
-            ["git", "worktree", "remove", "--force", str(worktree_path)],
-            cwd=project_path,
-            capture_output=True,
-            text=True
-        )
+        remove_result = run_git_command(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
 
-        if result.returncode != 0:
+        if not remove_result["success"]:
             # Fallback: force delete directory
             if worktree_path.exists():
                 shutil.rmtree(worktree_path, ignore_errors=True)
 
         # Prune worktrees
-        subprocess.run(
-            ["git", "worktree", "prune"],
-            cwd=project_path,
-            capture_output=True,
-            text=True
-        )
+        run_git_command(["worktree", "prune"], cwd=project_path)
 
         # Delete the branch
-        subprocess.run(
-            ["git", "branch", "-D", branch_name],
-            cwd=project_path,
-            capture_output=True,
-            text=True
-        )
+        run_git_command(["branch", "-D", branch_name], cwd=project_path)
 
         return {
             "success": True,

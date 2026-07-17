@@ -15,8 +15,10 @@ A lightweight in-process fake store stands in for the real SQLAlchemy-backed
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
+import time
 
 import pytest
 from plan.service import PlanService
@@ -27,7 +29,9 @@ class FakeStore:
 
     Mirrors the contract the service depends on: ``upsert`` records the latest
     native status + payload per job; ``try_start`` flips a row to running under
-    a cap, raising ``SlotDenied`` when full (the service queues + retries).
+    a cap, raising ``SlotDenied`` when full (the service queues + retries);
+    ``heartbeat`` renews a running row's lease (#300) and records the calls so
+    the renewal path can be asserted.
     """
 
     class SlotDenied(RuntimeError):
@@ -38,6 +42,7 @@ class FakeStore:
         self.max_concurrent = max_concurrent
         self._lock = threading.Lock()
         self.upsert_calls: list[tuple[str, str]] = []
+        self.heartbeats: list[str] = []
 
     def upsert(self, job_id, *, service_status, **kw):
         with self._lock:
@@ -61,13 +66,21 @@ class FakeStore:
             row["service_status"] = "processing"
             return row
 
+    def heartbeat(self, job_id, *, ttl_seconds=None) -> bool:
+        """Renew a running row's lease; False when there is nothing running."""
+        with self._lock:
+            self.heartbeats.append(job_id)
+            return self.rows.get(job_id, {}).get("service_status") == "processing"
+
 
 @pytest.fixture(autouse=True)
 def _patch_slotdenied(monkeypatch):
-    """Make ``from server.jobstore import SlotDenied`` resolve to the fake's.
+    """Stand in for the lazily-imported ``server.jobstore`` module.
 
-    ``_durable_admit`` imports SlotDenied lazily; point that import at the
-    fake's exception type so the queue-and-retry path catches it.
+    ``_durable_admit`` imports ``SlotDenied`` (so the queue-and-retry path
+    catches the fake's exception type) and ``lease_heartbeat_interval`` (#300)
+    lazily; both must resolve here. The interval is large so the renewal task
+    never fires mid-test — the renewal path has its own test below.
     """
     import sys
     import types
@@ -75,6 +88,7 @@ def _patch_slotdenied(monkeypatch):
     mod = types.ModuleType("server")
     sub = types.ModuleType("server.jobstore")
     sub.SlotDenied = FakeStore.SlotDenied
+    sub.lease_heartbeat_interval = lambda: 3600.0
     mod.jobstore = sub
     monkeypatch.setitem(sys.modules, "server", mod)
     monkeypatch.setitem(sys.modules, "server.jobstore", sub)
@@ -187,3 +201,60 @@ async def test_process_async_queues_when_cap_full(monkeypatch):
     store.rows["foreign-running"]["service_status"] = "emitted"
     result = await asyncio.wait_for(task, timeout=5.0)
     assert result.status == "processed"
+
+
+# ── the lease is renewed while process() runs (#300) ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_durable_admit_renews_the_lease_while_processing(monkeypatch):
+    """A long plan must keep its lease alive, or the reclaimer kills it.
+
+    The renewal runs on the event loop (which the off-loop worker keeps free),
+    so a plan that takes many heartbeat intervals is never mistaken for a dead
+    owner.
+    """
+    import sys
+
+    sys.modules["server.jobstore"].lease_heartbeat_interval = lambda: 0.01
+    store = FakeStore()
+    svc = PlanService(persist=False, job_store=store)
+    session = _ingest(svc)
+
+    real_process = svc.process
+
+    def slow_process(sid, **kw):
+        time.sleep(0.2)  # ~20 heartbeat intervals
+        return real_process(sid, **kw)
+
+    monkeypatch.setattr(svc, "process", slow_process)
+    await svc.process_async(session.session_id, external_runner=lambda p, e: [])
+
+    assert store.heartbeats, "the lease was never renewed during a long plan"
+    assert all(j == session.session_id for j in store.heartbeats)
+
+
+@pytest.mark.asyncio
+async def test_renew_lease_stops_when_the_row_is_no_longer_running():
+    """No lease to renew -> the task retires instead of spinning forever."""
+    store = FakeStore()
+    store.upsert("gone", service_status="emitted")  # terminal: heartbeat -> False
+    await asyncio.wait_for(PlanService._renew_lease(store, "gone", 0.01), timeout=2)
+    assert store.heartbeats == ["gone"]
+
+
+@pytest.mark.asyncio
+async def test_renew_lease_survives_a_store_hiccup():
+    """A transient DB error must not kill a healthy run (best-effort renewal)."""
+
+    class Flaky(FakeStore):
+        def heartbeat(self, job_id, *, ttl_seconds=None):
+            self.heartbeats.append(job_id)
+            raise RuntimeError("connection reset")
+
+    store = Flaky()
+    task = asyncio.create_task(PlanService._renew_lease(store, "j", 0.01))
+    await asyncio.sleep(0.05)
+    assert not task.done(), "a renewal hiccup must not end the renewal loop"
+    task.cancel()
+    assert len(store.heartbeats) >= 1

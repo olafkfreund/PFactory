@@ -32,10 +32,12 @@ CLI invocation shape::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
 import shutil
+import warnings
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -43,10 +45,38 @@ from typing import Any
 from providers import BaseLLMProvider
 from providers._gemini_cli import get_gemini_binary
 from providers.auth_policy import scrub_api_keys
-from providers.gemini import _emit_sunset_warning  # Issue #22
 from providers.types import AssistantMessage, TextBlock
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Gemini CLI sunset notice (Issue #22)
+# ---------------------------------------------------------------------------
+#
+# Google announced on 2026-05-19 that Gemini CLI is sunsetting on 2026-06-18
+# for free / Pro / Ultra personal-tier users (enterprise tier unaffected).
+# Emit a DeprecationWarning the first time a Gemini provider is instantiated.
+
+_DEPRECATION_MESSAGE = (
+    "Gemini CLI is sunsetting on 2026-06-18 for free / Pro / Ultra "
+    "personal-tier users (enterprise tier unaffected). Google recommends "
+    "migrating to the Antigravity CLI. PFactory will add an Antigravity "
+    "provider once the SDK stabilizes and ToS for third-party integration "
+    "clarifies (see issue #13). Until then, plan your migration via "
+    "https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/"
+)
+_warned_sunset = False
+
+
+def _emit_sunset_warning() -> None:
+    """Emit the Gemini CLI sunset DeprecationWarning at most once per process."""
+    global _warned_sunset  # noqa: PLW0603 — process-wide once-only warning flag
+    if _warned_sunset:
+        return
+    _warned_sunset = True
+    warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=3)
+    logger.warning("Gemini CLI sunset: %s", _DEPRECATION_MESSAGE)
+
 
 _DEFAULT_GEMINI_PATH: str = "gemini"
 _DEFAULT_MODEL: str = "gemini-3-pro"
@@ -121,7 +151,8 @@ class GeminiAgenticProvider(BaseLLMProvider):
             else resolved_binary
         )
         if resolved_path is None or (
-            resolved_binary.startswith("/") and not Path(resolved_binary).exists()
+            resolved_binary.startswith("/")
+            and not await asyncio.to_thread(os.path.exists, resolved_binary)
         ):
             raise RuntimeError(
                 f"Gemini CLI executable not found: '{self._gemini_path}'. "
@@ -157,11 +188,9 @@ class GeminiAgenticProvider(BaseLLMProvider):
 
         except TimeoutError:
             if proc is not None:
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     proc.kill()
-                except ProcessLookupError:
-                    pass
-            raise TimeoutError(f"Gemini CLI (yolo) timed out after {self._timeout}s.")
+            raise TimeoutError(f"Gemini CLI (yolo) timed out after {self._timeout}s.") from None
 
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()

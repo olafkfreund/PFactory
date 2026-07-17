@@ -35,13 +35,12 @@ Package layout
         __init__.py         — BaseLLMProvider ABC (this file)
         types.py            — Shared message-protocol wrapper classes
         claude.py           — ClaudeProvider   (wraps ClaudeSDKClient)
-        codex.py            — CodexCLIProvider  (Codex CLI text-only)
         codex_agentic.py    — CodexAgenticProvider (Codex CLI full-auto)
-        gemini.py           — GeminiCLIProvider (Gemini CLI text-only)
         gemini_agentic.py   — GeminiAgenticProvider (Gemini CLI sandbox)
-        ollama.py           — OllamaProvider   (local Ollama text-only adapter)
         ollama_agentic.py   — OllamaAgenticProvider (native tool calling)
-        factory.py          — Unified get_provider() + legacy get_qa_llm_provider()
+        openai_compatible_agentic.py — OpenAICompatibleAgenticProvider
+        copilot_agentic.py  — CopilotAgenticProvider (GitHub Copilot CLI)
+        factory.py          — Unified get_provider()
 
 Usage::
 
@@ -80,11 +79,10 @@ class BaseLLMProvider(ABC):
 
     Concrete implementations live in the sibling modules:
     - ``providers.claude``          — wraps ClaudeSDKClient (default)
-    - ``providers.codex``           — Codex CLI text-only
     - ``providers.codex_agentic``   — Codex CLI full-auto (agentic)
-    - ``providers.gemini``          — Gemini CLI text-only
     - ``providers.gemini_agentic``  — Gemini CLI sandbox (agentic)
-    - ``providers.ollama``          — local Ollama / OpenAI-compatible
+    - ``providers.ollama_agentic``  — local Ollama native tool calling
+    - ``providers.openai_compatible_agentic`` — any OpenAI-compatible endpoint
     """
 
     @abstractmethod
@@ -110,7 +108,6 @@ class BaseLLMProvider(ABC):
 
 from .factory import (  # noqa: E402
     get_provider,
-    get_qa_llm_provider,
     list_provider_aliases,
     list_providers,
 )
@@ -120,17 +117,13 @@ from .factory import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 __all__ = [
-    # Abstract base
-    "BaseLLMProvider",
-    # Message protocol types
     "AssistantMessage",
+    "BaseLLMProvider",
     "TextBlock",
-    "ToolUseBlock",
     "ToolResultBlock",
+    "ToolUseBlock",
     "UserMessage",
-    # Factory
     "get_provider",
-    "get_qa_llm_provider",
-    "list_providers",
     "list_provider_aliases",
+    "list_providers",
 ]

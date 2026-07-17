@@ -9,6 +9,9 @@ Code analysis and project scanning tools.
 
 from __future__ import annotations
 
+# Import from analysis module root (these are other analysis tools)
+from project import ProjectAnalyzer
+
 from .analyzers import (
     ProjectAnalyzer as ModularProjectAnalyzer,
 )
@@ -18,9 +21,6 @@ from .analyzers import (
     analyze_service,
 )
 from .ci_discovery import CIDiscovery
-
-# Import from analysis module root (these are other analysis tools)
-from .project_analyzer import ProjectAnalyzer
 from .risk_classifier import RiskClassifier
 from .security_scanner import SecurityScanner
 from .test_discovery import TestDiscovery

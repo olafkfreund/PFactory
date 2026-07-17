@@ -4,7 +4,6 @@ Unit tests for the OpenAI-compatible providers
 ==============================================
 
 Covers:
-- OpenAICompatibleProvider (text-only)        — providers/openai_compatible.py
 - OpenAICompatibleAgenticProvider             — providers/openai_compatible_agentic.py
 - Factory routing + aliases                   — providers/factory.py
 
@@ -51,10 +50,8 @@ if str(_BACKEND) not in sys.path:
 
 from providers.factory import (  # noqa: E402
     get_provider,
-    get_qa_llm_provider,
     list_provider_aliases,
 )
-from providers.openai_compatible import OpenAICompatibleProvider  # noqa: E402
 from providers.openai_compatible_agentic import (  # noqa: E402
     OpenAICompatibleAgenticProvider,
 )
@@ -99,10 +96,6 @@ async def _collect(provider) -> list:
 
 
 class TestFactoryRouting:
-    def test_canonical_name_resolves_text(self) -> None:
-        p = get_qa_llm_provider("openai-compatible", model="x")
-        assert isinstance(p, OpenAICompatibleProvider)
-
     def test_canonical_name_resolves_agentic(self) -> None:
         p = get_provider(
             "openai-compatible",
@@ -112,17 +105,6 @@ class TestFactoryRouting:
         )
         assert isinstance(p, OpenAICompatibleAgenticProvider)
 
-    @pytest.mark.parametrize(
-        "alias",
-        [
-            "openai", "openai-api", "oai", "lm-studio", "lmstudio",
-            "vllm", "openrouter", "together", "together-ai", "groq",
-            "localai", "anyscale",
-        ],
-    )
-    def test_aliases_all_resolve(self, alias: str) -> None:
-        p = get_qa_llm_provider(alias, model="x")
-        assert isinstance(p, OpenAICompatibleProvider)
 
     def test_aliases_resolve_to_canonical_name(self) -> None:
         aliases = list_provider_aliases()
@@ -130,123 +112,6 @@ class TestFactoryRouting:
         # Must include the human-friendly ones
         for required in {"openai", "lm-studio", "vllm", "openrouter"}:
             assert required in oai_aliases
-
-
-# ===========================================================================
-# OpenAICompatibleProvider (text-only)
-# ===========================================================================
-
-
-class TestTextProvider:
-    def test_default_construction(self) -> None:
-        p = OpenAICompatibleProvider()
-        assert p._model == "gpt-4o-mini"
-        assert p._base_url == "https://api.openai.com"
-        assert p._api_key is None
-
-    def test_trailing_slash_stripped(self) -> None:
-        p = OpenAICompatibleProvider(base_url="https://api.example.com/")
-        assert p._base_url == "https://api.example.com"
-
-    def test_empty_api_key_normalised_to_none(self) -> None:
-        p = OpenAICompatibleProvider(api_key="")
-        assert p._api_key is None
-
-    def test_build_payload(self) -> None:
-        p = OpenAICompatibleProvider(model="m1")
-        body = p._build_payload("hello world")
-        assert body["model"] == "m1"
-        assert body["messages"] == [{"role": "user", "content": "hello world"}]
-        assert body["stream"] is False
-        assert body["temperature"] == 0
-
-    def test_build_payload_extra_options_override_default(self) -> None:
-        p = OpenAICompatibleProvider(
-            extra_options={"temperature": 0.7, "max_tokens": 256}
-        )
-        body = p._build_payload("x")
-        assert body["temperature"] == 0.7
-        assert body["max_tokens"] == 256
-
-    def test_build_headers_without_key(self) -> None:
-        p = OpenAICompatibleProvider()
-        headers = p._build_headers()
-        assert "Authorization" not in headers
-        assert headers["Content-Type"] == "application/json"
-
-    def test_build_headers_with_key(self) -> None:
-        p = OpenAICompatibleProvider(api_key="sk-abc123")
-        headers = p._build_headers()
-        assert headers["Authorization"] == "Bearer sk-abc123"
-
-    def test_build_headers_with_extra(self) -> None:
-        p = OpenAICompatibleProvider(extra_headers={"HTTP-Referer": "https://x"})
-        headers = p._build_headers()
-        assert headers["HTTP-Referer"] == "https://x"
-
-    def test_extract_content_happy_path(self) -> None:
-        text = OpenAICompatibleProvider._extract_content({
-            "choices": [{"message": {"role": "assistant", "content": "  hi  "}}]
-        })
-        assert text == "hi"
-
-    def test_extract_content_missing_choices_raises(self) -> None:
-        with pytest.raises(RuntimeError, match="missing 'choices'"):
-            OpenAICompatibleProvider._extract_content({"foo": "bar"})
-
-    def test_extract_content_with_error_field_raises(self) -> None:
-        with pytest.raises(RuntimeError, match="returned error"):
-            OpenAICompatibleProvider._extract_content({
-                "error": {"message": "invalid key", "code": 401}
-            })
-
-    def test_extract_content_empty_string_falls_back(self) -> None:
-        text = OpenAICompatibleProvider._extract_content({
-            "choices": [{"message": {"content": ""}}]
-        })
-        assert text == "(no output from server)"
-
-    @pytest.mark.asyncio
-    async def test_end_to_end_with_mocked_urlopen(self) -> None:
-        provider = OpenAICompatibleProvider(model="gpt-4o-mini", api_key="sk-test")
-
-        api_response = {
-            "id": "chatcmpl-1",
-            "choices": [
-                {
-                    "message": {"role": "assistant", "content": "Hello back!"},
-                    "finish_reason": "stop",
-                }
-            ],
-        }
-
-        with patch(
-            "providers.openai_compatible.urllib.request.urlopen",
-            return_value=_mock_urlopen_response(api_response),
-        ):
-            await provider.query("Hi")
-            messages = await _collect(provider)
-
-        assert len(messages) == 1
-        assert type(messages[0]).__name__ == "AssistantMessage"
-        assert messages[0].content[0].text == "Hello back!"
-
-    @pytest.mark.asyncio
-    async def test_aenter_health_check_404_is_accepted(self) -> None:
-        """Servers without /v1/models (404) must still pass the health check."""
-        provider = OpenAICompatibleProvider(base_url="http://localhost:1234")
-
-        with patch(
-            "providers.openai_compatible.urllib.request.urlopen",
-            side_effect=_http_error(404, "Not Found"),
-        ):
-            async with provider:
-                pass  # __aenter__ should not raise
-
-
-# ===========================================================================
-# OpenAICompatibleAgenticProvider
-# ===========================================================================
 
 
 class TestAgenticProvider:
