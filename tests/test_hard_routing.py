@@ -108,6 +108,28 @@ def test_hard_contract_dry_run_allowed_without_approval() -> None:
     assert out.contract_result["contract"]["execution"]["skip_planning"] is False
 
 
+def test_hard_contract_emit_allowed_once_emitted() -> None:
+    # After approve -> emit issues, status is "emitted" (further along than
+    # "approved") but human approval is already recorded. emit-contract must
+    # not 400 the documented approve -> emit issues -> emit-contract order (#317).
+    svc = PlanService()
+    sid = svc.ingest_text(_PLAN, title="Refund API", autonomy_tier="hard").session_id
+    svc.process(sid)
+    svc.approve(sid, approver="olaf")
+    svc.get(sid).status = "emitted"  # emit_to_github already enforced ready_to_emit
+
+    class _Resp:
+        def json(self):
+            return {"taskId": "T1"}
+
+    class _Http:
+        def post(self, *a, **k):
+            return _Resp()
+
+    out = svc.emit_contract(sid, repo="olafkfreund/Demo", dry_run=False, http=_Http())
+    assert out.contract_result.get("ok") is True
+
+
 def test_low_tier_contract_emit_not_gated_by_tier(monkeypatch) -> None:
     # A low tier must NOT trip the hard approval gate. Use an http stub so the
     # live path runs without a real AIFactory.

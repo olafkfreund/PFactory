@@ -1195,8 +1195,14 @@ class PlanService:
         # HELD until a human approves. (low/medium and dry-runs are unaffected.)
         # The GitHub epic emit is already gated by review.ready_to_emit; the
         # contract fast-path needs the same human gate so opus/migration work
-        # cannot skip sign-off.
-        if not dry_run and session.plan.autonomy_tier == "hard" and session.status != "approved":
+        # cannot skip sign-off. "emitted" is accepted too: a hard session only
+        # reaches it after emit_to_github enforced ready_to_emit (human approval
+        # recorded), so approve -> emit issues -> emit-contract must not 400 (#317).
+        if (
+            not dry_run
+            and session.plan.autonomy_tier == "hard"
+            and session.status not in ("approved", "emitted")
+        ):
             raise PlanServiceError(
                 "tier=hard requires human approval before emitting the contract: "
                 f"approve session '{session_id}' first (status={session.status!r})"
