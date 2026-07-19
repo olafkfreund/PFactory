@@ -149,6 +149,38 @@ def test_falls_back_to_create_and_run() -> None:
     assert any("create-and-run" in c["url"] for c in http.calls)
 
 
+class _AssertHttp(FakeHttp):
+    """Both endpoints raise AssertionError — the real #321 failure shape
+    (an AssertionError bubbling out of urllib on the live emit)."""
+
+    def post(self, url, *, params, json):
+        self.calls.append({"url": url, "params": params, "json": json})
+        raise AssertionError("urllib blew up")
+
+
+def test_both_endpoints_failing_returns_error_not_500() -> None:
+    # #321: from-plan fails AND the create-and-run fallback fails. The handoff
+    # must surface a clean error dict, never let the exception escape as a 500.
+    http = _AssertHttp()
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=http,
+        dry_run=False,
+    )
+    assert result["ok"] is False
+    assert result["dry_run"] is False
+    assert result["errors"]
+    joined = " ".join(result["errors"])
+    assert "from-plan failed" in joined and "fallback also failed" in joined
+    # both endpoints were attempted
+    assert any("from-plan" in c["url"] for c in http.calls)
+    assert any("create-and-run" in c["url"] for c in http.calls)
+
+
 def test_invalid_contract_not_emitted() -> None:
     empty_epic = EpicPlan(plan_id="001-widget", epic_title="Widget", children=[])
     http = FakeHttp()

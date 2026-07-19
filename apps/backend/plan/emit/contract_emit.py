@@ -376,10 +376,30 @@ def emit_contract(
                 "dry_run": False,
                 "errors": [f"from-plan failed ({exc}); no children for fallback"],
             }
-        payload = build_requirements(epic.children[0], plan=plan)
-        fb = trigger_api(
-            payload, base_url=base_url, project_id=project_id, http=http, dry_run=False
-        )
+        # The fallback ALSO POSTs to AIFactory (create-and-run) and can fail the
+        # same way. It must not escape as an uncaught 500 (#321): a transport error
+        # here — e.g. an AssertionError bubbling out of urllib on a redirect/odd
+        # response — surfaces as a clean error body, not a stack trace.
+        try:
+            payload = build_requirements(epic.children[0], plan=plan)
+            fb = trigger_api(
+                payload,
+                base_url=base_url,
+                project_id=project_id,
+                http=http,
+                dry_run=False,
+            )
+        except Exception as fb_exc:  # noqa: BLE001 - the handoff must never 500
+            return {
+                "ok": False,
+                "dry_run": False,
+                "endpoint": url,
+                "errors": [
+                    f"from-plan failed ({type(exc).__name__}: {exc}); "
+                    f"create-and-run fallback also failed "
+                    f"({type(fb_exc).__name__}: {fb_exc})"
+                ],
+            }
         return {
             "ok": True,
             "dry_run": False,
