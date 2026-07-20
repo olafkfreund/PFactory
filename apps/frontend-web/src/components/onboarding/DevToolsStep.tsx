@@ -10,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '../ui/select';
-import { Input } from '../ui/input';
 import { useSettingsStore } from '../../stores/settings-store';
 import type { SupportedIDE, SupportedTerminal } from '../../shared/types';
 
@@ -52,8 +51,7 @@ const IDE_NAMES: Partial<Record<SupportedIDE, string>> = {
   webstorm: 'WebStorm',
   windsurf: 'Windsurf',
   xcode: 'Xcode',
-  zed: 'Zed',
-  custom: 'Custom...'  // Always last
+  zed: 'Zed'
 };
 
 // Terminal display names - alphabetically sorted
@@ -75,8 +73,7 @@ const TERMINAL_NAMES: Partial<Record<SupportedTerminal, string>> = {
   warp: 'Warp',
   wezterm: 'WezTerm',
   windowsterminal: 'Windows Terminal',
-  zellij: 'Zellij',
-  custom: 'Custom...'  // Always last
+  zellij: 'Zellij'
 };
 
 /**
@@ -89,8 +86,6 @@ export function DevToolsStep({ onNext, onBack }: DevToolsStepProps) {
   const { settings, updateSettings } = useSettingsStore();
   const [preferredIDE, setPreferredIDE] = useState<SupportedIDE>(settings.preferredIDE || 'vscode');
   const [preferredTerminal, setPreferredTerminal] = useState<SupportedTerminal>(settings.preferredTerminal || 'system');
-  const [customIDEPath, setCustomIDEPath] = useState(settings.customIDEPath || '');
-  const [customTerminalPath, setCustomTerminalPath] = useState(settings.customTerminalPath || '');
 
   const [detectedTools, setDetectedTools] = useState<DetectedTools | null>(null);
   const [isDetecting, setIsDetecting] = useState(true);
@@ -135,9 +130,7 @@ export function DevToolsStep({ onNext, onBack }: DevToolsStepProps) {
     try {
       const settingsToSave = {
         preferredIDE,
-        preferredTerminal,
-        customIDEPath: preferredIDE === 'custom' ? customIDEPath : undefined,
-        customTerminalPath: preferredTerminal === 'custom' ? customTerminalPath : undefined
+        preferredTerminal
       };
 
       const result = await window.API.saveSettings(settingsToSave);
@@ -172,7 +165,7 @@ export function DevToolsStep({ onNext, onBack }: DevToolsStepProps) {
   // Add remaining IDEs that weren't detected
   const detectedIDEIds = new Set(detectedTools?.ides.map(t => t.id) || []);
   for (const [id, name] of Object.entries(IDE_NAMES)) {
-    if (id !== 'custom' && !detectedIDEIds.has(id)) {
+    if (!detectedIDEIds.has(id)) {
       ideOptions.push({
         value: id as SupportedIDE,
         label: name,
@@ -180,9 +173,6 @@ export function DevToolsStep({ onNext, onBack }: DevToolsStepProps) {
       });
     }
   }
-
-  // Add custom option last
-  ideOptions.push({ value: 'custom', label: 'Custom...', detected: false });
 
   // Build Terminal options with detection status
   const terminalOptions: Array<{ value: SupportedTerminal; label: string; detected: boolean }> = [];
@@ -211,7 +201,7 @@ export function DevToolsStep({ onNext, onBack }: DevToolsStepProps) {
   const detectedTerminalIds = new Set(detectedTools?.terminals.map(t => t.id) || []);
   detectedTerminalIds.add('system');
   for (const [id, name] of Object.entries(TERMINAL_NAMES)) {
-    if (id !== 'custom' && !detectedTerminalIds.has(id)) {
+    if (!detectedTerminalIds.has(id)) {
       terminalOptions.push({
         value: id as SupportedTerminal,
         label: name,
@@ -219,9 +209,6 @@ export function DevToolsStep({ onNext, onBack }: DevToolsStepProps) {
       });
     }
   }
-
-  // Add custom option last
-  terminalOptions.push({ value: 'custom', label: 'Custom...', detected: false });
 
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-6">
@@ -322,23 +309,6 @@ export function DevToolsStep({ onNext, onBack }: DevToolsStepProps) {
               <p className="text-xs text-muted-foreground">
                 AI Factory will open worktrees in this editor
               </p>
-
-              {/* Custom IDE Path */}
-              {preferredIDE === 'custom' && (
-                <div className="mt-3">
-                  <Label htmlFor="custom-ide-path" className="text-xs text-muted-foreground">
-                    Custom IDE Path
-                  </Label>
-                  <Input
-                    id="custom-ide-path"
-                    value={customIDEPath}
-                    onChange={(e) => setCustomIDEPath(e.target.value)}
-                    placeholder="/path/to/your/ide"
-                    className="mt-1"
-                    disabled={isSaving}
-                  />
-                </div>
-              )}
             </div>
 
             {/* Terminal Selection */}
@@ -371,23 +341,6 @@ export function DevToolsStep({ onNext, onBack }: DevToolsStepProps) {
               <p className="text-xs text-muted-foreground">
                 AI Factory will open terminal sessions here
               </p>
-
-              {/* Custom Terminal Path */}
-              {preferredTerminal === 'custom' && (
-                <div className="mt-3">
-                  <Label htmlFor="custom-terminal-path" className="text-xs text-muted-foreground">
-                    Custom Terminal Path
-                  </Label>
-                  <Input
-                    id="custom-terminal-path"
-                    value={customTerminalPath}
-                    onChange={(e) => setCustomTerminalPath(e.target.value)}
-                    placeholder="/path/to/your/terminal"
-                    className="mt-1"
-                    disabled={isSaving}
-                  />
-                </div>
-              )}
             </div>
 
             {/* Detection Summary */}

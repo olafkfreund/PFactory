@@ -227,11 +227,7 @@ Please confirm you're ready by saying: I'm ready to work on ${selectedTask.title
 
     const preferredIDE = settings.preferredIDE || 'vscode';
     try {
-      await window.API.worktreeOpenInIDE(
-        worktreePath,
-        preferredIDE,
-        settings.customIDEPath
-      );
+      await window.API.worktreeOpenInIDE(worktreePath, preferredIDE);
     } catch (err) {
       console.error('Failed to open in IDE:', err);
       toast({
@@ -240,7 +236,7 @@ Please confirm you're ready by saying: I'm ready to work on ${selectedTask.title
         variant: 'destructive',
       });
     }
-  }, [terminal?.worktreeConfig?.worktreePath, settings.preferredIDE, settings.customIDEPath, toast]);
+  }, [terminal?.worktreeConfig?.worktreePath, settings.preferredIDE, toast]);
 
   // Get backlog tasks for worktree dialog
   const backlogTasks = tasks.filter((t) => t.status === 'backlog');

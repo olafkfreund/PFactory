@@ -223,15 +223,11 @@ export function TaskFiles({ task, worktreeSpecsPath }: TaskFilesProps) {
     if (!settings.preferredIDE || !effectivePath) return;
 
     try {
-      await window.API.worktreeOpenInIDE(
-        effectivePath,
-        settings.preferredIDE,
-        settings.customIDEPath
-      );
+      await window.API.worktreeOpenInIDE(effectivePath, settings.preferredIDE);
     } catch (err) {
       console.error('Failed to open in IDE:', err);
     }
-  }, [settings.preferredIDE, settings.customIDEPath, effectivePath]);
+  }, [settings.preferredIDE, effectivePath]);
 
   // Download current file
   const handleDownloadFile = useCallback(() => {

@@ -64,8 +64,7 @@ const IDE_LABELS: Partial<Record<SupportedIDE, string>> = {
   xcode: 'Xcode',
   vim: 'Vim',
   neovim: 'Neovim',
-  emacs: 'Emacs',
-  custom: 'IDE'
+  emacs: 'Emacs'
 };
 
 // Terminal display names for button labels (short names for buttons)
@@ -81,8 +80,7 @@ const TERMINAL_LABELS: Partial<Record<SupportedTerminal, string>> = {
   hyper: 'Hyper',
   windowsterminal: 'Terminal',
   gnometerminal: 'Terminal',
-  konsole: 'Konsole',
-  custom: 'Terminal'
+  konsole: 'Konsole'
 };
 
 /**
@@ -171,11 +169,7 @@ export function WorkspaceStatus({
   const handleOpenInIDE = async () => {
     if (!worktreeStatus.worktreePath) return;
     try {
-      await window.API.worktreeOpenInIDE(
-        worktreeStatus.worktreePath,
-        preferredIDE,
-        settings.customIDEPath
-      );
+      await window.API.worktreeOpenInIDE(worktreeStatus.worktreePath, preferredIDE);
     } catch (err) {
       console.error('Failed to open in IDE:', err);
     }
@@ -198,11 +192,7 @@ export function WorkspaceStatus({
     }
 
     try {
-      await window.API.worktreeOpenInTerminal(
-        worktreeStatus.worktreePath,
-        preferredTerminal,
-        settings.customTerminalPath
-      );
+      await window.API.worktreeOpenInTerminal(worktreeStatus.worktreePath, preferredTerminal);
     } catch (err) {
       console.error('Failed to open in terminal:', err);
     }

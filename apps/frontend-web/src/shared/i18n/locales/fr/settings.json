@@ -218,16 +218,12 @@
     "ide": {
       "label": "IDE préféré",
       "description": "PFactory ouvrira les worktrees dans cet éditeur",
-      "placeholder": "Sélectionner un IDE...",
-      "customPath": "Chemin IDE personnalisé",
-      "customPathPlaceholder": "/chemin/vers/votre/ide"
+      "placeholder": "Sélectionner un IDE..."
     },
     "terminal": {
       "label": "Terminal préféré",
       "description": "PFactory ouvrira les sessions terminal ici",
-      "placeholder": "Sélectionner un terminal...",
-      "customPath": "Chemin terminal personnalisé",
-      "customPathPlaceholder": "/chemin/vers/votre/terminal"
+      "placeholder": "Sélectionner un terminal..."
     },
     "detected": "Détecté",
     "notInstalled": "Non installé",

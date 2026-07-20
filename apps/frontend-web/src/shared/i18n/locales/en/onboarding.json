@@ -140,17 +140,14 @@
     "whyConfigureDescription": "When PFactory builds features in isolated worktrees, you can open them directly in your preferred IDE or terminal to test and review changes.",
     "ide": {
       "label": "Preferred IDE",
-      "description": "PFactory will open worktrees in this editor",
-      "customPath": "Custom IDE Path"
+      "description": "PFactory will open worktrees in this editor"
     },
     "terminal": {
       "label": "Preferred Terminal",
-      "description": "PFactory will open terminal sessions here",
-      "customPath": "Custom Terminal Path"
+      "description": "PFactory will open terminal sessions here"
     },
     "detectedSummary": "Detected on your system:",
     "noToolsDetected": "No additional tools detected (VS Code and system terminal will be used)",
-    "custom": "Custom...",
     "saveAndContinue": "Save & Continue"
   },
   "openaiCompatSetup": {

@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Terminal, RefreshCw, Loader2, Check, FolderOpen } from 'lucide-react';
+import { Terminal, RefreshCw, Loader2, Check } from 'lucide-react';
 import { Label } from '../ui/label';
-import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Button } from '../ui/button';
 import { SettingsSection } from './SettingsSection';
@@ -44,8 +43,7 @@ const TERMINAL_NAMES: Partial<Record<SupportedTerminal, string>> = {
   warp: 'Warp',
   wezterm: 'WezTerm',
   windowsterminal: 'Windows Terminal',
-  zellij: 'Zellij',
-  custom: 'Custom...'  // Always last
+  zellij: 'Zellij'
 };
 
 /**
@@ -89,16 +87,7 @@ export function DevToolsSettings({ settings, onSettingsChange }: DevToolsSetting
   const handleTerminalChange = (terminal: SupportedTerminal) => {
     onSettingsChange({
       ...settings,
-      preferredTerminal: terminal,
-      // Clear custom path when switching away from custom
-      customTerminalPath: terminal === 'custom' ? settings.customTerminalPath : undefined
-    });
-  };
-
-  const handleCustomTerminalPathChange = (path: string) => {
-    onSettingsChange({
-      ...settings,
-      customTerminalPath: path
+      preferredTerminal: terminal
     });
   };
 
@@ -129,7 +118,7 @@ export function DevToolsSettings({ settings, onSettingsChange }: DevToolsSetting
   const detectedTerminalIds = new Set(detectedTools?.terminals.map(t => t.id) || []);
   detectedTerminalIds.add('system'); // Always consider system as detected
   for (const [id, name] of Object.entries(TERMINAL_NAMES)) {
-    if (id !== 'custom' && !detectedTerminalIds.has(id)) {
+    if (!detectedTerminalIds.has(id)) {
       terminalOptions.push({
         value: id as SupportedTerminal,
         label: name,
@@ -137,9 +126,6 @@ export function DevToolsSettings({ settings, onSettingsChange }: DevToolsSetting
       });
     }
   }
-
-  // Add custom option last
-  terminalOptions.push({ value: 'custom', label: 'Custom...', detected: false });
 
   return (
     <SettingsSection
@@ -199,36 +185,6 @@ export function DevToolsSettings({ settings, onSettingsChange }: DevToolsSetting
           <p className="text-xs text-muted-foreground">
             {t('devtools.terminal.description', 'AI Factory will open terminal sessions here')}
           </p>
-
-          {/* Custom Terminal Path */}
-          {settings.preferredTerminal === 'custom' && (
-            <div className="mt-3 space-y-2">
-              <Label htmlFor="custom-terminal-path">
-                {t('devtools.customPath', 'Custom path')}
-              </Label>
-              <div className="flex gap-2">
-                <Input
-                  id="custom-terminal-path"
-                  value={settings.customTerminalPath || ''}
-                  onChange={(e) => handleCustomTerminalPathChange(e.target.value)}
-                  placeholder="/path/to/your/terminal"
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={async () => {
-                    const result = await window.API.selectDirectory();
-                    if (result) {
-                      handleCustomTerminalPathChange(result);
-                    }
-                  }}
-                >
-                  <FolderOpen className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Detection Summary */}

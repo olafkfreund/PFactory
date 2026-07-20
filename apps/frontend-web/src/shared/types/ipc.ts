@@ -271,8 +271,8 @@ export interface API {
     upstreamDefaultBranch?: string;
   }>>;
   listWorktrees: (projectId: string) => Promise<IPCResult<WorktreeListResult>>;
-  worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
-  worktreeOpenInTerminal: (worktreePath: string, terminal: SupportedTerminal, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
+  worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE) => Promise<IPCResult<{ opened: boolean }>>;
+  worktreeOpenInTerminal: (worktreePath: string, terminal: SupportedTerminal) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeDetectTools: () => Promise<IPCResult<{ ides: Array<{ id: string; name: string; path: string; installed: boolean }>; terminals: Array<{ id: string; name: string; path: string; installed: boolean }> }>>;
 
   // Task archive operations

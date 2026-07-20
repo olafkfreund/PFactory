@@ -322,6 +322,29 @@ function migrateOnboardingCompleted(settings: AppSettings): AppSettings {
 }
 
 /**
+ * Fall back persisted "custom" IDE/terminal selections to a sensible default.
+ * The "custom" option (caller-supplied executable path) was removed server-side
+ * as an arbitrary-command-execution hole (see PR #330 / issue #331). Users who
+ * already had "custom" saved as their preferred IDE or terminal would otherwise
+ * see a value the settings UI no longer offers.
+ */
+function migrateCustomDevTools(settings: AppSettings): AppSettings {
+  const migrated = { ...settings };
+  let changed = false;
+
+  if ((migrated.preferredIDE as string) === 'custom') {
+    migrated.preferredIDE = 'vscode';
+    changed = true;
+  }
+  if ((migrated.preferredTerminal as string) === 'custom') {
+    migrated.preferredTerminal = 'system';
+    changed = true;
+  }
+
+  return changed ? migrated : settings;
+}
+
+/**
  * Load settings from main process
  */
 export async function loadSettings(): Promise<void> {
@@ -332,13 +355,21 @@ export async function loadSettings(): Promise<void> {
     const result = await window.API.getSettings();
     if (result.success && result.data) {
       // Apply migration for onboardingCompleted flag
-      const migratedSettings = migrateOnboardingCompleted(result.data);
+      let migratedSettings = migrateOnboardingCompleted(result.data);
+      // Fall back any persisted "custom" IDE/terminal selections
+      migratedSettings = migrateCustomDevTools(migratedSettings);
       store.setSettings(migratedSettings);
 
       // If migration changed the settings, persist them
-      if (migratedSettings.onboardingCompleted !== result.data.onboardingCompleted) {
+      const needsPersist =
+        migratedSettings.onboardingCompleted !== result.data.onboardingCompleted ||
+        migratedSettings.preferredIDE !== result.data.preferredIDE ||
+        migratedSettings.preferredTerminal !== result.data.preferredTerminal;
+      if (needsPersist) {
         await window.API.saveSettings({
-          onboardingCompleted: migratedSettings.onboardingCompleted
+          onboardingCompleted: migratedSettings.onboardingCompleted,
+          preferredIDE: migratedSettings.preferredIDE,
+          preferredTerminal: migratedSettings.preferredTerminal
         });
       }
     }
