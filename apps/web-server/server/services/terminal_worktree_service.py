@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .git_utils import assert_safe_git_ref
+
 
 class TerminalWorktreeService:
     """Service for managing terminal worktrees."""
@@ -77,9 +79,15 @@ class TerminalWorktreeService:
         if create_git_branch and not self._is_git_repo():
             raise ValueError("Project is not a git repository")
 
-        # Check if base branch exists
-        if create_git_branch and not self._branch_exists(base_branch):
-            raise ValueError(f"Base branch '{base_branch}' does not exist")
+        # Validate the caller-supplied base branch before it reaches any git
+        # argv. `_branch_exists` happens to be safe by construction (it prefixes
+        # `refs/heads/`), but `git worktree add` below takes the raw value, and
+        # relying on an incidental property of a different method is how these
+        # holes reopen.
+        if create_git_branch:
+            base_branch = assert_safe_git_ref(base_branch, "base_branch")
+            if not self._branch_exists(base_branch):
+                raise ValueError(f"Base branch '{base_branch}' does not exist")
 
         # Create the worktree
         if create_git_branch:

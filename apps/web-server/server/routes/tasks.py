@@ -3956,6 +3956,37 @@ class OpenInTerminalRequest(BaseModel):
     terminal: str
 
 
+def _safe_launch_path(raw: str) -> str:
+    """Resolve a caller-supplied worktree path for use in a launcher argv.
+
+    Two separate problems, both fixed by resolving against the registry rather
+    than trusting the request:
+
+    * The value becomes a command-line argument, so an option-shaped string
+      ("--user-data-dir=...") must never reach the launcher. A resolved
+      absolute path always begins with a separator.
+    * Without an anchor the endpoint would open *any* directory on the host.
+      The path is therefore required to sit inside a registered project, which
+      is the only thing this feature was ever meant to open. `resolve()` runs
+      before the containment test so `..` segments and symlinks cannot escape.
+
+    Raises:
+        ValueError: with a message safe to show a caller.
+    """
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError("Path must be an absolute path inside a registered project")
+    resolved = candidate.resolve()
+
+    roots = [Path(meta["path"]).resolve() for meta in load_projects().values()]
+    if not any(resolved == root or root in resolved.parents for root in roots):
+        raise ValueError("Path is not inside a registered project")
+
+    if not resolved.is_dir():
+        raise ValueError("Path is not a directory")
+    return str(resolved)
+
+
 def get_ide_command(ide: str, path: str) -> list[str]:
     """Get the command to open a path in the specified IDE.
 
@@ -4109,12 +4140,14 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
     worktree_path = request.worktreePath
     ide = request.ide
 
-    # Validate the path exists
-    if not Path(worktree_path).exists():
-        return {
-            "success": False,
-            "error": f"Path does not exist: {worktree_path}"
-        }
+    # Validate the path exists. Resolve it first: the value still lands in the
+    # launcher's argv, so a relative path or one beginning with "-" would be
+    # read as an option by the application we spawn rather than as a directory.
+    try:
+        worktree_path = _safe_launch_path(worktree_path)
+    except ValueError as exc:
+        logger.warning("rejected launch path %r: %s", worktree_path, exc)
+        return {"success": False, "error": "Invalid worktree path"}
 
     # "custom" used to mean "run the executable the caller names" — an
     # arbitrary-command sink. Say so plainly rather than silently falling
@@ -4167,12 +4200,14 @@ async def open_worktree_in_terminal(request: OpenInTerminalRequest):
     worktree_path = request.worktreePath
     terminal = request.terminal
 
-    # Validate the path exists
-    if not Path(worktree_path).exists():
-        return {
-            "success": False,
-            "error": f"Path does not exist: {worktree_path}"
-        }
+    # Validate the path exists. Resolve it first: the value still lands in the
+    # launcher's argv, so a relative path or one beginning with "-" would be
+    # read as an option by the application we spawn rather than as a directory.
+    try:
+        worktree_path = _safe_launch_path(worktree_path)
+    except ValueError as exc:
+        logger.warning("rejected launch path %r: %s", worktree_path, exc)
+        return {"success": False, "error": "Invalid worktree path"}
 
     if terminal == "custom":
         return {
