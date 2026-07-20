@@ -420,10 +420,10 @@ export const webAPI: API & { _isWebMode: boolean } = {
   getForkInfo: (projectPath: string) =>
     get(`/github/fork-info?project_path=${encodeURIComponent(projectPath)}`),
   listWorktrees: (projectId: string) => get(`/projects/${projectId}/worktrees`),
-  worktreeOpenInIDE: (worktreePath: string, ide: string, customPath?: string) =>
-    post('/tasks/worktree/open-in-ide', { worktreePath, ide, customPath }),
-  worktreeOpenInTerminal: (worktreePath: string, terminal: string, customPath?: string) =>
-    post('/tasks/worktree/open-in-terminal', { worktreePath, terminal, customPath }),
+  worktreeOpenInIDE: (worktreePath: string, ide: string) =>
+    post('/tasks/worktree/open-in-ide', { worktreePath, ide }),
+  worktreeOpenInTerminal: (worktreePath: string, terminal: string) =>
+    post('/tasks/worktree/open-in-terminal', { worktreePath, terminal }),
   worktreeDetectTools: () => post('/tasks/worktree/detect-tools'),
 
   // Task archive

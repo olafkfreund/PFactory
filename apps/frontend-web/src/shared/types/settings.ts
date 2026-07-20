@@ -84,9 +84,7 @@ export type SupportedIDE =
   | 'dataspell'        // DataSpell (JetBrains data science)
   // Archived/Legacy (still in use)
   | 'atom'             // Atom (archived but still used)
-  | 'brackets'         // Brackets (archived)
-  // Custom option
-  | 'custom';
+  | 'brackets';        // Brackets (archived)
 
 // Comprehensive terminal emulator support
 // Based on GitHub stars, Reddit discussions, and developer surveys
@@ -140,9 +138,7 @@ export type SupportedTerminal =
   | 'tmux'             // tmux (terminal multiplexer)
   | 'zellij'           // Zellij (modern multiplexer)
   // AI-Enhanced
-  | 'fig'              // Fig / Amazon Q Developer (autocomplete)
-  // Custom option
-  | 'custom';
+  | 'fig';             // Fig / Amazon Q Developer (autocomplete)
 
 export interface ThemePreviewColors {
   bg: string;
@@ -277,9 +273,7 @@ export interface AppSettings {
   language?: SupportedLanguage;
   // Developer tools preferences
   preferredIDE?: SupportedIDE;
-  customIDEPath?: string;      // For 'custom' IDE
   preferredTerminal?: SupportedTerminal;
-  customTerminalPath?: string; // For 'custom' terminal
   // Email Notification OAuth Credentials (app-level)
   emailMicrosoftClientId?: string;
   emailMicrosoftClientSecret?: string;
