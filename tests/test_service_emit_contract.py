@@ -14,6 +14,7 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 
 from plan.decompose.models import ChildIssue, EpicPlan  # noqa: E402
+from plan.review.gates import run_gates  # noqa: E402
 from plan.review.models import LensScore, PlanReview  # noqa: E402
 from plan.service import PlanService, PlanServiceError  # noqa: E402
 
@@ -32,14 +33,20 @@ def _processed_session(svc: PlanService) -> str:
         epic_title="Widget service",
         children=[
             ChildIssue(key="C1", title="Scaffold", kind="infra"),
-            ChildIssue(key="C2", title="API", kind="feature", depends_on=["C1"],
-                       acceptance_criteria=["exposes a widget API"]),
+            ChildIssue(
+                key="C2",
+                title="API",
+                kind="feature",
+                depends_on=["C1"],
+                acceptance_criteria=["exposes a widget API"],
+            ),
         ],
     )
     session.review = PlanReview(
         plan_id=session.plan.plan_id,
         lenses=[LensScore(lens="architecture", score=0.95)],
-        aggregate_score=0.95, gates_passed=True,
+        aggregate_score=0.95,
+        gates_passed=True,
     )
     return session.session_id
 
@@ -76,11 +83,35 @@ def test_emit_contract_live_sets_correlation() -> None:
     svc = PlanService()
     sid = _processed_session(svc)
     http = FakeHttp()
-    out = svc.emit_contract(sid, repo="acme/widget", project_id="p1", http=http,
-                            key="secret", dry_run=False)
+    out = svc.emit_contract(
+        sid, repo="acme/widget", project_id="p1", http=http, key="secret", dry_run=False
+    )
     assert out.contract_result["ok"] and not out.contract_result["dry_run"]
     assert out.status == "emitted"
     assert out.aifactory_task_id == "t-9"
     assert http.calls[0]["url"].endswith("/api/tasks/from-plan")
     # signed
     assert http.calls[0]["json"]["plan"]["approval"]["signature"]
+
+
+def test_emit_contract_live_refused_on_unwaived_hard_readiness() -> None:
+    """#326: the gate that blocks approve must block the contract fast path too."""
+    svc = PlanService()
+    sid = _processed_session(svc)
+    session = svc.get(sid)
+    # Drop the child covering AC#1 -> ac-child-coverage hard-fails, unwaived.
+    session.epic = EpicPlan(
+        plan_id=session.plan.plan_id,
+        epic_title="Widget service",
+        children=[ChildIssue(key="C1", title="Scaffold", kind="infra")],
+    )
+    session.review = run_gates(session.plan, session.epic)
+    session.review.gates_passed = True  # isolate readiness from lens scoring
+    assert session.review.readiness.unwaived_hard_failures(session.plan)
+
+    with pytest.raises(PlanServiceError, match="unwaived hard readiness"):
+        svc.emit_contract(
+            sid, repo="acme/widget", project_id="p1", http=FakeHttp(), key="secret", dry_run=False
+        )
+    # dry-run stays open — discovery must still work.
+    assert svc.emit_contract(sid, dry_run=True).contract_result["dry_run"]
