@@ -70,11 +70,7 @@ async def check_git_status(path: str = Query(...)):
     if not git_dir.exists():
         return {
             "success": True,
-            "data": {
-                "isGitRepo": False,
-                "hasCommits": False,
-                "currentBranch": None
-            }
+            "data": {"isGitRepo": False, "hasCommits": False, "currentBranch": None},
         }
 
     # Get current branch
@@ -87,11 +83,7 @@ async def check_git_status(path: str = Query(...)):
 
     return {
         "success": True,
-        "data": {
-            "isGitRepo": True,
-            "hasCommits": has_commits,
-            "currentBranch": current_branch
-        }
+        "data": {"isGitRepo": True, "hasCommits": has_commits, "currentBranch": current_branch},
     }
 
 
@@ -122,7 +114,8 @@ async def initialize_git(request: InitGitRequest):
     if not is_git_repo:
         result = run_git_command(["init"], path)
         if not result["success"]:
-            return {"success": False, "error": result.get("error")}
+            logger.warning("git init failed for %s: %s", path, result.get("error"))
+            return {"success": False, "error": "Failed to initialize git repository"}
 
     # Create .gitignore if it doesn't exist
     gitignore_path = Path(path) / ".gitignore"
@@ -164,6 +157,7 @@ ollama_router = APIRouter()
 def check_ollama_running(base_url: str | None = None) -> bool:
     """Check if Ollama server is running."""
     import urllib.request
+
     url = base_url or "http://localhost:11434"
     try:
         urllib.request.urlopen(f"{url}/api/tags", timeout=5)
@@ -178,10 +172,7 @@ async def check_ollama_status(baseUrl: str | None = Query(None)):
     running = check_ollama_running(baseUrl)
     return {
         "success": True,
-        "data": {
-            "running": running,
-            "baseUrl": baseUrl or "http://localhost:11434"
-        }
+        "data": {"running": running, "baseUrl": baseUrl or "http://localhost:11434"},
     }
 
 
@@ -268,7 +259,7 @@ async def pull_ollama_model(request: PullModelRequest):
             f"{url}/api/pull",
             data=req_data,
             headers={"Content-Type": "application/json"},
-            method="POST"
+            method="POST",
         )
         # This is a blocking call - for large models consider background task
         response = urllib.request.urlopen(req, timeout=600)  # 10 min timeout
@@ -282,9 +273,11 @@ async def pull_ollama_model(request: PullModelRequest):
             return {"success": False, "error": f"Pull failed: {status}"}
 
     except urllib.error.URLError as e:
-        return {"success": False, "error": f"Failed to connect to Ollama: {e}"}
-    except Exception as e:
-        return {"success": False, "error": f"Failed to pull model: {e}"}
+        logger.warning("failed to connect to Ollama at %s: %s", url, e)
+        return {"success": False, "error": "Failed to connect to Ollama"}
+    except Exception:
+        logger.exception("failed to pull Ollama model %s", model_name)
+        return {"success": False, "error": "Failed to pull model"}
 
 
 # ============================================
@@ -362,6 +355,7 @@ async def install_claude_code():
     All commands use `bash -l -c` so login profile PATH changes are visible.
     """
     import logging
+
     log = logging.getLogger(__name__)
 
     steps_completed: list[str] = []
@@ -429,8 +423,9 @@ async def install_claude_code():
             log.info("fnm installed successfully")
         except subprocess.TimeoutExpired:
             return {"success": False, "error": "fnm installation timed out (60s)"}
-        except Exception as e:
-            return {"success": False, "error": f"Failed at step 'Install fnm': {e}"}
+        except Exception:
+            log.exception("failed to install fnm")
+            return {"success": False, "error": "Failed at step 'Install fnm'"}
 
         # 3b: Install Node.js LTS via fnm
         try:
@@ -444,8 +439,9 @@ async def install_claude_code():
             log.info("Node.js LTS installed via fnm")
         except subprocess.TimeoutExpired:
             return {"success": False, "error": "Node.js installation timed out (120s)"}
-        except Exception as e:
-            return {"success": False, "error": f"Failed at step 'Install Node.js': {e}"}
+        except Exception:
+            log.exception("failed to install Node.js via fnm")
+            return {"success": False, "error": "Failed at step 'Install Node.js'"}
 
         # 3c: Set fnm default so login shells pick it up
         try:
@@ -462,10 +458,11 @@ async def install_claude_code():
                     "error": "Node.js installed but not found in PATH after fnm setup",
                 }
             log.info(f"Node.js verified: {result.stdout.strip()}")
-        except Exception as e:
+        except Exception:
+            log.exception("Node.js verification failed after install")
             return {
                 "success": False,
-                "error": f"Node.js installed but verification failed: {e}",
+                "error": "Node.js installed but verification failed",
             }
 
     # Step 4: Install Claude Code CLI
@@ -484,8 +481,9 @@ async def install_claude_code():
         log.info("Claude Code CLI installed")
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "npm install timed out (180s)"}
-    except Exception as e:
-        return {"success": False, "error": f"Failed at step 'Install Claude Code': {e}"}
+    except Exception:
+        log.exception("failed to install Claude Code CLI via npm")
+        return {"success": False, "error": "Failed at step 'Install Claude Code'"}
 
     # Step 5: Verify installation
     version_str = "unknown"
@@ -498,10 +496,11 @@ async def install_claude_code():
                 "success": False,
                 "error": f"Installation completed but verification failed: {result.stderr.strip()}",
             }
-    except Exception as e:
+    except Exception:
+        log.exception("Claude Code CLI verification failed after install")
         return {
             "success": False,
-            "error": f"Installation completed but verification failed: {e}",
+            "error": "Installation completed but verification failed",
         }
 
     return {
@@ -666,6 +665,7 @@ _HIDDEN_TEMPLATE_IDS = {"mcp-puppeteer", "mcp-playwright"}
 def _check_binary(binary: str) -> bool:
     """Check if a binary is available on PATH."""
     import shutil
+
     return shutil.which(binary) is not None
 
 
@@ -673,6 +673,7 @@ def _check_npm_package_installed(package: str) -> bool:
     """Check if an npm package is installed globally."""
     import shutil
     import subprocess
+
     if not shutil.which("npm"):
         return False
     try:
@@ -683,7 +684,6 @@ def _check_npm_package_installed(package: str) -> bool:
         return result.returncode == 0 and package in result.stdout
     except Exception:
         return False
-
 
 
 class McpServerConfig(BaseModel):
@@ -750,6 +750,7 @@ async def check_mcp_health(server: McpServerConfig):
     """Check health of an MCP server."""
     if server.type == "http" and server.url:
         import urllib.request
+
         try:
             assert_safe_probe_url(server.url)
         except UnsafeProbeURLError as exc:
@@ -776,20 +777,17 @@ async def check_mcp_health(server: McpServerConfig):
             urllib.request.urlopen(req, timeout=5)
             return {
                 "success": True,
-                "data": {
-                    "serverId": server.id,
-                    "status": "healthy",
-                    "message": "Server responded"
-                }
+                "data": {"serverId": server.id, "status": "healthy", "message": "Server responded"},
             }
-        except Exception as e:
+        except Exception:
+            logger.warning("MCP health probe failed for %r", server.url, exc_info=True)
             return {
                 "success": True,
                 "data": {
                     "serverId": server.id,
                     "status": "unhealthy",
-                    "message": str(e)
-                }
+                    "message": "Health check failed",
+                },
             }
 
     return {
@@ -797,8 +795,8 @@ async def check_mcp_health(server: McpServerConfig):
         "data": {
             "serverId": server.id,
             "status": "unknown",
-            "message": "Cannot check command-based servers"
-        }
+            "message": "Cannot check command-based servers",
+        },
     }
 
 
@@ -812,8 +810,8 @@ async def test_mcp_connection(server: McpServerConfig):
             "serverId": server.id,
             "success": False,
             "message": "MCP testing not implemented",
-            "tools": []
-        }
+            "tools": [],
+        },
     }
 
 
@@ -867,7 +865,6 @@ async def detect_mcp_services():
     return {"success": True, "data": results}
 
 
-
 # ============================================
 # Updates Routes
 # ============================================
@@ -880,11 +877,7 @@ async def check_source_update():
     """Check for PFactory source updates."""
     return {
         "success": True,
-        "data": {
-            "updateAvailable": False,
-            "currentVersion": "1.0.0",
-            "latestVersion": "1.0.0"
-        }
+        "data": {"updateAvailable": False, "currentVersion": "1.0.0", "latestVersion": "1.0.0"},
     }
 
 
@@ -925,20 +918,20 @@ async def download_source_update():
         # Check for uncommitted changes
         status_result = run_git_command(["status", "--porcelain"], source_path)
         if not status_result["success"]:
-            return {
-                "success": False,
-                "error": f"Failed to check git status: {status_result.get('error', 'Unknown error')}"
-            }
+            logger.warning("git status failed for %s: %s", source_path, status_result.get("error"))
+            return {"success": False, "error": "Failed to check git status"}
 
         has_changes = bool(status_result.get("output", "").strip())
 
         # Check current branch
         branch_result = run_git_command(["branch", "--show-current"], source_path)
         if not branch_result["success"]:
-            return {
-                "success": False,
-                "error": f"Failed to get current branch: {branch_result.get('error', 'Unknown error')}"
-            }
+            logger.warning(
+                "git branch --show-current failed for %s: %s",
+                source_path,
+                branch_result.get("error"),
+            )
+            return {"success": False, "error": "Failed to get current branch"}
 
         current_branch = branch_result.get("output", "unknown").strip()
 
@@ -953,10 +946,10 @@ async def download_source_update():
         # Fetch updates from remote
         fetch_result = run_git_command(["fetch", "origin"], source_path)
         if not fetch_result["success"]:
-            return {
-                "success": False,
-                "error": f"Failed to fetch updates: {fetch_result.get('error', 'Unknown error')}"
-            }
+            logger.warning(
+                "git fetch origin failed for %s: %s", source_path, fetch_result.get("error")
+            )
+            return {"success": False, "error": "Failed to fetch updates"}
 
         # Check if updates are available
         # Compare local HEAD with remote branch
@@ -985,8 +978,8 @@ async def download_source_update():
                     "updated": False,
                     "currentBranch": current_branch,
                     "hasUncommittedChanges": has_changes,
-                    "commitsBehind": 0
-                }
+                    "commitsBehind": 0,
+                },
             }
 
         # Warn if there are uncommitted changes
@@ -997,21 +990,28 @@ async def download_source_update():
                 "data": {
                     "hasUncommittedChanges": True,
                     "currentBranch": current_branch,
-                    "commitsBehind": commits_behind
-                }
+                    "commitsBehind": commits_behind,
+                },
             }
 
         # Perform git pull
         pull_result = run_git_command(["pull", "origin", current_branch], source_path)
         if not pull_result["success"]:
-            return {
-                "success": False,
-                "error": f"Failed to pull updates: {pull_result.get('error', 'Unknown error')}"
-            }
+            logger.warning(
+                "git pull origin %s failed for %s: %s",
+                current_branch,
+                source_path,
+                pull_result.get("error"),
+            )
+            return {"success": False, "error": "Failed to pull updates"}
 
         # Get updated commit info
         commit_result = run_git_command(["rev-parse", "--short", "HEAD"], source_path)
-        new_commit = commit_result.get("output", "unknown").strip() if commit_result["success"] else "unknown"
+        new_commit = (
+            commit_result.get("output", "unknown").strip()
+            if commit_result["success"]
+            else "unknown"
+        )
 
         return {
             "success": True,
@@ -1021,15 +1021,13 @@ async def download_source_update():
                 "currentBranch": current_branch,
                 "newCommit": new_commit,
                 "commitsPulled": commits_behind,
-                "pullOutput": pull_result.get("output", "")
-            }
+                "pullOutput": pull_result.get("output", ""),
+            },
         }
 
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to update PFactory source: {str(e)}"
-        }
+    except Exception:
+        logger.exception("failed to update PFactory source")
+        return {"success": False, "error": "Failed to update PFactory source"}
 
 
 @updates_router.get("/source/version")
@@ -1061,6 +1059,7 @@ project_router = APIRouter()
 
 class SquashCommitsRequest(BaseModel):
     """Request model for squashing commits."""
+
     count: int = Field(..., ge=2, description="Number of commits to squash (minimum 2)")
     message: str | None = Field(None, description="Custom commit message for the squashed commit")
 
@@ -1090,6 +1089,7 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
     # Load projects to get project path
     try:
         from ..config import get_settings
+
         settings = get_settings()
         projects_file = settings.projects_file
 
@@ -1124,8 +1124,9 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
-        return {"success": False, "error": f"Failed to load project: {str(e)}"}
+    except Exception:
+        logger.exception("failed to load project %s for commit squash", projectId)
+        return {"success": False, "error": "Failed to load project"}
 
     # Validate commit count
     count = request.count
@@ -1146,7 +1147,7 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
         if total_commits < count:
             return {
                 "success": False,
-                "error": f"Repository only has {total_commits} commit(s), cannot squash {count}"
+                "error": f"Repository only has {total_commits} commit(s), cannot squash {count}",
             }
     except ValueError:
         return {"success": False, "error": "Invalid commit count"}
@@ -1163,7 +1164,7 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
     if status_result["success"] and status_result["output"].strip():
         return {
             "success": False,
-            "error": "Cannot squash with uncommitted changes. Please commit or stash your changes first."
+            "error": "Cannot squash with uncommitted changes. Please commit or stash your changes first.",
         }
 
     # Get the commit message of the oldest commit to be squashed (for default message)
@@ -1183,8 +1184,16 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
         commit_message = request.message.strip()
     else:
         # Default message: combine first and last commit messages
-        oldest_msg = oldest_commit_msg_result.get("output", "").strip() if oldest_commit_msg_result["success"] else ""
-        newest_msg = newest_commit_msg_result.get("output", "").strip() if newest_commit_msg_result["success"] else ""
+        oldest_msg = (
+            oldest_commit_msg_result.get("output", "").strip()
+            if oldest_commit_msg_result["success"]
+            else ""
+        )
+        newest_msg = (
+            newest_commit_msg_result.get("output", "").strip()
+            if newest_commit_msg_result["success"]
+            else ""
+        )
 
         if oldest_msg and newest_msg and oldest_msg != newest_msg:
             commit_message = f"{oldest_msg} ... {newest_msg}"
@@ -1202,10 +1211,10 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
     )
 
     if not reset_result["success"]:
-        return {
-            "success": False,
-            "error": f"Failed to reset commits: {reset_result.get('error')}"
-        }
+        logger.warning(
+            "git reset --soft failed for %s: %s", project_path, reset_result.get("error")
+        )
+        return {"success": False, "error": "Failed to reset commits"}
 
     # Step 2: Create new commit with all the squashed changes
     commit_result = run_git_command(
@@ -1216,15 +1225,17 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
     if not commit_result["success"]:
         # Try to recover by resetting back
         run_git_command(["reset", "ORIG_HEAD"], project_path)
-        return {
-            "success": False,
-            "error": f"Failed to create squashed commit: {commit_result.get('error')}"
-        }
+        logger.warning(
+            "git commit failed during squash for %s: %s",
+            project_path,
+            commit_result.get("error"),
+        )
+        return {"success": False, "error": "Failed to create squashed commit"}
 
     return {
         "success": True,
         "message": f"Successfully squashed {count} commits on branch '{current_branch}'",
-        "commitMessage": commit_message
+        "commitMessage": commit_message,
     }
 
 
@@ -1264,6 +1275,7 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     # Load projects to get project path
     try:
         from ..config import get_settings
+
         settings = get_settings()
         projects_file = settings.projects_file
 
@@ -1298,8 +1310,9 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
-        return {"success": False, "error": f"Failed to load project: {str(e)}"}
+    except Exception:
+        logger.exception("failed to load project %s for worktree creation", projectId)
+        return {"success": False, "error": "Failed to load project"}
 
     # Validate worktree name (alphanumeric, dashes, underscores only)
     name = request.name.strip()
@@ -1309,7 +1322,7 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     if not re.match(r'^[a-zA-Z0-9_-]+$', name):
         return {
             "success": False,
-            "error": "Worktree name must contain only letters, numbers, dashes, and underscores"
+            "error": "Worktree name must contain only letters, numbers, dashes, and underscores",
         }
 
     # Determine base branch
@@ -1349,11 +1362,9 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     # Create parent directories
     try:
         worktrees_base.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to create worktree directory: {str(e)}"
-        }
+    except Exception:
+        logger.exception("failed to create worktree directory %s", worktrees_base)
+        return {"success": False, "error": "Failed to create worktree directory"}
 
     # Build git worktree add command
     worktree_branch = f"pfactory/tasks/{name}" if request.createBranch else None
@@ -1367,14 +1378,14 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
         if branch_exists_check["success"]:
             return {
                 "success": False,
-                "error": f"Branch '{worktree_branch}' already exists. Use a different worktree name or set createBranch to false."
+                "error": f"Branch '{worktree_branch}' already exists. Use a different worktree name or set createBranch to false.",
             }
 
         # Create worktree with new branch
         # git worktree add <path> -b <new-branch> <base-branch>
         worktree_result = run_git_command(
             ["worktree", "add", str(worktree_path), "-b", worktree_branch, base_branch],
-            project_path
+            project_path,
         )
     else:
         # Create worktree without new branch (checkout existing base branch)
@@ -1389,21 +1400,22 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
         try:
             if worktree_path.exists():
                 import shutil
+
                 shutil.rmtree(worktree_path)
         except Exception:
             pass
 
-        return {
-            "success": False,
-            "error": f"Failed to create worktree: {worktree_result.get('error')}"
-        }
+        logger.warning(
+            "git worktree add failed for %s: %s", project_path, worktree_result.get("error")
+        )
+        return {"success": False, "error": "Failed to create worktree"}
 
     return {
         "success": True,
         "message": f"Worktree '{name}' created successfully",
         "worktreePath": str(worktree_path),
         "branch": worktree_branch if request.createBranch else base_branch,
-        "baseBranch": base_branch
+        "baseBranch": base_branch,
     }
 
 
@@ -1458,7 +1470,7 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
     if platform != "github":
         return {
             "success": False,
-            "error": f"Invalid platform '{request.platform}'. Must be 'github'"
+            "error": f"Invalid platform '{request.platform}'. Must be 'github'",
         }
 
     # Validate version
@@ -1474,6 +1486,7 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
     # Load projects to get project path
     try:
         from ..config import get_settings
+
         settings = get_settings()
         projects_file = settings.projects_file
 
@@ -1508,8 +1521,9 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
-        return {"success": False, "error": f"Failed to load project: {str(e)}"}
+    except Exception:
+        logger.exception("failed to load project %s for release creation", projectId)
+        return {"success": False, "error": "Failed to load project"}
 
     # Ensure version starts with 'v' if not already present (conventional)
     if not version.startswith('v'):
@@ -1526,21 +1540,17 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
         )
 
         if not result["success"]:
-            return {
-                "success": False,
-                "error": f"Failed to create GitHub release: {result.get('error', 'Unknown error')}"
-            }
+            logger.warning("gh release create failed for %s: %s", project_path, result.get("error"))
+            return {"success": False, "error": "Failed to create GitHub release"}
 
         return {
             "success": True,
             "message": f"Successfully created GitHub release {version_tag}",
             "version": version_tag,
             "platform": "github",
-            "output": result.get("output", "")
+            "output": result.get("output", ""),
         }
 
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to create GitHub release: {str(e)}"
-        }
+    except Exception:
+        logger.exception("failed to create GitHub release %s for %s", version_tag, project_path)
+        return {"success": False, "error": "Failed to create GitHub release"}

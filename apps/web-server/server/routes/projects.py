@@ -66,6 +66,7 @@ class ProjectCreate(BaseModel):
 
     Exactly one of ``path`` or ``gitUrl`` must be provided.
     """
+
     model_config = ConfigDict(populate_by_name=True)
 
     path: str | None = Field(
@@ -112,6 +113,7 @@ class ProjectCreate(BaseModel):
 
 class NotificationSettings(BaseModel):
     """Notification settings model - BUG-1.2-004: Now properly typed."""
+
     onTaskComplete: bool = Field(default=True)
     onTaskFailed: bool = Field(default=True)
     onReviewNeeded: bool = Field(default=True)
@@ -121,6 +123,7 @@ class NotificationSettings(BaseModel):
 
 class ProjectSettings(BaseModel):
     """Project settings model matching frontend expectations."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     model: str = Field(default="claude-sonnet-4-5-20250929")
@@ -164,6 +167,7 @@ class ProjectSettings(BaseModel):
 
 class Project(ProjectBase):
     """Full project model with computed fields."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     id: str = Field(..., description="Unique project ID")
@@ -296,12 +300,12 @@ def project_to_response(project_id: str, project_data: dict) -> dict:
             "onTaskComplete": True,
             "onTaskFailed": True,
             "onReviewNeeded": True,
-            "sound": True
+            "sound": True,
         },
         "graphitiMcpEnabled": False,
         "graphitiMcpUrl": None,
         "mainBranch": None,
-        "useClaudeMd": True
+        "useClaudeMd": True,
     }
     # Merge saved settings from projects.json (written by update_project_settings)
     saved_settings = project_data.get("settings", {})
@@ -321,7 +325,7 @@ def project_to_response(project_id: str, project_data: dict) -> dict:
         "createdAt": project_data.get("created_at", datetime.now().isoformat()),
         "updatedAt": project_data.get("updated_at", datetime.now().isoformat()),
         "autoBuildPath": auto_build_path,
-        "settings": default_settings
+        "settings": default_settings,
     }
 
 
@@ -373,6 +377,7 @@ async def list_projects():
 
 class DiscoveredProject(BaseModel):
     """A discovered project folder."""
+
     name: str
     path: str
     has_git: bool = False
@@ -384,6 +389,7 @@ class DiscoveredProject(BaseModel):
 
 class ScanProjectsRequest(BaseModel):
     """Request model for scanning filesystem for projects."""
+
     basePath: str = Field(..., description="Base directory to scan for projects")
     maxDepth: int = Field(default=1, ge=1, le=5, description="Maximum scan depth (1-5, default 1)")
 
@@ -417,13 +423,13 @@ async def scan_for_projects(request: ScanProjectsRequest):
         if not base.exists():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path does not exist: {request.basePath}"
+                detail=f"Path does not exist: {request.basePath}",
             )
 
         if not base.is_dir():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path is not a directory: {request.basePath}"
+                detail=f"Path is not a directory: {request.basePath}",
             )
 
         projects = []
@@ -440,22 +446,32 @@ async def scan_for_projects(request: ScanProjectsRequest):
                         continue
 
                     # Skip hidden directories and common non-project dirs
-                    if entry.name.startswith('.') or entry.name in (
-                        'node_modules', '__pycache__', 'venv', '.venv',
-                        'dist', 'build', 'target', '.git', 'eggs', '.eggs',
-                        '.pytest_cache', '.tox', 'htmlcov', 'coverage'
+                    if entry.name.startswith(".") or entry.name in (
+                        "node_modules",
+                        "__pycache__",
+                        "venv",
+                        ".venv",
+                        "dist",
+                        "build",
+                        "target",
+                        ".git",
+                        "eggs",
+                        ".eggs",
+                        ".pytest_cache",
+                        ".tox",
+                        "htmlcov",
+                        "coverage",
                     ):
                         continue
 
                     # Check for project indicators
-                    has_git = (entry / '.git').exists()
-                    has_package = (entry / 'package.json').exists()
-                    has_requirements = (
-                        (entry / 'requirements.txt').exists() or
-                        (entry / 'pyproject.toml').exists()
-                    )
-                    has_magestic_ai = (entry / '.pfactory').exists()
-                    has_claude_md = (entry / 'CLAUDE.md').exists()
+                    has_git = (entry / ".git").exists()
+                    has_package = (entry / "package.json").exists()
+                    has_requirements = (entry / "requirements.txt").exists() or (
+                        entry / "pyproject.toml"
+                    ).exists()
+                    has_magestic_ai = (entry / ".pfactory").exists()
+                    has_claude_md = (entry / "CLAUDE.md").exists()
 
                     # If it looks like a project, add it
                     if has_git or has_package or has_requirements:
@@ -492,7 +508,7 @@ async def scan_for_projects(request: ScanProjectsRequest):
         # Handle unexpected errors
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to scan for projects: {str(e)}"
+            detail=f"Failed to scan for projects: {str(e)}",
         )
 
 
@@ -518,6 +534,7 @@ async def add_project(project: ProjectCreate):
             GitOperationError,
             clone_or_update,
         )
+
         # Stored credential lookup (#82 PR-C). When the caller passes
         # gitCredentialId, fetch the (username, token) tuple from the
         # git_credentials table and pass it to the clone service.
@@ -681,8 +698,9 @@ async def initialize_project(project_id: str):
 
         # Return nested format expected by frontend
         return {"success": True, "data": {"success": True}}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("[projects] initialize_project failed for project_id=%s", project_id)
+        return {"success": False, "error": "Failed to initialize project."}
 
 
 @router.get("/{project_id}/version")
@@ -701,15 +719,13 @@ async def check_project_version(project_id: str):
 
     return {
         "success": True,
-        "data": {
-            "isInitialized": magestic_ai_dir.exists(),
-            "updateAvailable": False
-        }
+        "data": {"isInitialized": magestic_ai_dir.exists(), "updateAvailable": False},
     }
 
 
 class NotificationSettingsUpdate(BaseModel):
     """Model for updating notification settings."""
+
     onTaskComplete: bool | None = None
     onTaskFailed: bool | None = None
     onReviewNeeded: bool | None = None
@@ -723,6 +739,7 @@ class ProjectSettingsUpdate(BaseModel):
     BUG-1.2-005: Added notifications field to allow updating notification preferences.
     BUG-1.2-003: Added memoryBackend validation.
     """
+
     model_config = ConfigDict(populate_by_name=True)
 
     model: str | None = None
@@ -851,7 +868,7 @@ async def update_project_settings(project_id: str, settings: ProjectSettingsUpda
                         "onTaskComplete": True,
                         "onTaskFailed": True,
                         "onReviewNeeded": True,
-                        "sound": True
+                        "sound": True,
                     }
                 # Merge the update into existing notifications
                 project_data["settings"]["notifications"].update(notifications_update)
@@ -898,7 +915,7 @@ async def list_project_worktrees(project_id: str):
             cwd=str(project_path),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         base_branch = base_result.stdout.strip() if base_result.returncode == 0 else "main"
     except Exception:
@@ -911,7 +928,7 @@ async def list_project_worktrees(project_id: str):
             cwd=str(project_path),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
         if result.returncode != 0:
             return {"worktrees": []}
@@ -957,9 +974,11 @@ async def list_project_worktrees(project_id: str):
                     cwd=wt_path,
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5,
                 )
-                commit_count = int(commit_result.stdout.strip()) if commit_result.returncode == 0 else 0
+                commit_count = (
+                    int(commit_result.stdout.strip()) if commit_result.returncode == 0 else 0
+                )
 
                 # Get diff stats
                 diff_result = subprocess.run(
@@ -967,7 +986,7 @@ async def list_project_worktrees(project_id: str):
                     cwd=wt_path,
                     capture_output=True,
                     text=True,
-                    timeout=10
+                    timeout=10,
                 )
 
                 files_changed = 0
@@ -1009,8 +1028,9 @@ async def list_project_worktrees(project_id: str):
                 })
 
         return {"worktrees": enriched_worktrees}
-    except Exception as e:
-        return {"worktrees": [], "error": str(e)}
+    except Exception:
+        logger.exception("[projects] list_project_worktrees failed for project_id=%s", project_id)
+        return {"worktrees": [], "error": "Failed to list worktrees."}
 
 
 @router.get("/{project_id}/tasks")
@@ -1048,6 +1068,7 @@ async def list_project_tasks(project_id: str):
 
 class TaskCreateRequest(BaseModel):
     """Request model for creating a task via project endpoint."""
+
     title: str = Field(default="", description="Task title (optional, auto-generated if empty)")
     description: str = Field(..., min_length=1, description="Task description (required)")
     metadata: dict | None = Field(default=None, description="Optional task metadata")
@@ -1178,12 +1199,14 @@ async def get_project_task_logs(project_id: str, spec_id: str):
 
 class ArchiveTasksRequest(BaseModel):
     """Request to archive tasks."""
+
     taskIds: list[str] = Field(..., description="List of task IDs to archive")
     version: str | None = Field(None, description="Version tag for the archive (e.g., 'v1.2.0')")
 
 
 class UnarchiveTasksRequest(BaseModel):
     """Request to unarchive tasks."""
+
     taskIds: list[str] = Field(..., description="List of task IDs to unarchive")
 
 

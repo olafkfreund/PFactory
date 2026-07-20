@@ -6,6 +6,7 @@ Handles GitHub OAuth, repository management, issues, PRs, and releases.
 
 import asyncio
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -17,6 +18,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..services.git_utils import run_gh_command
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -164,8 +168,9 @@ async def analyze_issue_with_ai(issue_data: dict, comments: list, project_path: 
 
     try:
         from core.simple_client import create_simple_client
-    except ImportError as e:
-        raise RuntimeError(f"Failed to import simple_client: {e}")
+    except ImportError:
+        logger.exception("Failed to import simple_client")
+        raise RuntimeError("AI analysis is unavailable") from None
 
     # Build analysis prompt
     prompt = _build_issue_analysis_prompt(issue_data, comments)
@@ -194,8 +199,9 @@ async def analyze_issue_with_ai(issue_data: dict, comments: list, project_path: 
 
         return _parse_ai_analysis_response(response_text)
 
-    except Exception as e:
-        raise RuntimeError(f"AI analysis failed: {e}")
+    except Exception:
+        logger.exception("AI analysis run failed")
+        raise RuntimeError("AI analysis failed") from None
 
 
 def _build_issue_analysis_prompt(issue_data: dict, comments: list) -> str:
@@ -356,10 +362,11 @@ async def list_github_models():
         )
     try:
         catalog = json.loads(result["output"])
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
+        logger.exception("failed to parse GitHub Models catalog JSON")
         return JSONResponse(
             status_code=502,
-            content={"success": False, "error": f"bad catalog JSON: {exc}", "models": []},
+            content={"success": False, "error": "failed to parse GitHub Models catalog", "models": []},
         )
     # Normalise to the github-models/<publisher>/<name> model strings the
     # provider factory understands.
@@ -418,9 +425,10 @@ async def dispatch_to_copilot(request: CopilotDispatchRequest):
         )
     try:
         meta = SERVICE.dispatch(request.repo, request.issueNumber)
-    except RuntimeError as exc:
+    except RuntimeError:
+        logger.exception("Copilot dispatch failed for %s#%s", request.repo, request.issueNumber)
         return JSONResponse(
-            status_code=502, content={"success": False, "error": str(exc)}
+            status_code=502, content={"success": False, "error": "Copilot dispatch failed"}
         )
     return {"success": True, "data": meta}
 
@@ -500,10 +508,11 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
         )
     try:
         pr = json.loads(view["output"])
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
+        logger.exception("failed to parse PR JSON for #%s", pr_number)
         return JSONResponse(
             status_code=502,
-            content={"success": False, "error": f"bad PR JSON: {exc}"},
+            content={"success": False, "error": "failed to parse PR data"},
         )
 
     from plan.service import SERVICE, PlanServiceError
@@ -519,6 +528,10 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
         # identical while /api/health and other requests stay served.
         await SERVICE.process_async(session.session_id)
     except (PlanServiceError, ValueError) as exc:
+        # PlanServiceError/ValueError here are hand-authored, curated messages
+        # from plan.service (e.g. "process the plan before approving") - safe
+        # to surface to the caller as-is, not an internal leak.
+        logger.warning("Plan review ingest/process failed for PR #%s: %s", pr_number, exc)
         return JSONResponse(
             status_code=400, content={"success": False, "error": str(exc)}
         )
@@ -625,8 +638,9 @@ def install_github_cli():
         log.info("GitHub CLI installed successfully")
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Installation timed out (120s)"}
-    except Exception as e:
-        return {"success": False, "error": f"Installation failed: {e}"}
+    except Exception:
+        log.exception("GitHub CLI installation failed")
+        return {"success": False, "error": "Installation failed"}
 
     # Step 3: Verify installation
     version_str = "unknown"
@@ -639,10 +653,11 @@ def install_github_cli():
                 "success": False,
                 "error": f"Installation completed but verification failed: {result.stderr.strip()}",
             }
-    except Exception as e:
+    except Exception:
+        log.exception("GitHub CLI installation verification failed")
         return {
             "success": False,
-            "error": f"Installation completed but verification failed: {e}",
+            "error": "Installation completed but verification failed",
         }
 
     return {
@@ -736,9 +751,10 @@ async def _monitor_gh_auth(proc: asyncio.subprocess.Process):
             proc.kill()
         except Exception:
             pass
-    except Exception as e:
+    except Exception:
+        log.exception("[GitHub Auth] Monitor failed")
         _gh_auth_status = {"complete": True, "success": False,
-                           "error": f"Authentication failed: {e}"}
+                           "error": "Authentication failed. Please try again."}
     finally:
         _gh_auth_proc = None
 
@@ -853,13 +869,14 @@ async def start_github_auth():
             }
         }
 
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to start GitHub authentication")
         _gh_auth_proc = None
         return {
             "success": True,
             "data": {
                 "success": False,
-                "message": f"Failed to start authentication: {e}"
+                "message": "Failed to start authentication"
             }
         }
 
@@ -1374,7 +1391,8 @@ async def check_project_github_connection(projectId: str):
                     "error": None,
                 }
             }
-        except Exception as e:
+        except Exception:
+            logger.exception("GitHub connection check failed for project %s", projectId)
             return {
                 "success": True,
                 "data": {
@@ -1382,7 +1400,7 @@ async def check_project_github_connection(projectId: str):
                     "repoFullName": None,
                     "repoDescription": None,
                     "issueCount": 0,
-                    "error": f"Connection failed: {str(e)}",
+                    "error": "Connection failed",
                 }
             }
 
@@ -1455,8 +1473,9 @@ async def get_project_github_issues(
             issues_raw = await provider.fetch_issues(filters)
             issues = [_map_provider_issue(issue, provider.repo) for issue in issues_raw]
             return {"success": True, "data": issues}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        except Exception:
+            logger.exception("Failed to fetch issues")
+            return {"success": False, "error": "Failed to fetch issues"}
 
     args = [
         "issue", "list",
@@ -1492,8 +1511,9 @@ async def get_project_github_issue(projectId: str, issueNumber: int):
             provider = _get_project_provider(projectId)
             issue = await provider.fetch_issue(issueNumber)
             return {"success": True, "data": _map_provider_issue(issue, provider.repo)}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        except Exception:
+            logger.exception("Failed to fetch issue")
+            return {"success": False, "error": "Failed to fetch issue"}
 
     result = run_gh_command(
         ["issue", "view", str(issueNumber), "--json", "number,title,body,state,labels,assignees,author,milestone,createdAt,updatedAt,closedAt,comments,url"],
@@ -1523,8 +1543,9 @@ async def get_project_github_issue_comments(projectId: str, issueNumber: int):
             provider = _get_project_provider(projectId)
             comments = await _get_provider_issue_comments(provider, issueNumber)
             return {"success": True, "data": comments}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        except Exception:
+            logger.exception("Failed to fetch issue comments")
+            return {"success": False, "error": "Failed to fetch issue comments"}
 
     result = run_gh_command(
         ["issue", "view", str(issueNumber), "--json", "comments"],
@@ -1595,10 +1616,11 @@ async def investigate_github_issue(
                     all_comments = await _get_provider_issue_comments(provider, issueNumber)
                 except Exception:
                     all_comments = []
-            except Exception as exc:
+            except Exception:
+                logger.exception("Failed to fetch issue #%s for project %s", issueNumber, projectId)
                 return {
                     "success": False,
-                    "error": f"Failed to fetch issue: {exc}",
+                    "error": "Failed to fetch issue",
                 }
         else:
             # Fetch issue details using gh CLI
@@ -1665,11 +1687,12 @@ async def investigate_github_issue(
             )
             analysis_status = "completed"
             analysis_data = analysis_result
-        except Exception as ai_error:
+        except Exception:
             # If AI analysis fails, still return the issue data
+            logger.exception("AI analysis failed for issue %s", issue_info.get("number"))
             analysis_status = "failed"
             analysis_data = {
-                "error": f"AI analysis failed: {str(ai_error)}",
+                "error": "AI analysis failed",
                 "summary": None,
                 "issue_type": None,
                 "complexity": None,
@@ -1693,10 +1716,11 @@ async def investigate_github_issue(
             "data": investigation_data
         }
 
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to investigate issue")
         return {
             "success": False,
-            "error": f"Failed to investigate issue: {str(e)}"
+            "error": "Failed to investigate issue"
         }
 
 
@@ -1803,8 +1827,9 @@ async def close_github_issue(projectId: str, issueNumber: int):
             provider = _get_project_provider(projectId)
             success = await provider.close_issue(issueNumber)
             return {"success": success}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        except Exception:
+            logger.exception("Failed to close issue")
+            return {"success": False, "error": "Failed to close issue"}
 
     result = run_gh_command(
         ["issue", "close", str(issueNumber)],
@@ -1840,8 +1865,9 @@ async def get_project_github_prs(
             prs_raw = await provider.fetch_prs(filters)
             prs = [_map_provider_pr(pr) for pr in prs_raw]
             return {"success": True, "data": prs}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        except Exception:
+            logger.exception("Failed to fetch PRs for project %s", projectId)
+            return {"success": False, "error": "Failed to fetch pull requests"}
 
     from ..services.pr_data_service import get_pr_data_service
 
@@ -2027,8 +2053,9 @@ async def post_pr_comment(
             provider = _get_project_provider(projectId)
             comment_id = await provider.add_comment(prNumber, request.body)
             return {"success": True, "data": {"commentId": comment_id}}
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+        except Exception:
+            logger.exception("Failed to post PR comment for #%s", prNumber)
+            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to post PR comment"})
 
     from ..services.pr_data_service import get_pr_data_service
 
@@ -2064,8 +2091,9 @@ async def approve_pr(
             review = ReviewData(pr_number=prNumber, event="approve", body=request.body if request else "Approved")
             await provider.post_review(prNumber, review)
             return {"success": True}
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+        except Exception:
+            logger.exception("Failed to approve PR #%s", prNumber)
+            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to approve PR"})
 
     from ..services.pr_data_service import get_pr_data_service
 
@@ -2102,8 +2130,9 @@ async def merge_pr(
                 return {"success": True}
             else:
                 return JSONResponse(status_code=500, content={"success": False, "error": "Failed to merge PR"})
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+        except Exception:
+            logger.exception("Failed to merge PR #%s", prNumber)
+            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to merge PR"})
 
     from ..services.pr_data_service import get_pr_data_service
 

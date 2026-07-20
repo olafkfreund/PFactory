@@ -327,11 +327,7 @@ def _detect_gemini_credentials() -> tuple[bool, str | None, str | None]:
     settings = _read_json_file(cfg["credentials_file"])
     if settings:
         # Nested path: security.auth.selectedType
-        selected_type = (
-            settings.get("security", {})
-            .get("auth", {})
-            .get("selectedType", "")
-        )
+        selected_type = settings.get("security", {}).get("auth", {}).get("selectedType", "")
         if selected_type in ("oauth-personal", "LOGIN_WITH_GOOGLE"):
             return True, "google_login", None
         if selected_type == "API_KEY" or settings.get("apiKey"):
@@ -490,6 +486,7 @@ def _broadcast_cli_auth_event(cli: str, success: bool) -> None:
     """Broadcast a cli-account-auth event via WebSocket."""
     try:
         from ..websockets.events import broadcast_event
+
         loop = asyncio.new_event_loop()
         loop.run_until_complete(
             broadcast_event("cli-account-auth", {"cli": cli, "success": success})
@@ -550,11 +547,7 @@ async def import_cli_credentials(cli: str):
         settings = _read_json_file(cfg["credentials_file"])
         selected_type = ""
         if settings:
-            selected_type = (
-                settings.get("security", {})
-                .get("auth", {})
-                .get("selectedType", "")
-            )
+            selected_type = settings.get("security", {}).get("auth", {}).get("selectedType", "")
 
         # Check oauth_creds.json
         oauth_creds = _read_json_file(cfg["oauth_credentials_file"])
@@ -718,7 +711,6 @@ def install_or_update_cli(cli: str):
             timeout=timeout,
         )
 
-
     # Check existing version (to determine install vs update)
     old_version = _detect_cli_version(cli)
     was_update = old_version is not None
@@ -735,10 +727,11 @@ def install_or_update_cli(cli: str):
                 "success": False,
                 "error": "Node.js/npm not found. Please install Node.js first.",
             }
-    except Exception as e:
+    except Exception:
+        logger.exception("[%s] Failed to check Node.js/npm availability", cli)
         return {
             "success": False,
-            "error": f"Failed to check Node.js: {e}",
+            "error": "Failed to check Node.js availability.",
         }
 
     # Step 2: Install/update via npm
@@ -775,10 +768,11 @@ def install_or_update_cli(cli: str):
             "success": False,
             "error": "Installation timed out after 120 seconds.",
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("[%s] Installation failed", cli)
         return {
             "success": False,
-            "error": f"Installation failed: {e}",
+            "error": "Installation failed. Check server logs for details.",
         }
 
     # Step 3: Verify installation

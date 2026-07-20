@@ -239,7 +239,8 @@ def _tool_get_task_contract(args: dict[str, Any]) -> dict[str, Any]:
     try:
         SERVICE.emit_contract(sess.session_id, dry_run=True)
     except Exception as exc:  # noqa: BLE001 — surface as a tool error
-        raise _ToolError(f"failed to build task contract: {exc}") from exc
+        logger.exception("failed to build task contract for session %s", sess.session_id)
+        raise _ToolError("failed to build task contract") from exc
     if sess.contract_result is None:
         raise _ToolError("task contract could not be built")
     return sess.contract_result
@@ -359,20 +360,29 @@ def _dispatch(method: str, params: dict[str, Any], req_id: Any) -> dict[str, Any
         except _ToolError as exc:
             # Tool-level error: report inside the result with isError=True so the
             # MCP client sees a structured failure rather than a transport error.
-            return _ok(req_id, {
-                "content": [{"type": "text", "text": str(exc)}],
-                "isError": True,
-            })
-        except Exception as exc:  # noqa: BLE001
+            return _ok(
+                req_id,
+                {
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "isError": True,
+                },
+            )
+        except Exception:  # noqa: BLE001
             logger.exception("MCP tool %s crashed", name)
-            return _ok(req_id, {
-                "content": [{"type": "text", "text": f"internal error: {exc}"}],
-                "isError": True,
-            })
-        return _ok(req_id, {
-            "content": [{"type": "text", "text": json.dumps(result, default=str)}],
-            "isError": False,
-        })
+            return _ok(
+                req_id,
+                {
+                    "content": [{"type": "text", "text": "internal error"}],
+                    "isError": True,
+                },
+            )
+        return _ok(
+            req_id,
+            {
+                "content": [{"type": "text", "text": json.dumps(result, default=str)}],
+                "isError": False,
+            },
+        )
 
     return _err(req_id, _METHOD_NOT_FOUND, f"unknown method: {method!r}")
 

@@ -5,6 +5,7 @@ Handles starting, stopping, and monitoring task execution.
 """
 
 import json
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -14,6 +15,8 @@ from ..services.agent_service import get_agent_service
 from ..websockets.events import emit_task_status
 from .projects import load_projects
 from .tasks import sync_worktree_to_main_spec
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -104,6 +107,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
     This will run the planner, coder, and QA agents.
     """
     import logging
+
     logger = logging.getLogger(__name__)
     logger.info(f"[StartTask] ===== START ENDPOINT CALLED ===== task_id: {task_id}")
 
@@ -136,6 +140,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
     # This handles the case where projects.py created the spec directory but spec_runner.py hasn't run yet
     # A valid plan MUST have "phases" array - minimal plans with just {"status": "..."} are invalid
     import logging
+
     logger = logging.getLogger(__name__)
     test_plan = spec_dir / "test_plan.json"
     logger.info(f"[StartTask] Checking for test_plan.json at {test_plan}")
@@ -146,6 +151,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
     if test_plan.exists():
         try:
             import json
+
             plan_data = json.loads(test_plan.read_text())
             # Valid plan must have "phases" key (even if empty array)
             plan_is_valid = "phases" in plan_data and isinstance(plan_data.get("phases"), (list, dict))
@@ -299,6 +305,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
     # Sync runtime options to task_metadata.json for backend to read
     # This ensures model/thinking/baseBranch overrides are available to run.py
     import json
+
     task_metadata_file = spec_dir / "task_metadata.json"
     task_metadata = {}
     if task_metadata_file.exists():
@@ -410,6 +417,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
     if wants_delegation and provider_type in ("github", "gitlab") and isinstance(issue_number, int):
         from ..services.auto_fix_service import _provider_for
         from ..services.delegation_runner import run_delegation
+
         try:
             provider = _provider_for(project_id)
             result = await run_delegation(
@@ -596,11 +604,10 @@ async def recover_task(task_id: str, request: RecoverTaskRequest = RecoverTaskRe
             plan["status"] = reset_status
             plan.pop("reviewReason", None)
             plan_file.write_text(json.dumps(plan, indent=2))
-        except Exception as e:
+        except Exception:
             # If auto-restart fails, still return success for recovery
-            import logging
-            logging.getLogger(__name__).warning(f"Auto-restart failed for {task_id}: {e}")
-            auto_restart_error = str(e)
+            logger.exception("Auto-restart failed for %s", task_id)
+            auto_restart_error = "Auto-restart failed; task remains in reset state"
 
     # Emit status change via WebSocket (single final status to avoid UI flicker)
     await emit_task_status(task_id, reset_status)
@@ -615,7 +622,7 @@ async def recover_task(task_id: str, request: RecoverTaskRequest = RecoverTaskRe
             "autoRestarted": auto_restarted,
             "autoRestartError": auto_restart_error,
             "recovered": True,
-        }
+        },
     }
 
 
@@ -644,6 +651,7 @@ async def create_and_run_task(
 
     # Generate a temporary task ID for spec creation
     import uuid
+
     temp_task_id = f"{project_id}:pending-{uuid.uuid4().hex[:8]}"
 
     try:

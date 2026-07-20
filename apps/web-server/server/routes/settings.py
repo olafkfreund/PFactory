@@ -139,7 +139,8 @@ class AppSettings(BaseModel):
     memoryEnabled: bool | None = Field(None, description="Enable memory system")
     # BUG-4.1-011: Validate memoryEmbeddingProvider against allowed values
     memoryEmbeddingProvider: MemoryEmbeddingProviderType | None = Field(
-        None, description="Memory embedding provider (openai/voyage/azure_openai/ollama/google/openrouter)"
+        None,
+        description="Memory embedding provider (openai/voyage/azure_openai/ollama/google/openrouter)",
     )
 
     @field_validator("memoryEmbeddingProvider", mode="before")
@@ -182,37 +183,37 @@ class AppSettings(BaseModel):
     llmProvider: Literal["ollama", "anthropic", "openai"] | None = Field(
         default="ollama",
         alias="llmProvider",
-        validation_alias=AliasChoices("llmProvider", "llm_provider")
+        validation_alias=AliasChoices("llmProvider", "llm_provider"),
     )
 
     llmOllamaBaseUrl: str | None = Field(
         default="http://localhost:11434",
         alias="llmOllamaBaseUrl",
-        validation_alias=AliasChoices("llmOllamaBaseUrl", "llm_ollama_base_url")
+        validation_alias=AliasChoices("llmOllamaBaseUrl", "llm_ollama_base_url"),
     )
 
     llmOllamaModel: str | None = Field(
         default="qwen3-30b-local:latest",
         alias="llmOllamaModel",
-        validation_alias=AliasChoices("llmOllamaModel", "llm_ollama_model")
+        validation_alias=AliasChoices("llmOllamaModel", "llm_ollama_model"),
     )
 
     llmAnthropicModel: str | None = Field(
         default="claude-sonnet-4-5-20250929",
         alias="llmAnthropicModel",
-        validation_alias=AliasChoices("llmAnthropicModel", "llm_anthropic_model")
+        validation_alias=AliasChoices("llmAnthropicModel", "llm_anthropic_model"),
     )
 
     llmOpenaiModel: str | None = Field(
         default="gpt-4o",
         alias="llmOpenaiModel",
-        validation_alias=AliasChoices("llmOpenaiModel", "llm_openai_model")
+        validation_alias=AliasChoices("llmOpenaiModel", "llm_openai_model"),
     )
 
     llmOpenaiBaseUrl: str | None = Field(
         default=None,
         alias="llmOpenaiBaseUrl",
-        validation_alias=AliasChoices("llmOpenaiBaseUrl", "llm_openai_base_url")
+        validation_alias=AliasChoices("llmOpenaiBaseUrl", "llm_openai_base_url"),
     )
 
     @field_validator("llmProvider", mode="before")
@@ -313,6 +314,7 @@ class SettingsUpdate(BaseModel):
 
 class UpdateApiKeyRequest(BaseModel):
     """Request model for updating API keys."""
+
     keyType: str = Field(..., description="Type of API key (anthropic, openai, claude)")
     keyValue: str = Field(..., description="The API key value")
     saveToEnv: bool = Field(True, description="Whether to save to .env file")
@@ -443,19 +445,14 @@ async def update_api_key(request: UpdateApiKeyRequest):
     # Additional format validation based on key type
     key_type = request.keyType.lower()
     if key_type == "anthropic" and not request.keyValue.startswith("sk-ant-"):
-        raise HTTPException(
-            status_code=400,
-            detail="Anthropic API keys must start with 'sk-ant-'"
-        )
+        raise HTTPException(status_code=400, detail="Anthropic API keys must start with 'sk-ant-'")
     elif key_type == "openai" and not request.keyValue.startswith("sk-"):
+        raise HTTPException(status_code=400, detail="OpenAI API keys must start with 'sk-'")
+    elif key_type == "claude" and not (
+        request.keyValue.startswith("sk-ant-") or request.keyValue.startswith("sess-")
+    ):
         raise HTTPException(
-            status_code=400,
-            detail="OpenAI API keys must start with 'sk-'"
-        )
-    elif key_type == "claude" and not (request.keyValue.startswith("sk-ant-") or request.keyValue.startswith("sess-")):
-        raise HTTPException(
-            status_code=400,
-            detail="Claude API keys must start with 'sk-ant-' or 'sess-'"
+            status_code=400, detail="Claude API keys must start with 'sk-ant-' or 'sess-'"
         )
 
     try:
@@ -466,7 +463,7 @@ async def update_api_key(request: UpdateApiKeyRequest):
         key_field_map = {
             "anthropic": "globalAnthropicApiKey",
             "openai": "globalOpenAIApiKey",
-            "claude": "globalClaudeOAuthToken"
+            "claude": "globalClaudeOAuthToken",
         }
 
         field_name = key_field_map[key_type]
@@ -493,7 +490,7 @@ async def update_api_key(request: UpdateApiKeyRequest):
             env_key_map = {
                 "anthropic": "ANTHROPIC_API_KEY",
                 "openai": "OPENAI_API_KEY",
-                "claude": "CLAUDE_API_KEY"
+                "claude": "CLAUDE_API_KEY",
             }
 
             existing[env_key_map[key_type]] = request.keyValue
@@ -509,7 +506,7 @@ async def update_api_key(request: UpdateApiKeyRequest):
         return {
             "success": True,
             "message": f"{key_type.title()} API key updated successfully",
-            "savedToEnv": request.saveToEnv
+            "savedToEnv": request.saveToEnv,
         }
 
     except HTTPException:
@@ -769,9 +766,9 @@ async def list_ollama_models(ollamaBaseUrl: str = Query(default="http://localhos
             })
 
         return {"models": models}
-    except Exception as e:
-        logger.warning(f"Failed to list Ollama models: {e}")
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to list Ollama models")
+        return {"success": False, "error": "Failed to list Ollama models"}
 
 
 @router.get("/openai-compat/models")
@@ -811,13 +808,14 @@ async def list_openai_compat_models(
             models.append({"name": model_id})
 
         return {"models": models}
-    except Exception as e:
-        logger.warning(f"Failed to list OpenAI-compatible models from {baseUrl}: {e}")
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to list OpenAI-compatible models from %s", baseUrl)
+        return {"success": False, "error": "Failed to list models from the configured server"}
 
 
 class OpenAICompatTestRequest(BaseModel):
     """Request model for testing an OpenAI-compatible server connection."""
+
     baseUrl: str = Field(..., description="Base URL of the OpenAI-compatible server")
     apiKey: str | None = Field(None, description="Optional API key for authentication")
 
@@ -856,15 +854,15 @@ async def test_openai_compat_connection(request: OpenAICompatTestRequest):
             "modelCount": model_count,
             "message": f"Connected successfully. {model_count} model(s) available.",
         }
-    except Exception as e:
-        logger.warning(f"OpenAI-compatible connection test failed for {request.baseUrl}: {e}")
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("OpenAI-compatible connection test failed for %s", request.baseUrl)
+        return {"success": False, "error": "Connection test failed"}
 
 
 @router.post("/ollama/pull")
 async def pull_ollama_model(
     modelName: str = Body(..., embed=True),
-    ollamaBaseUrl: str = Body(default="http://localhost:11434", embed=True)
+    ollamaBaseUrl: str = Body(default="http://localhost:11434", embed=True),
 ):
     """Pull (download) an Ollama model."""
     try:
@@ -888,9 +886,9 @@ async def pull_ollama_model(
                         logger.info(f"Pull progress: {progress_data}")
 
                 return {"success": True, "message": f"Model {modelName} pulled successfully"}
-    except Exception as e:
-        logger.warning(f"Failed to pull Ollama model: {e}")
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to pull Ollama model %s", modelName)
+        return {"success": False, "error": "Failed to pull the requested model"}
 
 
 @router.post("/ollama/test")
@@ -914,7 +912,7 @@ async def test_ollama_connection(
             if modelName not in models:
                 return {
                     "success": False,
-                    "error": f"Model '{modelName}' not found. Available models: {', '.join(models)}"
+                    "error": f"Model '{modelName}' not found. Available models: {', '.join(models)}",
                 }
 
             # Test model with simple query
@@ -923,21 +921,22 @@ async def test_ollama_connection(
                 json={
                     "model": modelName,
                     "messages": [{"role": "user", "content": "Test"}],
-                    "max_tokens": 10
+                    "max_tokens": 10,
                 },
-                timeout=30.0
+                timeout=30.0,
             )
             test_response.raise_for_status()
 
             return {"success": True, "message": "Connection successful!"}
-    except Exception as e:
-        logger.warning(f"Ollama connection test failed: {e}")
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Ollama connection test failed")
+        return {"success": False, "error": "Connection test failed"}
 
 
 # --------------------------------------------------------------------------
 # Tab State
 # --------------------------------------------------------------------------
+
 
 def get_tab_state_file() -> Path:
     """Get path to the tab state file."""
@@ -981,6 +980,7 @@ async def save_tab_state(state: dict):
 # --------------------------------------------------------------------------
 # Claude Profiles
 # --------------------------------------------------------------------------
+
 
 def get_profiles_file() -> Path:
     """Get path to the Claude profiles file."""
@@ -1147,7 +1147,7 @@ async def save_claude_profile(profile: ClaudeProfile):
         "name": name,
         "email": email,
         "oauthToken": token,
-        "isDefault": profile.isDefault
+        "isDefault": profile.isDefault,
     }
 
     # Update or add profile
@@ -1247,8 +1247,9 @@ async def rename_claude_profile(profile_id: str, update: ProfileRename):
         # Save with secure permissions (0o600 set in save_profiles)
         save_profiles(data)
         return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to rename Claude profile %s", profile_id)
+        return {"success": False, "error": "Failed to rename profile"}
 
 
 class ActiveProfileRequest(BaseModel):
@@ -1276,8 +1277,9 @@ async def set_active_claude_profile(request: ActiveProfileRequest):
         save_profiles(data)
         _sync_env_token_for_active_profile(data, request.profileId, logger)
         return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to set active Claude profile %s", request.profileId)
+        return {"success": False, "error": "Failed to set active profile"}
 
 
 @router.post("/claude-profiles/{profile_id}/initialize")
@@ -1306,8 +1308,9 @@ async def initialize_claude_profile(profile_id: str):
 
         save_profiles(data)
         return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to initialize Claude profile %s", profile_id)
+        return {"success": False, "error": "Failed to initialize profile"}
 
 
 def _poll_token_and_save(profile_id: str, logger: logging.Logger, mtime_before: float = 0):
@@ -1436,7 +1439,7 @@ async def set_claude_profile_token(profile_id: str, request: SetTokenRequest):
         if not (token.startswith("sess-") or token.startswith("sk-ant-")):
             return {
                 "success": False,
-                "error": "Invalid Claude token format. Must start with 'sess-' or 'sk-ant-'"
+                "error": "Invalid Claude token format. Must start with 'sess-' or 'sk-ant-'",
             }
 
         # Load profiles and update
@@ -1461,8 +1464,9 @@ async def set_claude_profile_token(profile_id: str, request: SetTokenRequest):
         save_profiles(data)
         _sync_env_token_for_active_profile(data, data.get("activeProfileId"), logger)
         return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to set token for Claude profile %s", profile_id)
+        return {"success": False, "error": "Failed to set profile token"}
 
 
 @router.get("/claude-profiles/best")
@@ -1498,8 +1502,10 @@ async def get_best_available_profile(exclude: str | None = None):
 # Auto-Switch Settings
 # --------------------------------------------------------------------------
 
+
 class AutoSwitchSettingsUpdate(BaseModel):
     """Model for updating auto-switch settings."""
+
     enabled: bool | None = None
     threshold: int | None = Field(None, ge=0, le=100, description="Usage threshold percentage (0-100)")
     proactiveSwapEnabled: bool | None = None  # Proactive monitoring toggle
@@ -1568,10 +1574,11 @@ async def update_auto_switch_settings(settings_update: AutoSwitchSettingsUpdate)
         if auto_switch_file.exists():
             try:
                 current = json.loads(auto_switch_file.read_text())
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
+                logger.exception("Failed to parse existing auto-switch.json")
                 return {
                     "success": False,
-                    "error": f"Failed to parse existing auto-switch.json: {str(e)}"
+                    "error": "Failed to parse existing auto-switch settings file",
                 }
         
         # Update with new values (only non-None values from Pydantic model)
@@ -1589,13 +1596,15 @@ async def update_auto_switch_settings(settings_update: AutoSwitchSettingsUpdate)
         auto_switch_file.chmod(0o600)
         
         return {"success": True, "data": current}
-        
-    except Exception as e:
-        return {"success": False, "error": f"Failed to update auto-switch settings: {str(e)}"}
+
+    except Exception:
+        logger.exception("Failed to update auto-switch settings")
+        return {"success": False, "error": "Failed to update auto-switch settings"}
 
 
 class RetryWithProfileRequest(BaseModel):
     """Request model for retrying with a different profile."""
+
     profileId: str = Field(..., min_length=1, description="ID of the profile to switch to")
     reason: str | None = Field(None, description="Reason for the switch (e.g., 'rate_limit', 'error')")
     operationContext: dict | None = Field(None, description="Optional context about the failed operation")
@@ -1648,7 +1657,7 @@ async def retry_with_profile(request: RetryWithProfileRequest):
                     break
             return {
                 "success": False,
-                "error": f"Profile '{profile_name or profile_id}' is already active"
+                "error": f"Profile '{profile_name or profile_id}' is already active",
             }
 
         # Verify the target profile exists and get profile details
@@ -1696,8 +1705,9 @@ async def retry_with_profile(request: RetryWithProfileRequest):
 
         return response
 
-    except Exception as e:
-        return {"success": False, "error": f"Failed to switch profile: {str(e)}"}
+    except Exception:
+        logger.exception("Failed to switch profile to %s", request.profileId)
+        return {"success": False, "error": "Failed to switch profile"}
 
 
 @router.post("/usage-update")
@@ -1723,7 +1733,7 @@ async def request_usage_update():
         "profileId": "local",
         "profileName": "Local Stats",
         "fetchedAt": datetime.now().isoformat(),
-        "limitType": None
+        "limitType": None,
     }
 
     if not stats_file.exists():
@@ -1773,7 +1783,7 @@ async def request_usage_update():
             # Extra stats for tooltip
             "todayMessages": today_messages,
             "weeklyMessages": weekly_messages,
-            "totalOutputTokens": total_output_tokens
+            "totalOutputTokens": total_output_tokens,
         }
 
     except (json.JSONDecodeError, KeyError, TypeError):
@@ -1783,6 +1793,7 @@ async def request_usage_update():
 # --------------------------------------------------------------------------
 # API Profiles (OpenAI-compatible endpoints)
 # --------------------------------------------------------------------------
+
 
 def get_api_profiles_file() -> Path:
     """Get path to the API profiles file."""
@@ -1821,6 +1832,7 @@ async def get_api_profiles():
 async def save_api_profile(profile: dict):
     """Save an API profile."""
     import uuid
+
     data = load_api_profiles()
     if not profile.get("id"):
         profile["id"] = str(uuid.uuid4())
@@ -1835,6 +1847,7 @@ async def save_api_profile(profile: dict):
 
 class ApiProfileModels(BaseModel):
     """Optional model mappings for API profile."""
+
     default: str | None = Field(None, description="Default model (maps to ANTHROPIC_MODEL)")
     haiku: str | None = Field(None, description="Haiku model (maps to ANTHROPIC_DEFAULT_HAIKU_MODEL)")
     sonnet: str | None = Field(None, description="Sonnet model (maps to ANTHROPIC_DEFAULT_SONNET_MODEL)")
@@ -1930,6 +1943,7 @@ async def update_api_profile(profile_id: str, profile_update: ApiProfileUpdate):
 
         # Update timestamp
         import time
+
         update_data["updatedAt"] = int(time.time() * 1000)  # Unix timestamp in milliseconds
 
         # Merge updates into current profile (preserving id and createdAt)
@@ -1951,8 +1965,9 @@ async def update_api_profile(profile_id: str, profile_update: ApiProfileUpdate):
             "data": updated_profile
         }
 
-    except Exception as e:
-        return {"success": False, "error": f"Failed to update API profile: {str(e)}"}
+    except Exception:
+        logger.exception("Failed to update API profile %s", profile_id)
+        return {"success": False, "error": "Failed to update API profile"}
 
 
 @router.delete("/api-profiles/{profile_id}")
@@ -2003,7 +2018,7 @@ async def delete_api_profile(profile_id: str):
             profile_name = profile_to_delete.get("name", profile_id)
             return {
                 "success": False,
-                "error": f"Cannot delete active profile '{profile_name}'. Please switch to a different profile first."
+                "error": f"Cannot delete active profile '{profile_name}'. Please switch to a different profile first.",
             }
 
         # Remove the profile from the profiles array
@@ -2015,11 +2030,12 @@ async def delete_api_profile(profile_id: str):
         return {
             "success": True,
             "message": "Profile deleted successfully",
-            "deletedProfileId": profile_id
+            "deletedProfileId": profile_id,
         }
 
-    except Exception as e:
-        return {"success": False, "error": f"Failed to delete API profile: {str(e)}"}
+    except Exception:
+        logger.exception("Failed to delete API profile %s", profile_id)
+        return {"success": False, "error": "Failed to delete API profile"}
 
 
 @router.post("/api-profiles/active")
@@ -2046,8 +2062,9 @@ async def set_active_api_profile(request: dict):
         data["activeProfileId"] = profile_id
         save_api_profiles(data)
         return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to set active API profile %s", profile_id)
+        return {"success": False, "error": "Failed to set active profile"}
 
 
 class TestConnectionRequest(BaseModel):
@@ -2059,6 +2076,7 @@ class TestConnectionRequest(BaseModel):
 async def test_api_connection(request: TestConnectionRequest):
     """Test connection to an API endpoint."""
     import urllib.request
+
     try:
         req = urllib.request.Request(
             f"{request.baseUrl}/models",
@@ -2066,8 +2084,9 @@ async def test_api_connection(request: TestConnectionRequest):
         )
         urllib.request.urlopen(req, timeout=10)
         return {"success": True, "data": {"connected": True}}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("API connection test failed for %s", request.baseUrl)
+        return {"success": False, "error": "Connection test failed"}
 
 
 @router.post("/api-profiles/discover-models")
@@ -2075,6 +2094,7 @@ async def discover_api_models(request: TestConnectionRequest):
     """Discover available models from an API endpoint."""
     import json as json_module
     import urllib.request
+
     try:
         req = urllib.request.Request(
             f"{request.baseUrl}/models",
@@ -2084,13 +2104,15 @@ async def discover_api_models(request: TestConnectionRequest):
         data = json_module.loads(response.read().decode())
         models = [m.get("id") for m in data.get("data", [])]
         return {"success": True, "data": models}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to discover models from %s", request.baseUrl)
+        return {"success": False, "error": "Failed to discover models"}
 
 
 # --------------------------------------------------------------------------
 # Source Environment
 # --------------------------------------------------------------------------
+
 
 class SourceEnvUpdate(BaseModel):
     """Model for updating PFactory source environment configuration."""
@@ -2189,7 +2211,7 @@ async def update_source_env(config: SourceEnvUpdate):
                 if not value.startswith(("http://", "https://")):
                     raise HTTPException(
                         status_code=400,
-                        detail="anthropicBaseUrl must start with http:// or https://"
+                        detail="anthropicBaseUrl must start with http:// or https://",
                     )
                 existing["ANTHROPIC_BASE_URL"] = value
             else:
@@ -2229,7 +2251,7 @@ async def update_source_env(config: SourceEnvUpdate):
         return {
             "success": True,
             "message": "Source environment configuration updated successfully",
-            "updated_fields": list(config_dict.keys())
+            "updated_fields": list(config_dict.keys()),
         }
 
     except HTTPException:
@@ -2255,6 +2277,7 @@ async def check_source_token():
 # --------------------------------------------------------------------------
 # CLI Tools Info
 # --------------------------------------------------------------------------
+
 
 @router.get("/auth-status")
 async def get_auth_status():
@@ -2354,6 +2377,7 @@ async def import_claude_credentials():
     # Create an imported profile
     import time
     from datetime import datetime
+
     profile_id = f"imported-{int(time.time())}"
     new_profile = {
         "id": profile_id,
