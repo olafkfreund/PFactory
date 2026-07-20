@@ -2,11 +2,14 @@
 Git, Ollama, MCP, and utility routes.
 """
 
+import ipaddress
 import json
 import shlex
 import shutil
+import socket
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
@@ -690,11 +693,71 @@ class McpServerConfig(BaseModel):
     headers: dict | None = None
 
 
+class UnsafeProbeURLError(ValueError):
+    """Raised when a health-probe URL points somewhere we refuse to fetch."""
+
+
+def assert_safe_probe_url(url: str) -> None:
+    """Reject probe URLs that could turn the health check into an SSRF tool.
+
+    ``check_mcp_health`` fetches a URL supplied in the request body, so without
+    a guard any authenticated caller can make the server issue requests on their
+    behalf (CodeQL py/full-ssrf). Two things are blocked outright:
+
+    * **Non-HTTP schemes.** ``urllib`` happily opens ``file://``, which turns a
+      "health check" into an arbitrary local-file read.
+    * **Link-local, metadata, reserved and multicast addresses.** 169.254.169.254
+      is the cloud-metadata endpoint; nothing legitimate health-checks it.
+
+    Private and loopback addresses are deliberately ALLOWED: MCP servers in this
+    fleet normally run in-cluster or on the operator's own machine, so blocking
+    RFC-1918 would break the feature's main use. The host is resolved first and
+    every returned address is checked, so a public hostname that resolves to a
+    blocked range cannot slip past.
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise UnsafeProbeURLError(
+            f"only http/https probe URLs are allowed (got {parts.scheme or 'no'} scheme)"
+        )
+    host = parts.hostname
+    if not host:
+        raise UnsafeProbeURLError("probe URL has no host")
+
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except OSError as exc:  # fail closed — an unresolvable host is not probed
+        raise UnsafeProbeURLError(f"could not resolve probe host: {host}") from exc
+
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_loopback:
+            # Explicitly allowed, and checked first: IPv6 ::1 also satisfies
+            # is_reserved, so without this localhost would be blocked or allowed
+            # depending on whether it resolved to ::1 or 127.0.0.1.
+            continue
+        if ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            raise UnsafeProbeURLError(
+                f"probe URL resolves to a blocked address range: {ip}"
+            )
+
+
 @mcp_router.post("/health")
 async def check_mcp_health(server: McpServerConfig):
     """Check health of an MCP server."""
     if server.type == "http" and server.url:
         import urllib.request
+        try:
+            assert_safe_probe_url(server.url)
+        except UnsafeProbeURLError as exc:
+            return {
+                "success": True,
+                "data": {
+                    "serverId": server.id,
+                    "status": "unknown",
+                    "message": f"Refusing to probe this URL: {exc}",
+                },
+            }
         try:
             req = urllib.request.Request(server.url, method="HEAD")
             if server.headers:

@@ -13,7 +13,39 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
 
+from server.services.git_utils import assert_safe_git_ref
+
 logger = logging.getLogger(__name__)
+
+# Upper bound on `git log -n` so a caller cannot ask for an unbounded scan.
+_MAX_LOG_COUNT = 10000
+
+
+def log_count(value) -> int:
+    """Validate `git log -n` count: an integer within a sane bound."""
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="count must be an integer") from None
+    if not 1 <= count <= _MAX_LOG_COUNT:
+        raise HTTPException(
+            status_code=400, detail=f"count must be between 1 and {_MAX_LOG_COUNT}"
+        )
+    return count
+
+
+def ref(value, field: str) -> str:
+    """Validate a caller-supplied git revision, surfacing a 400 rather than a 500.
+
+    The revision becomes part of a `git log` argv. git parses its own argv, and
+    `git log` accepts `--output=<file>`, so an unvalidated ref is a file-write
+    primitive rather than merely a bad ref. See `assert_safe_git_ref`.
+    """
+    try:
+        return assert_safe_git_ref(value, field)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
 
 router = APIRouter()
 
@@ -610,29 +642,36 @@ async def get_commits_preview(projectId: str = Path(...), request: CommitsPrevie
 
         if mode == "branch-diff":
             # Compare two branches - use ref (git-resolvable) if provided, fall back to name
-            base_branch = options.get("baseBranchRef") or options.get("baseBranch", "main")
-            compare_branch = options.get("compareBranchRef") or options.get("compareBranch", "HEAD")
+            base_branch = ref(
+                options.get("baseBranchRef") or options.get("baseBranch", "main"),
+                "baseBranch",
+            )
+            compare_branch = ref(
+                options.get("compareBranchRef") or options.get("compareBranch", "HEAD"),
+                "compareBranch",
+            )
             cmd.append(f"{base_branch}..{compare_branch}")
         else:
             # History mode with various options
             history_type = options.get("type", "last-n")
 
             if history_type == "last-n":
-                count = options.get("count", 20)
-                cmd.extend(["-n", str(count)])
+                cmd.extend(["-n", str(log_count(options.get("count", 20)))])
             elif history_type == "since-date":
                 since_date = options.get("sinceDate")
                 if since_date:
-                    cmd.extend(["--since", since_date])
+                    # `--since` takes its value as the next argv element, so a
+                    # leading dash would be parsed as another option.
+                    cmd.extend(["--since", ref(since_date, "sinceDate")])
             elif history_type == "since-version":
                 from_tag = options.get("fromTag")
                 if from_tag:
-                    cmd.append(f"{from_tag}..HEAD")
+                    cmd.append(f"{ref(from_tag, 'fromTag')}..HEAD")
             elif history_type == "tag-range":
                 from_tag = options.get("fromTag")
                 to_tag = options.get("toTag", "HEAD")
                 if from_tag:
-                    cmd.append(f"{from_tag}..{to_tag}")
+                    cmd.append(f"{ref(from_tag, 'fromTag')}..{ref(to_tag, 'toTag')}")
 
             # Optionally exclude merge commits
             if not options.get("includeMergeCommits", True):

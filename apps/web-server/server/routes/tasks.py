@@ -3956,6 +3956,25 @@ class OpenInTerminalRequest(BaseModel):
     terminal: str
 
 
+def _safe_launch_path(raw: str) -> str:
+    """Resolve a caller-supplied worktree path for use in a launcher argv.
+
+    The executable is already fixed (see :func:`get_ide_command`), but the path
+    is still caller-controlled and still becomes a command-line argument, so it
+    gets the same treatment: it must resolve to a directory that actually
+    exists, and the absolute form is what we pass on. Returning the resolved
+    path is what removes the option-injection shape -- an absolute path always
+    starts with a separator, never a dash.
+    """
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError(f"Path must be absolute: {raw}")
+    resolved = candidate.resolve()
+    if not resolved.is_dir():
+        raise ValueError(f"Path does not exist: {raw}")
+    return str(resolved)
+
+
 def get_ide_command(ide: str, path: str) -> list[str]:
     """Get the command to open a path in the specified IDE.
 
@@ -4109,12 +4128,13 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
     worktree_path = request.worktreePath
     ide = request.ide
 
-    # Validate the path exists
-    if not Path(worktree_path).exists():
-        return {
-            "success": False,
-            "error": f"Path does not exist: {worktree_path}"
-        }
+    # Validate the path exists. Resolve it first: the value still lands in the
+    # launcher's argv, so a relative path or one beginning with "-" would be
+    # read as an option by the application we spawn rather than as a directory.
+    try:
+        worktree_path = _safe_launch_path(worktree_path)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
 
     # "custom" used to mean "run the executable the caller names" — an
     # arbitrary-command sink. Say so plainly rather than silently falling
@@ -4167,12 +4187,13 @@ async def open_worktree_in_terminal(request: OpenInTerminalRequest):
     worktree_path = request.worktreePath
     terminal = request.terminal
 
-    # Validate the path exists
-    if not Path(worktree_path).exists():
-        return {
-            "success": False,
-            "error": f"Path does not exist: {worktree_path}"
-        }
+    # Validate the path exists. Resolve it first: the value still lands in the
+    # launcher's argv, so a relative path or one beginning with "-" would be
+    # read as an option by the application we spawn rather than as a directory.
+    try:
+        worktree_path = _safe_launch_path(worktree_path)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
 
     if terminal == "custom":
         return {
