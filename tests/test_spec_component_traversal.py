@@ -21,7 +21,9 @@ pytest.importorskip("fastapi")
 
 from fastapi import HTTPException  # noqa: E402
 
+from server.routes import tasks as tasks_mod  # noqa: E402
 from server.routes.pfactory_tasks import _validate_spec_id  # noqa: E402
+from server.routes.tasks import split_task_id  # noqa: E402
 from server.services.git_utils import safe_spec_component  # noqa: E402
 
 TRAVERSAL = [
@@ -72,3 +74,35 @@ def test_route_validator_rejects_the_same_set(value: str) -> None:
     with pytest.raises(HTTPException) as exc:
         _validate_spec_id(value)
     assert exc.value.status_code == 400
+
+
+# ── phase 2: routes/tasks.py choke points (#335) ────────────────────────
+
+
+@pytest.mark.parametrize("value", TRAVERSAL)
+def test_split_task_id_rejects_traversal_in_the_spec_half(value: str) -> None:
+    """The 18 handlers taking a task id all route through this one splitter."""
+    with pytest.raises(HTTPException) as exc:
+        split_task_id(f"project-uuid:{value}")
+    assert exc.value.status_code == 400
+
+
+def test_split_task_id_returns_both_halves_for_a_real_id() -> None:
+    assert split_task_id("proj-uuid:001-add-helper") == ("proj-uuid", "001-add-helper")
+
+
+def test_split_task_id_rejects_an_id_with_no_spec_half() -> None:
+    """Preserves the old behaviour: `"x".split(":", 1)` raised too."""
+    with pytest.raises(HTTPException):
+        split_task_id("no-colon-here")
+
+
+@pytest.mark.parametrize(
+    "helper",
+    ["get_worktree_spec_dir", "sync_worktree_to_main_spec", "get_plan_with_worktree_sync"],
+)
+def test_path_building_helpers_reject_traversal(helper: str, tmp_path: Path) -> None:
+    """Guarded inside each helper, so every caller is covered rather than each join."""
+    fn = getattr(tasks_mod, helper)
+    with pytest.raises(ValueError):
+        fn(tmp_path, "../../../../etc")
