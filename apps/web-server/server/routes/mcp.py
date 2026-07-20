@@ -12,6 +12,7 @@ servers run.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["MCP"])
 
@@ -54,8 +57,9 @@ def _describe_creds_status(provider: str) -> dict[str, Any]:
             "available": status.available,
             "source": status.source,
         }
-    except ImportError as exc:
-        return {"available": False, "source": f"framework-unavailable:{exc}"}
+    except ImportError:
+        logger.exception("Credential probe unavailable for provider %s", provider)
+        return {"available": False, "source": "framework-unavailable"}
 
 
 def _describe_marker_status(
@@ -114,10 +118,11 @@ async def get_mcp_status(project_id: str) -> dict[str, Any]:
         from agents.tools_pkg.mcp_catalog import CATALOG
         from prompts_pkg.project_context import detect_infra_markers
     except ImportError as exc:
+        logger.exception("MCP catalog/markers framework unavailable")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"MCP framework unavailable: {exc}",
-        )
+            detail="MCP framework unavailable",
+        ) from exc
 
     if project_path.exists():
         infra_markers = detect_infra_markers(project_path)

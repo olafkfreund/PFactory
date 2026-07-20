@@ -203,9 +203,9 @@ async def create_task_from_insights(projectId: str = Path(...), request: CreateT
         )
         result = await create_task(task_request)
         return {"success": True, "data": result}
-    except Exception as e:
-        logger.error(f"create_task_from_insights failed: {e}", exc_info=True)
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("create_task_from_insights failed for project_id=%s", projectId)
+        return {"success": False, "error": "Failed to create task from insights."}
 
 
 @router.post("/generate-task")
@@ -221,9 +221,9 @@ async def generate_task_from_chat(projectId: str = Path(...), request: GenerateT
             model_config=request.modelConfig,
         )
         return {"success": True, "data": result}
-    except Exception as e:
-        logger.error(f"generate_task_from_chat failed: {e}", exc_info=True)
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("generate_task_from_chat failed for project_id=%s", projectId)
+        return {"success": False, "error": "Failed to generate task from chat."}
 
 
 @router.get("/sessions")

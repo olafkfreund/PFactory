@@ -782,7 +782,9 @@ def get_execution_progress(spec_dir: Path, subtasks: list) -> dict | None:
     """
     # Also check worktree for task_logs.json
     project_path = spec_dir.parent.parent  # .pfactory/specs -> project root
-    worktree_spec_dir = project_path / "worktrees" / "tasks" / spec_dir.name / ".pfactory" / "specs" / spec_dir.name
+    worktree_spec_dir = (
+        project_path / "worktrees" / "tasks" / spec_dir.name / ".pfactory" / "specs" / spec_dir.name
+    )
 
     task_logs_file = None
     for check_dir in [worktree_spec_dir, spec_dir]:
@@ -1226,6 +1228,7 @@ def _try_close_github_issue(project_path: Path, spec_dir: Path) -> None:
         if not issue_number:
             return
         from .github import run_gh_command
+
         result = run_gh_command(
             ["issue", "close", str(issue_number)],
             cwd=str(project_path),
@@ -1515,6 +1518,7 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
 
     # Import ReviewState from backend
     import sys
+
     backend_path = Path(__file__).parent.parent.parent.parent / "backend"
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
@@ -1549,6 +1553,7 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
 
     # Emit status change via WebSocket
     from ..websockets.events import emit_task_status
+
     await emit_task_status(task_id, "in_progress")
 
     auto_restarted = False
@@ -1789,7 +1794,7 @@ async def stream_agent_console(task_id: str):
             while True:
                 now = asyncio.get_event_loop().time()
                 if now - start > max_duration_s:
-                    yield "event: done\ndata: {\"reason\": \"max-duration\"}\n\n"
+                    yield 'event: done\ndata: {"reason": "max-duration"}\n\n'
                     return
 
                 if progress_file.exists():
@@ -1859,6 +1864,7 @@ async def get_plan_html(task_id: str):
 
     # Import HTML generator from backend
     import sys
+
     backend_path = Path(__file__).parent.parent.parent.parent / "backend"
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
@@ -1871,6 +1877,7 @@ async def get_plan_html(task_id: str):
 
         # Return the HTML content
         from fastapi.responses import HTMLResponse
+
         return HTMLResponse(content=html_file.read_text(), status_code=200)
 
     except ImportError as e:
@@ -1917,7 +1924,16 @@ async def get_task_logs(task_id: str):
     logger.info(f"[GetTaskLogs] project_path: {project_path}")
 
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
-    worktree_spec_dir = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id / ".pfactory" / "specs" / spec_id
+    worktree_spec_dir = (
+        project_path
+        / ".pfactory"
+        / "worktrees"
+        / "tasks"
+        / spec_id
+        / ".pfactory"
+        / "specs"
+        / spec_id
+    )
 
     logger.info(f"[GetTaskLogs] Checking spec_dir: {spec_dir}")
     logger.info(f"[GetTaskLogs] Checking worktree_spec_dir: {worktree_spec_dir}")
@@ -2018,6 +2034,7 @@ async def unwatch_task_logs(task_id: str):
 # Worktree Merge Routes
 # ============================================
 
+
 class CreatePRFromTaskOptions(BaseModel):
     title: str | None = None
     body: str | None = None
@@ -2032,6 +2049,7 @@ class WorktreeMergeOptions(BaseModel):
 
 class ConflictResolveOptions(BaseModel):
     """Options for conflict resolution."""
+
     useAI: bool = True
     strategy: str | None = None
 
@@ -2121,7 +2139,7 @@ async def get_worktree_merge_preview(task_id: str):
             ["git", "merge-tree", "--write-tree", base_branch, worktree_branch],
             cwd=project_path,
             capture_output=True,
-            text=True
+            text=True,
         )
         # Git 2.38+: Return code 1 means conflicts exist
         # stdout format: "<tree_oid>\nCONFLICT (type): description"
@@ -2164,7 +2182,8 @@ async def get_worktree_merge_preview(task_id: str):
             result = subprocess.run(
                 ["git", "check-ignore"] + conflicting_files,
                 cwd=project_path,
-                capture_output=True, text=True
+                capture_output=True,
+                text=True,
             )
             ignored = set(result.stdout.strip().splitlines())
             conflicting_files = [f for f in conflicting_files if f not in ignored]
@@ -2231,7 +2250,8 @@ async def get_worktree_merge_preview(task_id: str):
                         ignored_result = subprocess.run(
                             ["git", "check-ignore"] + uncommitted_conflicting_files,
                             cwd=project_path,
-                            capture_output=True, text=True
+                            capture_output=True,
+                            text=True,
                         )
                         ignored = set(ignored_result.stdout.strip().splitlines())
                         uncommitted_conflicting_files = [f for f in uncommitted_conflicting_files if f not in ignored]
@@ -2319,7 +2339,7 @@ async def get_worktree_merge_preview(task_id: str):
             "worktreeBranch": worktree_branch,
             "baseBranch": base_branch,
             "preview": preview_data,
-        }
+        },
     }
 
 
@@ -2335,7 +2355,6 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
     3. If conflicts arise, uses AI to resolve each conflicted file
     4. Stages resolved files and commits the merge
     """
-
 
     if options is None:
         options = ConflictResolveOptions()
@@ -2396,7 +2415,7 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
             ["git", "merge", worktree_branch, "--no-commit", "--no-ff"],
             cwd=project_path,
             capture_output=True,
-            text=True
+            text=True,
         )
 
         if merge_result.returncode == 0:
@@ -2471,6 +2490,7 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
     failed_files = []
 
     from ..services.conflict_service import get_conflict_service
+
     conflict_service = get_conflict_service(project_path)
 
     for file_path in conflicted_files:
@@ -2499,7 +2519,11 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
                 resolved_content = merge_result.get("content", "")
 
                 # Clean up any remaining markers
-                if "<<<<<<< " in resolved_content or "=======" in resolved_content or ">>>>>>> " in resolved_content:
+                if (
+                    "<<<<<<< " in resolved_content
+                    or "=======" in resolved_content
+                    or ">>>>>>> " in resolved_content
+                ):
                     logger.warning(f"AI resolution for {file_path} still has markers, cleaning up")
                     resolved_content = _clean_conflict_markers(resolved_content)
 
@@ -2511,15 +2535,18 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
                     resolved_files.append(file_path)
                     logger.info(f"Staged resolved file: {file_path}")
                 else:
-                    failed_files.append({"file": file_path, "error": f"Failed to stage: {add_result['error']}"})
+                    logger.warning(f"Failed to stage {file_path}: {add_result['error']}")
+                    failed_files.append(
+                        {"file": file_path, "error": "Failed to stage resolved file"}
+                    )
             else:
                 error_msg = merge_result.get("error", "AI resolution failed")
                 logger.error(f"AI resolution failed for {file_path}: {error_msg}")
-                failed_files.append({"file": file_path, "error": error_msg})
+                failed_files.append({"file": file_path, "error": "AI conflict resolution failed"})
 
-        except Exception as e:
-            logger.error(f"Failed to resolve {file_path}: {e}")
-            failed_files.append({"file": file_path, "error": str(e)})
+        except Exception:
+            logger.exception(f"Failed to resolve {file_path}")
+            failed_files.append({"file": file_path, "error": "Failed to resolve conflict"})
 
     if failed_files:
         return {
@@ -2545,12 +2572,12 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
                     "resolved": resolved_files,
                     "remaining": [],
                     "stats": {
-                        "message": f"Resolved {len(resolved_files)} files but commit failed: {commit_result['error']}"
+                        "message": f"Resolved {len(resolved_files)} files but the merge commit failed"
                     },
                 },
             }
-    except Exception as e:
-        logger.warning(f"Merge commit failed: {e}")
+    except Exception:
+        logger.exception("Merge commit failed")
 
     return {
         "success": True,
@@ -2639,7 +2666,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
             ["git", "diff", "--name-only", f"{base_branch}...{spec_branch}"],
             cwd=project_path,
             capture_output=True,
-            text=True
+            text=True,
         )
         task_files = set(result.stdout.strip().split('\n'))
     except subprocess.CalledProcessError:
@@ -2660,7 +2687,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
             ["git", "stash", "push", "--include-untracked", "-m", stash_message],
             cwd=project_path,
             capture_output=True,
-            text=True
+            text=True,
         )
         if result.returncode == 0 and "No local changes to save" not in result.stdout:
             stash_created = True
@@ -2671,7 +2698,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
                 ["git", "stash", "push", "-m", stash_message],
                 cwd=project_path,
                 capture_output=True,
-                text=True
+                text=True,
             )
             if result.returncode == 0 and "No local changes to save" not in result.stdout:
                 stash_created = True
@@ -2694,7 +2721,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
                         ["git", "show", f"{base_branch}:{file_path}"],
                         cwd=project_path,
                         capture_output=True,
-                        text=True
+                        text=True,
                     )
                     if result.returncode == 0:
                         base_content = result.stdout
@@ -2710,7 +2737,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
                             ["git", "show", f"stash@{{0}}:{file_path}"],
                             cwd=project_path,
                             capture_output=True,
-                            text=True
+                            text=True,
                         )
                         if result.returncode == 0:
                             local_content = result.stdout
@@ -2729,7 +2756,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
                         ["git", "show", f"{spec_branch}:{file_path}"],
                         cwd=project_path,
                         capture_output=True,
-                        text=True
+                        text=True,
                     )
                     if result.returncode == 0:
                         task_content = result.stdout
@@ -2777,9 +2804,9 @@ async def resolve_uncommitted_conflicts(task_id: str):
             "data": {
                 "resolved": resolved_files,
                 "failed": failed_files,
-                "message": f"Resolved {len(resolved_files)} files, {len(failed_files)} failed"
+                "message": f"Resolved {len(resolved_files)} files, {len(failed_files)} failed",
             },
-            "error": f"{len(failed_files)} files could not be resolved"
+            "error": f"{len(failed_files)} files could not be resolved",
         }
 
     return {
@@ -2787,8 +2814,8 @@ async def resolve_uncommitted_conflicts(task_id: str):
         "data": {
             "resolved": resolved_files,
             "failed": [],
-            "message": f"Successfully resolved {len(resolved_files)} conflicting files"
-        }
+            "message": f"Successfully resolved {len(resolved_files)} conflicting files",
+        },
     }
 
 
@@ -2849,7 +2876,9 @@ async def resolve_git_merge_conflicts(task_id: str):
     # Check both locations for merge in progress
     work_path = None
     merge_head_main = project_path / ".git" / "MERGE_HEAD"
-    merge_head_worktree = worktree_path / ".git" if worktree_path and worktree_path.exists() else None
+    merge_head_worktree = (
+        worktree_path / ".git" if worktree_path and worktree_path.exists() else None
+    )
 
     if merge_head_main.exists():
         work_path = project_path
@@ -2888,11 +2917,7 @@ async def resolve_git_merge_conflicts(task_id: str):
     if not conflicted_files:
         return {
             "success": True,
-            "data": {
-                "resolved": [],
-                "failed": [],
-                "message": "No conflicted files found"
-            }
+            "data": {"resolved": [], "failed": [], "message": "No conflicted files found"},
         }
 
     # Resolve each conflicted file using AI
@@ -2932,7 +2957,11 @@ async def resolve_git_merge_conflicts(task_id: str):
                 resolved_content = merge_result.get("content", "")
 
                 # Verify no conflict markers remain
-                if "<<<<<<< " in resolved_content or "=======" in resolved_content or ">>>>>>> " in resolved_content:
+                if (
+                    "<<<<<<< " in resolved_content
+                    or "=======" in resolved_content
+                    or ">>>>>>> " in resolved_content
+                ):
                     logger.warning(f"AI resolution for {file_path} still contains conflict markers")
                     # Try to clean up obvious marker remnants
                     resolved_content = _clean_conflict_markers(resolved_content)
@@ -2948,15 +2977,17 @@ async def resolve_git_merge_conflicts(task_id: str):
                     logger.info(f"Staged resolved file: {file_path}")
                 else:
                     logger.warning(f"Failed to stage {file_path}: {add_result['error']}")
-                    failed_files.append({"file": file_path, "error": f"Failed to stage: {add_result['error']}"})
+                    failed_files.append(
+                        {"file": file_path, "error": "Failed to stage resolved file"}
+                    )
             else:
                 error_msg = merge_result.get("error", "AI resolution failed")
                 logger.error(f"AI resolution failed for {file_path}: {error_msg}")
-                failed_files.append({"file": file_path, "error": error_msg})
+                failed_files.append({"file": file_path, "error": "AI conflict resolution failed"})
 
-        except Exception as e:
-            logger.error(f"Failed to resolve {file_path}: {e}")
-            failed_files.append({"file": file_path, "error": str(e)})
+        except Exception:
+            logger.exception(f"Failed to resolve {file_path}")
+            failed_files.append({"file": file_path, "error": "Failed to resolve conflict"})
 
     if failed_files:
         return {
@@ -2964,9 +2995,9 @@ async def resolve_git_merge_conflicts(task_id: str):
             "data": {
                 "resolved": resolved_files,
                 "failed": failed_files,
-                "message": f"Resolved {len(resolved_files)} files, {len(failed_files)} failed"
+                "message": f"Resolved {len(resolved_files)} files, {len(failed_files)} failed",
             },
-            "error": f"{len(failed_files)} files could not be resolved"
+            "error": f"{len(failed_files)} files could not be resolved",
         }
 
     # All conflicts resolved successfully - auto-commit the merge
@@ -2989,11 +3020,11 @@ async def resolve_git_merge_conflicts(task_id: str):
             commit_result = "Merge committed successfully"
             logger.info(f"Auto-committed merge: {commit_msg}")
         else:
-            commit_result = f"Commit failed: {commit_git_result['error']}"
+            commit_result = "Merge commit failed"
             logger.warning(f"Failed to auto-commit merge: {commit_git_result['error']}")
-    except Exception as e:
-        commit_result = f"Commit error: {str(e)}"
-        logger.error(f"Error during auto-commit: {e}")
+    except Exception:
+        commit_result = "Merge commit failed"
+        logger.exception("Error during auto-commit")
 
     return {
         "success": True,
@@ -3001,8 +3032,8 @@ async def resolve_git_merge_conflicts(task_id: str):
             "resolved": resolved_files,
             "failed": [],
             "message": f"Successfully resolved {len(resolved_files)} conflicted files",
-            "commit": commit_result
-        }
+            "commit": commit_result,
+        },
     }
 
 
@@ -3093,7 +3124,7 @@ async def abort_worktree_merge(task_id: str):
                     cwd=worktree_path,
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=30,
                 )
                 if result.returncode == 0:
                     aborted_locations.append("worktree")
@@ -3103,23 +3134,25 @@ async def abort_worktree_merge(task_id: str):
                     errors.append(f"Worktree: {result.stderr.strip()}")
         except subprocess.TimeoutExpired:
             errors.append("Worktree: git merge --abort timed out")
-        except Exception as e:
-            logger.error(f"Error aborting merge in worktree: {e}")
-            errors.append(f"Worktree: {str(e)}")
+        except Exception:
+            logger.exception("Error aborting merge in worktree")
+            errors.append("Worktree: failed to abort merge")
 
     # Try to abort merge in main project
     if project_path and project_path.exists():
         try:
             # Check if main project is in a merge state
             git_dir = project_path / ".git"
-            merge_head = git_dir / "MERGE_HEAD" if git_dir.is_dir() else project_path / ".git" / "MERGE_HEAD"
+            merge_head = (
+                git_dir / "MERGE_HEAD" if git_dir.is_dir() else project_path / ".git" / "MERGE_HEAD"
+            )
             if merge_head.exists():
                 result = subprocess.run(
                     ["git", "merge", "--abort"],
                     cwd=project_path,
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=30,
                 )
                 if result.returncode == 0:
                     aborted_locations.append("main project")
@@ -3129,17 +3162,17 @@ async def abort_worktree_merge(task_id: str):
                     errors.append(f"Main project: {result.stderr.strip()}")
         except subprocess.TimeoutExpired:
             errors.append("Main project: git merge --abort timed out")
-        except Exception as e:
-            logger.error(f"Error aborting merge in main project: {e}")
-            errors.append(f"Main project: {str(e)}")
+        except Exception:
+            logger.exception("Error aborting merge in main project")
+            errors.append("Main project: failed to abort merge")
 
     if aborted_locations:
         return {
             "success": True,
             "data": {
                 "abortedIn": aborted_locations,
-                "message": f"Merge aborted in: {', '.join(aborted_locations)}"
-            }
+                "message": f"Merge aborted in: {', '.join(aborted_locations)}",
+            },
         }
     elif errors:
         return {
@@ -3149,10 +3182,7 @@ async def abort_worktree_merge(task_id: str):
     else:
         return {
             "success": True,
-            "data": {
-                "abortedIn": [],
-                "message": "No active merge found to abort"
-            }
+            "data": {"abortedIn": [], "message": "No active merge found to abort"},
         }
 
 
@@ -3210,7 +3240,10 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     # Get the branch name from the worktree
     branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
     if not branch_result["success"]:
-        return {"success": False, "error": f"Could not determine worktree branch: {branch_result['error']}"}
+        logger.warning(
+            f"Could not determine worktree branch for {task_id}: {branch_result['error']}"
+        )
+        return {"success": False, "error": "Could not determine worktree branch"}
     worktree_branch = branch_result["output"]
 
     # Get the base branch (from options or detect from main project)
@@ -3228,7 +3261,9 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
         stash_result = subprocess.run(
             ["git", "stash", "push", "-m", "pfactory-pre-rebase"],
             cwd=worktree_path,
-            capture_output=True, text=True, timeout=10
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         # "No local changes to save" means nothing was stashed
         stashed = stash_result.returncode == 0 and "No local changes" not in stash_result.stdout
@@ -3241,20 +3276,27 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
         result = subprocess.run(
             ["git", "rebase", f"origin/{base_branch}"],
             cwd=worktree_path,
-            capture_output=True, text=True, timeout=120
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode != 0:
             # Abort the failed rebase to leave worktree clean
             subprocess.run(
                 ["git", "rebase", "--abort"],
                 cwd=worktree_path,
-                capture_output=True, text=True, timeout=10
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             rebase_failed = True
     except subprocess.TimeoutExpired:
         subprocess.run(
             ["git", "rebase", "--abort"],
-            cwd=worktree_path, capture_output=True, text=True, timeout=10
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         rebase_failed = True
     except Exception:
@@ -3285,8 +3327,9 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
             return {"success": False, "error": f"Failed to push branch: {result.stderr.strip()}"}
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Push timed out"}
-    except Exception as e:
-        return {"success": False, "error": f"Failed to push branch: {e}"}
+    except Exception:
+        logger.exception(f"Failed to push branch {worktree_branch}")
+        return {"success": False, "error": "Failed to push branch"}
 
     # Load task title/description for PR defaults
     pr_title = options.title
@@ -3356,8 +3399,9 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
                 "success": False,
                 "error": f"Provider {provider_type_value!r} does not support PR creation yet",
             }
-        except Exception as exc:
-            return {"success": False, "error": f"Failed to create PR: {exc}"}
+        except Exception:
+            logger.exception(f"Failed to create PR via provider for {worktree_branch}")
+            return {"success": False, "error": "Failed to create PR"}
 
     # Create the PR using gh CLI (GitHub-only path)
     head_ref = worktree_branch
@@ -3374,7 +3418,10 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
         try:
             origin_url_result = subprocess.run(
                 ["git", "remote", "get-url", "origin"],
-                cwd=str(worktree_path), capture_output=True, text=True, timeout=5
+                cwd=str(worktree_path),
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if origin_url_result.returncode == 0:
                 import re as _re
@@ -3394,7 +3441,8 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     gh_result = run_gh_command(gh_args, cwd=str(project_path))
 
     if not gh_result["success"]:
-        return {"success": False, "error": f"Failed to create PR: {gh_result.get('error', 'unknown error')}"}
+        logger.warning(f"gh pr create failed: {gh_result.get('error', 'unknown error')}")
+        return {"success": False, "error": "Failed to create PR"}
 
     # Parse PR URL from output
     pr_url = gh_result.get("output", "").strip()
@@ -3413,7 +3461,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
             "prNumber": pr_number,
             "branch": worktree_branch,
             "baseBranch": base_branch,
-        }
+        },
     }
 
 
@@ -3470,7 +3518,10 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
     # Get the branch name from the worktree
     branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
     if not branch_result["success"]:
-        return {"success": False, "error": f"Could not determine worktree branch: {branch_result['error']}"}
+        logger.warning(
+            f"Could not determine worktree branch for {task_id}: {branch_result['error']}"
+        )
+        return {"success": False, "error": "Could not determine worktree branch"}
     worktree_branch = branch_result["output"]
 
     # Get the current branch in main repo
@@ -3534,8 +3585,8 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
                 "message": f"Successfully merged {worktree_branch} into {base_branch}",
                 "output": result.stdout,
                 "worktreeDeleted": worktree_deleted,
-                "branchDeleted": branch_deleted
-            }
+                "branchDeleted": branch_deleted,
+            },
         }
     except subprocess.CalledProcessError as e:
         # Check if it's a conflict
@@ -3544,12 +3595,12 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
                 "success": False,
                 "error": "Merge conflicts detected. Please resolve manually.",
                 "conflicts": True,
-                "output": e.stdout + e.stderr
+                "output": e.stdout + e.stderr,
             }
         return {
             "success": False,
             "error": f"Merge failed: {e.stderr or e.stdout}",
-            "output": e.stdout + e.stderr
+            "output": e.stdout + e.stderr,
         }
 
 
@@ -3577,7 +3628,7 @@ async def get_worktree_status(task_id: str):
             "success": True,
             "data": {
                 "exists": False,
-            }
+            },
         }
 
     projects_data = json.loads(projects_file.read_text())
@@ -3609,7 +3660,7 @@ async def get_worktree_status(task_id: str):
             "success": True,
             "data": {
                 "exists": False,
-            }
+            },
         }
 
     # Check for worktree
@@ -3620,7 +3671,7 @@ async def get_worktree_status(task_id: str):
             "success": True,
             "data": {
                 "exists": False,
-            }
+            },
         }
 
     # Get worktree branch
@@ -3673,7 +3724,7 @@ async def get_worktree_status(task_id: str):
             "filesChanged": files_changed,
             "additions": additions,
             "deletions": deletions,
-        }
+        },
     }
 
 
@@ -3845,7 +3896,7 @@ async def get_worktree_diff(task_id: str):
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             f["diff"] = result.stdout
         except subprocess.CalledProcessError:
@@ -3862,7 +3913,7 @@ async def get_worktree_diff(task_id: str):
         "data": {
             "files": files,
             "summary": summary,
-        }
+        },
     }
 
 
@@ -3882,6 +3933,7 @@ async def discard_worktree(task_id: str):
             return {"success": False, "error": "Projects file not found"}
 
         import json
+
         projects_data = json.loads(projects_file.read_text())
 
         # Handle dict format where keys are project IDs
@@ -3932,11 +3984,12 @@ async def discard_worktree(task_id: str):
             "success": True,
             "data": {
                 "discarded": True,
-                "message": f"Successfully discarded worktree for {spec_id}"
-            }
+                "message": f"Successfully discarded worktree for {spec_id}",
+            },
         }
-    except Exception as e:
-        return {"success": False, "error": f"Failed to discard worktree: {str(e)}"}
+    except Exception:
+        logger.exception(f"Failed to discard worktree for {spec_id}")
+        return {"success": False, "error": "Failed to discard worktree"}
 
 
 # ============================================
@@ -3946,12 +3999,14 @@ async def discard_worktree(task_id: str):
 
 class OpenInIDERequest(BaseModel):
     """Request body for opening a path in IDE."""
+
     worktreePath: str
     ide: str
 
 
 class OpenInTerminalRequest(BaseModel):
     """Request body for opening a path in terminal."""
+
     worktreePath: str
     terminal: str
 
@@ -3997,6 +4052,7 @@ def get_ide_command(ide: str, path: str) -> list[str]:
     server process. (CodeQL py/command-line-injection.)
     """
     import platform
+
     system = platform.system()
 
     # IDE command mappings
@@ -4006,7 +4062,6 @@ def get_ide_command(ide: str, path: str) -> list[str]:
         "cursor": ["cursor", path],
         "vscodium": ["codium", path],
         "vscode-insiders": ["code-insiders", path],
-
         # JetBrains IDEs
         "webstorm": ["webstorm", path] if system != "Darwin" else ["open", "-a", "WebStorm", path],
         "intellij": ["idea", path] if system != "Darwin" else ["open", "-a", "IntelliJ IDEA", path],
@@ -4017,52 +4072,37 @@ def get_ide_command(ide: str, path: str) -> list[str]:
         "clion": ["clion", path] if system != "Darwin" else ["open", "-a", "CLion", path],
         "rubymine": ["rubymine", path] if system != "Darwin" else ["open", "-a", "RubyMine", path],
         "datagrip": ["datagrip", path] if system != "Darwin" else ["open", "-a", "DataGrip", path],
-
         # Sublime Text
         "sublime": ["subl", path] if system != "Darwin" else ["open", "-a", "Sublime Text", path],
-
         # Atom / Pulsar
         "atom": ["atom", path],
         "pulsar": ["pulsar", path],
-
         # Vim/Neovim (terminal-based)
         "vim": ["vim", path],
         "neovim": ["nvim", path],
         "nvim": ["nvim", path],
-
         # Emacs
         "emacs": ["emacs", path],
-
         # Zed
         "zed": ["zed", path] if system != "Darwin" else ["open", "-a", "Zed", path],
-
         # Nova (macOS)
         "nova": ["open", "-a", "Nova", path],
-
         # BBEdit (macOS)
         "bbedit": ["open", "-a", "BBEdit", path],
-
         # TextMate (macOS)
         "textmate": ["open", "-a", "TextMate", path],
-
         # Notepad++ (Windows)
         "notepadpp": ["notepad++", path],
-
         # Visual Studio (Windows)
         "visualstudio": ["devenv", path],
-
         # Fleet
         "fleet": ["fleet", path],
-
         # Lapce
         "lapce": ["lapce", path],
-
         # Helix
         "helix": ["hx", path],
-
         # Kate (Linux/KDE)
         "kate": ["kate", path],
-
         # Geany (Linux)
         "geany": ["geany", path],
     }
@@ -4077,6 +4117,7 @@ def get_terminal_command(terminal: str, path: str) -> list[str]:
     curated map, never from the request body.
     """
     import platform
+
     system = platform.system()
 
     # Terminal command mappings by platform
@@ -4182,13 +4223,11 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
     except FileNotFoundError:
         return {
             "success": False,
-            "error": f"IDE command not found. Make sure '{ide}' is installed and in your PATH."
+            "error": f"IDE command not found. Make sure '{ide}' is installed and in your PATH.",
         }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to open IDE: {str(e)}"
-        }
+    except Exception:
+        logger.exception(f"Failed to open IDE {ide!r}")
+        return {"success": False, "error": "Failed to open IDE"}
 
 
 @router.post("/worktree/open-in-terminal")
@@ -4239,13 +4278,11 @@ async def open_worktree_in_terminal(request: OpenInTerminalRequest):
     except FileNotFoundError:
         return {
             "success": False,
-            "error": f"Terminal command not found. Make sure '{terminal}' is installed and in your PATH."
+            "error": f"Terminal command not found. Make sure '{terminal}' is installed and in your PATH.",
         }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to open terminal: {str(e)}"
-        }
+    except Exception:
+        logger.exception(f"Failed to open terminal {terminal!r}")
+        return {"success": False, "error": "Failed to open terminal"}
 
 
 @router.post("/worktree/detect-tools")

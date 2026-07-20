@@ -108,9 +108,8 @@ async def sse_endpoint(request: Request):
     try:
         key = await authenticate(request.headers.get("Authorization"))
     except MCPAuthError as exc:
-        return JSONResponse(
-            {"error": str(exc)}, status_code=status.HTTP_401_UNAUTHORIZED
-        )
+        logger.warning("MCP SSE auth failed: %s", exc)
+        return JSONResponse({"error": str(exc)}, status_code=status.HTTP_401_UNAUTHORIZED)
 
     token = _current_key.set(key)
     try:
@@ -145,9 +144,6 @@ async def messages_endpoint(request: Request):
     try:
         await authenticate(request.headers.get("Authorization"))
     except MCPAuthError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
-        ) from exc
-    return await _sse_transport.handle_post_message(
-        request.scope, request.receive, request._send
-    )
+        logger.warning("MCP message-post auth failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    return await _sse_transport.handle_post_message(request.scope, request.receive, request._send)

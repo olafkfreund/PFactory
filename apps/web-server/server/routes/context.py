@@ -4,11 +4,14 @@ Context and Memory routes.
 Handles project context, memory infrastructure, and Graphiti integration.
 """
 
+import logging
 import subprocess
 from pathlib import Path as FilePath
 
 from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -16,6 +19,7 @@ router = APIRouter()
 # ============================================
 # Request/Response Models
 # ============================================
+
 
 class TestConnectionRequest(BaseModel):
     dbPath: str | None = None
@@ -29,6 +33,7 @@ class ValidateApiKeyRequest(BaseModel):
 
 class ProjectEnvUpdate(BaseModel):
     """Model for updating project environment configuration."""
+
     githubToken: str | None = None
     githubRepo: str | None = None
     gitProvider: str | None = None
@@ -135,12 +140,12 @@ async def get_project_context(projectId: str = Path(...)):
                 "enabled": True,
                 "available": memory_count > 0 or graphiti_available,
                 "sessionInsightsCount": memory_count,
-                "graphitiAvailable": graphiti_available
+                "graphitiAvailable": graphiti_available,
             },
             "memoryState": None,
             "recentMemories": recent_memories,
-            "isLoading": False
-        }
+            "isLoading": False,
+        },
     }
 
 
@@ -172,7 +177,7 @@ async def refresh_project_index(projectId: str = Path(...)):
             "files": len(files),
             "languages": {},
             "frameworks": [],
-            "lastRefreshed": __import__("datetime").datetime.now().isoformat()
+            "lastRefreshed": __import__("datetime").datetime.now().isoformat(),
         }
 
         # Count files by extension
@@ -185,11 +190,13 @@ async def refresh_project_index(projectId: str = Path(...)):
         index_path = project_path / ".pfactory" / "project_index.json"
         index_path.parent.mkdir(parents=True, exist_ok=True)
         import json
+
         index_path.write_text(json.dumps(index, indent=2))
 
         return {"success": True, "data": index}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to refresh project index for %s", projectId)
+        return {"success": False, "error": "Failed to refresh project index"}
 
 
 @project_router.get("/memory/status")
@@ -225,8 +232,8 @@ async def get_memory_status(projectId: str = Path(...)):
             "available": memory_count > 0 or graphiti_available,
             "sessionInsightsCount": memory_count,
             "graphitiAvailable": graphiti_available,
-            "reason": None if memory_count > 0 else "No session insights recorded yet"
-        }
+            "reason": None if memory_count > 0 else "No session insights recorded yet",
+        },
     }
 
 
@@ -378,7 +385,7 @@ async def get_project_env(projectId: str = Path(...)):
         "gitRepo": "",
         "gitBaseUrl": "",
         "gitOrg": "",
-        "gitProject": ""
+        "gitProject": "",
     }
 
     # Initialize graphiti provider config
@@ -541,7 +548,7 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
                     if len(value) < 10:
                         return {
                             "success": False,
-                            "error": f"{config_key} must be at least 10 characters"
+                            "error": f"{config_key} must be at least 10 characters",
                         }
                     existing[env_key] = value
 
@@ -640,6 +647,7 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
         # Also update settings in projects.json
         try:
             from .projects import save_projects
+
             if "settings" not in projects[projectId]:
                 projects[projectId]["settings"] = {}
 
@@ -664,6 +672,7 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
                 projects[projectId]["settings"]["githubToken"] = config_dict["gitToken"]
 
             from datetime import datetime
+
             projects[projectId]["updated_at"] = datetime.now().isoformat()
             save_projects(projects)
         except Exception:
@@ -674,8 +683,9 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
             "message": "Environment configuration updated successfully"
         }
 
-    except Exception as e:
-        return {"success": False, "error": f"Failed to update environment: {str(e)}"}
+    except Exception:
+        logger.exception("Failed to update environment config for project %s", projectId)
+        return {"success": False, "error": "Failed to update environment configuration"}
 
 
 @project_router.get("/claude-auth")
@@ -735,9 +745,9 @@ async def invoke_claude_setup(projectId: str = Path(...)):
                     "steps": [
                         "Visit https://claude.ai/download to download Claude CLI",
                         "Follow the installation instructions for your platform",
-                        "Run 'claude setup' in your terminal to authenticate"
-                    ]
-                }
+                        "Run 'claude setup' in your terminal to authenticate",
+                    ],
+                },
             }
 
         # Check if Claude is already authenticated by trying a simple command
@@ -760,7 +770,7 @@ async def invoke_claude_setup(projectId: str = Path(...)):
             return {
                 "success": True,
                 "message": "Claude CLI is already authenticated and ready to use",
-                "authenticated": True
+                "authenticated": True,
             }
 
         # Claude is installed but not authenticated
@@ -776,23 +786,22 @@ async def invoke_claude_setup(projectId: str = Path(...)):
                     "Run: claude setup",
                     "Follow the prompts to authenticate with your Claude account",
                     "The setup will open a browser for OAuth authentication",
-                    "After completing setup, refresh this page to verify authentication"
+                    "After completing setup, refresh this page to verify authentication",
                 ],
-                "note": "This is a one-time setup. Once authenticated, the credentials will be stored securely."
-            }
+                "note": "This is a one-time setup. Once authenticated, the credentials will be stored securely.",
+            },
         }
 
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to check Claude setup status: {str(e)}"
-        }
+    except Exception:
+        logger.exception("Failed to check Claude setup status for project %s", projectId)
+        return {"success": False, "error": "Failed to check Claude setup status"}
 
 
 # ============================================
 # Memory Infrastructure Routes
 # Global routes at /api/memory
 # ============================================
+
 
 @router.get("/infrastructure")
 async def get_memory_infrastructure_status(dbPath: str | None = Query(None)):
@@ -804,8 +813,8 @@ async def get_memory_infrastructure_status(dbPath: str | None = Query(None)):
             "databasePath": dbPath or str(FilePath.home() / ".pfactory" / "memories"),
             "databaseExists": False,
             "databases": [],
-            "ready": False
-        }
+            "ready": False,
+        },
     }
 
 
@@ -820,10 +829,7 @@ async def test_memory_connection(request: TestConnectionRequest):
     """Test connection to memory database."""
     return {
         "success": True,
-        "data": {
-            "success": False,
-            "message": "Memory database not configured"
-        }
+        "data": {"success": False, "message": "Memory database not configured"},
     }
 
 
@@ -846,15 +852,8 @@ async def test_graphiti_connection(request: TestGraphitiRequest):
     return {
         "success": True,
         "data": {
-            "database": {
-                "success": False,
-                "message": "Graphiti not configured"
-            },
-            "llmProvider": {
-                "success": False,
-                "message": "LLM provider not configured"
-            },
-            "ready": False
-        }
+            "database": {"success": False, "message": "Graphiti not configured"},
+            "llmProvider": {"success": False, "message": "LLM provider not configured"},
+            "ready": False,
+        },
     }
-

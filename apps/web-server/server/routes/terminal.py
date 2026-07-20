@@ -6,6 +6,7 @@ WebSocket I/O is handled in websockets/terminal.py.
 """
 
 import json
+import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,8 @@ from ..config import get_settings
 from ..pty.manager import get_pty_manager
 from ..services.terminal_worktree_service import TerminalWorktreeService
 from .projects import load_projects
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -275,6 +278,7 @@ async def clear_terminal_sessions(project: str | None = None):
 
         # Also try to find project sessions
         from ..paths import get_data_file
+
         projects_file = get_data_file("projects.json")
         if projects_file.exists():
             try:
@@ -301,17 +305,19 @@ async def clear_terminal_sessions(project: str | None = None):
                 try:
                     session_file.unlink()
                     cleared_count += 1
-                except Exception as e:
-                    errors.append(f"Failed to remove {session_file.name}: {str(e)}")
-        except Exception as e:
-            errors.append(f"Failed to process {sessions_dir}: {str(e)}")
+                except Exception:
+                    logger.exception("Failed to remove terminal session file %s", session_file.name)
+                    errors.append(f"Failed to remove {session_file.name}")
+        except Exception:
+            logger.exception("Failed to process terminal sessions directory %s", sessions_dir)
+            errors.append(f"Failed to process {sessions_dir}")
 
     result = {
         "success": True,
         "data": {
             "cleared": cleared_count,
-            "message": f"Cleared {cleared_count} terminal session(s)"
-        }
+            "message": f"Cleared {cleared_count} terminal session(s)",
+        },
     }
 
     if errors:
@@ -346,8 +352,9 @@ async def list_terminal_worktrees(project: str = Query(...)):
         service = TerminalWorktreeService(project)
         worktrees = service.list_worktrees()
         return {"success": True, "data": worktrees}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to list terminal worktrees for project %s", project)
+        return {"success": False, "error": "Failed to list terminal worktrees"}
 
 
 @router.post("/worktrees", response_model=TerminalWorktreeResult)
@@ -402,12 +409,16 @@ async def remove_terminal_worktree(
         success = service.remove_worktree(name, deleteBranch)
         return {"success": success}
     except ValueError as e:
+        # Hand-authored validation message from TerminalWorktreeService (e.g.
+        # "Worktree 'x' not found") - safe to surface to the caller as-is.
+        logger.warning("Terminal worktree removal validation failed: %s", e)
         return {"success": False, "error": str(e)}
-    except subprocess.CalledProcessError as e:
-        error_msg = f"Git error: {e.stderr if e.stderr else str(e)}"
-        return {"success": False, "error": error_msg}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except subprocess.CalledProcessError:
+        logger.exception("Git error while removing terminal worktree %s", name)
+        return {"success": False, "error": "Failed to remove terminal worktree"}
+    except Exception:
+        logger.exception("Failed to remove terminal worktree %s", name)
+        return {"success": False, "error": "Failed to remove terminal worktree"}
 
 
 @router.get("/sessions/{date}")
@@ -557,7 +568,7 @@ async def save_terminal_buffer(terminal_id: str, request: dict):
             "message": "Terminal buffer saved successfully",
             "sessionFile": str(session_file),
             "size": file_size,
-            "timestamp": session_data["timestamp"]
+            "timestamp": session_data["timestamp"],
         }
 
     except HTTPException:
@@ -566,7 +577,7 @@ async def save_terminal_buffer(terminal_id: str, request: dict):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save terminal buffer: {str(e)}"
+            detail=f"Failed to save terminal buffer: {str(e)}",
         )
 
 
