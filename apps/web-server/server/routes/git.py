@@ -4,6 +4,7 @@ Git, Ollama, MCP, and utility routes.
 
 import ipaddress
 import json
+import logging
 import shlex
 import shutil
 import socket
@@ -15,6 +16,8 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from ..services.git_utils import run_gh_command, run_git_command
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -750,12 +753,19 @@ async def check_mcp_health(server: McpServerConfig):
         try:
             assert_safe_probe_url(server.url)
         except UnsafeProbeURLError as exc:
+            # The specific reason goes to the log, not the response: it is a
+            # curated message today, but a health probe is exactly the kind of
+            # endpoint an attacker uses to map what the server can reach.
+            logger.warning("refusing to probe %r: %s", server.url, exc)
             return {
                 "success": True,
                 "data": {
                     "serverId": server.id,
                     "status": "unknown",
-                    "message": f"Refusing to probe this URL: {exc}",
+                    "message": (
+                        "Refusing to probe this URL: it must be http/https and "
+                        "must not point at a link-local or reserved address."
+                    ),
                 },
             }
         try:

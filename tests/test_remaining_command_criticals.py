@@ -24,6 +24,7 @@ if str(_WEB) not in sys.path:
 
 pytest.importorskip("fastapi")
 
+from server.routes import tasks as tasks_mod  # noqa: E402
 from server.routes.git import (  # noqa: E402
     UnsafeProbeURLError,
     assert_safe_probe_url,
@@ -88,15 +89,44 @@ def test_loopback_is_allowed_for_both_address_families() -> None:
     assert_safe_probe_url("http://localhost:3000/health")
 
 
-def test_launch_path_must_be_absolute_and_exist(tmp_path: Path) -> None:
-    assert _safe_launch_path(str(tmp_path)) == str(tmp_path.resolve())
+@pytest.fixture
+def project(tmp_path, monkeypatch):
+    """A registered project directory, as the launcher's registry would report it."""
+    root = tmp_path / "proj"
+    (root / "worktrees" / "feature").mkdir(parents=True)
+    monkeypatch.setattr(
+        tasks_mod, "load_projects", lambda: {"p1": {"name": "p", "path": str(root)}}
+    )
+    return root
+
+
+def test_launch_path_accepts_a_directory_inside_a_registered_project(project) -> None:
+    wt = project / "worktrees" / "feature"
+    assert _safe_launch_path(str(wt)) == str(wt.resolve())
+
+
+def test_launch_path_must_be_absolute_and_exist(project) -> None:
     with pytest.raises(ValueError):
         _safe_launch_path("relative/path")
     with pytest.raises(ValueError):
-        _safe_launch_path(str(tmp_path / "definitely-not-here"))
+        _safe_launch_path(str(project / "definitely-not-here"))
+
+
+def test_launch_path_cannot_escape_the_registered_projects(project, tmp_path) -> None:
+    """The endpoint must not open arbitrary directories on the host."""
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    with pytest.raises(ValueError):
+        _safe_launch_path(str(outside))
+    with pytest.raises(ValueError):
+        _safe_launch_path("/etc")
+    # ...including via traversal, since the path is resolved before the check
+    with pytest.raises(ValueError):
+        _safe_launch_path(str(project / ".." / "elsewhere"))
 
 
 def test_launch_path_cannot_be_option_shaped() -> None:
-    """A dash-leading value is relative, so it never reaches the launcher."""
+    """A dash-leading value is relative, so it is rejected before any registry
+    lookup — no fixture needed to prove it never reaches the launcher."""
     with pytest.raises(ValueError):
         _safe_launch_path("--user-data-dir=/tmp/x")
