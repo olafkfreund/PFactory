@@ -1,0 +1,16 @@
+# CodeQL advanced-setup config. Runs the default query suite for every rule,
+# but swaps the stock py/path-injection for our barrier-aware variant
+# (py/path-injection-sanitized), which recognises this repo's sanitizers so
+# verified-safe code clears instead of reporting forever.
+#
+# Why this is needed: stock CodeQL recognises a validator defined AND called in
+# the same module -- which is why routes/pfactory_tasks.py has always read
+# clean -- but does not follow one imported from services/. Every fix in #335
+# routes through the shared safe_spec_component, so without this the alert
+# count cannot move no matter how much of the traversal is closed.
+name: "PFactory CodeQL config"
+queries:
+  - uses: ./.github/codeql/custom-queries
+query-filters:
+  - exclude:
+      id: py/path-injection
