@@ -3948,24 +3948,25 @@ class OpenInIDERequest(BaseModel):
     """Request body for opening a path in IDE."""
     worktreePath: str
     ide: str
-    customPath: str | None = None
 
 
 class OpenInTerminalRequest(BaseModel):
     """Request body for opening a path in terminal."""
     worktreePath: str
     terminal: str
-    customPath: str | None = None
 
 
-def get_ide_command(ide: str, path: str, custom_path: str | None = None) -> list[str]:
-    """Get the command to open a path in the specified IDE."""
+def get_ide_command(ide: str, path: str) -> list[str]:
+    """Get the command to open a path in the specified IDE.
+
+    The executable is always chosen from the curated map below — never from the
+    request. This used to honour a caller-supplied `customPath`, which made the
+    endpoint an arbitrary-command sink: `[custom_path, path]` went straight to
+    subprocess.Popen, so any authenticated caller could run any binary in the
+    server process. (CodeQL py/command-line-injection.)
+    """
     import platform
     system = platform.system()
-
-    # Use custom path if provided
-    if custom_path:
-        return [custom_path, path]
 
     # IDE command mappings
     ide_commands = {
@@ -4038,19 +4039,14 @@ def get_ide_command(ide: str, path: str, custom_path: str | None = None) -> list
     return ide_commands.get(ide, ["code", path])  # Default to VS Code
 
 
-def get_terminal_command(terminal: str, path: str, custom_path: str | None = None) -> list[str]:
-    """Get the command to open a terminal at the specified path."""
+def get_terminal_command(terminal: str, path: str) -> list[str]:
+    """Get the command to open a terminal at the specified path.
+
+    Same contract as :func:`get_ide_command`: the executable comes only from the
+    curated map, never from the request body.
+    """
     import platform
     system = platform.system()
-
-    # Use custom path if provided
-    if custom_path:
-        if system == "Darwin":
-            return ["open", "-a", custom_path, path]
-        elif system == "Windows":
-            return [custom_path, "/d", path]
-        else:
-            return [custom_path, f"--working-directory={path}"]
 
     # Terminal command mappings by platform
     if system == "Darwin":  # macOS
@@ -4112,7 +4108,6 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
     """
     worktree_path = request.worktreePath
     ide = request.ide
-    custom_path = request.customPath
 
     # Validate the path exists
     if not Path(worktree_path).exists():
@@ -4121,8 +4116,21 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
             "error": f"Path does not exist: {worktree_path}"
         }
 
+    # "custom" used to mean "run the executable the caller names" — an
+    # arbitrary-command sink. Say so plainly rather than silently falling
+    # through to the VS Code default and opening the wrong application.
+    if ide == "custom":
+        return {
+            "success": False,
+            "error": (
+                "A custom IDE path is no longer supported: the server only "
+                "launches applications from its known list. Pick your IDE by "
+                "name instead."
+            ),
+        }
+
     try:
-        cmd = get_ide_command(ide, worktree_path, custom_path)
+        cmd = get_ide_command(ide, worktree_path)
 
         # Launch the IDE (don't wait for it to finish)
         subprocess.Popen(
@@ -4158,7 +4166,6 @@ async def open_worktree_in_terminal(request: OpenInTerminalRequest):
     """
     worktree_path = request.worktreePath
     terminal = request.terminal
-    custom_path = request.customPath
 
     # Validate the path exists
     if not Path(worktree_path).exists():
@@ -4167,8 +4174,18 @@ async def open_worktree_in_terminal(request: OpenInTerminalRequest):
             "error": f"Path does not exist: {worktree_path}"
         }
 
+    if terminal == "custom":
+        return {
+            "success": False,
+            "error": (
+                "A custom terminal path is no longer supported: the server only "
+                "launches applications from its known list. Pick your terminal "
+                "by name instead."
+            ),
+        }
+
     try:
-        cmd = get_terminal_command(terminal, worktree_path, custom_path)
+        cmd = get_terminal_command(terminal, worktree_path)
 
         # Launch the terminal (don't wait for it to finish)
         subprocess.Popen(
