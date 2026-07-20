@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from ..services.agent_service import get_agent_service
 from ..websockets.events import emit_task_status
 from .projects import load_projects
-from .tasks import sync_worktree_to_main_spec
+from .tasks import split_task_id, sync_worktree_to_main_spec
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
             detail="Invalid task ID format. Expected 'project_id:spec_id'",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
@@ -532,7 +532,7 @@ async def recover_task(task_id: str, request: RecoverTaskRequest = RecoverTaskRe
             detail="Invalid task ID format. Expected 'project_id:spec_id'",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
