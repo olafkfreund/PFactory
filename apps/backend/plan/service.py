@@ -1207,6 +1207,16 @@ class PlanService:
                 "tier=hard requires human approval before emitting the contract: "
                 f"approve session '{session_id}' first (status={session.status!r})"
             )
+        # #326: the same hard readiness failures that block `approve` must block a
+        # live emit, or skipping approve walks straight around the gate.
+        if not dry_run and session.review is not None and session.review.readiness is not None:
+            unwaived = session.review.readiness.unwaived_hard_failures(session.plan)
+            if unwaived:
+                failing = ", ".join(r.check_id for r in unwaived)
+                raise PlanServiceError(
+                    f"cannot emit: unwaived hard readiness failures ({failing}). "
+                    "Fix the plan or record a waiver first."
+                )
         base = base_url or os.environ.get("PFACTORY_AIFACTORY_API_URL", "http://localhost:3101")
         pid = project_id or repo or session.plan.plan_id
         corr = session.correlation_key or correlation_key_for(session)
