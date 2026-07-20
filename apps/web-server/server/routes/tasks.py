@@ -16,6 +16,8 @@ from typing import Literal, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from server.services.git_utils import safe_spec_component
+
 from ..paths import get_data_dir, get_data_file
 from ..services.git_utils import run_git_command
 from .projects import load_projects
@@ -281,11 +283,36 @@ def get_next_spec_id(project_path: Path, title: str) -> str:
     return f"{next_num:03d}-{slug}"
 
 
+def split_task_id(task_id: str) -> tuple[str, str]:
+    """Split a ``"<project_id>:<spec_id>"`` task id, validating the spec half.
+
+    Every handler that takes a task id joins the spec half onto a project root
+    and then reads or writes there, so this is the choke point where the
+    untrusted component has to be checked -- 18 call sites route through it
+    (#335). A traversal component raises ValueError, which the FastAPI layer
+    surfaces as a 400 rather than reaching the filesystem.
+    """
+    project_id, _, spec_id = task_id.partition(":")
+    try:
+        return project_id, safe_spec_component(spec_id)
+    except ValueError:
+        # This is the request boundary, so answer with a 400. Letting the
+        # ValueError escape would surface a 500 and a stack trace for what is
+        # simply a malformed (or hostile) id.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid task id"
+        ) from None
+
+
 def get_worktree_spec_dir(project_path: Path, spec_id: str) -> Path | None:
     """Get the worktree spec directory if it exists.
 
     Worktree layout: .pfactory/worktrees/tasks/{spec_id}/.pfactory/specs/{spec_id}/
+
+    Raises:
+        ValueError: if ``spec_id`` could escape the project root (#335).
     """
+    spec_id = safe_spec_component(spec_id)
     worktree_spec_dir = (
         project_path
         / ".pfactory"
@@ -305,7 +332,11 @@ def sync_worktree_to_main_spec(project_path: Path, spec_id: str) -> bool:
     """Sync test_plan.json from worktree to main spec if worktree has newer data.
 
     Returns True if sync was performed, False otherwise.
+
+    Raises:
+        ValueError: if ``spec_id`` could escape the project root (#335).
     """
+    spec_id = safe_spec_component(spec_id)
     main_spec_dir = project_path / ".pfactory" / "specs" / spec_id
     worktree_spec_dir = get_worktree_spec_dir(project_path, spec_id)
 
@@ -387,7 +418,11 @@ def get_plan_with_worktree_sync(project_path: Path, spec_id: str) -> tuple[dict,
     """Get implementation plan, syncing from worktree first if needed.
 
     Returns (plan_dict, plan_file_path).
+
+    Raises:
+        ValueError: if ``spec_id`` could escape the project root (#335).
     """
+    spec_id = safe_spec_component(spec_id)
     # Sync worktree to main spec first
     sync_worktree_to_main_spec(project_path, spec_id)
 
@@ -1035,7 +1070,7 @@ async def get_task(task_id: str):
             detail="Invalid task ID format. Expected 'project_id:spec_id'",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
@@ -1134,7 +1169,7 @@ def _resolve_task(task_id: str) -> tuple[str, str, Path, Path]:
     if ":" not in task_id:
         raise HTTPException(status_code=400, detail="Invalid task_id format (expected projectId:specId)")
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
@@ -1259,7 +1294,7 @@ async def update_task_status(task_id: str, update: TaskStatusUpdate):
             detail="Invalid task ID format",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
@@ -1310,7 +1345,7 @@ async def update_task(task_id: str, update: TaskUpdate):
             detail="Invalid task ID format",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
@@ -1442,7 +1477,7 @@ async def delete_task(task_id: str):
             detail="Invalid task ID format",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
@@ -1498,7 +1533,7 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
             detail="Invalid task ID format",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
@@ -1621,7 +1656,7 @@ async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanReque
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid task ID format"
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
     if project_id not in projects:
         raise HTTPException(
@@ -1692,7 +1727,7 @@ async def get_qa_report(task_id: str):
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid task ID format"
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
     if project_id not in projects:
         raise HTTPException(
@@ -1751,7 +1786,7 @@ async def stream_agent_console(task_id: str):
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid task ID format"
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
     if project_id not in projects:
         raise HTTPException(
@@ -1844,7 +1879,7 @@ async def get_plan_html(task_id: str):
             detail="Invalid task ID format",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
 
     if project_id not in projects:
@@ -1908,7 +1943,7 @@ async def get_task_logs(task_id: str):
             detail="Invalid task ID format",
         )
 
-    project_id, spec_id = task_id.split(":", 1)
+    project_id, spec_id = split_task_id(task_id)
     logger.info(f"[GetTaskLogs] project_id={project_id}, spec_id={spec_id}")
 
     projects = load_projects()
@@ -2362,7 +2397,7 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
     # Parse task_id to get spec_id
     # task_id could be "project_id:spec_id" or just "spec_id"
     if ":" in task_id:
-        project_id, spec_id = task_id.split(":", 1)
+        project_id, spec_id = split_task_id(task_id)
         # Look up project path
         projects_file = get_data_file("projects.json")
         if not projects_file.exists():
@@ -3077,7 +3112,7 @@ async def abort_worktree_merge(task_id: str):
     # Parse task_id to get spec_id
     # task_id could be "project_id:spec_id" or just "spec_id"
     if ":" in task_id:
-        project_id, spec_id = task_id.split(":", 1)
+        project_id, spec_id = split_task_id(task_id)
         # Look up project path
         projects_file = get_data_file("projects.json")
         if not projects_file.exists():
@@ -3200,7 +3235,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     # Parse task_id to get spec_id
     # task_id could be "project_id:spec_id" or just "spec_id"
     if ":" in task_id:
-        project_id, spec_id = task_id.split(":", 1)
+        project_id, spec_id = split_task_id(task_id)
         # Look up project path
         projects_file = get_data_file("projects.json")
         if not projects_file.exists():
@@ -3478,7 +3513,7 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
     # Parse task_id to get spec_id
     # task_id could be "project_id:spec_id" or just "spec_id"
     if ":" in task_id:
-        project_id, spec_id = task_id.split(":", 1)
+        project_id, spec_id = split_task_id(task_id)
         # Look up project path
         projects_file = get_data_file("projects.json")
         if not projects_file.exists():
@@ -3613,7 +3648,7 @@ async def get_worktree_status(task_id: str):
     """
     # Parse task_id to get project_id and spec_id
     if ":" in task_id:
-        project_id, spec_id = task_id.split(":", 1)
+        project_id, spec_id = split_task_id(task_id)
     else:
         # task_id is just the spec_id, search for project
         spec_id = task_id
@@ -3738,7 +3773,7 @@ async def get_worktree_diff(task_id: str):
 
     # Parse task_id to get project_id and spec_id
     if ":" in task_id:
-        project_id, spec_id = task_id.split(":", 1)
+        project_id, spec_id = split_task_id(task_id)
     else:
         spec_id = task_id
         project_id = None
@@ -3926,7 +3961,7 @@ async def discard_worktree(task_id: str):
     # Parse task_id to get spec_id
     # task_id could be "project_id:spec_id" or just "spec_id"
     if ":" in task_id:
-        project_id, spec_id = task_id.split(":", 1)
+        project_id, spec_id = split_task_id(task_id)
         # Look up project path
         projects_file = get_data_file("projects.json")
         if not projects_file.exists():
