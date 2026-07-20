@@ -59,3 +59,44 @@ def run_gh_command(args: list[str], cwd: str | None = None) -> dict:
         return {"success": False, "error": "Command timed out"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# A single path component we are willing to join onto a trusted root. No
+# separators, no traversal, no absolute paths, no null bytes. Deliberately the
+# same regex-allowlist shape as routes/pfactory_tasks.py's _validate_spec_id,
+# which stock CodeQL already recognises as a path-injection barrier -- that
+# module carries zero path-injection alerts while every module lacking such a
+# check carries them all.
+_SPEC_COMPONENT_RE = re.compile(r"[A-Za-z0-9._-]{1,255}")
+
+# Rejected outright even though the character class permits them: "." and ".."
+# are the traversal primitives, and the existing _validate_spec_id lets both
+# through (".." matches ^[A-Za-z0-9._-]+$). A lone ".." resolves to the parent
+# of the root it is joined to, which is exactly the escape the check exists to
+# prevent.
+_RESERVED_COMPONENTS = frozenset({".", ".."})
+
+
+def safe_spec_component(value: object, field: str = "spec_id") -> str:
+    """Return ``value`` if it is safe to join onto a trusted directory root.
+
+    Caller-supplied identifiers (``spec_id``, ``task_id``, worktree names) are
+    joined onto project roots and then read from and written to. ``Path`` joins
+    collapse traversal silently -- ``Path("/srv/specs") / "../../etc"`` is
+    ``/etc`` -- so the component must be validated before it is joined, not
+    after.
+
+    Args:
+        value: The untrusted component.
+        field: Name used in the error message.
+
+    Returns:
+        The validated component, unchanged.
+
+    Raises:
+        ValueError: if the component could escape the root it is joined to.
+    """
+    text = str(value)
+    if text in _RESERVED_COMPONENTS or not _SPEC_COMPONENT_RE.fullmatch(text):
+        raise ValueError(f"invalid {field}: {text[:80]!r}")
+    return text
