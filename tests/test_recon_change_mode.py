@@ -62,6 +62,9 @@ def test_detect_spec_language():
     assert detect_spec_language(_plan(desc="Build a Rust service with cargo")) == "rust"
     assert detect_spec_language(_plan(desc="A FastAPI app")) == "python"
     assert detect_spec_language(_plan(desc="just some prose")) is None
+    # "AC#1:" criterion labels must not read as C# (#325)
+    assert detect_spec_language(_plan(crits=("AC#1: factorial(0) == 1",))) is None
+    assert detect_spec_language(_plan(desc="port it to C# please")) == "csharp"
 
 
 # ── language reconciliation (#585) ──────────────────────────────────────

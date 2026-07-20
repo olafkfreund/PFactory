@@ -32,7 +32,9 @@ _LANGUAGE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
     ("javascript", ("javascript", " js ", "express.js")),
     ("python", ("python", "pytest", "fastapi", "django", "flask", "uv ")),
     ("java", ("java", "spring boot", "maven", "gradle")),
-    ("csharp", ("c#", ".net", "dotnet", "asp.net")),
+    # " c#" is space-prefixed like the other short tokens: bare "c#" matches the
+    # house "AC#1:" criterion labels, so every spec using them detected as C#.
+    ("csharp", (" c#", ".net", "dotnet", "asp.net")),
     ("ruby", ("ruby", "rails")),
     ("php", ("php", "laravel", "symfony")),
     ("kotlin", ("kotlin",)),
