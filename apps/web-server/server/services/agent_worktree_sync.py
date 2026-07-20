@@ -19,6 +19,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from server.services.git_utils import safe_spec_component
+
 from ..websockets.events import emit_subtask_update  # noqa: TID252
 from .task_models import TaskPhase, scale_progress
 
@@ -48,6 +50,10 @@ class AgentWorktreeSyncMixin:
             task_id: Full task ID (project_id:spec_id) for consistent tracking. Falls back to spec_id if not provided.
         """  # noqa: E501
         # Use task_id for tracking if provided, otherwise fall back to spec_id for backwards compatibility  # noqa: E501
+        # The component is joined onto the project root below and then read
+        # from / written to, so it is validated here at the entry point rather
+        # than at each of the joins (#335).
+        spec_id = safe_spec_component(spec_id)
         tracking_key = task_id or spec_id
         import logging  # noqa: PLC0415
         logger = logging.getLogger(__name__)
