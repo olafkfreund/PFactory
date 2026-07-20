@@ -13,6 +13,8 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from server.services.git_utils import safe_spec_component
+
 from ..config import get_settings
 from ..utils.subprocess_env import make_subprocess_env
 from ..websockets.events import (
@@ -398,7 +400,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         # Parse spec_id from task_id (format: "project_id:spec_id")
         if ":" in task_id:
-            _, spec_id = task_id.split(":", 1)
+            spec_id = safe_spec_component(task_id.split(":", 1)[1])
             spec_dir = project_path / ".pfactory" / "specs" / spec_id
         else:
             # Fallback: no project ID prefix (shouldn't happen in web mode)
@@ -939,7 +941,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         if task_id in self._task_log_writers:
             log_writer, main_log_writer = self._task_log_writers[task_id]
             # Parse spec_id from task_id (format: "project_id:spec_id")
-            spec_id = task_id.split(":", 1)[1] if ":" in task_id else task_id
+            spec_id = safe_spec_component(
+                task_id.split(":", 1)[1] if ":" in task_id else task_id
+            )
             log_writer.finalize(spec_id, actual_phase)
             log_writer.set_phase_status(spec_id, actual_phase, "failed")
             main_log_writer.finalize(spec_id, actual_phase)
@@ -951,14 +955,18 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         if spec_dir:
             # Derive project_path: spec_dir is .pfactory/specs/XXX, project root is 3 levels up
             project_path = spec_dir.parent.parent.parent
-            spec_id = task_id.split(":", 1)[1] if ":" in task_id else task_id
+            spec_id = safe_spec_component(
+                task_id.split(":", 1)[1] if ":" in task_id else task_id
+            )
             await self._update_plan_status(project_path, spec_id, "failed", task_id)
 
         # Epic #44 R1 — reap rmux session if the feature was on. Idempotent
         # so safe even though _monitor_process may also reap on the natural
         # exit path.
         from ..rmux.integration import reap_if_enabled as _rmux_reap
-        _reap_spec_id = task_id.split(":", 1)[1] if ":" in task_id else task_id
+        _reap_spec_id = safe_spec_component(
+                task_id.split(":", 1)[1] if ":" in task_id else task_id
+            )
         try:
             await _rmux_reap(_reap_spec_id)
         except Exception:

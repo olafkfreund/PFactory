@@ -24,6 +24,7 @@ from fastapi import HTTPException  # noqa: E402
 from server.routes import tasks as tasks_mod  # noqa: E402
 from server.routes.pfactory_tasks import _validate_spec_id  # noqa: E402
 from server.routes.tasks import split_task_id  # noqa: E402
+from server.services.agent_worktree_sync import AgentWorktreeSyncMixin  # noqa: E402
 from server.services.git_utils import safe_spec_component  # noqa: E402
 
 TRAVERSAL = [
@@ -106,3 +107,18 @@ def test_path_building_helpers_reject_traversal(helper: str, tmp_path: Path) -> 
     fn = getattr(tasks_mod, helper)
     with pytest.raises(ValueError):
         fn(tmp_path, "../../../../etc")
+
+
+# ── phase 3: the service layer (#335) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["..", "../../etc", "/etc/passwd"])
+async def test_worktree_sync_rejects_traversal(value: str, tmp_path: Path) -> None:
+    """Guarded at the entry point, covering every join inside the method."""
+
+    class _Svc(AgentWorktreeSyncMixin):
+        pass
+
+    with pytest.raises(ValueError):
+        await _Svc()._sync_worktree_files(tmp_path, value)
