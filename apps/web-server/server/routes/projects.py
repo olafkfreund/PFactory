@@ -14,6 +14,8 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from server.services.git_utils import safe_spec_component
+
 # --------------------------------------------------------------------------
 # Type Definitions for Validation
 # --------------------------------------------------------------------------
@@ -1239,6 +1241,15 @@ async def archive_tasks(project_id: str, request: ArchiveTasksRequest):
         else:
             spec_id = task_id
 
+        # The component is caller-supplied and is about to be joined onto the
+        # specs root and then read from / written to. Path joins collapse
+        # traversal silently, so validate before joining, never after.
+        try:
+            spec_id = safe_spec_component(spec_id)
+        except ValueError:
+            errors.append(f"Task {task_id} is not a valid task id")
+            continue
+
         spec_dir = specs_dir / spec_id
         if not spec_dir.exists():
             errors.append(f"Task {spec_id} not found")
@@ -1301,6 +1312,15 @@ async def unarchive_tasks(project_id: str, request: UnarchiveTasksRequest):
             _, spec_id = task_id.split(":", 1)
         else:
             spec_id = task_id
+
+        # The component is caller-supplied and is about to be joined onto the
+        # specs root and then read from / written to. Path joins collapse
+        # traversal silently, so validate before joining, never after.
+        try:
+            spec_id = safe_spec_component(spec_id)
+        except ValueError:
+            errors.append(f"Task {task_id} is not a valid task id")
+            continue
 
         spec_dir = specs_dir / spec_id
         if not spec_dir.exists():

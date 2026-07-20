@@ -27,6 +27,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from server.services.git_utils import safe_spec_component
+
 # Evidence artifact content-type map (mirrors agents.evidence.layout)
 _EVIDENCE_CONTENT_TYPES: dict[str, str] = {
     ".png": "image/png",
@@ -50,7 +52,6 @@ from fastapi import (
     status as http_status,
 )
 from pydantic import BaseModel
-
 
 router = APIRouter()
 
@@ -77,12 +78,19 @@ _ARTIFACT_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
 def _validate_spec_id(spec_id: str) -> None:
-    """Reject path-traversal attempts in the spec_id path parameter."""
-    if not spec_id or not _SPEC_ID_RE.match(spec_id):
+    """Reject path-traversal attempts in the spec_id path parameter.
+
+    Delegates to the shared component check so this module and the rest of the
+    route layer cannot drift. The regex here previously admitted "." and ".."
+    -- both match ``^[A-Za-z0-9._-]+$`` -- and a lone ".." resolves to the
+    parent of whatever root it is joined to.
+    """
+    try:
+        safe_spec_component(spec_id)
+    except ValueError as exc:
         raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail=f"invalid spec_id: {spec_id!r}",
-        )
+            status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from None
 
 
 def _find_spec_dir(root: Path, spec_id: str) -> Path | None:
