@@ -6,6 +6,7 @@ without importing each other.
 
 import re
 import subprocess
+from pathlib import Path
 
 # A git revision we are willing to place in a command line. Deliberately
 # strict, and anchored so the first character is alphanumeric: there is no
@@ -100,3 +101,56 @@ def safe_spec_component(value: object, field: str = "spec_id") -> str:
     if text in _RESERVED_COMPONENTS or not _SPEC_COMPONENT_RE.fullmatch(text):
         raise ValueError(f"invalid {field}: {text[:80]!r}")
     return text
+
+
+def _allowed_roots() -> list[Path]:
+    """Resolved filesystem roots the server may legitimately touch: the workspace
+    root (where clone-mode projects live) plus every currently-registered project
+    root. Lazy-imported to keep this leaf module import-cycle free; any lookup
+    failure degrades to fewer roots (fail-closed — nothing is silently allowed)."""
+    roots: list[Path] = []
+    try:
+        from server.services.project_workspace_service import workspace_root
+
+        roots.append(workspace_root().expanduser().resolve())
+    except Exception:
+        pass
+    try:
+        from server.routes.projects import load_projects
+
+        for entry in load_projects().values():
+            rp = entry.get("path")
+            if rp:
+                try:
+                    roots.append(Path(rp).expanduser().resolve())
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return roots
+
+
+def confine_to_workspace(value: object, field: str = "path") -> Path:
+    """Resolve a caller-supplied absolute filesystem path and require it to live
+    under an allowed root (the workspace root or a registered project root).
+
+    The file-browser / project-register endpoints take a full path straight from
+    the request. On a hosted server that is arbitrary-filesystem read/scan — an
+    attacker-supplied ``path`` can reach ``/etc``, secrets, or another tenant's
+    data. This CONFINES it: ``resolve()`` collapses ``..`` and symlinks, then the
+    result must sit inside one of :func:`_allowed_roots`. Containment is checked
+    AFTER ``resolve()`` (like ``_safe_launch_path``), so traversal cannot escape.
+    Returns the resolved, confined path for the caller to use.
+
+    Raises:
+        ValueError: if the resolved path is outside every allowed root, or if no
+            allowed root could be determined (fail-closed).
+    """
+    resolved = Path(str(value)).expanduser().resolve()
+    roots = _allowed_roots()
+    for root in roots:
+        if resolved == root or root in resolved.parents:
+            return resolved
+    raise ValueError(
+        f"invalid {field}: {str(value)[:120]!r} is outside the allowed workspace"
+    )

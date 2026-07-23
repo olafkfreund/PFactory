@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from ..auth import _try_decode_jwt
 from ..config import get_settings
+from ..services.git_utils import confine_to_workspace  # #335
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,10 @@ async def discover_projects(
     Discover potential project folders in a directory.
     Returns folders that look like projects (have .git, package.json, etc).
     """
-    base = Path(base_path).expanduser().resolve()
+    try:
+        base = confine_to_workspace(base_path)  # #335
+    except ValueError:
+        return {"success": False, "error": "path outside the allowed workspace", "data": []}
 
     if not base.exists():
         return {"success": False, "error": f"Path does not exist: {base_path}", "data": []}
@@ -201,7 +205,10 @@ async def list_directory_direct(
     show_hidden: bool = Query(False, description="Show hidden files"),
 ):
     """List contents of a directory by absolute path."""
-    full_path = Path(path).expanduser().resolve()
+    try:
+        full_path = confine_to_workspace(path)  # #335
+    except ValueError:
+        return {"success": False, "error": "path outside the allowed workspace", "data": None}
 
     if _is_app_internal_path(full_path):
         return {"success": False, "error": "Access denied", "data": None}
@@ -251,7 +258,10 @@ async def read_file_direct(
     path: str = Query(..., description="Absolute path to file"),
 ):
     """Read file contents by absolute path."""
-    full_path = Path(path).expanduser().resolve()
+    try:
+        full_path = confine_to_workspace(path)  # #335
+    except ValueError:
+        return {"success": False, "error": "path outside the allowed workspace", "data": None}
 
     if _is_app_internal_path(full_path):
         return {"success": False, "error": "Access denied", "data": None}
@@ -336,8 +346,11 @@ async def serve_project_file(
     # Authenticate: check token from query param or Authorization header
     if not _validate_serve_token(request, token):
         raise HTTPException(status_code=401, detail="Authentication required")
-    file_path = Path(path).expanduser().resolve()
-    root_path = Path(root).expanduser().resolve()
+    try:
+        file_path = confine_to_workspace(path)  # #335
+        root_path = confine_to_workspace(root)  # #335
+    except ValueError:
+        raise HTTPException(status_code=400, detail="path outside the allowed workspace")
 
     # Security: file must exist inside the declared project root
     if not root_path.is_dir():

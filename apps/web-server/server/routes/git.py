@@ -15,7 +15,12 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from ..services.git_utils import run_gh_command, run_git_command, safe_spec_component  # #335
+from ..services.git_utils import (  # #335
+    confine_to_workspace,
+    run_gh_command,
+    run_git_command,
+    safe_spec_component,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +70,11 @@ async def detect_main_branch(path: str = Query(...)):
 @router.get("/status")
 async def check_git_status(path: str = Query(...)):
     """Check git status for a repository."""
+    # #335: confine caller-supplied path before it touches the filesystem
+    try:
+        path = str(confine_to_workspace(path))
+    except ValueError:
+        return {"success": False, "error": "path outside the allowed workspace"}
     # Check if it's a git repo
     git_dir = Path(path) / ".git"
     if not git_dir.exists():
@@ -94,7 +104,11 @@ class InitGitRequest(BaseModel):
 @router.post("/init")
 async def initialize_git(request: InitGitRequest):
     """Initialize a new git repository with an initial commit (if needed)."""
-    path = request.path
+    # #335: confine caller-supplied path before any filesystem/git access
+    try:
+        path = str(confine_to_workspace(request.path))
+    except ValueError:
+        return {"success": False, "error": "path outside the allowed workspace"}
     git_dir = Path(path) / ".git"
 
     # Check if already a git repo

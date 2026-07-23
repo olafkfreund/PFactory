@@ -49,6 +49,11 @@ import PathInjectionFlow::PathGraph
  *   path, requiring it to resolve inside a registered project root. It is a
  *   barrier because containment is checked after `resolve()`, so `..` and
  *   symlinks cannot escape it.
+ * - `confine_to_workspace` (services/git_utils.py, #335 phase 2) is the same
+ *   kind of containment barrier for the file-browser / project endpoints: it
+ *   resolves a caller-supplied absolute path and requires the result to sit
+ *   under the workspace root or a registered project root, raising otherwise.
+ *   Containment is checked after `resolve()`, so traversal cannot escape.
  */
 class SpecPathSanitizer extends PathInjection::Sanitizer {
   SpecPathSanitizer() {
@@ -57,7 +62,7 @@ class SpecPathSanitizer extends PathInjection::Sanitizer {
     exists(DataFlow::CallCfgNode call, string name |
       name in [
           "safe_spec_component", "split_task_id", "get_next_spec_id",
-          "_safe_launch_path"
+          "_safe_launch_path", "confine_to_workspace"
         ] and
       (
         call.getFunction().asExpr().(Name).getId() = name or
@@ -66,11 +71,11 @@ class SpecPathSanitizer extends PathInjection::Sanitizer {
       this = call
     )
     or
-    // The body of _safe_launch_path is the containment check itself: barrier
-    // its parameter so the resolve()/is_dir() probes inside the helper do not
-    // re-fire the very alert the barrier exists to clear.
+    // The bodies of the containment helpers ARE the confinement check: barrier
+    // their first parameter so the resolve()/is_dir() probes inside the helper
+    // do not re-fire the very alert the barrier exists to clear.
     exists(Function f |
-      f.getName() = "_safe_launch_path" and
+      f.getName() in ["_safe_launch_path", "confine_to_workspace"] and
       this.(DataFlow::ParameterNode).getParameter() = f.getArg(0)
     )
   }
