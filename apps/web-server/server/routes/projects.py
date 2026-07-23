@@ -14,7 +14,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from server.services.git_utils import safe_spec_component
+from server.services.git_utils import confine_to_workspace, safe_spec_component
 
 # --------------------------------------------------------------------------
 # Type Definitions for Validation
@@ -262,9 +262,15 @@ def analyze_project(path: str) -> dict:
     has no local clone yet, so ``path`` may be empty or not exist -- return
     neutral defaults rather than touching the filesystem.
     """
-    if not path or not Path(path).exists():
+    if not path:
         return {"is_git_repo": False, "has_magestic_ai": False, "task_count": 0}
-    project_path = Path(path)
+    try:
+        project_path = confine_to_workspace(path)  # #335: refuse paths outside the workspace
+    except ValueError:
+        # Outside the allowed workspace -- treat as unusable, never touch the filesystem.
+        return {"is_git_repo": False, "has_magestic_ai": False, "task_count": 0}
+    if not project_path.exists():
+        return {"is_git_repo": False, "has_magestic_ai": False, "task_count": 0}
 
     # Check if it's a git repository
     is_git_repo = (project_path / ".git").exists()
@@ -420,7 +426,13 @@ async def scan_for_projects(request: ScanProjectsRequest):
     """
     try:
         # Validate and resolve base path
-        base = Path(request.basePath).expanduser().resolve()
+        try:
+            base = confine_to_workspace(request.basePath)  # #335: confine scan root to the workspace
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="path outside the allowed workspace",
+            )
 
         if not base.exists():
             raise HTTPException(
@@ -559,7 +571,13 @@ async def add_project(project: ProjectCreate):
     else:
         # Local mode — register the existing directory.
         assert project.path is not None  # model_validator guarantees this
-        project_path = Path(project.path).expanduser()
+        try:
+            project_path = confine_to_workspace(project.path)  # #335: confine registered dir to the workspace
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="path outside the allowed workspace",
+            )
 
         if not project_path.exists():
             try:
@@ -638,7 +656,13 @@ async def update_project(project_id: str, project: ProjectCreate):
     # Update fields
     project_data = projects[project_id]
     if project.path:
-        project_path = Path(project.path)
+        try:
+            project_path = confine_to_workspace(project.path)  # #335: confine updated path to the workspace
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="path outside the allowed workspace",
+            )
         if not project_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

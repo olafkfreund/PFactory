@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .git_utils import assert_safe_git_ref, safe_spec_component
+from .git_utils import assert_safe_git_ref, confine_to_workspace, safe_spec_component
 
 
 class TerminalWorktreeService:
@@ -30,7 +30,9 @@ class TerminalWorktreeService:
         Raises:
             ValueError: If project_path is not a valid directory
         """
-        self.project_path = Path(project_path).resolve()
+        # #335 confine the caller-supplied absolute path once; every
+        # self.project_path-derived join below is dominated by this barrier.
+        self.project_path = confine_to_workspace(project_path)
         if not self.project_path.is_dir():
             raise ValueError(f"Project path does not exist: {project_path}")
 

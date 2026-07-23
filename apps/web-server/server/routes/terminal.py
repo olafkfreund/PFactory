@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import get_settings
 from ..pty.manager import get_pty_manager
-from ..services.git_utils import safe_spec_component  # #335
+from ..services.git_utils import confine_to_workspace, safe_spec_component  # #335
 from ..services.terminal_worktree_service import TerminalWorktreeService
 from .projects import load_projects
 
@@ -165,11 +165,19 @@ async def create_terminal(request: CreateTerminalRequest):
     settings = get_settings()
 
     # Determine working directory
-    cwd = request.cwd
+    # #335: caller-supplied cwd/projectPath are confined to the workspace at the
+    # point they first become a path, dominating the Path(cwd) sink below.
+    try:
+        cwd = str(confine_to_workspace(request.cwd)) if request.cwd else None
 
-    # Try projectPath first (direct path from frontend)
-    if not cwd and request.project_path:
-        cwd = request.project_path
+        # Try projectPath first (direct path from frontend)
+        if not cwd and request.project_path:
+            cwd = str(confine_to_workspace(request.project_path))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="path outside the allowed workspace",
+        )
 
     # Then try project_id lookup
     if not cwd and request.project_id:
@@ -266,7 +274,11 @@ async def clear_terminal_sessions(project: str | None = None):
 
     if project:
         # Clear sessions for a specific project
-        project_path = Path(project)
+        # #335: confine the caller-supplied project path before it is joined below.
+        try:
+            project_path = confine_to_workspace(project)
+        except ValueError:
+            return {"success": False, "error": "path outside the allowed workspace"}
         if project_path.exists():
             sessions_dir = project_path / ".pfactory" / "terminal-sessions"
             if sessions_dir.exists():
