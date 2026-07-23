@@ -35,10 +35,11 @@ Everything is pluggable: add MCP servers, skills, agents, and Backstage-compatib
 templates via a declarative registry. Templates stay current — PFactory watches
 the clouds and proposes updates via pull request.
 
-> Status: **v0.6.x — a governed node in the Factory line.** The planning pipeline
-> is live: ingest, live-infra enrichment, decomposition, feasibility (cost / effort
-> / access / local-cluster probe), the review lenses, the hard readiness gate,
-> human approval, and signed-contract emission. See
+> Status: **v0.7.x — a governed node in the Factory line.** The planning pipeline
+> is live: ingest, code-aware reconnaissance of the target repo, live-infra
+> enrichment, decomposition, feasibility (cost / effort / access / local-cluster
+> probe), the review lenses, the hard readiness gate, human approval, and
+> signed-contract emission. See
 > [Market positioning](docs/market-positioning.md) and
 > [Planning and trust](docs/planning-and-trust.md).
 
@@ -76,9 +77,55 @@ to the plan hash):
 | `access-granted` | yes | yes | A required IAM action is denied. |
 | `env-buildable` | yes | yes | The target environment can't build/run the work (read-only local-cluster probe). |
 | `enrichment-integrity` | yes | yes | A live-infra adapter failed on a cloud-relevant plan. |
+| `language-reconciled` | yes | yes | A non-migration plan's spec language disagrees with the repo it was read from (closes the wrong-language trap at the source). |
+| `change-footprint-surfaced` | yes | yes | A modify/migration plan whose target repo was never read (no code-aware footprint). |
+| `constitution-grounded` | yes | yes | A SpecKit constitution is present but the plan does not honor its articles. |
+| `deployment-pipeline-present` | yes | yes | A deployment-bearing plan carries no deployment pipeline definition. |
 | `no-blocking-findings` | yes | **never** | A hardcoded secret or policy violation. |
 | `decompose-trustworthy` | yes | yes | The decomposer silently fell back to a heuristic. |
 | `ac-testable` / `access-verified` | no (advisory) | yes | Vague criteria; unverified access. |
+
+## Plans grounded in your code, standards, and target
+
+PFactory does not plan in a vacuum. Before it decomposes, it grounds the plan in
+the reality of what it is changing:
+
+- **Code-aware planning (RFC-0010).** A read-only reconnaissance stage
+  (`plan/recon/`) does a static, single-branch, blobless checkout of the target
+  repo — git hooks disabled, size/time capped, always torn down, and it **never
+  executes repo code** — then builds a `RepoMap` and a static Terraform / Helm /
+  Kubernetes inventory. Acceptance criteria and child issues are mapped to **real
+  files**, so subtasks ship populated `files_to_modify` / `files_to_create`. The
+  planning **language comes from the repo**, not from plan-text keywords, and a
+  language/migration mismatch **halts** rather than silently emitting the repo's
+  language. Language-directional rewrites ("port X from Python to Rust") extract
+  the behavioral contract by AST and produce an equivalence lane for TFactory.
+- **SpecKit / constitution ingest (RFC-0015).** PFactory ingests a
+  [SpecKit](https://github.com/github/spec-kit) `.specify` spec and its project
+  constitution; the `constitution-grounded` readiness check holds the plan to the
+  constitution's articles, and an approved plan can emit a constitution + spec
+  back out as governed docs.
+- **Deployment-aware planning (RFC-0013).** Deployment-bearing plans are checked
+  for a real deployment pipeline definition (`deployment-pipeline-present`) and
+  carry a deployment feasibility assessment into the contract.
+
+## Security posture
+
+The planner reads untrusted input (uploaded specs, repos it clones, caller-supplied
+ids) and reaches real infrastructure, so the trust boundaries are hardened:
+
+- **Path-injection barrier (#335).** Caller-supplied spec/task ids are validated
+  and barriered before they ever compose a filesystem path; file-browser and
+  project endpoints are confined to the workspace root. Traversal is rejected at
+  the choke points, not per-caller.
+- **Shell-grammar allowlist (#129).** Agent tool commands are parsed with a real
+  `bashlex` AST walker that surfaces every nested command inside `$(...)`,
+  backticks, and pipes to the allowlist; `PFACTORY_STRICT_COMMAND_PARSING=1` fails
+  closed on unparseable input.
+- **Fail-closed exposure surface.** `/mcp` returns 401 when
+  `PFACTORY_MCP_SECRET` is unset outside dev, credentialed CORS rejects wildcard
+  origins, and the server refuses to boot with `DISABLE_AUTH` on a non-loopback
+  host. CodeQL code scanning runs in CI.
 
 ## Quickstart (NixOS / flake-based)
 
