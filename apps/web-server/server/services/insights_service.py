@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..websockets.events import broadcast_event
+from .git_utils import safe_spec_component  # #335
 from .insights_providers import get_provider
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,7 @@ class InsightsService:
 
     def _get_session_file(self, project_path: Path, session_id: str) -> Path:
         """Get the file path for a specific session."""
+        session_id = safe_spec_component(session_id, field="session_id")  # #335
         return self._get_sessions_dir(project_path) / f"{session_id}.json"
 
     def _get_current_session_file(self, project_path: Path) -> Path:

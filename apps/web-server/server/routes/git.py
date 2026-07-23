@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from ..services.git_utils import run_gh_command, run_git_command
+from ..services.git_utils import run_gh_command, run_git_command, safe_spec_component  # #335
 
 logger = logging.getLogger(__name__)
 
@@ -1324,6 +1324,14 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
             "success": False,
             "error": "Worktree name must contain only letters, numbers, dashes, and underscores",
         }
+
+    # #335: barrier the worktree name before it is joined into a filesystem path
+    # (dominates worktree_path / worktree_branch below). The regex above already
+    # guarantees a safe single component, so a legitimate name passes unchanged.
+    try:
+        name = safe_spec_component(name, field="worktree_name")
+    except ValueError:
+        return {"success": False, "error": "Invalid worktree name"}
 
     # Determine base branch
     if request.baseBranch:

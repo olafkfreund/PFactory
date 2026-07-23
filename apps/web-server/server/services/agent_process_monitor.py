@@ -22,6 +22,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from .git_utils import safe_spec_component  # #335
 from .task_models import TaskLog, TaskPhase, TaskProgress
 
 if TYPE_CHECKING:
@@ -315,6 +316,7 @@ class AgentProcessMonitorMixin:
                         detected_spec_id = None
                         if ":" in task_id:
                             _, detected_spec_id = task_id.split(":", 1)
+                            detected_spec_id = safe_spec_component(detected_spec_id)  # #335
 
                         if detected_spec_id:
                             detected_spec_dir = project_path / ".pfactory" / "specs" / detected_spec_id  # noqa: E501

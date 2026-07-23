@@ -17,7 +17,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..services.git_utils import run_gh_command
+from ..services.git_utils import run_gh_command, safe_spec_component  # #335
 
 
 logger = logging.getLogger(__name__)
@@ -1769,6 +1769,12 @@ async def import_github_issues(projectId: str, request: ImportIssuesRequest):
         # Remove non-alphanumeric chars except hyphens
         title_slug = "".join(c for c in title_slug if c.isalnum() or c == "-")
         spec_name = f"{next_num:03d}-gh{issue_number}-{title_slug}"
+        try:
+            # #335: barrier the single spec-dir component before any path join
+            spec_name = safe_spec_component(spec_name, field="spec_name")
+        except ValueError:
+            failed += 1
+            continue
         spec_dir = specs_dir / spec_name
         spec_dir.mkdir(parents=True, exist_ok=True)
 

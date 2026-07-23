@@ -13,7 +13,7 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
 
-from server.services.git_utils import assert_safe_git_ref
+from server.services.git_utils import assert_safe_git_ref, safe_spec_component  # #335
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,16 @@ async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest 
     specs_dir = project_path / ".pfactory" / "specs"
 
     specs = []
-    for task_id in request.taskIds:
+    for raw_task_id in request.taskIds:
+        # Barrier the caller-supplied task id at the source so every join/read
+        # below is dominated by the sanitizer (#335).
+        try:
+            task_id = safe_spec_component(raw_task_id, field="task_id")
+        except ValueError:
+            specs.append(
+                {"taskId": raw_task_id, "content": None, "error": "Invalid task id"}
+            )
+            continue
         # Try to find spec.md for this task
         # Task IDs are like "001-feature-name"
         spec_path = specs_dir / task_id / "spec.md"
@@ -748,8 +757,11 @@ async def save_changelog_image(projectId: str = Path(...), request: SaveImageReq
         if not request.filename or not request.filename.strip():
             return {"success": False, "error": "Filename is required"}
 
-        # Sanitize filename - remove path separators to prevent directory traversal
-        filename = request.filename.strip().replace("/", "_").replace("\\", "_")
+        # Barrier the caller-supplied filename to a single safe path component (#335)
+        try:
+            filename = safe_spec_component(request.filename.strip(), field="filename")
+        except ValueError:
+            return {"success": False, "error": "Invalid filename"}
 
         # Validate filename has an extension
         if "." not in filename:
