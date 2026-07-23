@@ -351,7 +351,7 @@ backends. Set them the usual way for your cloud.
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_REGION`, `AWS_DEFAULT_REGION` | AWS auth/region for enrichment + KMS. |
 | `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CONFIG_DIR` | Azure auth/context for enrichment + KMS. |
 | `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT`, `CLOUDSDK_CONFIG` | GCP auth/project for enrichment + KMS. |
-| `KUBECONFIG` | Kubeconfig for the Kubernetes enrichment adapter + deploy lanes. | 
+| `KUBECONFIG` | Kubeconfig for the Kubernetes enrichment adapter + deploy lanes. |
 
 ### Git / GitHub credentials
 
@@ -450,6 +450,18 @@ inside analyzers that scan *other* projects' source:
 - `PYTEST_CURRENT_TEST` — set by pytest; only used to detect a test run in the
   auth-host guard (`config.py`), never operator-set.
 
+### Helper scripts (out of service scope)
+
+These are read only by developer/demo helpers under `scripts/`, not by the
+running service (backend or web server). Listed for audit completeness:
+
+- `PFACTORY_INSPECT_PORT` — port for the local debug inspect server
+  (`scripts/inspect_server.py`, default `3188`).
+- `PFACTORY_API` — base URL used by the `sync-claude-auth.py` dev helper
+  (`scripts/sync-claude-auth.py`, default `http://127.0.0.1:3198`). Distinct
+  from the service-facing `PFACTORY_API_URL`.
+- `TF_MODEL` — model id the `scripts/demo/*.py` end-to-end demo drivers call.
+
 No other names were left unaccounted for.
 
 ---
@@ -468,3 +480,6 @@ No other names were left unaccounted for.
   the excluded list.
 - Frontend build-time `VITE_*` names are listed separately (not part of the
   service runtime count).
+- Developer/demo helpers under `scripts/` read three further names
+  (`PFACTORY_INSPECT_PORT`, `PFACTORY_API`, `TF_MODEL`); these are outside the
+  service scope and are listed under [Helper scripts](#helper-scripts-out-of-service-scope).

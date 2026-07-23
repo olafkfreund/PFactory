@@ -86,8 +86,8 @@ AI velocity **with** human-grade governance, grounded in your real infrastructur
     <p>Upload docx / pdf / markdown, or drive it from the MCP control plane, the CLI, or a GitHub issue / discussion. Software plans get the deep path; any deliverable is welcome.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 80ms">
-    <h3>Ground it in reality</h3>
-    <p>Enrich with internal wikis &amp; <strong>Backstage</strong> (catalog, TechDocs, golden paths) and <em>read-only</em> introspection of running <strong>Kubernetes · OpenShift · Azure · AWS · GCP</strong> + <strong>Terraform</strong> — real load, quotas, policies.</p>
+    <h3>Read the code first</h3>
+    <p><em>Read-only</em> reconnaissance of the target repo (static, blobless, never executes repo code) maps acceptance criteria to <strong>real files</strong> and takes the plan's language from the repo — no wrong-language traps. Then enrich with <strong>Backstage</strong>, wikis, and live <strong>Kubernetes · OpenShift · Azure · AWS · GCP · Terraform</strong>.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 160ms">
     <h3>Decompose &amp; define</h3>
@@ -95,7 +95,7 @@ AI velocity **with** human-grade governance, grounded in your real infrastructur
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 240ms">
     <h3>Govern, then hand off</h3>
-    <p>Mandatory <strong>architecture / security / best-practice / feasibility</strong> gates (deterministic policy-as-code + LLM lenses) and one human approval — then emit governed issues for AIFactory.</p>
+    <p>Mandatory <strong>architecture / security / best-practice / feasibility</strong> lenses, a <strong>hard readiness gate</strong> (hash-bound waivers) honouring your SpecKit <strong>constitution</strong>, and one human approval — then emit a <strong>signed Task Contract</strong> + governed issues for AIFactory.</p>
   </li>
 </ul>
 
