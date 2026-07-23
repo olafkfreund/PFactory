@@ -34,6 +34,8 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+from server.services.git_utils import safe_spec_component
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_WORKSPACE_ROOT = Path.home() / ".pfactory" / "workspaces"
@@ -129,7 +131,10 @@ async def clone_or_update(
     Raises:
         GitOperationError: On any non-zero ``git`` exit code or timeout.
     """
-    workspace = (root or workspace_root()) / (slug or slug_from_git_url(git_url))
+    # #335: barrier the workspace dir component (caller slug or url-derived)
+    # before it becomes a path — dominates the mkdir + .git checks below.
+    slug = safe_spec_component(slug or slug_from_git_url(git_url), field="workspace_slug")
+    workspace = (root or workspace_root()) / slug
     workspace.parent.mkdir(parents=True, exist_ok=True)
 
     # Build the URL that actually gets passed to ``git`` for network ops.

@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .git_utils import assert_safe_git_ref
+from .git_utils import assert_safe_git_ref, safe_spec_component
 
 
 class TerminalWorktreeService:
@@ -63,6 +63,9 @@ class TerminalWorktreeService:
         """
         # Validate name
         self._validate_name(name)
+        # #335 barrier the caller-supplied component at its source so every
+        # `worktrees_dir / name` join downstream is dominated by the sanitizer.
+        name = safe_spec_component(name, field="worktree_name")
 
         # Check if worktree already exists
         existing = self.get_worktree(name)

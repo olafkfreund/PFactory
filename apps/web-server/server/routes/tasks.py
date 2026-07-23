@@ -2097,6 +2097,12 @@ async def get_worktree_merge_preview(task_id: str):
     """
     import subprocess
 
+    # #335 sanitize the caller-supplied task id before it is joined onto a root
+    try:
+        task_id = safe_spec_component(task_id, field="task_id")
+    except ValueError:
+        return {"success": False, "error": "invalid task id"}
+
     # Find the task's spec directory and worktree
     projects_data_dir = get_data_dir()
     projects_file = projects_data_dir / "projects.json"
@@ -2639,6 +2645,12 @@ async def resolve_uncommitted_conflicts(task_id: str):
 
     logger.info(f"Resolving uncommitted conflicts for task {task_id}")
 
+    # #335 sanitize the caller-supplied task id before it is joined onto a root
+    try:
+        task_id = safe_spec_component(task_id, field="task_id")
+    except ValueError:
+        return {"success": False, "error": "invalid task id"}
+
     # Find the task's project
     projects_data_dir = get_data_dir()
     projects_file = projects_data_dir / "projects.json"
@@ -2874,6 +2886,12 @@ async def resolve_git_merge_conflicts(task_id: str):
     """
 
     logger.info(f"Resolving git merge conflicts for task {task_id}")
+
+    # #335 sanitize the caller-supplied task id before it is joined onto a root
+    try:
+        task_id = safe_spec_component(task_id, field="task_id")
+    except ValueError:
+        return {"success": False, "error": "invalid task id"}
 
     # Find the task's project
     projects_data_dir = get_data_dir()
@@ -3651,7 +3669,11 @@ async def get_worktree_status(task_id: str):
         project_id, spec_id = split_task_id(task_id)
     else:
         # task_id is just the spec_id, search for project
-        spec_id = task_id
+        # #335 barrier the bare id (the split branch is validated by split_task_id)
+        try:
+            spec_id = safe_spec_component(task_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid task id") from None
         project_id = None
 
     # Find project path
@@ -3775,7 +3797,11 @@ async def get_worktree_diff(task_id: str):
     if ":" in task_id:
         project_id, spec_id = split_task_id(task_id)
     else:
-        spec_id = task_id
+        # #335 barrier the bare id (the split branch is validated by split_task_id)
+        try:
+            spec_id = safe_spec_component(task_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid task id") from None
         project_id = None
 
     # Find project path

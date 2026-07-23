@@ -281,6 +281,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         """
         import logging
         logger = logging.getLogger(__name__)
+        spec_id = safe_spec_component(spec_id)  # #335: barrier before path use (dominates plan_file)
         plan_file = project_path / ".pfactory" / "specs" / spec_id / "test_plan.json"
         logger.info(f"[AgentService._update_plan_status] CALLED for spec_id={spec_id}, status={status}, task_id={task_id}")
         logger.info(f"[AgentService._update_plan_status] plan_file path: {plan_file}")
@@ -591,6 +592,10 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         import logging
         logger = logging.getLogger(__name__)
 
+        # #335: barrier the caller-supplied spec_id before it becomes a path
+        # segment (worktree + main spec dirs downstream). Callers pre-sanitize
+        # today, so this is the module choke point CodeQL needs, not a new failure.
+        spec_id = safe_spec_component(spec_id)
         if task_id in self.running_tasks:
             raise ValueError(f"Task {task_id} is already running")
 

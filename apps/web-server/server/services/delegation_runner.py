@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from server.services.git_utils import safe_spec_component
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +63,7 @@ async def run_delegation(
     from ..websockets.events import broadcast_event, emit_task_status
     from .delegation_formatter import render_plan_as_comment
 
+    spec_id = safe_spec_component(spec_id)  # #335: barrier before it becomes a path
     task_id = f"{project_id}:{spec_id}"
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
 

@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import get_settings
 from ..pty.manager import get_pty_manager
+from ..services.git_utils import safe_spec_component  # #335
 from ..services.terminal_worktree_service import TerminalWorktreeService
 from .projects import load_projects
 
@@ -498,6 +499,15 @@ async def save_terminal_buffer(terminal_id: str, request: dict):
     Raises:
         HTTPException: 404 if terminal not found, 400 for validation errors
     """
+    # #335: terminal_id flows into the session filename below; barrier at source
+    try:
+        terminal_id = safe_spec_component(terminal_id, field="terminal_id")
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid identifier",
+        )
+
     manager = get_pty_manager()
 
     # Validate terminal exists
