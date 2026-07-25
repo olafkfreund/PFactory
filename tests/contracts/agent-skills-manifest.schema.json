@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/olafkfreund/Factory/blob/main/apis/agent-skills-manifest.schema.json",
+  "title": "Factory Agent-Skills Manifest (RFC-0019 section 3.4)",
+  "description": "The document served at `/.well-known/agent-skills/index.json`. Two shapes share this schema, discriminated by `kind`: a `service` manifest (published by PFactory / AIFactory / TFactory / CFactory, describing that one service's identity, installable skills, MCP endpoint and OpenAPI URL) and a `fleet` manifest (published by CFactory at the cockpit host, the union of the four service manifests). The manifest is capability metadata only: it is readable WITHOUT authentication so an agent can enumerate what the Factory can do before it holds a token. It carries no secrets, no tenant data and no work-item state. Companion document: apis/agent-skills-manifest.md.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "kind"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Manifest schema version. Additive changes keep this; breaking changes bump it. Consumers MUST ignore unknown fields rather than fail."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["service", "fleet"],
+      "description": "`service` = one service's own manifest. `fleet` = the CFactory aggregate over the four."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "service" } }, "required": ["kind"] },
+      "then": { "$ref": "#/$defs/service_body" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "fleet" } }, "required": ["kind"] },
+      "then": { "$ref": "#/$defs/fleet_body" }
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "service_body": {
+      "type": "object",
+      "description": "Everything a service manifest carries apart from the envelope (`schema_version`, `kind`). Reused verbatim by each entry of a fleet manifest's `services[]`.",
+      "required": ["service", "openapi_url", "mcp", "skills"],
+      "properties": {
+        "service": { "$ref": "#/$defs/service_identity" },
+        "openapi_url": {
+          "$ref": "#/$defs/url",
+          "description": "Where this service's OpenAPI 3.x document lives. RFC-0019 section 3.3 requires it be readable without auth so an agent can enumerate the REST surface before authenticating."
+        },
+        "mcp": { "$ref": "#/$defs/mcp_endpoint" },
+        "skills": {
+          "type": "array",
+          "minItems": 1,
+          "description": "What an agent can do here. Each entry names one capability and exactly one concrete way to invoke it. This list is curated, not a directory dump: an entry MUST correspond to a capability the service genuinely implements.",
+          "items": { "$ref": "#/$defs/skill" }
+        },
+        "auth": { "$ref": "#/$defs/auth" },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this manifest document was rendered. Used with ETag/Cache-Control for staleness reasoning (see apis/agent-skills-manifest.md)."
+        }
+      }
+    },
+    "service_identity": {
+      "type": "object",
+      "description": "Who is serving this manifest.",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "description": "Stable machine name, e.g. `aifactory`. Matches the Backstage catalog component name."
+        },
+        "title": { "type": "string", "description": "Human display name, e.g. `AIFactory`." },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The running service version (not the schema version). An agent uses this plus `generated_at` to decide whether a cached manifest is still good."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["prepare", "act", "reflect", "review"],
+          "description": "PARR stage this service owns: prepare=PFactory, act=AIFactory, reflect=TFactory, review=CFactory."
+        },
+        "description": { "type": "string", "description": "One paragraph: what this service does." },
+        "homepage": { "$ref": "#/$defs/url", "description": "The service's portal/cockpit." },
+        "repository": { "$ref": "#/$defs/url", "description": "Source repository." }
+      }
+    },
+    "mcp_endpoint": {
+      "type": "object",
+      "description": "How to reach this service's Model Context Protocol server.",
+      "required": ["transport"],
+      "properties": {
+        "transport": {
+          "type": "string",
+          "enum": ["stdio", "http+sse", "streamable-http"],
+          "description": "`stdio` servers are spawned per-process by the client; the HTTP transports are reachable remotely and need `endpoint`."
+        },
+        "endpoint": {
+          "$ref": "#/$defs/url",
+          "description": "Absolute or origin-relative URL of the remote MCP server. Required for the HTTP transports."
+        },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "argv used to spawn a `stdio` server, e.g. [\"bash\", \"scripts/start-aifactory-mcp.sh\"]. Advisory: the client still supplies its own env."
+        },
+        "documentation": {
+          "$ref": "#/$defs/url",
+          "description": "Human-readable description of the MCP tool surface."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "transport": { "enum": ["http+sse", "streamable-http"] } },
+            "required": ["transport"]
+          },
+          "then": { "required": ["endpoint"] }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "skill": {
+      "type": "object",
+      "description": "One capability, with the single preferred way to invoke it. Programmatic equivalence (RFC-0019 section 3.3) means most skills are reachable over BOTH REST and MCP; the manifest names the preferred route and `openapi_url` / `mcp` let an agent enumerate the rest.",
+      "required": ["name", "description", "invocation"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "description": "Stable id, unique within the service. For an installable skill package this is its SKILL.md `name`."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the skill does and when to reach for it, in plain prose. This is the field an agent reasons over, so write it for a reader with no prior Factory knowledge."
+        },
+        "invocation": { "$ref": "#/$defs/invocation" },
+        "install": { "$ref": "#/$defs/install" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Free-form discovery tags."
+        },
+        "auth_required": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether invoking this skill needs a credential. The manifest itself is always readable without one; invocation usually is not."
+        }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "description": "Exactly one concrete call. Discriminated by `kind`.",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["slash_command", "mcp_tool", "rest"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "slash_command" } }, "required": ["kind"] },
+          "then": {
+            "required": ["command"],
+            "properties": {
+              "command": {
+                "type": "string",
+                "pattern": "^/[a-z0-9][a-z0-9-]*$",
+                "description": "The slash command an agent runs once the skill package is installed, e.g. `/handover`."
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "mcp_tool" } }, "required": ["kind"] },
+          "then": {
+            "required": ["tool"],
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1,
+                "description": "MCP tool name on this service's server, e.g. `task.create`."
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "rest" } }, "required": ["kind"] },
+          "then": {
+            "required": ["method", "path"],
+            "properties": {
+              "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+              "path": {
+                "type": "string",
+                "pattern": "^/",
+                "description": "Origin-relative path as it appears in the OpenAPI document, e.g. `/api/tasks/{taskId}/qa-fix`."
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "install": {
+      "type": "object",
+      "description": "Where the installable skill package lives, for skills shipped as a SKILL.md directory. Absent for capabilities that are pure API/MCP surface.",
+      "required": ["source", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "$ref": "#/$defs/url", "description": "Repository the skill ships from." },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repo-relative path to the skill's SKILL.md, e.g. `.claude/skills/handover/SKILL.md`."
+        },
+        "ref": { "type": "string", "description": "Branch/tag/commit to install from. Defaults to the repo default branch." }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "description": "How to authenticate once discovery is done. The manifest and the OpenAPI document are readable without any of this.",
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {
+          "type": "string",
+          "const": "none",
+          "description": "Fixed: reading this manifest never requires a credential (RFC-0019 section 3.4). Present so a consumer can assert the guarantee rather than infer it."
+        },
+        "schemes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["bearer", "api-key", "oauth2", "saml", "none"] },
+          "description": "Credential types accepted when invoking skills."
+        },
+        "documentation": { "$ref": "#/$defs/url" }
+      }
+    },
+    "fleet_body": {
+      "type": "object",
+      "description": "The CFactory aggregate: the union of the service manifests, served at the cockpit host so one fetch enumerates the whole Factory.",
+      "required": ["fleet", "services"],
+      "properties": {
+        "fleet": {
+          "type": "object",
+          "required": ["name"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "homepage": { "$ref": "#/$defs/url" },
+            "aggregator": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,63}$",
+              "description": "Which service built this aggregate. CFactory by construction."
+            }
+          }
+        },
+        "services": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One entry per service manifest folded in. Each entry is a service manifest body plus the URL it was fetched from, so a consumer can always go back to the origin.",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/service_body" },
+              {
+                "type": "object",
+                "required": ["manifest_url"],
+                "properties": {
+                  "manifest_url": {
+                    "$ref": "#/$defs/url",
+                    "description": "The origin `/.well-known/agent-skills/index.json` this entry was copied from."
+                  },
+                  "fetched_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "When the aggregator last successfully fetched the origin manifest."
+                  },
+                  "reachable": {
+                    "type": "boolean",
+                    "description": "False when the aggregator served a cached copy because the origin was unreachable. Absent means reachable."
+                  }
+                }
+              }
+            ],
+            "unevaluatedProperties": false
+          }
+        },
+        "generated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "An absolute URL, or a path relative to the manifest's own origin (starting with `/`).",
+      "pattern": "^(https?://|/)"
+    }
+  }
+}
