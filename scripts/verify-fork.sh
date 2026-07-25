@@ -157,15 +157,11 @@ ALLOWLIST_GLOBS=(
     "frameworks/jest/templates/"
     "frameworks/playwright/templates/"
     "tests/test_templates.py"
-    # Task 13 (#29): Claude Code skill bundles + slash commands.
-    # The skill bodies describe scaffolding PFactory inside an AIFactory repo
-    # and handing finished AIFactory features off to the PFactory pipeline.
-    # Skill prose legitimately references the AIFactory cross-project
-    # relationship — same allowlist pattern as the handover-to-pfactory skill.
-    ".claude/skills/pfactory-init/"
-    ".claude/skills/pfactory-add-test/"
-    ".claude/skills/pfactory-from-template/"
-    ".claude/commands/"
+    # Task 13 (#29): Claude Code skill bundles.
+    # The pfactory-init / pfactory-add-test / pfactory-from-template skills and
+    # their slash commands were removed in #349: they were TFactory's
+    # test-generation skills with the name search-and-replaced, describing
+    # behaviour PFactory does not have.
     "tests/test_skills.py"
     # Task 14 (#30): portal endpoints for framework registry, templates, skills,
     # catalog.  Route module docstrings reference the AIFactory→PFactory
