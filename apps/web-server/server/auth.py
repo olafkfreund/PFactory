@@ -157,6 +157,16 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         "/openapi.json",
         "/api/health",
         "/api/logs/frontend",  # Allow frontend error logs without auth
+        # RFC-0019 section 3.4 — the agent-skills capability manifest. Agents
+        # enumerate what a service can do BEFORE they hold a token, so this must
+        # stay readable anonymously. The `not path.startswith("/api")` fallthrough
+        # below already admits it today; listing it explicitly makes the exemption
+        # deliberate and survives any future tightening of that fallthrough.
+        # Kept as the exact path (not a "/.well-known/" prefix) so a future
+        # well-known route doesn't inherit anonymous access by accident.
+        # Must equal routes.well_known.MANIFEST_PATH — asserted in
+        # tests/test_well_known_agent_skills.py.
+        "/.well-known/agent-skills/index.json",
     }
 
     # Path prefixes that don't require authentication
