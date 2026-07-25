@@ -145,6 +145,31 @@ def _effective_skills_dir() -> Path | None:
     return _resolve_skills_dir()
 
 
+# ─── Shared collector ─────────────────────────────────────────────────────────
+
+
+def collect_skills() -> list[dict[str, Any]]:
+    """Return one row per well-formed skill bundle in ``.claude/skills/``.
+
+    Shared by this route and the RFC-0019 agent-skills manifest
+    (``routes/well_known.py``) so both describe the same catalogue and cannot
+    drift. Never raises: a missing directory yields ``[]`` and a bundle with a
+    missing/malformed SKILL.md is skipped.
+    """
+    skills_dir = _effective_skills_dir()
+    if skills_dir is None:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for entry in sorted(skills_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        row = _skill_row(entry)
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
 # ─── Endpoint ─────────────────────────────────────────────────────────────────
 
 
@@ -173,24 +198,7 @@ def list_skills() -> Response:
           ]
         }
     """
-    skills_dir = _effective_skills_dir()
-
-    if skills_dir is None:
-        return Response(
-            content=_json.dumps({"skills": []}),
-            media_type="application/json",
-            status_code=200,
-        )
-
-    rows: list[dict] = []
-    for entry in sorted(skills_dir.iterdir()):
-        if not entry.is_dir():
-            continue
-        row = _skill_row(entry)
-        if row is not None:
-            rows.append(row)
-
-    payload = {"skills": rows}
+    payload = {"skills": collect_skills()}
     return Response(
         content=_json.dumps(payload),
         media_type="application/json",
