@@ -69,14 +69,14 @@ The theme styles these well — use them:
 
 - **Strong lead paragraph** (the `subtitle` + a 2-3 sentence hook).
 - `## H2` section headers every ~150 words — the page is scannable.
-- **Code / terminal blocks** render as a dark Gruvbox terminal (matches the demo
-  screencasts) — use one to show a command or the pipeline:
+- **Code / terminal blocks** render as a dark Gruvbox terminal — use one to show a
+  command or the planning pipeline:
   ````
   ```
-  Planner → Gen-Functional → Executor → Evaluator → Triager
+  ingest → enrich → decompose → feasibility → review gates → approval → emit
   ```
   ````
-- **Numbered lists** for the 5 signals / steps; **bold** the signal/agent names.
+- **Numbered lists** for the stages / steps; **bold** the stage and gate names.
 - Close with a **next step** linking an internal page: `[the architecture](/architecture/)`,
   `[demos](/demos/)`, or `[the credential broker](/credentials/)`.
 - Aim ~400–700 words for a standard post. Longer only if it earns it.
