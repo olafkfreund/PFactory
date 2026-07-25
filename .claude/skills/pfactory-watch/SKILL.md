@@ -1,104 +1,93 @@
 ---
 name: pfactory-watch
-description: Poll a running PFactory task to completion, then pick up its triage report and verify the generated tests cover the acceptance criteria. One check per invocation — drive it with /loop for a hands-off round-trip. Reads task_status over MCP and the triage report file directly (no backend dependency on the bugged report_get).
-when_to_use: After /handover-to-pfactory returns a task_id and you want to wait for the autonomous pipeline (Planner → Gen-Functional → Executor → Evaluator → Triager) to finish, then automatically review the result. Common triggers — "watch the pfactory task", "/pfactory-watch <task_id>", "is the pfactory task done yet", "pick up the pfactory report when ready", "/loop 30s /pfactory-watch <task_id>".
-allowed-tools:
-  - mcp__pfactory__task_status
-  - mcp__pfactory__task_list
-  - mcp__pfactory__task_rerun
+description: Poll one PFactory planning session through the pipeline and report where it stands — board column, gate result, blocking findings, and the readiness checks that still fail. One check per invocation, so it can be driven with /loop. Read-only; it never approves, waives, or emits.
+when_to_use: After /handover-to-pfactory returns a session_id and you want to follow the session through enrich, feasibility and the review gates until it needs a human. Common triggers — "watch the pfactory session", "/pfactory-watch <session_id>", "is the plan reviewed yet", "did the gates pass", "/loop 30s /pfactory-watch <session_id>".
+allowed_tools:
+  - mcp__pfactory__plan_status
+  - mcp__pfactory__plan_get
+  - mcp__pfactory__plan_list
   - Read
   - Bash
 ---
 
 # /pfactory-watch
 
-Poll one PFactory task, and when it finishes, pick it up and **verify** that
-the autonomously-generated tests actually cover the acceptance criteria you
-handed off. This skill does **one** status check per invocation — to make it a
-hands-off loop, run it under `/loop`:
+Poll one PFactory **planning session** and report its state. This skill does
+**one** check per invocation — to make it hands-off, run it under `/loop`:
 
 ```
-/loop 30s /pfactory-watch <task_id>
+/loop 30s /pfactory-watch <session_id>
 ```
 
-`/loop` re-fires it on the interval; the skill tells the loop to **stop** as
-soon as the task reaches a terminal state.
+`/loop` re-fires on the interval; the skill stops the loop as soon as the session
+reaches a state that needs a human or is finished.
 
 ## Arguments
 
-- `task_id` (required) — the id returned by `/handover-to-pfactory`
-  (`task_id == spec_id`). If omitted, call `mcp__pfactory__task_list` and ask
-  the user which task to watch.
+- `session_id` (required) — the id returned by `/handover-to-pfactory`. If
+  omitted, call `mcp__pfactory__plan_list` and ask the user which session to watch.
 
 ## Procedure (one pass)
 
-### Step 1 — poll status
+### Step 1 — poll
 
-Call `mcp__pfactory__task_status(task_id=<task_id>)`. Read two fields:
+```
+mcp__pfactory__plan_status(session_id: "<id>")
+```
 
-- `status` — the lifecycle state
-- `phase` — fine-grained sub-state (for a friendly progress line)
+Read: `status`, `board_state`, `gates_passed`, `needs_human`, `correlation_key`,
+`issue_number`, `aifactory_task_id`.
 
-Also note `project_id` and `spec_id` from the response — you need them to
-locate the report in Step 3.
+### Step 2 — classify
 
-### Step 2 — classify the state
-
-| Bucket | `status` values | Action |
+| Bucket | `status` | Action |
 |---|---|---|
-| ✅ **Done** | `triaged`, `triaged_empty` | go to Step 3 (pick up + verify), then **STOP the loop** |
-| ❌ **Failed** | anything ending in `_failed`, or `stuck` | report the failure + remediation (Step 4), then **STOP the loop** |
-| ⏳ **Running** | everything else (`pending`, `planning`, `planned`, `generating`, `generated`, `evaluating`, `evaluated`, `triaging`, and the transient `*_empty` intermediates) | print a one-line progress update (`status` / `phase`) and **let the loop re-fire** — do NOT read the report yet |
+| Running | `ingested`, `processing`, `reviewing` | print a one-line progress update (`status` / `board_state`) and let the loop re-fire |
+| Needs a human | `processed` (board `human_review`) | go to Step 3, then STOP the loop |
+| Rejected | `rejected` | report the approver's feedback, then STOP the loop |
+| Done | `approved`, `emitted` | report the outcome (Step 4), then STOP the loop |
 
-> Important: `planned_empty` / `generated_empty` / `evaluated_empty` are
-> **not** terminal — they auto-advance to the next stage. Only `triaged*` and
-> `*_failed` / `stuck` stop the loop.
+`processed` means the AI work is finished and the session is parked in
+`human_review` awaiting sign-off — that is the normal terminal state for this
+skill. Approval is a human act, so never call `plan_approve` from the loop.
 
-To stop the loop, finish your turn without scheduling another iteration (state
-plainly that the task is terminal so `/loop` does not re-fire).
+To stop the loop, finish the turn without scheduling another iteration and say
+plainly that the session is terminal.
 
-### Step 3 — pick up the report + VERIFY
+### Step 3 — report the review
 
-The Triager writes the report to the workspace, **not** via `report_get`
-(which is currently wired to the wrong path). Read it directly:
+Call `mcp__pfactory__plan_get(session_id)` and summarise:
 
-```
-WS="${PFACTORY_WORKSPACE_ROOT:-$HOME/.pfactory/workspaces}"
-SPEC_DIR="$WS/<project_id>/specs/<spec_id>"
-# Read $SPEC_DIR/findings/triage_report.md  (and findings/triage_report.json)
-```
+1. `gates_passed`, the aggregate score, and the per-lens scores (architecture,
+   security, best-practice, feasibility).
+2. Blocking findings, each **with its citation** — a finding restated without its
+   citation is not reportable.
+3. The feasibility estimates: coarse cost, effort rollup, IAM access decisions.
+4. Every hard readiness check that failed, by name (`children-present`,
+   `criteria-present`, `ac-child-coverage`, `deps-sound`, `access-granted`,
+   `env-buildable`, `enrichment-integrity`, `language-reconciled`,
+   `change-footprint-surfaced`, `constitution-grounded`,
+   `deployment-pipeline-present`, `no-blocking-findings`, `decompose-trustworthy`).
+   A plan cannot be approved while any of these is failing and unwaived;
+   `no-blocking-findings` can never be waived.
+5. The concrete next step for the user: approve, fix the plan and re-ingest, or
+   record a waiver. Present it, do not act on it.
 
-Use the `Read` tool on `$SPEC_DIR/findings/triage_report.md`. Then **verify**:
+### Step 4 — on approved / emitted
 
-1. List the acceptance criteria you handed off (from the task's goals / the
-   `context/aifactory_spec.md` the pipeline planned against).
-2. For each accepted/flagged test in the triage report, note which `AC#N` its
-   rationale covers.
-3. **Flag any acceptance criterion with no covering accepted test** — that's a
-   coverage gap, not a pass.
-4. Summarise for the user: ✅ covered ACs, ⚠️ flagged tests (and why), ❌ ACs
-   with no test, plus the verdict counts (committed / flagged / rejected).
-5. If `status == triaged_empty` (no tests survived triage), say so explicitly —
-   the pipeline ran but nothing passed the 5-signal verdict; recommend a
-   `task_rerun` or revisiting the acceptance criteria.
-
-### Step 4 — on failure / stuck
-
-- `*_failed` — report which stage failed (the `status` names it:
-  `planner_failed` / `gen_functional_failed` / `evaluator_failed` /
-  `triager_failed`) and surface `status.json` error fields + the relevant
-  `logs/<agent>.log` line if present.
-- `stuck` — the Planner hit `replan_count >= 2`; the acceptance criteria are
-  likely ambiguous or untestable. Surface the latest `context/replan_request.json`
-  reason and ask the user to refine the criteria.
-- Offer `mcp__pfactory__task_rerun(task_id, lane=<lane>)` as the retry path.
+- `approved` — gates passed and a human signed off. The next step is emit
+  (`/handover-to-pfactory` Step 6), which is dry-run by default.
+- `emitted` — report `issue_number`, `correlation_key` and `aifactory_task_id` so
+  the user can follow the work into AIFactory and TFactory under one key.
 
 ## Notes
 
-- **Pure read-only round-trip** — `task_status` is cheap + safe to poll; the
-  report is read from disk. No backend changes, no writes (except an optional
-  user-approved `task_rerun`).
-- **Cadence:** `30s` is a good default; the pipeline typically runs minutes.
-  For long browser-lane runs, `/loop 60s` is fine.
-- **Pairs with `/handover-to-pfactory`** — that skill hands off and returns the
-  `task_id`; this one watches it home and verifies the result.
+- Strictly read-only. `plan_status` / `plan_get` / `plan_list` have no side
+  effects; this skill never approves, waives, rejects or emits.
+- Cadence: `30s` is a good default. `plan_process` does live-cloud enrichment,
+  reconnaissance and LLM review lenses, so a session can sit in `processing` or
+  `reviewing` for minutes.
+- Host without MCP: `GET /api/plan/sessions/{id}` returns the same view. See
+  `guides/agent-handoff.md`.
+- Pairs with `/handover-to-pfactory` — that skill hands the plan over and returns
+  the `session_id`; this one follows it to the human gate.
