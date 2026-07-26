@@ -44,7 +44,7 @@ class AutoFixConfigPayload(BaseModel):
     enabled: bool = False
     labels: list[str] = Field(default_factory=list)
     requireHumanApproval: bool = False
-    botToken: str | None = ""
+    botToken: str | None = Field(default="", repr=False)
     model: str = "sonnet"
     thinkingLevel: str = "none"
 

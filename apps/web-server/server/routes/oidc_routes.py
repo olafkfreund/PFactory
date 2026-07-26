@@ -26,7 +26,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -234,11 +234,11 @@ async def oidc_callback(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: SecretStr
 
 
 class RefreshResponse(BaseModel):
-    access_token: str
+    access_token: str = Field(repr=False)
 
 
 async def _fetch_userinfo_from_idp(sub: str) -> dict | None:
@@ -365,7 +365,7 @@ async def oidc_refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db))
     settings = get_settings()
     try:
         payload = jwt.decode(
-            body.refresh_token,
+            body.refresh_token.get_secret_value(),
             settings.JWT_SECRET,
             algorithms=[settings.JWT_ALGORITHM],
         )
@@ -390,7 +390,7 @@ async def oidc_refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db))
         # IdP validation. We use the "is the IdP up + has the sub
         # not been explicitly invalidated" minimum here; richer
         # per-user validation lands in P3.4.x extensions.
-        ok = await _validate_against_idp(body.refresh_token)
+        ok = await _validate_against_idp(body.refresh_token.get_secret_value())
         if not ok:
             # Revocation: delete session, clear cache, 401.
             invalidate(session.oidc_sub)
@@ -415,7 +415,7 @@ async def oidc_refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db))
 
 
 class LogoutRequest(BaseModel):
-    refresh_token: str | None = None
+    refresh_token: SecretStr | None = None
 
 
 @router.post("/logout", summary="Logout: delete session + redirect to IdP end-session")
@@ -442,7 +442,8 @@ async def oidc_logout(
             detail="OIDC SSO is not configured on this deployment",
         )
 
-    refresh_token = (body.refresh_token if body else None) or request.cookies.get("refresh_token")
+    supplied = body.refresh_token.get_secret_value() if body and body.refresh_token else None
+    refresh_token = supplied or request.cookies.get("refresh_token")
 
     if refresh_token:
         settings = get_settings()

@@ -26,7 +26,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,14 +50,7 @@ class CreateGitCredentialRequest(BaseModel):
     name: str = Field(
         ..., min_length=1, max_length=255, description="Human-readable label"
     )
-    token: str = Field(
-        ...,
-        min_length=1,
-        description=(
-            "The Personal Access Token. Never logged, encrypted at rest, "
-            "cannot be retrieved after creation."
-        ),
-    )
+    token: SecretStr = Field(..., min_length=1, description="The Personal Access Token. Never logged, encrypted at rest, cannot be retrieved after creation.")
     kind: str = Field(
         default="pat",
         description="Credential kind. V1 supports 'pat' only.",
@@ -148,7 +141,7 @@ async def create_git_credential(
         kind=body.kind,
         host=body.host,
         username=body.username or "oauth2",
-        token=body.token,
+        token=body.token.get_secret_value(),
         created_by=current_user.id,
     )
     db.add(cred)

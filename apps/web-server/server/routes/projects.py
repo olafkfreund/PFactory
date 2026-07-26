@@ -138,7 +138,7 @@ class ProjectSettings(BaseModel):
     mainBranch: str | None = Field(default=None, alias="main_branch")
     useClaudeMd: bool = Field(default=True, alias="use_claude_md")
     gitProvider: str = Field(default="github", alias="git_provider")
-    gitToken: str | None = Field(default=None, alias="git_token")
+    gitToken: str | None = Field(default=None, alias="git_token", repr=False)
     gitBaseUrl: str | None = Field(default=None, alias="git_base_url")
     gitOrg: str | None = Field(default=None, alias="git_org")
     gitProject: str | None = Field(default=None, alias="git_project")
@@ -778,7 +778,7 @@ class ProjectSettingsUpdate(BaseModel):
     mainBranch: str | None = None
     useClaudeMd: bool | None = None
     gitProvider: str | None = Field(default=None, alias="git_provider")
-    gitToken: str | None = Field(default=None, alias="git_token")
+    gitToken: str | None = Field(default=None, alias="git_token", repr=False)
     gitBaseUrl: str | None = Field(default=None, alias="git_base_url")
     gitOrg: str | None = Field(default=None, alias="git_org")
     gitProject: str | None = Field(default=None, alias="git_project")

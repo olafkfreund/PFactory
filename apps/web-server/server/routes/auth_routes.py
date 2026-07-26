@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,16 +43,16 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class RegisterRequest(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
-    password: str = Field(..., min_length=8, max_length=128)
+    password: SecretStr = Field(..., min_length=8, max_length=128)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: SecretStr
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: SecretStr
 
 
 class UserResponse(BaseModel):
@@ -70,12 +70,12 @@ class UserResponse(BaseModel):
 
 class AuthResponse(BaseModel):
     user: UserResponse
-    access_token: str
-    refresh_token: str
+    access_token: str = Field(repr=False)
+    refresh_token: str = Field(repr=False)
 
 
 class TokenResponse(BaseModel):
-    access_token: str
+    access_token: str = Field(repr=False)
 
 
 class MessageResponse(BaseModel):
@@ -217,7 +217,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     user = User(
         email=body.email,
         name=body.name,
-        password_hash=pwd_context.hash(body.password),
+        password_hash=pwd_context.hash(body.password.get_secret_value()),
         role="user",
     )
     db.add(user)
@@ -273,7 +273,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
-    if user is None or not pwd_context.verify(body.password, user.password_hash):
+    if user is None or not pwd_context.verify(body.password.get_secret_value(), user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -310,7 +310,7 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
     try:
         payload = jwt.decode(
-            body.refresh_token,
+            body.refresh_token.get_secret_value(),
             settings.JWT_SECRET,
             algorithms=[settings.JWT_ALGORITHM],
         )

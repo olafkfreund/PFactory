@@ -24,7 +24,7 @@ import urllib.request
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,7 +50,7 @@ class DocsTargetCreate(BaseModel):
     kind: DocsKind
     label: str = Field(min_length=1, max_length=255)
     base_url: HttpUrl
-    api_token: str | None = Field(default=None, max_length=2048)
+    api_token: SecretStr | None = Field(default=None, max_length=2048)
     space: str | None = Field(default=None, max_length=255)
     enabled_by_default: bool = False
 
@@ -59,7 +59,7 @@ class DocsTargetUpdate(BaseModel):
     kind: DocsKind | None = None
     label: str | None = Field(default=None, min_length=1, max_length=255)
     base_url: HttpUrl | None = None
-    api_token: str | None = Field(default=None, max_length=2048)
+    api_token: SecretStr | None = Field(default=None, max_length=2048)
     space: str | None = Field(default=None, max_length=255)
     enabled_by_default: bool | None = None
 
@@ -69,7 +69,7 @@ class DocsTargetTestRequest(BaseModel):
 
     kind: DocsKind
     base_url: HttpUrl
-    api_token: str | None = None
+    api_token: SecretStr | None = None
     space: str | None = None
 
 
@@ -216,7 +216,7 @@ async def create_target(
         kind=body.kind,
         label=body.label,
         base_url=str(body.base_url),
-        api_token=body.api_token or None,
+        api_token=body.api_token.get_secret_value() if body.api_token else None,
         space=body.space or None,
         enabled_by_default=body.enabled_by_default,
     )
@@ -260,7 +260,7 @@ async def update_target(
         conn.base_url = str(body.base_url)
     if body.api_token is not None:
         # Empty string clears the token; non-empty replaces it
-        conn.api_token = body.api_token or None
+        conn.api_token = body.api_token.get_secret_value() or None
     if body.space is not None:
         conn.space = body.space or None
     if body.enabled_by_default is not None:
@@ -299,7 +299,11 @@ async def test_arbitrary(
     import asyncio
 
     return await asyncio.to_thread(
-        _probe, body.kind, str(body.base_url), body.api_token, body.space
+        _probe,
+        body.kind,
+        str(body.base_url),
+        body.api_token.get_secret_value() if body.api_token else None,
+        body.space,
     )
 
 
