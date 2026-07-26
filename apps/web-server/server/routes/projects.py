@@ -232,6 +232,16 @@ def ensure_tracked_project(repo: str) -> str | None:
     if not repo or not repo.strip():
         return None
     repo = repo.strip()
+    # RFC-0020 3.5 (Factory#366): the reference may be provider-qualified
+    # ("gitlab:group/project"). Split it so the stored record holds a real
+    # project path and the HOST it lives on, instead of a path with a provider
+    # glued to the front of the owner. Registering it unqualified is how a
+    # tracked project came to read as gitProvider "github" whatever the tenant
+    # declared, which is one of the ways a GitLab tenant's run ended up on
+    # GitHub. An unqualified reference is GitHub, exactly as before.
+    from plan.repo_ref import parse_repo_ref
+
+    provider, repo = parse_repo_ref(repo) or ("github", repo)
     try:
         projects = load_projects()
         # Reuse an existing project registered for this repo (don't overwrite a
@@ -247,6 +257,9 @@ def ensure_tracked_project(repo: str) -> str | None:
                 "path": "",  # repo-only; no local clone yet
                 "source": "plan-session",
                 "created_at": datetime.now().isoformat(),
+                # The declared host, so the project's own provider resolution
+                # agrees with the contract that created it.
+                "settings": {"gitProvider": provider},
             }
             save_projects(projects)
         return project_id

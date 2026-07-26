@@ -33,6 +33,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from plan.repo_ref import PROVIDER_GIT_HOST, parse_repo_ref
+
 logger = logging.getLogger(__name__)
 
 # Guardrails: reconnaissance must stay cheap and bounded.
@@ -54,14 +56,32 @@ class CloneResult:
 def _git_url(repo: str) -> str:
     """Build an https clone URL, injecting a scoped read-only token if present.
 
-    ``repo`` is ``owner/name`` (the contract's ``provenance.repo``) or already a
-    URL. A token from ``PFACTORY_RECON_TOKEN`` / ``GH_TOKEN`` / ``GITHUB_TOKEN``
+    ``repo`` is the contract's ``provenance.repo``, which since RFC-0020 3.5 may
+    be PROVIDER-QUALIFIED (``gitlab:group/project``) — or a full clone URL, which
+    is passed through untouched.
+
+    **The host comes from the qualification** (Factory#366). It used to come only
+    from ``PFACTORY_RECON_GIT_HOST``, defaulting to ``github.com``, so a GitLab
+    tenant's plan was reconnoitred against a github.com repo that did not exist
+    and silently degraded to greenfield. An unqualified reference still means
+    GitHub, so nothing about an existing deployment changes.
+
+    ``PFACTORY_RECON_GIT_HOST`` remains the override, for a self-hosted instance
+    of whichever provider — it is simply no longer the only answer. Explicitly
+    setting it still wins, because a self-hosted GitLab has a host this table
+    cannot know.
+
+    A token from ``PFACTORY_RECON_TOKEN`` / ``GH_TOKEN`` / ``GITHUB_TOKEN``
     enables private-repo reconnaissance; without one, public repos still work and
-    private repos degrade to greenfield.
+    private repos degrade to greenfield. The QUALIFICATION IS NOT A CREDENTIAL:
+    it says where the code lives, and the token is still the environment's.
     """
     if "://" in repo:
         return repo
-    host = os.environ.get("PFACTORY_RECON_GIT_HOST", "github.com").strip()
+    provider, project = parse_repo_ref(repo) or ("github", repo)
+    host = os.environ.get("PFACTORY_RECON_GIT_HOST", "").strip() or PROVIDER_GIT_HOST.get(
+        provider, "github.com"
+    )
     token = (
         os.environ.get("PFACTORY_RECON_TOKEN")
         or os.environ.get("GH_TOKEN")
@@ -69,8 +89,8 @@ def _git_url(repo: str) -> str:
         or ""
     ).strip()
     if token:
-        return f"https://x-access-token:{token}@{host}/{repo}.git"
-    return f"https://{host}/{repo}.git"
+        return f"https://x-access-token:{token}@{host}/{project}.git"
+    return f"https://{host}/{project}.git"
 
 
 def _hardened_env(home: str) -> dict[str, str]:
