@@ -150,10 +150,24 @@ RUN mkdir -p /home/nonroot/.npm-global \
 # npm-installs them (mirrors TFactory #791: the install-clis init container hung
 # 8+ min on a slow registry and stalled the rollout). .npm-global/bin is already
 # on PATH. Versions pinned here (Renovate tracks the Dockerfile).
+#
+# `install.cjs` is NOT redundant with the npm postinstall (Factory#383). The
+# postinstall downloads the 275 MB platform-native binary correctly, but leaves
+# `bin/claude.exe` as the 11-line stub that ships in the package — a script whose
+# whole body prints "native binary not installed" and exits 1. So `claude` on
+# PATH was broken in every control-plane pod while the binary underneath it ran
+# fine, and the stub's own error blames --ignore-scripts / --omit=optional,
+# neither of which is used here. Re-running install.cjs completes the swap.
+#
+# `claude --version` is the point of the fix, not decoration: this shipped broken
+# because nothing asserted the CLI works. Full path, since PATH is set for the
+# runtime user rather than for RUN.
 RUN npm install -g \
         @anthropic-ai/claude-code@2.1.215 \
         @openai/codex@0.144.6 \
         @google/gemini-cli@0.51.0 \
+ && node /home/nonroot/.npm-global/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
+ && /home/nonroot/.npm-global/bin/claude --version \
  && npm cache clean --force \
  && ln -sf /home/nonroot/.npm-global/bin/gemini /home/nonroot/.npm-global/bin/antigravity
 
