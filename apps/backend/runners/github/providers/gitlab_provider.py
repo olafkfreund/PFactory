@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -36,7 +36,10 @@ class GitLabProvider:
     """
 
     _repo: str  # Format: "owner/repo" or "group/subgroup/repo"
-    _token: str | None = None
+    # repr=False: the dataclass-generated __repr__ is rendered by traceback
+    # frames, f-string logging and error-reporting payloads, so a reprable
+    # credential field writes a live PAT to any of those (Factory#372).
+    _token: str | None = field(default=None, repr=False)
     _base_url: str = "https://gitlab.com"
     _project_dir: str | None = None
 

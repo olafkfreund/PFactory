@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -36,7 +36,10 @@ class AzureDevOpsProvider:
     """
 
     _repo: str  # Repository ID or Name
-    _pat: str | None = None
+    # repr=False for the same reason as GitLabProvider._token (Factory#372):
+    # a credential field in a dataclass __repr__ reaches every traceback frame
+    # and debug log that renders the provider.
+    _pat: str | None = field(default=None, repr=False)
     _organization: str | None = None
     _project: str | None = None
     _base_url: str = "https://dev.azure.com"
