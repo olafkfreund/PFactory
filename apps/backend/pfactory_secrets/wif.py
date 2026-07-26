@@ -43,10 +43,19 @@ class WifCredentials:
 
 
 def _read_oidc_token(config) -> str:
-    """Read the OIDC token from ``config.token`` or ``config.token_file``."""
+    """Read the OIDC token from ``config.token`` or ``config.token_file``.
+
+    ``OperatorWifEntry.token`` is a ``SecretStr`` since Factory#377, so the
+    plaintext has to be unwrapped here -- the one place it is used. The
+    ``hasattr`` check keeps the duck-typed contract this function was written
+    with (``getattr`` on an arbitrary config object), and matters because that
+    dynamic access is exactly what a type checker cannot see through: without
+    it, a plain ``SecretStr`` would reach ``WebIdentityToken`` below and STS
+    would be handed the string ``**********`` with nothing flagging it.
+    """
     token = getattr(config, "token", None)
     if token:
-        return token
+        return token.get_secret_value() if hasattr(token, "get_secret_value") else str(token)
     token_file = getattr(config, "token_file", None)
     if token_file:
         p = Path(token_file).expanduser()

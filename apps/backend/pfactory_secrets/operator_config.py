@@ -32,7 +32,7 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class OperatorWifEntry(BaseModel):
 
     role_arn: str | None = None
     token_file: str | None = None
-    token: str | None = None
+    token: SecretStr | None = None
     audience: str | None = None
     session_name: str = "pfactory"
     duration_seconds: int = 3600

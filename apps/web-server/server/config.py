@@ -9,7 +9,7 @@ import secrets
 import sys
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 from .paths import get_data_dir, get_data_file
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     SSL_KEYFILE: str = ""   # Path to SSL private key
 
     # Authentication
-    API_TOKEN: str = ""  # Will generate default if not set
+    API_TOKEN: str = Field(default="", repr=False)  # Will generate default if not set
 
     # Federated search (#149). The cockpit (CFactory) aggregates every portal's
     # work and exposes a ranked /api/search; this portal proxies to it so its ⌘K
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     DISABLE_AUTH: bool = False  # Set to True to disable auth (dev only)
 
     # JWT Configuration
-    JWT_SECRET: str = ""  # Auto-generated if not set
+    JWT_SECRET: str = Field(default="", repr=False)  # Auto-generated if not set
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     JWT_ALGORITHM: str = "HS256"

@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +49,7 @@ _API_KEY_TAIL_LEN = 4
 class EndpointCreate(BaseModel):
     label: str = Field(min_length=1, max_length=255)
     base_url: HttpUrl
-    api_key: str | None = Field(default=None, max_length=512)
+    api_key: SecretStr | None = Field(default=None, max_length=512)
     default_model: str = Field(min_length=1, max_length=255)
     headers: dict[str, str] | None = None
 
@@ -57,7 +57,7 @@ class EndpointCreate(BaseModel):
 class EndpointUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=255)
     base_url: HttpUrl | None = None
-    api_key: str | None = Field(default=None, max_length=512)
+    api_key: SecretStr | None = Field(default=None, max_length=512)
     default_model: str | None = Field(default=None, min_length=1, max_length=255)
     headers: dict[str, str] | None = None
 
@@ -66,7 +66,7 @@ class EndpointTestRequest(BaseModel):
     """For testing arbitrary credentials before saving."""
 
     base_url: HttpUrl
-    api_key: str | None = None
+    api_key: SecretStr | None = None
     headers: dict[str, str] | None = None
 
 
@@ -243,7 +243,7 @@ async def create_endpoint(
         user_id=user.id,
         label=body.label,
         base_url=str(body.base_url),
-        api_key=body.api_key,
+        api_key=body.api_key.get_secret_value() if body.api_key else None,
         default_model=body.default_model,
         headers_json=json.dumps(body.headers) if body.headers else None,
     )
@@ -286,7 +286,7 @@ async def update_endpoint(
         endpoint.base_url = str(body.base_url)
     if body.api_key is not None:
         # Empty string clears the key; non-empty replaces it
-        endpoint.api_key = body.api_key or None
+        endpoint.api_key = body.api_key.get_secret_value() or None
     if body.default_model is not None:
         endpoint.default_model = body.default_model
     if body.headers is not None:
@@ -325,7 +325,10 @@ async def test_arbitrary(
     import asyncio
 
     return await asyncio.to_thread(
-        _probe_models, str(body.base_url), body.api_key, body.headers
+        _probe_models,
+        str(body.base_url),
+        body.api_key.get_secret_value() if body.api_key else None,
+        body.headers,
     )
 
 
