@@ -4,7 +4,7 @@
  * Top-level component that ties the task list to the per-task detail.
  * State-driven (no router) for the MVP — the inherited React app's
  * router stays untouched. A future commit can hoist this into
- * react-router-dom routes once the existing portal's wiring is
+ * react-router routes once the existing portal's wiring is
  * decoupled.
  *
  * Renders <PFactoryTaskList> by default; on row click, switches to
