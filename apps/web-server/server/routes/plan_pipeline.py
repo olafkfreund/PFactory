@@ -74,6 +74,13 @@ class RejectBody(BaseModel):
     feedback: str
 
 
+class DiscardBody(BaseModel):
+    """Abandon a session (#360). Both fields required — see ``PlanService.discard``."""
+
+    actor: str
+    reason: str
+
+
 class WaiveBody(BaseModel):
     check_ids: list[str]
     reason: str
@@ -347,6 +354,22 @@ async def reject(session_id: str, body: RejectBody) -> dict:
         return _session_dict(
             SERVICE.reject(session_id, approver=body.approver, feedback=body.feedback)
         )
+    except PlanServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/discard")
+async def discard(session_id: str, body: DiscardBody) -> dict:
+    """Abandon a session outright (#360) — "this should not exist".
+
+    Distinct from ``/reject``, which means "this plan is wrong, fix it" and
+    requires a processed session. ``/discard`` is valid from any status, so it
+    works on an ingested session that was never planned — the case that
+    previously had no exit at all and left the cockpit's Active list
+    accumulating cards no action could clear.
+    """
+    try:
+        return _session_dict(SERVICE.discard(session_id, actor=body.actor, reason=body.reason))
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
