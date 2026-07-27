@@ -32,10 +32,17 @@ logger = logging.getLogger(__name__)
 SERVICE_NAME = "pfactory"
 
 # Statuses a plan session can terminally land on (see ``PlanService``).
-TERMINAL_STATUSES = frozenset({"emitted", "rejected"})
+# ``discarded`` (#360) belongs here for the same reason the other two do: the
+# session will never change again, so the completion event must fire. Without it
+# CFactory keeps the work item open forever on a session that no longer exists
+# as far as PFactory is concerned.
+TERMINAL_STATUSES = frozenset({"emitted", "rejected", "discarded"})
 
 # The phase each terminal status is reported under, in the envelope.
-_PHASE_BY_STATUS = {"emitted": "emit", "rejected": "review"}
+# ``discarded`` reports as ``plan``, not ``review``: a session can be discarded
+# straight from ``ingested``, where no review ever ran, so reporting it under
+# review would claim a review happened.
+_PHASE_BY_STATUS = {"emitted": "emit", "rejected": "review", "discarded": "plan"}
 
 
 def _now_iso() -> str:

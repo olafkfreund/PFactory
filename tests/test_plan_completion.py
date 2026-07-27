@@ -71,8 +71,14 @@ def test_event_carries_the_rfc_envelope_fields():
     assert event["correlation"]["session_id"] == session.session_id
 
 
-def test_terminal_statuses_are_emitted_and_rejected():
-    assert TERMINAL_STATUSES == frozenset({"emitted", "rejected"})
+def test_terminal_statuses_are_emitted_rejected_and_discarded():
+    """``discarded`` joined the set in #360 — a session abandoned outright.
+
+    Kept as an exact-equality assertion rather than loosened to a subset check:
+    a status silently becoming terminal is how CFactory would stop tracking work
+    that is still running, so a new entry should have to be added here on purpose.
+    """
+    assert TERMINAL_STATUSES == frozenset({"emitted", "rejected", "discarded"})
 
 
 # ── correlation key: issue# with synthetic fallback ──────────────────────────

@@ -123,6 +123,11 @@ class PlanSession(BaseModel):
     artifacts: list[SynthesizedArtifact] = Field(default_factory=list)
     review: PlanReview | None = None
     annotation: AnnotationResult | None = None  # honoured doc + suggested edits (#D)
+    # Why this session was abandoned (#360): {actor, reason, at, from_status}.
+    # A discard leaves no plan, no review and no emitted issue behind, so unlike
+    # every other terminal path there is no artefact that explains itself — this
+    # dict IS the record.
+    discard: dict | None = None
     original_filename: str = ""  # the uploaded document's name, for rendering
     selected_category: str = ""  # category the user chose at intake (#E)
     selected_template: str = ""  # template the user chose — its policy IS enforced (#E)
@@ -1070,6 +1075,59 @@ class PlanService:
         reject_review(session.review, session.plan, approver=approver, feedback=feedback)
         session.status = "rejected"
         # Terminal too: emit the completion event with a synthetic key (no issue#).
+        session.correlation_key = correlation_key_for(session)
+        notify_completion(session)
+        self._save(session)
+        return session
+
+    def discard(self, session_id: str, *, actor: str, reason: str) -> PlanSession:
+        """Abandon a session outright — "this should not exist" (#360).
+
+        Deliberately NOT the same thing as :meth:`reject`, and deliberately not
+        implemented in terms of it:
+
+        * ``reject`` means *this plan is wrong, fix it*. It writes a rejection
+          into ``session.review``, so it REQUIRES a processed session, and it
+          leaves the card in ``human_review`` awaiting that edit.
+        * ``discard`` means *this was never real work* — a mis-ingested probe, a
+          duplicate, an experiment. It is valid from ANY status, which is the
+          whole point: it works precisely where ``reject`` cannot, on a session
+          that was ingested and never planned.
+
+        Before this existed such a session could not be cleared at all: ``reject``
+        refused for want of a review, no delete route existed, and the only
+        columns reaching ``done`` were ``approved``/``emitted`` — so the only way
+        to clear the cockpit was to record junk as an approved plan. A false
+        audit trail is worse than a stuck card, so the honest fix is a status
+        that says what actually happened.
+
+        ``reason`` is required rather than optional: removal is the one
+        transition with no artefact left behind to explain itself, so if nobody
+        has to say why, the record of why is simply lost.
+
+        Discarding an already-discarded session is a no-op rather than an error —
+        the caller's intent is satisfied, and a cleanup action that fails on a
+        retry invites exactly the double-click that would otherwise 400.
+        """
+        session = self.get(session_id)
+        if session.status == "discarded":
+            return session
+        # Captured BEFORE the mutation below — board_state() is derived from
+        # status, so reading it afterwards would report "done" for every discard
+        # and lose the only interesting part of the record.
+        from_status = session.status
+        session.status = "discarded"
+        session.discard = {
+            "actor": actor,
+            "reason": reason,
+            "at": datetime.now(UTC).isoformat(),
+            # The status it was abandoned FROM. Without it the record cannot
+            # distinguish a probe binned before anyone looked at it from a fully
+            # reviewed plan someone decided to drop.
+            "from_status": from_status,
+        }
+        # Terminal: same synthetic-key path as reject, since a discarded session
+        # may never have reached emit and so carries no issue number.
         session.correlation_key = correlation_key_for(session)
         notify_completion(session)
         self._save(session)
