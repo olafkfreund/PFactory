@@ -109,13 +109,33 @@ def _is_excluded(path: str, patterns: list[str]) -> bool:
     return False
 
 
-def changed_python_files(base: str, package: str) -> list[str]:
-    """Python files under *package* changed (added/modified) vs *base*."""
+def owning_package(path: str, packages: list[str]) -> str:
+    """Which of *packages* the file lives under.
+
+    Needed because ``package`` is used as an IMPORT ROOT for mypy
+    (MYPYPATH/PYTHONPATH), not merely as a filter. A file under
+    ``apps/web-server`` type-checked with ``apps/backend`` on the path resolves
+    its first-party imports against the wrong tree and reports errors that say
+    more about the root than the code — so each file must be checked against the
+    package it actually belongs to (Factory#384).
+
+    The LONGEST match wins, so a nested package beats its parent.
+    """
+    target = Path(path)
+    matches = [
+        pkg for pkg in packages
+        if Path(pkg) in target.parents or Path(pkg) == target.parent
+    ]
+    return max(matches, key=len) if matches else packages[0]
+
+
+def changed_python_files(base: str, packages: list[str]) -> list[str]:
+    """Python files under any of *packages* changed (added/modified) vs *base*."""
     res = _run(["git", "diff", "--name-only", "--diff-filter=AM", f"{base}...HEAD"])
     if res.returncode != 0:
         sys.stderr.write(res.stderr)
         sys.exit(2)
-    pkg = Path(package)
+    pkgs = [Path(p) for p in packages]
     excludes = _ruff_excludes()
     out: list[str] = []
     for line in res.stdout.splitlines():
@@ -128,7 +148,7 @@ def changed_python_files(base: str, package: str) -> list[str]:
             continue
         # Accept files inside the package dir, or the package dir itself if it is
         # a flat directory (e.g. scripts/).
-        if pkg in path.parents or pkg == path.parent:
+        if any(pkg in path.parents or pkg == path.parent for pkg in pkgs):
             out.append(str(path))
     return out
 
@@ -229,7 +249,11 @@ def mypy_regression(base: str, path: str, package: str, mypy_config: str) -> str
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", required=True, help="git ref to diff against")
-    parser.add_argument("--package", default=PACKAGE_DEFAULT)
+    # Repeatable (Factory#384): apps/web-server holds every FastAPI route and
+    # request model and was gated by nothing, which is how 133 credential-bearing
+    # pydantic fields (#377) accumulated there unnoticed. Default unchanged, so
+    # an existing `--package apps/backend` invocation behaves exactly as before.
+    parser.add_argument("--package", action="append", dest="packages", default=None)
     parser.add_argument(
         "--mypy-config",
         default=MYPY_CONFIG_DEFAULT,
@@ -242,9 +266,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    files = changed_python_files(args.base, args.package)
+    packages = args.packages or [PACKAGE_DEFAULT]
+    files = changed_python_files(args.base, packages)
     if not files:
-        print(f"ratchet: no changed Python files under {args.package}; nothing to gate.")
+        print(f"ratchet: no changed Python files under {packages}; nothing to gate.")
         return 0
 
     print("ratchet: gating changed files:\n  " + "\n  ".join(files))
@@ -256,7 +281,9 @@ def main() -> int:
     mypy_regressions: list[str] = []
     if not args.no_mypy:
         for path in files:
-            msg = mypy_regression(args.base, path, args.package, args.mypy_config)
+            msg = mypy_regression(
+                args.base, path, owning_package(path, packages), args.mypy_config
+            )
             if msg is not None:
                 mypy_regressions.append(msg)
 
