@@ -50,10 +50,14 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import tomllib
 from collections import Counter
 from pathlib import Path
+
+# Canonical shared ratchet rules, vendored byte-exact from the Factory hub
+# and byte-exact drift-gated (Factory#403). scripts/ is sys.path[0] when this
+# runs as a script, so the sibling import resolves without packaging.
+from ratchet_helpers import MYPY_TEST_RELAX, is_test_file, write_temp
 
 PACKAGE_DEFAULT = "apps/backend"
 MYPY_CONFIG_DEFAULT = "standards/mypy.ini"
@@ -154,23 +158,11 @@ def changed_python_files(base: str, packages: list[str]) -> list[str]:
     return out
 
 
-def _write_temp(source: str, filename: str) -> tuple[str, str]:
-    """Write *source* under the REAL basename inside a fresh temp dir.
-
-    A random-prefixed name (the old NamedTemporaryFile suffix trick) defeats
-    per-file-ignores like `**/test_*.py`, so every net-new test file was held to
-    the non-test bar and tripped S101 while being clean under its real path.
-    Ported from the hub canonical (Factory#403). Returns (tmpdir, tmp).
-    """
-    tmpdir = tempfile.mkdtemp()
-    tmp = str(Path(tmpdir) / Path(filename).name)
-    Path(tmp).write_text(source)
-    return tmpdir, tmp
 
 
 def ruff_counts(source: str, filename: str) -> Counter[str]:
     """Per-rule ruff violation counts for *source* checked as *filename*."""
-    tmpdir, tmp = _write_temp(source, filename)
+    tmpdir, tmp = write_temp(source, filename)
     try:
         res = _run(["ruff", "check", "--config", "ruff.toml", "--output-format", "json", tmp])
         if not res.stdout.strip():
@@ -203,25 +195,8 @@ def regressions(base: str, path: str) -> list[str]:
     return out
 
 
-def _is_test_file(path: str) -> bool:
-    """Does *path* name a test file, by the same shape ruff per-file-ignores use?
-
-    Kept deliberately in step with the ruff config (`**/test_*.py`,
-    `**/*_test.py`, `**/tests/**`) so one tool cannot treat a file as a test
-    while the other holds it to the production bar. Ported from the hub
-    canonical (Factory#403).
-    """
-    norm = path.replace("\\", "/")
-    name = norm.rsplit("/", 1)[-1]
-    return (
-        "/tests/" in f"/{norm}"
-        or "/test/" in f"/{norm}"
-        or name.startswith("test_")
-        or name.endswith("_test.py")
-    )
 
 
-_MYPY_TEST_RELAX = ["--allow-untyped-defs", "--allow-incomplete-defs"]
 
 
 def mypy_errors(path: str, package: str, mypy_config: str) -> int:
@@ -231,7 +206,7 @@ def mypy_errors(path: str, package: str, mypy_config: str) -> int:
     counts only error lines whose location is *path* itself (errors surfaced in
     imported modules belong to those files, not the changed one).
     """
-    relax = _MYPY_TEST_RELAX if _is_test_file(path) else []
+    relax = MYPY_TEST_RELAX if is_test_file(path) else []
     env = dict(os.environ)
     # Make the package importable so mypy can follow first-party imports.
     for var in ("MYPYPATH", "PYTHONPATH"):

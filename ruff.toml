@@ -36,6 +36,11 @@ src = ["apps/backend", "apps/web-server"]
 # `ruff format --check` cannot fight the drift gate. Do NOT edit these files to
 # satisfy ruff — fix the hub canonical and re-vendor (see the drift workflow).
 extend-exclude = [
+    # Byte-exact mirror of the Factory hub canonical scripts/ratchet_helpers.py,
+    # kept identical by the verification-core drift gate. The hub formats at 100;
+    # letting the local formatter touch it would silently break byte-exactness
+    # and the next re-vendor (Factory#403).
+    "scripts/ratchet_helpers.py",
     "apps/backend/runners/github/gh_client.py",
     "apps/backend/runners/github/rate_limiter.py",
     "apps/backend/runners/github/providers/__init__.py",
