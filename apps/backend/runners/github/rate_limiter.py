@@ -136,7 +136,14 @@ class TokenBucket:
             # Wait for next refill
             # Calculate time until we have enough tokens
             tokens_needed = tokens - self.tokens
-            wait_time = min(tokens_needed / self.refill_rate, 1.0)  # Max 1 second wait
+            # refill_rate <= 0 means a hard cap that never refills (AIFactory#882):
+            # don't divide by zero - poll at the 1s cap so the timeout (if any)
+            # still ends the wait, and a None timeout blocks as intended.
+            wait_time = (
+                1.0
+                if self.refill_rate <= 0
+                else min(tokens_needed / self.refill_rate, 1.0)  # Max 1 second wait
+            )
             await asyncio.sleep(wait_time)
 
     def available(self) -> int:
@@ -155,6 +162,10 @@ class TokenBucket:
         if self.tokens >= tokens:
             return 0.0
         tokens_needed = tokens - self.tokens
+        # refill_rate <= 0 never refills, so the tokens are never available
+        # (AIFactory#882): report infinity rather than dividing by zero.
+        if self.refill_rate <= 0:
+            return float("inf")
         return tokens_needed / self.refill_rate
 
 

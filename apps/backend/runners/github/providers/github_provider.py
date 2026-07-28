@@ -20,6 +20,24 @@ try:
 except (ImportError, ValueError, SystemError):
     from gh_client import GHClient
 
+from ._github_json import (
+    COMMENT_MAX_PAGES as _SHARED_COMMENT_MAX_PAGES,
+)
+from ._github_json import (
+    collect_comment_pages as _collect_comment_pages,
+)
+from ._github_json import (
+    group_bulk_comments as _group_bulk_comments,
+)
+from ._github_json import (
+    issue_number_from_url as _shared_issue_number_from_url,
+)
+from ._github_json import (
+    parse_comment as _shared_parse_comment,
+)
+from ._github_json import (
+    parse_datetime as _shared_parse_datetime,
+)
 from .protocol import (
     IssueComment,
     IssueData,
@@ -39,7 +57,7 @@ from .protocol import (
 # repository-wide fetch (50 x 100 = 5000 comments) rather than paging forever
 # against an unknown history size; hitting it is an error, not a truncation.
 _COMMENT_PAGE_SIZE = 100
-_COMMENT_MAX_PAGES = 50
+_COMMENT_MAX_PAGES = _SHARED_COMMENT_MAX_PAGES
 
 
 @dataclass
@@ -383,93 +401,40 @@ class GitHubProvider:
     async def fetch_comments_bulk(
         self, issue_numbers: list[int], since: datetime | None = None
     ) -> dict[int, list[IssueComment]]:
-        """Read many issues' threads, using GitHub's repository-wide endpoint.
-
-        ``GET /repos/{repo}/issues/comments`` returns every issue comment in the
-        repository in one paginated stream and honours ``since`` server-side.
-        That is the bulk path the protocol asks for, and it is what makes the
-        incremental poll affordable: one call covers all 46 cards instead of 46.
-
-        Without ``since`` there is no window to narrow, so the repository-wide
-        stream would page over the project's entire comment history to answer a
-        question about a handful of issues. The cold backfill therefore fans out
-        per issue instead — ``len(issue_numbers)`` calls, bounded by the caller's
-        own list and independent of how big the repository is.
-        """
+        """Bulk read over ``gh api``. Grouping and the rationale: ``_github_json``."""
         wanted = sorted({int(number) for number in issue_numbers})
         if not wanted:
             return {}
         if since is None:
             return await fanout_comments(self, wanted, since=None)
-
         raw = await self._fetch_comment_pages(
             f"/repos/{self._repo}/issues/comments",
             {"since": to_iso_utc(since), "sort": "updated", "direction": "asc"},
         )
-
-        grouped: dict[int, list[IssueComment]] = {number: [] for number in wanted}
-        for item in raw:
-            number = self._issue_number_from_url(item.get("issue_url", ""))
-            if number in grouped:
-                grouped[number].append(self._parse_comment(item, number))
-        return {number: oldest_first(comments) for number, comments in grouped.items()}
+        return _group_bulk_comments(raw, wanted)
 
     async def _fetch_comment_pages(
         self, path: str, params: dict[str, str]
     ) -> list[dict[str, Any]]:
-        """Page through a GitHub comments endpoint, or fail — never truncate."""
-        collected: list[dict[str, Any]] = []
-        for page in range(1, _COMMENT_MAX_PAGES + 1):
-            query = urlencode(
-                {**params, "per_page": str(_COMMENT_PAGE_SIZE), "page": str(page)}
-            )
-            try:
-                # The query string is built into the endpoint rather than passed
-                # as `params`: GHClient.api_get renders those as `gh api -f k=v`,
-                # and gh switches the request method to POST as soon as any field
-                # is present.
-                batch = await self._gh_client.api_get(f"{path}?{query}")
-            except Exception as exc:
-                raise ProviderCommentError(
-                    f"GitHub comment read failed for {path} (page {page}): {exc}"
-                ) from exc
+        """Transport half of the shared comment walk — see providers/_github_json.py."""
 
-            if not isinstance(batch, list):
-                raise ProviderCommentError(
-                    f"GitHub returned a non-list comment page for {path}: {type(batch).__name__}"
-                )
+        async def fetch_page(page: int) -> Any:
+            query = urlencode({**params, "per_page": str(_COMMENT_PAGE_SIZE), "page": str(page)})
+            # The query string is built into the endpoint rather than passed as
+            # `params`: GHClient.api_get renders those as `gh api -f k=v`, and gh
+            # switches the request method to POST as soon as any field is present.
+            return await self._gh_client.api_get(f"{path}?{query}")
 
-            collected.extend(batch)
-            if len(batch) < _COMMENT_PAGE_SIZE:
-                return collected
-
-        raise ProviderCommentError(
-            f"GitHub comment read for {path} exceeded {_COMMENT_MAX_PAGES} pages; "
-            "narrow the `since` window rather than accept a truncated thread"
-        )
+        return await _collect_comment_pages(fetch_page, path)
 
     @staticmethod
     def _issue_number_from_url(url: str) -> int | None:
-        """Recover the issue number from a comment's ``issue_url``."""
-        tail = (url or "").rstrip("/").rsplit("/", 1)[-1]
-        return int(tail) if tail.isdigit() else None
+        """Shared with the REST provider — see providers/_github_json.py."""
+        return _shared_issue_number_from_url(url)
 
     def _parse_comment(self, data: dict[str, Any], issue_number: int) -> IssueComment:
-        """Parse a GitHub issue comment into the normalised shape."""
-        user = data.get("user") or {}
-        author = user.get("login", "") if isinstance(user, dict) else str(user)
-        created = data.get("created_at")
-        return IssueComment(
-            id=str(data.get("id", "")),
-            issue_number=issue_number,
-            author=author,
-            body=data.get("body") or "",
-            created_at=self._parse_datetime(created),
-            updated_at=self._parse_datetime(data.get("updated_at") or created),
-            url=data.get("html_url") or "",
-            provider=ProviderType.GITHUB,
-            raw_data=data,
-        )
+        """Shared with the REST provider — ``gh api`` returns this payload verbatim."""
+        return _shared_parse_comment(data, issue_number)
 
     # The Copilot Coding Agent's bot login on GitHub.
     # Verified via GraphQL suggestedActors(capabilities: [CAN_BE_ASSIGNED]).
@@ -785,9 +750,8 @@ class GitHubProvider:
         )
 
     def _parse_datetime(self, dt_str: str | None) -> datetime:
-        """Parse ISO datetime string."""
-        if not dt_str:
-            return datetime.now(UTC)
+        """Shared with the REST provider — see providers/_github_json.py."""
+        return _shared_parse_datetime(dt_str)
         try:
             return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         except (ValueError, AttributeError):

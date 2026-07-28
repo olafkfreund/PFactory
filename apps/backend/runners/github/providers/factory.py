@@ -77,6 +77,25 @@ def get_provider(
 
     # Built-in providers
     if provider_type == ProviderType.GITHUB:
+        # Factory#370: an EXPLICIT token selects the REST provider, and the
+        # selection is made here rather than left to the caller so that supplying
+        # a credential can never silently produce a gh-CLI provider that ignores
+        # it and uses the ambient login instead. That substitution is not a
+        # degraded result — it is a request made as the wrong identity, which is
+        # precisely the failure CFactory's explicit-token rule exists to prevent.
+        #
+        # `token=None` is NOT "no token given": a caller resolving a per-tenant
+        # credential that came back empty must not be handed an ambient-auth
+        # provider, so the branch turns on whether the key was PASSED.
+        if "token" in kwargs:
+            from .http_github_provider import HttpGitHubProvider
+
+            token = kwargs.pop("token")
+            return HttpGitHubProvider(
+                _repo=repo,
+                _token=token,
+                **{k: v for k, v in kwargs.items() if k in {"_base_url", "_transport"}},
+            )
         return GitHubProvider(_repo=repo, **kwargs)
 
     if provider_type == ProviderType.GITLAB:

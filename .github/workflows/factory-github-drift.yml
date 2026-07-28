@@ -33,7 +33,7 @@ env:
   # the drift checker. Bump this (and re-vendor runners/github/) when the
   # canonical changes. See shared/factory-github/README.md in the hub.
   HUB_REPO: "olafkfreund/Factory"
-  HUB_SHA: "8f15849c1b1bc10b04491f0a095aa5922e862a7e"
+  HUB_SHA: "729aaab27779c41198bce499dd403edd942c0cbd"
 
 jobs:
   drift:
@@ -62,7 +62,9 @@ jobs:
             providers/factory.py \
             providers/github_provider.py \
             providers/gitlab_provider.py \
-            providers/azure_devops_provider.py; do
+            providers/azure_devops_provider.py \
+            providers/_github_json.py \
+            providers/http_github_provider.py; do
             curl -fsSL "${raw}/shared/factory-github/${f}" \
               -o "/tmp/hub/canonical/${f}"
           done
