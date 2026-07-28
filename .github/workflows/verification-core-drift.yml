@@ -28,6 +28,9 @@ on:
     paths:
       - "apps/backend/runners/artifact_store.py"
       - "apps/backend/plan/emit/cost_router_core.py"
+      # Newly gated by Factory#403/#411. Without this the gate is
+      # REGISTERED for this module but never TRIGGERED by it.
+      - "scripts/ratchet_helpers.py"
       - ".github/workflows/verification-core-drift.yml"
   push:
     branches: [dev, main]
@@ -42,7 +45,7 @@ permissions:
 env:
   # Pinned Factory hub commit carrying the canonical modules. Bump deliberately
   # when re-vendoring (see header).
-  HUB_PIN_SHA: "3e930a96dd44baab8fd7434b071592bd27553a83"
+  HUB_PIN_SHA: "1c58319d0657dd86b6c4536edfa85abb4bd8e2b1"
 
 jobs:
   drift:
