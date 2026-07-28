@@ -1165,9 +1165,12 @@ def _get_project_provider(projectId: str):
         kwargs = {}
         if project_path:
             kwargs["_project_dir"] = project_path
-        # Pass token if present
+        # Pass token if present. The key is `token` (not `_token`): the factory
+        # keys its REST-vs-gh-CLI choice on `"token" in kwargs`, so `_token`
+        # would fall through to the gh-CLI GitHubProvider — which has no such
+        # field, so it raises TypeError (Factory#365).
         if token:
-            kwargs["_token"] = token
+            kwargs["token"] = token
         return get_provider(ProviderType.GITHUB, repo=repo_name, **kwargs)
 
 
