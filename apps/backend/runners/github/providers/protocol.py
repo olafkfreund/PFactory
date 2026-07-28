@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 
 class ProviderType(str, Enum):
@@ -145,8 +145,27 @@ def oldest_first(comments: list[IssueComment]) -> list[IssueComment]:
     return sorted(comments, key=lambda comment: comment.created_at)
 
 
+@runtime_checkable
+class SupportsFetchComments(Protocol):
+    """The single method :func:`fanout_comments` actually needs.
+
+    Narrower than :class:`GitProvider` on purpose. FanoutCommentsMixin passes
+    ``self`` here, and a mixin is not a GitProvider — it supplies one method to
+    a class that is one. Typing the parameter as the full provider made that
+    call a strict-mypy arg-type error and forced the mixin to claim a contract
+    it does not implement. Stating the real requirement fixes it without a cast
+    or an ignore, and every GitProvider still satisfies it structurally.
+    """
+
+    async def fetch_comments(
+        self,
+        issue_number: int,
+        since: datetime | None = None,
+    ) -> list[IssueComment]: ...
+
+
 async def fanout_comments(
-    provider: GitProvider,
+    provider: SupportsFetchComments,
     issue_numbers: list[int],
     since: datetime | None = None,
 ) -> dict[int, list[IssueComment]]:
@@ -173,6 +192,19 @@ class FanoutCommentsMixin:
     bulk read the only way their API allows — one call per issue — so the
     fallback lives here once instead of being pasted into each provider.
     """
+
+    if TYPE_CHECKING:
+        # Type-only declaration of what this mixin REQUIRES of its host class.
+        # It is a mixin, so it never implements fetch_comments itself - but it
+        # calls it, and without saying so `self` satisfies no protocol and the
+        # fanout_comments call below is a strict-mypy arg-type error. Declaring
+        # the requirement is also the honest documentation: a class that mixes
+        # this in must provide fetch_comments. No runtime effect.
+        async def fetch_comments(
+            self,
+            issue_number: int,
+            since: datetime | None = None,
+        ) -> list[IssueComment]: ...
 
     async def fetch_comments_bulk(
         self, issue_numbers: list[int], since: datetime | None = None

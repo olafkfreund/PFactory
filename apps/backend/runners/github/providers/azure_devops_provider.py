@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from .protocol import (
+    FanoutCommentsMixin,
     IssueComment,
     IssueData,
     IssueFilters,
@@ -25,7 +26,6 @@ from .protocol import (
     ProviderCommentError,
     ProviderType,
     ReviewData,
-    FanoutCommentsMixin,
     oldest_first,
     to_utc,
 )
