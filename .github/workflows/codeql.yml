@@ -2,9 +2,14 @@ name: CodeQL
 
 on:
   push:
-    branches: [main]
+    # dev is included deliberately even though it is currently dormant (0
+    # commits ahead of main). A security gate that only covers the branch
+    # people happen to use today silently stops covering them the moment the
+    # workflow changes - and AIFactory, the one sibling where dev genuinely
+    # diverges, already scans both.
+    branches: [dev, main]
   pull_request:
-    branches: [main]
+    branches: [dev, main]
   schedule:
     - cron: "23 4 * * 1"
 
