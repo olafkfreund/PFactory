@@ -107,6 +107,13 @@ jobs:
           AIFACTORY_API: ${{ vars.AIFACTORY_API }}
           TFACTORY_API: ${{ vars.TFACTORY_API }}
           CFACTORY_API: ${{ vars.CFACTORY_API }}
+          # CFactory is behind oauth2-proxy, which rejects an opaque token
+          # with a 302 to Keycloak. These let the probe mint a short-lived
+          # service-account JWT instead (Factory#420/#423). Absent them the
+          # cockpit seam reports SKIP, not a false pass.
+          PARR_OIDC_TOKEN_URL: ${{ vars.PARR_OIDC_TOKEN_URL }}
+          CFACTORY_OIDC_CLIENT_ID: ${{ vars.CFACTORY_OIDC_CLIENT_ID }}
+          CFACTORY_OIDC_CLIENT_SECRET: ${{ secrets.CFACTORY_OIDC_CLIENT_SECRET }}
         run: |
           if [ -z "${FACTORY_TOKEN}" ]; then
             echo "FACTORY_TOKEN not set — skipping seam smoke gate."
