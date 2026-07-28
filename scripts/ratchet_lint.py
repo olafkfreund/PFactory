@@ -47,6 +47,7 @@ import fnmatch
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -153,12 +154,23 @@ def changed_python_files(base: str, packages: list[str]) -> list[str]:
     return out
 
 
+def _write_temp(source: str, filename: str) -> tuple[str, str]:
+    """Write *source* under the REAL basename inside a fresh temp dir.
+
+    A random-prefixed name (the old NamedTemporaryFile suffix trick) defeats
+    per-file-ignores like `**/test_*.py`, so every net-new test file was held to
+    the non-test bar and tripped S101 while being clean under its real path.
+    Ported from the hub canonical (Factory#403). Returns (tmpdir, tmp).
+    """
+    tmpdir = tempfile.mkdtemp()
+    tmp = str(Path(tmpdir) / Path(filename).name)
+    Path(tmp).write_text(source)
+    return tmpdir, tmp
+
+
 def ruff_counts(source: str, filename: str) -> Counter[str]:
     """Per-rule ruff violation counts for *source* checked as *filename*."""
-    suffix = Path(filename).name
-    with tempfile.NamedTemporaryFile("w", suffix=f"__{suffix}", delete=False) as fh:
-        fh.write(source)
-        tmp = fh.name
+    tmpdir, tmp = _write_temp(source, filename)
     try:
         res = _run(["ruff", "check", "--config", "ruff.toml", "--output-format", "json", tmp])
         if not res.stdout.strip():
@@ -170,7 +182,7 @@ def ruff_counts(source: str, filename: str) -> Counter[str]:
             sys.exit(2)
         return Counter(item["code"] for item in items)
     finally:
-        Path(tmp).unlink(missing_ok=True)
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def file_at_base(base: str, path: str) -> str | None:
