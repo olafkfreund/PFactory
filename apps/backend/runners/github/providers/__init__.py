@@ -20,8 +20,8 @@ Usage:
 from .azure_devops_provider import AzureDevOpsProvider
 from .factory import get_provider, register_provider
 from .github_provider import GitHubProvider
-from .http_github_provider import HttpGitHubProvider
 from .gitlab_provider import GitLabProvider
+from .http_github_provider import HttpGitHubProvider
 from .protocol import (
     FanoutCommentsMixin,
     GitProvider,
