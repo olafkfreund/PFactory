@@ -54,13 +54,23 @@ jobs:
           ref: ${{ env.HUB_PIN_SHA }}
           path: factory-hub
 
+      - name: Check out the hub drift CHECKER at main
+        # Not at HUB_PIN_SHA: a gate fetched from its own pin cannot ship its
+        # own fix. The CANONICAL above stays pinned, so comparisons remain
+        # reproducible; only the gate's own logic floats (Factory#405).
+        uses: actions/checkout@v4
+        with:
+          repository: olafkfreund/Factory
+          ref: main
+          path: factory-hub-main
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Run the hub drift gate against this service (blocking)
         run: |
-          python factory-hub/scripts/check_factory_ui_drift.py \
+          python factory-hub-main/scripts/check_factory_ui_drift.py \
             --canonical factory-hub/shared/factory-ui \
             --service pfactory \
             --root service

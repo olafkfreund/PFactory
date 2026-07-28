@@ -33,6 +33,9 @@ env:
   # the drift checker. Bump this (and re-vendor runners/github/) when the
   # canonical changes. See shared/factory-github/README.md in the hub.
   HUB_REPO: "olafkfreund/Factory"
+  # The CANONICAL is pinned (reproducible comparison). The CHECKER is not:
+  # a gate fetched from its own pin cannot ship its own fix (Factory#405).
+  HUB_CHECKER_REF: "main"
   HUB_SHA: "43cc78ab13790afd8f881b48c0c7383c9fcc1141"
 
 jobs:
@@ -47,27 +50,23 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Fetch hub drift checker + canonical tree (pinned SHA)
+      - name: Fetch hub drift checker (main) + canonical tree (pinned SHA)
         run: |
           set -euo pipefail
-          raw="https://raw.githubusercontent.com/${HUB_REPO}/${HUB_SHA}"
-          mkdir -p /tmp/hub/canonical/providers
-          curl -fsSL "${raw}/scripts/check_factory_github_drift.py" \
+          mkdir -p /tmp/hub/canonical
+          # Checker from main, NOT from HUB_SHA: every service fetched it from
+          # the pin, so Factory#397's fix was unreachable for weeks while the
+          # gate stayed green on a credential-holding file (Factory#405).
+          curl -fsSL \
+            "https://raw.githubusercontent.com/${HUB_REPO}/${HUB_CHECKER_REF}/scripts/check_factory_github_drift.py" \
             -o /tmp/hub/check_factory_github_drift.py
-          for f in \
-            gh_client.py \
-            rate_limiter.py \
-            providers/__init__.py \
-            providers/protocol.py \
-            providers/factory.py \
-            providers/github_provider.py \
-            providers/gitlab_provider.py \
-            providers/azure_devops_provider.py \
-            providers/_github_json.py \
-            providers/http_github_provider.py; do
-            curl -fsSL "${raw}/shared/factory-github/${f}" \
-              -o "/tmp/hub/canonical/${f}"
-          done
+          # Canonical as a TREE at the pinned SHA, not a hardcoded file list.
+          # The old list could not contain a file nobody knew to add, so the
+          # completeness guard globbed a directory that was complete BY
+          # CONSTRUCTION and could never fire in CI (Factory#405).
+          curl -fsSL "https://codeload.github.com/${HUB_REPO}/tar.gz/${HUB_SHA}" -o /tmp/hub.tgz
+          tar -xzf /tmp/hub.tgz -C /tmp/hub/canonical --strip-components=3 \
+            --wildcards "*/shared/factory-github/*"
 
       - name: Verify the checker's own self-test passes
         run: python /tmp/hub/check_factory_github_drift.py --self-test
