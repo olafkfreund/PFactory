@@ -38,7 +38,19 @@ from pathlib import Path
 # fails to match a top-level test module — measured, the error count was
 # unchanged — and an exact-name section is not portable across four service
 # layouts. The ratchet knows the path, so the decision belongs here.
-MYPY_TEST_RELAX: tuple[str, ...] = ("--allow-untyped-defs", "--allow-incomplete-defs")
+MYPY_TEST_RELAX: tuple[str, ...] = (
+    "--allow-untyped-defs",
+    "--allow-incomplete-defs",
+    # A test file imports pytest and its own app modules, which the ratchet
+    # cannot resolve: it puts only the OWNING PACKAGE on MYPYPATH, so a
+    # web-server test importing `server.auth` gets import-not-found. That is a
+    # property of the harness, not a defect in the test — and since a NEW test
+    # file has a base count of 0, it blocks the ratchet outright. The
+    # alternative is a `type: ignore[import-not-found]` on every new test,
+    # which is the suppress-the-guard failure mode this whole rule exists to
+    # stop. Production files keep strict import checking.
+    "--ignore-missing-imports",
+)
 
 
 def is_test_file(path: str) -> bool:

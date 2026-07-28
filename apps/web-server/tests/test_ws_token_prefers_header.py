@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 _WEB_SERVER = Path(__file__).resolve().parents[1]
 if str(_WEB_SERVER) not in sys.path:
     sys.path.insert(0, str(_WEB_SERVER))
@@ -54,7 +56,7 @@ def test_non_bearer_header_falls_through_to_query() -> None:
     assert auth_mod._ws_extract_token(ws) == "qs-token"
 
 
-def test_query_use_warns_once(caplog) -> None:  # type: ignore[no-untyped-def]
+def test_query_use_warns_once(caplog: pytest.LogCaptureFixture) -> None:
     auth_mod._warn_ws_query_token_once.cache_clear()
     with caplog.at_level("WARNING"):
         auth_mod._ws_extract_token(_ws(query="a"))
@@ -63,7 +65,7 @@ def test_query_use_warns_once(caplog) -> None:  # type: ignore[no-untyped-def]
     assert len(warnings) == 1, "the deprecation notice must be emitted once, not per call"
 
 
-def test_header_use_does_not_warn(caplog) -> None:  # type: ignore[no-untyped-def]
+def test_header_use_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
     auth_mod._warn_ws_query_token_once.cache_clear()
     with caplog.at_level("WARNING"):
         auth_mod._ws_extract_token(_ws(header="Bearer hdr"))

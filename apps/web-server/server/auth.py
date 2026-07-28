@@ -56,12 +56,14 @@ def _ws_extract_token(websocket: WebSocket) -> str | None:
     when a header was present, so a correctly-behaving client still got its
     token written to every access log in the path.
     """
-    auth_header = websocket.headers.get("authorization")
+    # Annotated: starlette's .get() is declared `-> Any`, so without these the
+    # strict-mypy return type of this function silently degrades to Any.
+    auth_header: str | None = websocket.headers.get("authorization")
     if auth_header and auth_header.startswith("Bearer "):
         return auth_header[7:]
 
     # Backward-compatible fallback: token in the URL query string.
-    query_token = websocket.query_params.get("token")
+    query_token: str | None = websocket.query_params.get("token")
     if query_token:
         _warn_ws_query_token_once()
         return query_token
