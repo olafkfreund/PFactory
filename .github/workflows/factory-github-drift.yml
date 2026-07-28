@@ -33,7 +33,7 @@ env:
   # the drift checker. Bump this (and re-vendor runners/github/) when the
   # canonical changes. See shared/factory-github/README.md in the hub.
   HUB_REPO: "olafkfreund/Factory"
-  HUB_SHA: "729aaab27779c41198bce499dd403edd942c0cbd"
+  HUB_SHA: "59f9f76f015dc58521d923815a11db37e4602506"
 
 jobs:
   drift:

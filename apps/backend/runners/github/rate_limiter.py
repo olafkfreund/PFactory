@@ -534,19 +534,19 @@ def rate_limited(
 
             for attempt in range(max_retries + 1):
                 try:
-                    # Pre-flight check
+                    # Consume a token for EVERY GitHub call (AIFactory#883). The
+                    # happy path previously only did the non-consuming
+                    # check_github_available(), so the decorator never drew down
+                    # the bucket - the 5000/hr cap was UNENFORCED and the request
+                    # was never recorded. acquire_github() returns immediately
+                    # when a token is available, waits up to the timeout when the
+                    # bucket is empty, and returns False on timeout.
                     if operation_type == "github":
-                        available, msg = limiter.check_github_available()
-                        if not available and attempt == 0:
-                            # Try to acquire (will wait if needed)
-                            if not await limiter.acquire_github(timeout=30.0):
-                                raise RateLimitExceeded(
-                                    f"GitHub API rate limit exceeded: {msg}"
-                                )
-                        elif not available:
-                            # On retry, wait for token
-                            await limiter.acquire_github(
-                                timeout=limiter.max_retry_delay
+                        timeout = 30.0 if attempt == 0 else limiter.max_retry_delay
+                        if not await limiter.acquire_github(timeout=timeout):
+                            _, msg = limiter.check_github_available()
+                            raise RateLimitExceeded(
+                                f"GitHub API rate limit exceeded: {msg}"
                             )
 
                     # Execute function
