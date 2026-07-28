@@ -9,6 +9,7 @@ Public paths (no auth required): /api/auth/*, /api/health, static assets, etc.
 """
 
 import hashlib
+import hmac
 import logging
 from datetime import datetime, timezone
 
@@ -20,6 +21,27 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from .config import get_settings
+
+
+def _is_legacy_api_token(token: str) -> bool:
+    """Constant-time match of a presented token against the legacy API_TOKEN.
+
+    Uses ``hmac.compare_digest`` to avoid the timing oracle of ``==``: a
+    byte-by-byte comparison leaks how far a guess matched, which makes a shared
+    secret recoverable in far fewer attempts than brute force. Ported verbatim
+    from AIFactory (#324 M1), which has had this since June — the fix reached one
+    service and silently missed the others.
+
+    An unset ``API_TOKEN`` never matches, so the legacy path cannot be enabled by
+    an empty configured token. That guard is unreachable today (config.py
+    generates a token when none is set) and is kept anyway: it is defence against
+    a future config change, and dropping it is how the fleet ends up with four
+    subtly different copies again.
+    """
+    configured = get_settings().API_TOKEN
+    if not configured or not token:
+        return False
+    return hmac.compare_digest(token, configured)
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +288,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         # was wiped on a cluster rebuild). Without this ordering an acw_-prefixed
         # shared token falls into Strategy 3, fails the DB lookup, and 401s
         # without ever reaching here.
-        if token == settings.API_TOKEN:
+        if _is_legacy_api_token(token):
             # Legacy token — populate a default user so notifications still work
             request.state.user = {
                 "id": "default",
@@ -303,8 +325,6 @@ async def verify_token(
 
     Accepts both JWT tokens and legacy API tokens.
     """
-    settings = get_settings()
-
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -319,7 +339,7 @@ async def verify_token(
         return token
 
     # Accept legacy API token
-    if token == settings.API_TOKEN:
+    if _is_legacy_api_token(token):
         return token
 
     raise HTTPException(
@@ -361,7 +381,7 @@ async def verify_websocket_token(websocket: WebSocket) -> bool:
         return True
 
     # Accept legacy API token
-    if token == settings.API_TOKEN:
+    if _is_legacy_api_token(token):
         return True
 
     await websocket.close(code=4001, reason="Unauthorized")
@@ -408,7 +428,7 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
         }
 
     # Fall back to legacy token — no user info available
-    if token == settings.API_TOKEN:
+    if _is_legacy_api_token(token):
         return None
 
     await websocket.close(code=4001, reason="Unauthorized")
