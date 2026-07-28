@@ -1,0 +1,84 @@
+name: verification-core drift gate
+
+# Blocking drift gate for the hub shared libraries this repo vendors.
+#
+# PFactory hand-vendors two modules from the Factory hub canonical (scripts/):
+#   apps/backend/runners/artifact_store.py       (RFC-0016 artifact store)
+#   apps/backend/plan/emit/cost_router_core.py   (RFC-0014 cost router)
+#
+# Until Factory#400 these were vendored with NO gate of any kind, so nothing
+# detected them diverging — and they had, for weeks. Both were missing real
+# behaviour: artifact_store lacked the whole RFC-0017 workspace layer, the tar
+# path-traversal guards and the MinIO role= tagging that makes evidence
+# retention fire; cost_router_core lacked admit_within_budget.
+#
+# These copies MUST stay byte-identical to the hub canonical. To change one:
+# land it in the hub canonical first (CODEOWNERS-reviewed), re-vendor byte-for-
+# byte, and bump HUB_PIN_SHA. Never edit a vendored copy to satisfy a local
+# style bar — they are excluded from ruff in ruff.toml precisely so the local
+# formatter cannot silently break byte-exactness.
+#
+# The gate is named "verification-core" because it reuses that hub checker,
+# which implements exactly this mechanism. Its name is narrower than its job;
+# renaming it means touching every consumer's workflow, tracked separately.
+
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - "apps/backend/runners/artifact_store.py"
+      - "apps/backend/plan/emit/cost_router_core.py"
+      - ".github/workflows/verification-core-drift.yml"
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: vcore-drift-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned Factory hub commit carrying the canonical modules. Bump deliberately
+  # when re-vendoring (see header).
+  HUB_PIN_SHA: "3e930a96dd44baab8fd7434b071592bd27553a83"
+
+jobs:
+  drift:
+    name: vendored copies match the hub canonical (byte-exact)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this service
+        uses: actions/checkout@v4
+        with:
+          path: service
+
+      - name: Check out the Factory hub canonical at the pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: olafkfreund/Factory
+          ref: ${{ env.HUB_PIN_SHA }}
+          path: factory-hub
+          # If the Factory hub is private, provide a read token here.
+
+      - name: Check out the hub drift CHECKER at main
+        # Not at HUB_PIN_SHA: a gate fetched from its own pin cannot ship its
+        # own fix. The CANONICAL above stays pinned, so comparisons remain
+        # reproducible; only the gate's own logic floats (Factory#405).
+        uses: actions/checkout@v4
+        with:
+          repository: olafkfreund/Factory
+          ref: main
+          path: factory-hub-main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run the hub drift gate against this service (blocking)
+        run: |
+          python factory-hub-main/scripts/check_verification_core_drift.py \
+            --canonical factory-hub/scripts \
+            --service pfactory \
+            --root service
