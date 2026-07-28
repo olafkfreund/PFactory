@@ -1,22 +1,6 @@
 #!/usr/bin/env python3
 """RFC-0014 cost-aware, capability-aware router (reference core).
 
-VENDORED COPY — DO NOT EDIT IN PLACE.
-=====================================
-This file is a vendored copy of the Factory hub canonical
-``scripts/cost_router_core.py`` (the RFC-0014 reference router lib). PFactory's
-``plan/emit/cost_router.py`` consumes it. To change the floor/pricing/selection
-logic, edit the hub canonical and re-vendor::
-
-    cp ../Factory/scripts/cost_router_core.py \\
-       apps/backend/plan/emit/cost_router_core.py
-
-then re-apply this banner. Keeping it a copy (rather than importing the sibling
-Factory checkout) avoids a build-time path dependency while preserving a single
-logical source of truth. The companion ``plan/emit/model-catalog.json`` is
-likewise vendored from ``Factory/apis/model-catalog.json``. Drift is the
-maintainer's responsibility: if the hub copy changes, re-vendor both files.
-
 A pure, dependency-free library that turns the single hub price/capability table
 (`apis/model-catalog.json`) into routing decisions. PFactory's `cost_router.py`
 consumes this; AIFactory/TFactory may vendor it for budget-enforce and test-model
@@ -221,6 +205,37 @@ def planning_floor_class(tier: str, routing_class: str) -> str:
     return base
 
 
+def admit_within_budget(
+    *,
+    active_jobs: int,
+    max_concurrency: int | None,
+    tenant_spend_usd: float,
+    ceiling_usd: float | None,
+    est_job_cost_usd: float | None,
+) -> tuple[str, str]:
+    """Admission decision tying RFC-0016 concurrency control to the RFC-0014 budget.
+
+    The single gate a control plane consults before starting another concurrent
+    Job. Returns ``(decision, reason)`` where decision is:
+
+    - ``"queue"`` — the concurrency cap is full (RFC-0016); wait for a slot.
+    - ``"deny"``  — admitting would exceed the tenant/team spend ceiling (RFC-0014).
+    - ``"admit"`` — under both the cap and the budget.
+
+    Concurrency is checked first (a full fleet always queues, regardless of cost).
+    A metered estimate of ``None`` (subscription/local billing — see
+    ``estimate_cost``) never charges the budget. ``max_concurrency`` None/<=0 means
+    unlimited; ``ceiling_usd`` None means no budget enforcement (observe-only).
+    """
+    if max_concurrency is not None and max_concurrency > 0 and active_jobs >= max_concurrency:
+        return ("queue", f"concurrency cap reached ({active_jobs}/{max_concurrency})")
+    if ceiling_usd is not None and est_job_cost_usd is not None:
+        projected = tenant_spend_usd + est_job_cost_usd
+        if projected > ceiling_usd:
+            return ("deny", f"budget: ${projected:.2f} would exceed ${ceiling_usd:.2f} ceiling")
+    return ("admit", "within concurrency cap and budget")
+
+
 # --------------------------------------------------------------------------- #
 # Self-tests (run: python3 scripts/cost_router_core.py)
 # --------------------------------------------------------------------------- #
@@ -328,6 +343,54 @@ def _test_governed_forces_frontier(cat: dict[str, ModelEntry]) -> None:
     _check(base == "balanced", f"standard medium planning defers to balanced, got {base}")
 
 
+def _test_admission_budget() -> None:
+    # Under cap and under budget -> admit.
+    d, _ = admit_within_budget(
+        active_jobs=2,
+        max_concurrency=5,
+        tenant_spend_usd=10.0,
+        ceiling_usd=100.0,
+        est_job_cost_usd=3.0,
+    )
+    _check(d == "admit", f"under cap+budget must admit, got {d}")
+    # Cap full -> queue (concurrency checked before budget).
+    d, _ = admit_within_budget(
+        active_jobs=5,
+        max_concurrency=5,
+        tenant_spend_usd=0.0,
+        ceiling_usd=None,
+        est_job_cost_usd=None,
+    )
+    _check(d == "queue", f"full cap must queue, got {d}")
+    # Over budget -> deny.
+    d, _ = admit_within_budget(
+        active_jobs=0,
+        max_concurrency=5,
+        tenant_spend_usd=99.0,
+        ceiling_usd=100.0,
+        est_job_cost_usd=5.0,
+    )
+    _check(d == "deny", f"over-budget must deny, got {d}")
+    # Subscription/local (None est) never charges the budget -> admit near the ceiling.
+    d, _ = admit_within_budget(
+        active_jobs=0,
+        max_concurrency=5,
+        tenant_spend_usd=99.0,
+        ceiling_usd=100.0,
+        est_job_cost_usd=None,
+    )
+    _check(d == "admit", f"flat-rate job must not be budget-denied, got {d}")
+    # Unlimited concurrency + no ceiling -> always admit.
+    d, _ = admit_within_budget(
+        active_jobs=999,
+        max_concurrency=None,
+        tenant_spend_usd=1e9,
+        ceiling_usd=None,
+        est_job_cost_usd=1e9,
+    )
+    _check(d == "admit", f"unlimited+no-ceiling must admit, got {d}")
+
+
 def _test() -> None:
     cat = _fixture()
     _test_estimate(cat)
@@ -335,7 +398,8 @@ def _test() -> None:
     _test_cheapest_under_ceiling(cat)
     _test_subscription_local_preferred(cat)
     _test_governed_forces_frontier(cat)
-    print("cost_router_core self-tests: 5 groups passed")  # noqa: T201  # CLI self-test report sink
+    _test_admission_budget()
+    print("cost_router_core self-tests: 6 groups passed")  # noqa: T201  # CLI self-test report sink
 
 
 if __name__ == "__main__":

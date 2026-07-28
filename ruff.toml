@@ -54,6 +54,11 @@ extend-exclude = [
     # linter/formatter (and the ratchet, which honours these excludes) cannot
     # fight a byte-exact re-vendor. Edit the hub canonical, not this copy.
     "apps/backend/runners/artifact_store.py",
+    # RFC-0014: same deal — byte-exact mirror of the hub canonical
+    # scripts/cost_router_core.py at the hub width (100). It was vendored but
+    # never excluded, so the local formatter could silently break a byte-exact
+    # re-vendor (Factory#400).
+    "apps/backend/plan/emit/cost_router_core.py",
 ]
 
 [lint.per-file-ignores]
