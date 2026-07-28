@@ -112,4 +112,12 @@ jobs:
             echo "FACTORY_TOKEN not set — skipping seam smoke gate."
             exit 0
           fi
-          python3 scripts/parr_regression.py --smoke || true
+          # No `|| true`. The job is already continue-on-error, so a failing
+          # seam cannot break or roll back the deploy - but discarding the
+          # exit code on top of that hid a hard crash on EVERY deploy
+          # (Factory#416: the probe died on `ValueError: unknown url type`
+          # before its first request and the job still reported green).
+          # Keeping the real exit code visible is also what makes the
+          # standing TODO below achievable: nobody can decide to promote
+          # this to a required gate while it is incapable of failing.
+          python3 scripts/parr_regression.py --smoke
