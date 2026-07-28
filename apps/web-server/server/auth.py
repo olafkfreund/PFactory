@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import logging
 from datetime import datetime, timezone
+from functools import lru_cache
 
 from fastapi import HTTPException, Request, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -21,6 +22,51 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from .config import get_settings
+
+
+@lru_cache(maxsize=1)
+def _warn_ws_query_token_once() -> None:
+    """Emit a one-time deprecation warning for WS ``?token=`` query auth (#555).
+
+    Passing a bearer token in the URL leaks it into proxy/access logs and
+    browser history. Clients should send ``Authorization: Bearer <token>``
+    instead.
+
+    ``lru_cache`` rather than a module-level flag: it says "run once" without a
+    `global` (which the stricter service ruff configs flag as PLW0603), and it
+    gives tests a clean reset via ``cache_clear()``.
+    """
+    logger.warning(
+        "DEPRECATED: WebSocket token supplied via the ?token= query "
+        "param, which leaks into proxy/access logs and browser history. "
+        "Send it via the 'Authorization: Bearer <token>' header instead "
+        "(#555)."
+    )
+
+
+def _ws_extract_token(websocket: WebSocket) -> str | None:
+    """Pull the bearer token from a WebSocket, preferring the header (#555).
+
+    Order: ``Authorization: Bearer <token>`` header first, then the legacy
+    ``?token=`` query param. Using the query param emits a one-time deprecation
+    warning since it leaks the token into logs/history. Returns ``None`` when no
+    token is present.
+
+    The previous order here was the other way round: the query param won even
+    when a header was present, so a correctly-behaving client still got its
+    token written to every access log in the path.
+    """
+    auth_header = websocket.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header[7:]
+
+    # Backward-compatible fallback: token in the URL query string.
+    query_token = websocket.query_params.get("token")
+    if query_token:
+        _warn_ws_query_token_once()
+        return query_token
+
+    return None
 
 
 def _is_legacy_api_token(token: str) -> bool:
@@ -363,14 +409,9 @@ async def verify_websocket_token(websocket: WebSocket) -> bool:
     if settings.DISABLE_AUTH:
         return True
 
-    # Try query parameter first
-    token = websocket.query_params.get("token")
-
-    # Fall back to header
-    if not token:
-        auth_header = websocket.headers.get("authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+    # Prefer the Authorization header; fall back to the legacy ?token= query
+    # param (with a deprecation warning) for backward compatibility (#555).
+    token = _ws_extract_token(websocket)
 
     if not token:
         await websocket.close(code=4001, reason="Unauthorized")
@@ -405,14 +446,9 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
     if settings.DISABLE_AUTH:
         return None
 
-    # Try query parameter first
-    token = websocket.query_params.get("token")
-
-    # Fall back to header
-    if not token:
-        auth_header = websocket.headers.get("authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+    # Prefer the Authorization header; fall back to the legacy ?token= query
+    # param (with a deprecation warning) for backward compatibility (#555).
+    token = _ws_extract_token(websocket)
 
     if not token:
         await websocket.close(code=4001, reason="Unauthorized")
