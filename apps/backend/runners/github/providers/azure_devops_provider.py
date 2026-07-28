@@ -16,20 +16,33 @@ from typing import Any
 import httpx
 
 from .protocol import (
+    IssueComment,
     IssueData,
     IssueFilters,
     LabelData,
     PRData,
     PRFilters,
+    ProviderCommentError,
     ProviderType,
     ReviewData,
+    FanoutCommentsMixin,
+    oldest_first,
+    to_utc,
 )
 
 logger = logging.getLogger(__name__)
 
+# ADO caps the work-item comments endpoint at $top=200 and pages with an opaque
+# continuationToken. The page cap bounds a thread read (10 x 200 = 2000
+# comments) instead of following tokens forever; hitting it is an error.
+_COMMENT_PAGE_SIZE = 200
+_COMMENT_MAX_PAGES = 10
+# Work-item comments are still preview-only in the 7.1 surface.
+_COMMENT_API_VERSION = "7.1-preview.4"
+
 
 @dataclass
-class AzureDevOpsProvider:
+class AzureDevOpsProvider(FanoutCommentsMixin):
     """
     Azure DevOps implementation of the GitProvider protocol.
     Works with dev.azure.com.
@@ -422,6 +435,86 @@ class AzureDevOpsProvider:
             resp_wi = await client.post(url_wi, json={"text": body})
             resp_wi.raise_for_status()
             return resp_wi.json()["id"]
+
+    async def fetch_comments(
+        self, issue_number: int, since: datetime | None = None
+    ) -> list[IssueComment]:
+        """Read a work item's comment thread (Factory#375).
+
+        The ADO comments endpoint has no ``since`` parameter either, so the
+        narrowing lever is the same as GitLab's: ``order=desc`` returns newest
+        first and the walk stops at the cutoff, so an incremental poll costs one
+        page. Pagination is by opaque ``continuationToken``, not page number.
+        """
+        cutoff = to_utc(since) if since is not None else None
+        url = (
+            f"{self._base_url}/{self._org}/{self._proj}"
+            f"/_apis/wit/workItems/{issue_number}/comments"
+        )
+        collected: list[IssueComment] = []
+        token: str | None = None
+
+        try:
+            async with self._client() as client:
+                for _page in range(_COMMENT_MAX_PAGES):
+                    params: dict[str, Any] = {
+                        "api-version": _COMMENT_API_VERSION,
+                        "$top": _COMMENT_PAGE_SIZE,
+                        "order": "desc",
+                    }
+                    if token:
+                        params["continuationToken"] = token
+
+                    resp = await client.get(url, params=params)
+                    resp.raise_for_status()
+                    payload = resp.json() or {}
+
+                    for comment in payload.get("comments") or []:
+                        updated = self._parse_datetime(
+                            comment.get("modifiedDate") or comment.get("createdDate")
+                        )
+                        if cutoff is not None and to_utc(updated) <= cutoff:
+                            return oldest_first(collected)
+                        collected.append(self._parse_comment(comment, issue_number))
+
+                    token = payload.get("continuationToken")
+                    if not token:
+                        return oldest_first(collected)
+        except ProviderCommentError:
+            raise
+        except Exception as exc:
+            raise ProviderCommentError(
+                f"Azure DevOps comment read failed for work item {issue_number}: {exc}"
+            ) from exc
+
+        raise ProviderCommentError(
+            f"Azure DevOps comment read for work item {issue_number} exceeded "
+            f"{_COMMENT_MAX_PAGES} pages; narrow the `since` window rather than "
+            "accept a truncated thread"
+        )
+
+    def _parse_comment(self, comment: dict[str, Any], issue_number: int) -> IssueComment:
+        """Parse an ADO work item comment into the normalised shape."""
+        created_by = comment.get("createdBy") or {}
+        created = comment.get("createdDate")
+        # The 7.1-preview.4 payload keys the identifier `commentId`; the schema
+        # definition calls it `id`. Both are read so neither spelling loses it.
+        comment_id = comment.get("commentId")
+        if comment_id is None:
+            comment_id = comment.get("id", "")
+        return IssueComment(
+            id=str(comment_id),
+            issue_number=issue_number,
+            author=(created_by.get("uniqueName") or created_by.get("displayName") or "")
+            if isinstance(created_by, dict)
+            else str(created_by),
+            body=comment.get("text") or "",
+            created_at=self._parse_datetime(created),
+            updated_at=self._parse_datetime(comment.get("modifiedDate") or created),
+            url=comment.get("url") or "",
+            provider=ProviderType.AZURE_DEVOPS,
+            raw_data=comment,
+        )
 
     async def assign_to_user(self, issue_number: int, assignees: list[str]) -> None:
         """Permanent stub — ADO has no autonomous coding agent."""

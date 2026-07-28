@@ -9,7 +9,7 @@ Enables support for GitHub, Bitbucket, and other providers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
@@ -85,6 +85,100 @@ class IssueData:
 
     # Provider-specific raw data
     raw_data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class IssueComment:
+    """
+    A single comment on an issue.
+
+    Provider-agnostic representation of a discussion entry (Factory#375). The
+    body of an issue is only half the story — the decision usually lives in the
+    thread — so the board needs to read comments without ever branching on
+    ``provider``. Every field below is populated identically by all three
+    providers; ``id`` keeps the provider-native identifier (stringified, because
+    GitHub/GitLab/ADO all number them independently) so a consumer can dedupe an
+    incremental re-fetch against what it already stored.
+    """
+
+    id: str
+    issue_number: int
+    author: str
+    body: str
+    created_at: datetime
+    updated_at: datetime
+    url: str
+    provider: ProviderType = ProviderType.GITHUB
+
+    # Provider-specific raw data
+    raw_data: dict[str, Any] = field(default_factory=dict)
+
+
+class ProviderCommentError(RuntimeError):
+    """A comment read failed or could not be completed.
+
+    Raised instead of returning what was collected so far. A partial thread is
+    indistinguishable from a short one once stored, and "this issue has no
+    discussion" is exactly the wrong thing to persist for an issue whose
+    discussion simply failed to download.
+    """
+
+
+def to_utc(dt: datetime) -> datetime:
+    """Treat a naive datetime as UTC so ``since`` comparisons never raise."""
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def to_iso_utc(dt: datetime) -> str:
+    """Render a datetime as the ISO-8601 UTC form the provider APIs expect."""
+    return to_utc(dt).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def oldest_first(comments: list[IssueComment]) -> list[IssueComment]:
+    """Normalise comment order.
+
+    Providers return threads in whatever order their pagination needed (GitHub
+    ascending, GitLab and ADO newest-first for the ``since`` early stop). The
+    protocol promises one order to the caller, so every implementation ends on
+    this rather than each sorting for itself.
+    """
+    return sorted(comments, key=lambda comment: comment.created_at)
+
+
+async def fanout_comments(
+    provider: GitProvider,
+    issue_numbers: list[int],
+    since: datetime | None = None,
+) -> dict[int, list[IssueComment]]:
+    """Per-issue fallback for providers with no bulk comment endpoint.
+
+    Costs exactly ``len(set(issue_numbers))`` API calls — bounded and
+    predictable, which is the point: the alternative failure mode is an
+    unbounded walk of a whole repository's comment history. Sequential on
+    purpose; concurrency here would spend the rate-limit budget faster, not save
+    any calls. Deduping and ordering live here so callers stay one line.
+    """
+    return {
+        number: await provider.fetch_comments(number, since=since)
+        for number in sorted({int(number) for number in issue_numbers})
+    }
+
+
+class FanoutCommentsMixin:
+    """``fetch_comments_bulk`` for providers whose API has no batch endpoint.
+
+    GitLab exposes notes only per resource (there is no project-wide notes
+    endpoint) and Azure DevOps has no batch comments API (``workitemsbatch``
+    expands fields, relations and links, not comments). Both therefore answer a
+    bulk read the only way their API allows — one call per issue — so the
+    fallback lives here once instead of being pasted into each provider.
+    """
+
+    async def fetch_comments_bulk(
+        self, issue_numbers: list[int], since: datetime | None = None
+    ) -> dict[int, list[IssueComment]]:
+        """One call per issue; single-paged per issue when ``since`` is set."""
+        return await fanout_comments(self, issue_numbers, since)
 
 
 @dataclass
@@ -384,6 +478,70 @@ class GitProvider(Protocol):
 
         Returns:
             Comment ID
+        """
+        ...
+
+    async def fetch_comments(
+        self,
+        issue_number: int,
+        since: datetime | None = None,
+    ) -> list[IssueComment]:
+        """
+        Read the comment thread on an issue (Factory#375).
+
+        The read counterpart to :meth:`add_comment`. Returns a normalised
+        :class:`IssueComment` list ordered oldest-first, so a caller never
+        branches on ``provider`` to render a discussion.
+
+        ``since`` mirrors :class:`IssueFilters.since`: only comments created or
+        updated strictly after that instant are returned. It is a real narrowing
+        of the request, not a client-side filter — implementations either pass it
+        to the API (GitHub) or fetch newest-first and stop at the cutoff
+        (GitLab, Azure DevOps), so a poll that finds nothing new costs one page.
+
+        Storage is the consumer's decision: this returns the same thing whether
+        it is called once at import or on every card open.
+
+        Args:
+            issue_number: Issue number (GitHub) / IID (GitLab) / work item ID (ADO)
+            since: Only return comments updated after this instant
+
+        Returns:
+            Comments, oldest first. Empty when the issue has no discussion.
+
+        Raises:
+            ProviderCommentError: The thread could not be read in full. Never
+                returns a truncated list — a partial thread presented as
+                complete is worse than a visible failure.
+        """
+        ...
+
+    async def fetch_comments_bulk(
+        self,
+        issue_numbers: list[int],
+        since: datetime | None = None,
+    ) -> dict[int, list[IssueComment]]:
+        """
+        Read comment threads for several issues at once (Factory#375).
+
+        Comments are one API call PER ISSUE on the naive path, and Factory#373
+        multiplies that per repository — a 46-card backfill is 46 extra calls
+        every poll. Implementations must use a bulk endpoint where the provider
+        has one (GitHub's repository-wide issue-comments endpoint does, with
+        server-side ``since``) and fall back to a bounded per-issue fan-out
+        (:func:`fanout_comments`) where it does not.
+
+        Args:
+            issue_numbers: Issues to read. Explicit rather than "all", so the
+                call cost is always bounded by what the caller asked for.
+            since: Only return comments updated after this instant
+
+        Returns:
+            Mapping of issue number to its comments, oldest first. Every
+            requested number is present; issues with no comments map to ``[]``.
+
+        Raises:
+            ProviderCommentError: As :meth:`fetch_comments`.
         """
         ...
 
