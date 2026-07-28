@@ -44,6 +44,10 @@ extend-exclude = [
     "apps/backend/runners/github/providers/github_provider.py",
     "apps/backend/runners/github/providers/gitlab_provider.py",
     "apps/backend/runners/github/providers/azure_devops_provider.py",
+    # Factory#370 grew the canonical from 8 files to 10; these two arrived with
+    # the token-authenticated GitHub provider and are vendored on the same terms.
+    "apps/backend/runners/github/providers/_github_json.py",
+    "apps/backend/runners/github/providers/http_github_provider.py",
     # RFC-0016 #190: the shared S3-compatible artifact-store client, vendored
     # byte-exact from the Factory hub canonical (scripts/artifact_store.py).
     # Formatted at the hub width (100); excluded here so the local

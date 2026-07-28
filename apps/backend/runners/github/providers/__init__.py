@@ -20,16 +20,22 @@ Usage:
 from .azure_devops_provider import AzureDevOpsProvider
 from .factory import get_provider, register_provider
 from .github_provider import GitHubProvider
+from .http_github_provider import HttpGitHubProvider
 from .gitlab_provider import GitLabProvider
 from .protocol import (
+    FanoutCommentsMixin,
     GitProvider,
+    IssueComment,
     IssueData,
     IssueFilters,
     PRData,
     PRFilters,
+    ProviderCommentError,
     ProviderType,
     ReviewData,
     ReviewFinding,
+    fanout_comments,
+    oldest_first,
 )
 
 __all__ = [
@@ -37,13 +43,19 @@ __all__ = [
     "GitProvider",
     "PRData",
     "IssueData",
+    "IssueComment",
     "ReviewData",
     "ReviewFinding",
     "IssueFilters",
     "PRFilters",
     "ProviderType",
+    "ProviderCommentError",
+    "FanoutCommentsMixin",
+    "fanout_comments",
+    "oldest_first",
     # Implementations
     "GitHubProvider",
+    "HttpGitHubProvider",
     "GitLabProvider",
     "AzureDevOpsProvider",
     # Factory

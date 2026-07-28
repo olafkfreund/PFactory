@@ -16,20 +16,30 @@ from typing import Any
 import httpx
 
 from .protocol import (
+    IssueComment,
     IssueData,
     IssueFilters,
     LabelData,
     PRData,
     PRFilters,
+    ProviderCommentError,
     ProviderType,
     ReviewData,
+    FanoutCommentsMixin,
+    oldest_first,
+    to_utc,
 )
 
 logger = logging.getLogger(__name__)
 
+# GitLab's Notes API caps `per_page` at 100. The page cap bounds a thread read
+# (20 x 100 = 2000 notes) instead of paging forever; hitting it is an error.
+_COMMENT_PAGE_SIZE = 100
+_COMMENT_MAX_PAGES = 20
+
 
 @dataclass
-class GitLabProvider:
+class GitLabProvider(FanoutCommentsMixin):
     """
     GitLab implementation of the GitProvider protocol.
     Works with both gitlab.com and self-hosted GitLab CE/EE instances.
@@ -434,6 +444,83 @@ class GitLabProvider:
             )
             issue_resp.raise_for_status()
             return issue_resp.json()["id"]
+
+    async def fetch_comments(
+        self, issue_number: int, since: datetime | None = None
+    ) -> list[IssueComment]:
+        """Read one issue's notes (Factory#375).
+
+        GitLab's Notes API has no ``since`` parameter, so the narrowing lever is
+        ordering: newest-first by ``updated_at`` means an incremental poll walks
+        until it meets the cutoff and stops, typically inside the first page,
+        rather than downloading the whole thread to discard most of it.
+
+        System notes ("changed the description", label churn) are activity, not
+        discussion, and are dropped — they would otherwise swamp the thread.
+        ``activity_filter=only_comments`` does that server-side where the
+        instance supports it; the ``system`` check below is the fallback for
+        instances that ignore the parameter (GitLab ignores unknown params).
+        """
+        cutoff = to_utc(since) if since is not None else None
+        collected: list[IssueComment] = []
+        try:
+            async with self._client() as client:
+                for page in range(1, _COMMENT_MAX_PAGES + 1):
+                    resp = await client.get(
+                        f"/api/v4/projects/{self._project_id}/issues/{issue_number}/notes",
+                        params={
+                            "per_page": _COMMENT_PAGE_SIZE,
+                            "page": page,
+                            "order_by": "updated_at",
+                            "sort": "desc",
+                            "activity_filter": "only_comments",
+                        },
+                    )
+                    resp.raise_for_status()
+                    notes = resp.json() or []
+
+                    for note in notes:
+                        updated = self._parse_datetime(
+                            note.get("updated_at") or note.get("created_at")
+                        )
+                        if cutoff is not None and to_utc(updated) <= cutoff:
+                            return oldest_first(collected)
+                        if note.get("system"):
+                            continue
+                        collected.append(self._parse_note(note, issue_number))
+
+                    if len(notes) < _COMMENT_PAGE_SIZE:
+                        return oldest_first(collected)
+        except ProviderCommentError:
+            raise
+        except Exception as exc:
+            raise ProviderCommentError(
+                f"GitLab comment read failed for issue {issue_number}: {exc}"
+            ) from exc
+
+        raise ProviderCommentError(
+            f"GitLab comment read for issue {issue_number} exceeded "
+            f"{_COMMENT_MAX_PAGES} pages; narrow the `since` window rather than "
+            "accept a truncated thread"
+        )
+
+    def _parse_note(self, note: dict[str, Any], issue_number: int) -> IssueComment:
+        """Parse a GitLab note into the normalised shape."""
+        author = note.get("author") or {}
+        created = note.get("created_at")
+        # Notes carry no web_url of their own; GitLab addresses them as an
+        # anchor on the issue page.
+        return IssueComment(
+            id=str(note.get("id", "")),
+            issue_number=issue_number,
+            author=author.get("username", "") if isinstance(author, dict) else str(author),
+            body=note.get("body") or "",
+            created_at=self._parse_datetime(created),
+            updated_at=self._parse_datetime(note.get("updated_at") or created),
+            url=f"{self._base_url}/{self._repo}/-/issues/{issue_number}#note_{note.get('id', '')}",
+            provider=ProviderType.GITLAB,
+            raw_data=note,
+        )
 
     # GitLab Duo's "alias" for delegation. The runner passes ``["Copilot"]``
     # to every provider; we treat that as the GitLab-specific Duo trigger
