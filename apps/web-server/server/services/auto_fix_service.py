@@ -238,10 +238,13 @@ def _provider_for(project_id: str):
             kwargs["_project"] = proj_name
         return get_provider(ProviderType.AZURE_DEVOPS, repo=repo_name, **kwargs)
 
-    # Default: GitHub
+    # Default: GitHub. The key is `token` (not `_token`): the factory keys its
+    # REST-vs-gh-CLI choice on `"token" in kwargs`, so `_token` would fall
+    # through to the gh-CLI GitHubProvider — which has no such field, so it
+    # raises TypeError (Factory#365).
     kwargs = {}
     if token:
-        kwargs["_token"] = token
+        kwargs["token"] = token
     if project_path:
         kwargs["_project_dir"] = project_path
     return get_provider(ProviderType.GITHUB, repo=repo_name, **kwargs)
