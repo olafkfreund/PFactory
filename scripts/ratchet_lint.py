@@ -28,9 +28,18 @@ cross-service reuse of the Factory shared ratchet); PACKAGE_DEFAULT matches this
 repo's backend layout, and the blocking per-file mypy gate (issue #192) was
 added here.
 
+Pre-commit mode (issue #389): ``--staged`` gates the git INDEX against HEAD
+with the exact same per-file no-regression rule and the exact same config, so
+the .husky/pre-commit hook and CI cannot disagree. Staged content is read from
+the index (``git show :<path>``), not the worktree, so the gate judges what
+would actually be committed. Staged mode is ruff-only (implies ``--no-mypy``):
+the mypy gate needs files on disk at their real paths and is too slow for a
+hook; it stays in CI.
+
 Usage:
     python scripts/ratchet_lint.py --base <git-ref> [--package <dir>] \\
         [--mypy-config <ini>] [--no-mypy]
+    python scripts/ratchet_lint.py --staged [--package <dir>]
 
 Exit code 0 if no changed file regressed; 1 otherwise.
 """
@@ -134,9 +143,17 @@ def owning_package(path: str, packages: list[str]) -> str:
     return max(matches, key=len) if matches else packages[0]
 
 
-def changed_python_files(base: str, packages: list[str]) -> list[str]:
-    """Python files under any of *packages* changed (added/modified) vs *base*."""
-    res = _run(["git", "diff", "--name-only", "--diff-filter=AM", f"{base}...HEAD"])
+def changed_python_files(base: str, packages: list[str], *, staged: bool = False) -> list[str]:
+    """Python files under any of *packages* changed (added/modified) vs *base*.
+
+    In staged mode the change set is the git index vs HEAD (what a commit in
+    progress would actually record), not a committed range.
+    """
+    if staged:
+        cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=AM"]
+    else:
+        cmd = ["git", "diff", "--name-only", "--diff-filter=AM", f"{base}...HEAD"]
+    res = _run(cmd)
     if res.returncode != 0:
         sys.stderr.write(res.stderr)
         sys.exit(2)
@@ -182,8 +199,16 @@ def file_at_base(base: str, path: str) -> str | None:
     return res.stdout if res.returncode == 0 else None
 
 
-def regressions(base: str, path: str) -> list[str]:
-    head_src = Path(path).read_text()
+def staged_source(path: str) -> str | None:
+    """The INDEX content of *path* (what `git commit` would record), or None."""
+    res = _run(["git", "show", f":{path}"])
+    return res.stdout if res.returncode == 0 else None
+
+
+def regressions(base: str, path: str, *, staged: bool = False) -> list[str]:
+    head_src = staged_source(path) if staged else Path(path).read_text()
+    if head_src is None:
+        return []
     head_counts = ruff_counts(head_src, path)
     base_src = file_at_base(base, path)
     base_counts = ruff_counts(base_src, path) if base_src is not None else Counter()
@@ -257,7 +282,15 @@ def mypy_regression(base: str, path: str, package: str, mypy_config: str) -> str
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base", required=True, help="git ref to diff against")
+    parser.add_argument("--base", help="git ref to diff against (required unless --staged)")
+    parser.add_argument(
+        "--staged",
+        action="store_true",
+        help=(
+            "pre-commit mode: gate the git index against HEAD instead of a "
+            "committed range; ruff-only (implies --no-mypy, which stays in CI)"
+        ),
+    )
     # Repeatable (Factory#384): apps/web-server holds every FastAPI route and
     # request model and was gated by nothing, which is how 133 credential-bearing
     # pydantic fields (#377) accumulated there unnoticed. Default unchanged, so
@@ -275,8 +308,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.staged and args.base:
+        parser.error("--base and --staged are mutually exclusive")
+    if not args.staged and not args.base:
+        parser.error("--base is required unless --staged")
+    base = "HEAD" if args.staged else args.base
+    no_mypy = args.no_mypy or args.staged
+
     packages = args.packages or [PACKAGE_DEFAULT]
-    files = changed_python_files(args.base, packages)
+    files = changed_python_files(base, packages, staged=args.staged)
     if not files:
         print(f"ratchet: no changed Python files under {packages}; nothing to gate.")
         return 0
@@ -285,14 +325,12 @@ def main() -> int:
 
     ruff_regressions: list[str] = []
     for path in files:
-        ruff_regressions.extend(regressions(args.base, path))
+        ruff_regressions.extend(regressions(base, path, staged=args.staged))
 
     mypy_regressions: list[str] = []
-    if not args.no_mypy:
+    if not no_mypy:
         for path in files:
-            msg = mypy_regression(
-                args.base, path, owning_package(path, packages), args.mypy_config
-            )
+            msg = mypy_regression(base, path, owning_package(path, packages), args.mypy_config)
             if msg is not None:
                 mypy_regressions.append(msg)
 
@@ -317,7 +355,7 @@ def main() -> int:
         )
         return 1
 
-    suffix = "" if args.no_mypy else " (ruff + mypy)"
+    suffix = "" if no_mypy else " (ruff + mypy)"
     print(f"ratchet PASSED: no changed file regressed{suffix}; new violations: none.")
     return 0
 
