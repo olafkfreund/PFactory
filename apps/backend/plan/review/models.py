@@ -83,7 +83,17 @@ class PlanReview(BaseModel):
     plan_id: str
     lenses: list[LensScore] = Field(default_factory=list)
     threshold: float = 0.75
-    aggregate_score: float = 0.0
+    # INFORMATIONAL ONLY: the mean lens score. It plays NO part in whether the
+    # gates pass -- every lens must clear `threshold` individually, so a plan can
+    # sit well above threshold on aggregate and still be refused (issue #387).
+    # Read `gates_passed` / `gate_blockers()` for the verdict, never this.
+    aggregate_score: float = Field(
+        default=0.0,
+        description=(
+            "Mean lens score. Informational only -- NOT the gate test. "
+            "Gates pass only when every lens individually clears the threshold."
+        ),
+    )
     gates_passed: bool = False
     code_gates_applied: bool = True
     human_approval: HumanApproval = Field(default_factory=HumanApproval)
@@ -96,7 +106,8 @@ class PlanReview(BaseModel):
         """Recompute ``aggregate_score`` and ``gates_passed`` from the lenses.
 
         Gates pass when every lens scores at/above ``threshold`` AND no lens
-        carries a blocking finding. The aggregate is the mean lens score.
+        carries a blocking finding. The aggregate is the mean lens score and is
+        *not* consulted: it is recorded for humans only (issue #387).
         """
         if self.lenses:
             self.aggregate_score = round(sum(ls.score for ls in self.lenses) / len(self.lenses), 4)
@@ -108,7 +119,23 @@ class PlanReview(BaseModel):
         return self
 
     def blocking_findings(self) -> list[Finding]:
+        """Findings explicitly flagged ``blocking`` -- the HARD blockers only.
+
+        Not the answer to "why can't this plan be approved": a lens that merely
+        scores below ``threshold`` blocks the gate through its score while every
+        one of its findings stays ``blocking=False``, so this can be empty for a
+        plan that cannot be approved. Use :meth:`gate_blockers` for that (#387).
+        """
         return [f for ls in self.lenses for f in ls.findings if f.blocking]
+
+    def gate_blockers(self) -> list[LensScore]:
+        """The lenses standing between this plan and approval.
+
+        A lens blocks when it scores below ``threshold`` OR carries a blocking
+        finding -- exactly the two conditions :meth:`recompute` tests. Empty
+        while ``gates_passed`` is False only when no lens ran at all.
+        """
+        return [ls for ls in self.lenses if ls.score < self.threshold or ls.has_blocking_finding()]
 
     def ready_to_emit(self, plan: NormalizedPlan | None = None) -> bool:
         """True only when gates passed, approval is valid, AND readiness holds.
