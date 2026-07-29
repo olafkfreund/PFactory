@@ -187,3 +187,76 @@ def test_ingest_file_uses_extension(tmp_path):
     f.write_text(GHERKIN)
     spec = ingest_file(f)
     assert spec.source_format is SpecFormat.GHERKIN
+
+
+# ── the spec body survives ingest (#385) ───────────────────────────────
+
+SPEC_WITH_PROSE = """\
+# URL-safe slug service
+
+A service that turns arbitrary titles into URL-safe slugs.
+
+## Slug rules
+
+- lowercase the input
+- transliterate accented characters to ASCII
+- collapse runs of separators into a single hyphen
+- strip leading and trailing hyphens
+- truncate to 200 characters BEFORE slugging
+- never cut mid-word when a hyphen boundary exists within the last 20 chars
+
+## Acceptance criteria
+
+- GET /healthz returns HTTP 200
+- POST /slug returns a slug for a title
+"""
+
+
+def test_parse_markdown_keeps_the_prose_body():
+    """The descriptive sections of a spec must survive ingest (#385).
+
+    Only the acceptance-criteria section (already carried as ``criteria``) and
+    the H1 title line are excluded; every other heading and line is kept, so a
+    reader downstream sees the requirement and not just its checklist.
+    """
+    spec = parse_markdown(SPEC_WITH_PROSE)
+
+    assert len(spec.criteria) == 2
+    for phrase in (
+        "## Slug rules",
+        "transliterate accented characters to ASCII",
+        "collapse runs of separators into a single hyphen",
+        "strip leading and trailing hyphens",
+        "truncate to 200 characters BEFORE slugging",
+        "never cut mid-word when a hyphen boundary exists within the last 20 chars",
+    ):
+        assert phrase in spec.description, f"spec body dropped: {phrase!r}"
+
+    # The AC section is NOT duplicated into the description: it is already
+    # carried as `criteria` and re-rendered by `to_markdown`.
+    assert "GET /healthz returns HTTP 200" not in spec.description
+
+
+def test_parse_markdown_prose_survives_the_inline_ac_fallback():
+    text = (
+        "# Widget\n\n"
+        "Widgets must be idempotent and never retried more than twice.\n\n"
+        "AC#1: creating a widget returns 201\n"
+    )
+    spec = parse_markdown(text)
+
+    assert len(spec.criteria) == 1
+    assert "Widgets must be idempotent and never retried more than twice." in spec.description
+
+
+def test_parse_ears_keeps_the_prose_body():
+    text = (
+        "# Token rules\n\n"
+        "Tokens are opaque and rotate weekly.\n\n"
+        "The system shall reject expired tokens.\n"
+        "When a user logs in, the system shall create a session.\n"
+    )
+    spec = parse_ears(text)
+
+    assert len(spec.criteria) == 2
+    assert "Tokens are opaque and rotate weekly." in spec.description

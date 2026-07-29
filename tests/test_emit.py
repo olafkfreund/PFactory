@@ -328,3 +328,48 @@ def test_trigger_api_live_posts_via_injected_http() -> None:
 
 def test_handover_labels() -> None:
     assert handover_labels() == ["pfactory", "handoff:aifactory"]
+
+
+# ── the spec body reaches the implementer (#385) ────────────────────────
+
+_SLUG_SPEC = """\
+# URL-safe slug service
+
+## Slug rules
+
+- lowercase the input
+- transliterate accented characters to ASCII
+- truncate to 200 characters BEFORE slugging
+- never cut mid-word when a hyphen boundary exists within the last 20 chars
+
+## Acceptance criteria
+
+- GET /healthz returns HTTP 200
+- POST /slug returns a slug for a title
+"""
+
+
+def test_emitted_epic_body_carries_the_spec_prose() -> None:
+    """End to end: spec text -> ingest -> decompose -> emitted epic body (#385).
+
+    A rule stated in the spec's prose but never restated as an acceptance
+    criterion used to vanish entirely, so the implementer only ever saw the
+    checklist. The emitted epic body must contain the prose.
+    """
+    from plan.decompose.planner import decompose  # noqa: PLC0415 - local to this test
+    from plan.ingest.channels import ingest_text  # noqa: PLC0415 - local to this test
+
+    plan = ingest_text(_SLUG_SPEC, source_channel="cli")
+    epic = decompose(plan)
+    result = emit_to_github(epic, repo="acme/demo", dry_run=True)
+
+    epic_body = result.planned[0]["body"]
+    for rule in (
+        "transliterate accented characters to ASCII",
+        "truncate to 200 characters BEFORE slugging",
+        "never cut mid-word when a hyphen boundary exists within the last 20 chars",
+    ):
+        assert rule in epic_body, f"spec rule never reached the implementer: {rule!r}"
+
+    # the generated breakdown is still there
+    assert "### Child issues" in epic_body

@@ -135,24 +135,40 @@ def parse_markdown(text: str, *, title: str | None = None) -> NormalizedSpec:
       1. Bullets/numbered items under an "Acceptance Criteria" /
          "Acceptance" / "Requirements" heading.
       2. Any ``AC#N: ...`` inline lines anywhere in the doc.
+
+    Everything that is *not* the title heading and not the acceptance-criteria
+    section becomes ``description`` (PFactory#385). The prose sections of a spec
+    are part of the requirement — a plan that carries only the AC list silently
+    narrows the contract, and the implementer cannot tell the difference between
+    "the factory understood the rest" and "the rest was thrown away".
     """
     lines = text.splitlines()
     title = title or _first_h1(text, "Untitled spec")
 
-    # 1) collect bullets under an acceptance heading
+    # 1) collect bullets under an acceptance heading; everything else is prose
     criteria: list[str] = []
+    prose: list[str] = []
     in_section = False
+    title_seen = False
     for ln in lines:
         h = _HEADING.match(ln)
         if h:
             in_section = any(w in h.group(1).lower() for w in _AC_HEADING_WORDS)
+            is_title_heading = not title_seen and ln.lstrip().startswith("# ")
+            title_seen = title_seen or is_title_heading
+            if not in_section and not is_title_heading:
+                prose.append(ln)
             continue
         if in_section:
             b = _BULLET.match(ln)
             if b:
                 criteria.append(b.group(1))
+            continue
+        prose.append(ln)
 
-    # 2) fall back to inline AC#N markers
+    # 2) fall back to inline AC#N markers. Those lines stay in the prose too:
+    # duplicating them costs nothing, whereas a second exclusion pass would
+    # risk dropping a line that merely mentions an AC.
     if not criteria:
         for ln in lines:
             m = _AC_INLINE.search(ln)
@@ -167,7 +183,7 @@ def parse_markdown(text: str, *, title: str | None = None) -> NormalizedSpec:
         )
     return NormalizedSpec(
         title=title,
-        description="",
+        description="\n".join(prose).strip(),
         criteria=tuple(acs),
         source_format=SpecFormat.MARKDOWN,
     )
@@ -234,9 +250,15 @@ _EARS_LINE = re.compile(
 
 
 def parse_ears(text: str, *, title: str | None = None) -> NormalizedSpec:
-    """Parse EARS-notation requirements — each ``shall`` line is a criterion."""
+    """Parse EARS-notation requirements — each ``shall`` line is a criterion.
+
+    Lines that are not requirements become ``description`` (PFactory#385), for
+    the same reason as :func:`parse_markdown`: the surrounding prose is part of
+    the contract and must reach the implementer.
+    """
     title = title or _first_h1(text, "Untitled requirements")
     criteria: list[str] = []
+    prose: list[str] = []
     for ln in text.splitlines():
         s = ln.strip()
         if not s or s.startswith("#"):
@@ -244,13 +266,15 @@ def parse_ears(text: str, *, title: str | None = None) -> NormalizedSpec:
         m = _EARS_LINE.match(s)
         if m:
             criteria.append(m.group(1).strip())
+        else:
+            prose.append(ln)
 
     acs = _number(criteria)
     if not acs:
         raise SpecSourceError("no EARS requirements found — expected lines containing 'shall'.")
     return NormalizedSpec(
         title=title,
-        description="",
+        description="\n".join(prose).strip(),
         criteria=tuple(acs),
         source_format=SpecFormat.EARS,
     )
