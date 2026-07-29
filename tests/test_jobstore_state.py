@@ -413,3 +413,60 @@ def test_lease_ttl_and_interval_are_configurable(monkeypatch):
     assert lease_heartbeat_interval() == 5.0  # floor
     monkeypatch.setenv("PFACTORY_PLAN_LEASE_TTL_SECONDS", "not-an-int")
     assert lease_ttl_seconds() == 600  # bad value -> default, never raises
+
+
+def test_discarded_is_terminal_and_frees_its_slot():
+    """The bug that wedged the planner for six days.
+
+    discard() writes status="discarded". With no entry in the map, the
+    running-fallback turned that TERMINAL status into `running`, so the row
+    kept its admission slot -- and because it also had no lease,
+    reclaim_expired (which only touches rows WITH an expired lease) could
+    never free it. 43 slots leaked until the cap was full and no plan could
+    start at all.
+    """
+    from server.jobstore.lifecycle import TERMINAL_LIFECYCLE, is_terminal
+
+    assert lifecycle_state_for("discarded") == "failed"
+    assert lifecycle_state_for("discarded") in TERMINAL_LIFECYCLE
+    assert is_terminal("discarded")
+    # Not "done": a discarded session did not succeed, and the board reads
+    # `done` as success.
+    assert lifecycle_state_for("discarded") != "done"
+
+
+def test_every_status_the_service_writes_has_an_explicit_mapping():
+    """Drift guard: the running-fallback must never catch our OWN vocabulary.
+
+    The fallback exists for unrecognised third-party statuses, where assuming
+    "still running" is the safe read. For a status PFactory itself writes it is
+    the opposite of safe -- a terminal status silently classified as running
+    holds an admission slot forever, which is exactly how `discarded` wedged
+    the planner.
+
+    Parsed from the service source rather than hand-listed, so adding a new
+    `session.status = "..."` without a mapping fails HERE instead of leaking
+    slots in production for six days.
+    """
+    import re
+    from pathlib import Path
+
+    from server.jobstore.lifecycle import _NATIVE_TO_LIFECYCLE
+
+    service = None
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "apps" / "backend" / "plan" / "service.py"
+        if candidate.is_file():
+            service = candidate
+            break
+    if service is None:  # pragma: no cover - layout change
+        pytest.skip("plan/service.py not found from this checkout")
+
+    written = set(re.findall(r'session\.status\s*=\s*"([a-z_]+)"', service.read_text()))
+    assert written, "found no status writes -- the regex has gone stale"
+    # "ingested" is set at construction rather than assignment; it is mapped.
+    missing = sorted(written - set(_NATIVE_TO_LIFECYCLE))
+    assert not missing, (
+        f"statuses PFactory writes but does not map: {missing}. "
+        "Unmapped statuses fall back to 'running' and leak an admission slot."
+    )
