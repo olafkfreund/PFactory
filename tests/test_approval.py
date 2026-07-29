@@ -24,7 +24,7 @@ from plan.review.approval import (  # noqa: E402
     revalidate,
     save_approval,
 )
-from plan.review.models import LensScore, PlanReview  # noqa: E402
+from plan.review.models import Finding, LensScore, PlanReview  # noqa: E402
 
 
 def _passing_review() -> PlanReview:
@@ -81,6 +81,91 @@ def test_approve_requires_passing_gates():
         approve(review, plan, approver="olaf")
 
     assert review.human_approval.approved is False
+
+
+def _issue_387_review() -> PlanReview:
+    """The live review from #387: aggregate 0.94, one lens at 0.70, nothing flagged.
+
+    The finding that actually blocks approval is ``blocking=False`` — the score
+    is the gate, not the flag.
+    """
+    lenses = [
+        LensScore(lens="feasibility", score=1.0),
+        LensScore(lens="architecture", score=1.0),
+        LensScore(
+            lens="security",
+            score=0.7,
+            findings=[
+                Finding(
+                    title="No authentication/authorization criteria",
+                    detail="Confirm access control is in scope or explicitly out.",
+                    severity="medium",
+                    blocking=False,
+                )
+            ],
+        ),
+        LensScore(lens="best-practices", score=1.0),
+        LensScore(lens="completeness", score=1.0),
+    ]
+    return PlanReview(plan_id="001-x", lenses=lenses, threshold=0.75).recompute()
+
+
+def test_gate_refusal_names_the_failing_lens_and_finding():
+    """The 409 must be actionable on its own: lens, score, threshold, finding (#387)."""
+    review = _issue_387_review()
+    assert review.gates_passed is False
+    assert review.aggregate_score == pytest.approx(0.94)
+
+    with pytest.raises(ApprovalError) as exc:
+        approve(review, _plan(), approver="olaf")
+
+    msg = str(exc.value)
+    assert "security" in msg
+    assert "0.70" in msg  # the failing score, not the aggregate
+    assert "0.75" in msg  # the threshold it missed
+    assert "No authentication/authorization criteria" in msg
+    assert "medium" in msg
+    assert "Confirm access control is in scope or explicitly out." in msg
+    # And it must kill the wrong inference the aggregate invites.
+    assert "0.94" in msg
+    assert "aggregate is not the test" in msg
+
+
+def test_gate_blockers_names_the_lens_that_blocks_approval():
+    """A sub-threshold lens blocks even with no finding flagged blocking (#387)."""
+    review = _issue_387_review()
+
+    assert review.blocking_findings() == []  # no finding is flagged blocking
+    assert [ls.lens for ls in review.gate_blockers()] == ["security"]
+
+
+def test_gate_blockers_includes_a_lens_with_a_blocking_finding():
+    lenses = [
+        LensScore(lens="architecture", score=0.9),
+        LensScore(
+            lens="security",
+            score=0.9,
+            findings=[Finding(title="secret in plan", severity="critical", blocking=True)],
+        ),
+    ]
+    review = PlanReview(plan_id="001-x", lenses=lenses).recompute()
+
+    assert review.gates_passed is False
+    assert [ls.lens for ls in review.gate_blockers()] == ["security"]
+
+    with pytest.raises(ApprovalError) as exc:
+        approve(review, _plan(), approver="olaf")
+    assert "blocking finding" in str(exc.value)
+    assert "secret in plan" in str(exc.value)
+
+
+def test_gate_refusal_without_lenses_says_so():
+    """An unreviewed plan fails the gate with no failing lens to name (#387)."""
+    review = PlanReview(plan_id="001-x").recompute()
+
+    with pytest.raises(ApprovalError) as exc:
+        approve(review, _plan(), approver="olaf")
+    assert "no lens scores" in str(exc.value)
 
 
 def test_editing_plan_invalidates_approval():

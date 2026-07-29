@@ -31,6 +31,40 @@ def _plan_hash(plan: NormalizedPlan) -> str:
     return plan.content_hash or plan.compute_hash()
 
 
+def _gate_refusal(review: PlanReview) -> str:
+    """Say which lens blocks approval, by how much, and what to fix (issue #387).
+
+    Everything here is already in the review being refused; the old message
+    ("failed the automated review gates") named none of it, so the only way to
+    find the cause was to read the API object and then the source. This message
+    is what reaches the user in the 409 detail, so it has to stand alone.
+    """
+    blockers = review.gate_blockers()
+    if not blockers:
+        return (
+            "cannot approve: the automated review gates have not passed and "
+            "there are no lens scores to explain why. Re-run the review gates."
+        )
+    lines: list[str] = []
+    for lens in blockers:
+        if lens.score < review.threshold:
+            lines.append(
+                f"lens {lens.lens!r} scored {lens.score:.2f}, "
+                f"below the {review.threshold:.2f} threshold."
+            )
+        else:
+            lines.append(f"lens {lens.lens!r} carries a blocking finding.")
+        for finding in lens.findings:
+            lines.append(f"  - {finding.title} ({finding.severity})")
+            if finding.detail:
+                lines.append(f"    {finding.detail}")
+    lines.append(
+        f"Every lens must clear the threshold; the {review.aggregate_score:.2f} "
+        "aggregate is not the test."
+    )
+    return "cannot approve: " + "\n".join(lines)
+
+
 def approve(
     review: PlanReview,
     plan: NormalizedPlan,
@@ -58,7 +92,7 @@ def approve(
         ApprovalError: If ``review.gates_passed`` is False.
     """
     if not review.gates_passed:
-        raise ApprovalError("cannot approve a plan that failed the automated review gates")
+        raise ApprovalError(_gate_refusal(review))
     if review.readiness is not None:
         unwaived = review.readiness.unwaived_hard_failures(plan)
         if unwaived:
