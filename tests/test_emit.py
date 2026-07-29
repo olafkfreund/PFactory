@@ -373,3 +373,40 @@ def test_emitted_epic_body_carries_the_spec_prose() -> None:
 
     # the generated breakdown is still there
     assert "### Child issues" in epic_body
+
+
+def test_emitted_child_body_teaches_more_than_its_own_title() -> None:
+    """A child issue must stand alone for the coder that picks it up (#385).
+
+    The heuristic decomposer used to set a feature child's title, body AND
+    acceptance_criteria from the very same criterion string, so the emitted body
+    was the title restated once as prose and once as a checkbox. Opening the
+    child told the implementer nothing the title had not already said.
+    """
+    from plan.decompose.planner import decompose  # noqa: PLC0415 - local to this test
+    from plan.ingest.channels import ingest_text  # noqa: PLC0415 - local to this test
+
+    plan = ingest_text(_SLUG_SPEC, source_channel="cli")
+    epic = decompose(plan)
+    result = emit_to_github(epic, repo="acme/demo", dry_run=True)
+
+    children = [p for p in result.planned if p["kind"] != "epic"]
+    features = [p for p in children if p["kind"] == "feature"]
+    assert len(features) == 2  # one per acceptance criterion
+
+    # each criterion appears once — as the acceptance criterion, not also as prose
+    for payload, criterion in zip(features, plan.criteria, strict=True):
+        body = payload["body"]
+        assert body.count(criterion.text) == 1, f"criterion restated in the body:\n{body}"
+        assert "### Acceptance criteria" in body
+        assert "Part of the epic" in body or "Part of #" in body
+
+    # the spec prose the criteria never restate reached every child
+    for payload in children:
+        body = payload["body"]
+        assert body.strip(), f"empty child body: {payload['key']}"
+        for rule in (
+            "transliterate accented characters to ASCII",
+            "truncate to 200 characters BEFORE slugging",
+        ):
+            assert rule in body, f"spec rule never reached child {payload['key']}: {rule!r}"

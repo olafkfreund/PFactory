@@ -195,3 +195,53 @@ def test_build_decompose_prompt_mentions_schema_and_stages():
     assert "children" in prompt
     assert plan.plan_id in prompt
     assert "testing" in prompt  # software-service enables testing stage
+
+
+# ── child issues stand alone (#385, child half) ────────────────────────────
+
+
+def test_feature_child_body_is_not_a_restatement_of_its_title():
+    """A feature child's body must add context, not echo the criterion (#385).
+
+    Title, body and acceptance_criteria all came from the same criterion string,
+    so the emitted child body was its own title twice over. The body's job is
+    the context the criterion does not carry: which plan this belongs to and the
+    spec prose that constrains the implementation.
+    """
+    plan = _plan(
+        title="URL-safe slug service",
+        desc="Slugs are lowercased, transliterated to ASCII, and truncated to 200 chars.",
+        criteria=["POST /slug returns a slug for a title."],
+    )
+    epic = decompose(plan)
+    feature = next(c for c in epic.children if c.kind == "feature")
+
+    # the criterion stays on acceptance_criteria — it must not also be the body
+    assert feature.acceptance_criteria == [plan.criteria[0].text]
+    assert plan.criteria[0].text not in feature.body
+
+    # the body carries the plan's own prose and names what it implements
+    assert plan.description in feature.body
+    assert "AC#1" in feature.body
+    assert plan.title in feature.body
+
+
+def test_synthesized_children_also_carry_the_plan_context():
+    """Testing / CI-CD children are handed to a coder alone too (#385)."""
+    plan = _plan(
+        desc="Every endpoint is rate limited to 10 requests per second.",
+        criteria=["POST /records creates a record."],
+    )
+    epic = decompose(plan)
+
+    for child in epic.children:
+        assert plan.description in child.body, f"{child.key} ({child.kind}) lost the context"
+
+
+def test_child_body_is_never_empty_without_a_description():
+    """No description to carry still leaves a body worth opening (#385)."""
+    plan = _plan(desc="", criteria=["POST /records creates a record."])
+    epic = decompose(plan)
+
+    for child in epic.children:
+        assert child.body.strip(), f"{child.key} ({child.kind}) has an empty body"

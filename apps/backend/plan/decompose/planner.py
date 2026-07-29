@@ -86,6 +86,26 @@ def _labels(descriptor: PlanTypeDescriptor, kind: str) -> list[str]:
     return [f"plan-type:{descriptor.name}", _kind_label(kind)]
 
 
+def _child_context_body(plan: NormalizedPlan, lead: str) -> str:
+    """Body for one child issue: what it implements, plus the plan's own prose.
+
+    A child issue is picked up on its own — by a coder, or by an AIFactory task
+    whose entire brief is this one issue — so it has to stand up without the
+    epic open in another tab. The title already states *what* (the criterion);
+    the body carries what the title cannot: which plan this belongs to, and the
+    spec prose that constrains the implementation but is never restated as an
+    acceptance criterion (#385).
+
+    The criterion itself is deliberately NOT repeated here. Emit renders it once
+    from ``acceptance_criteria``; putting it in the body as well is what made a
+    child's whole body a copy of its own title.
+    """
+    description = plan.description.strip()
+    if not description:
+        return lead
+    return f"{lead}\n\n### Context from the plan\n\n{description}"
+
+
 def _epic_body(plan: NormalizedPlan, children: list[ChildIssue]) -> str:
     """Epic body = plan description + a short generated overview of the breakdown."""
     feature_count = sum(1 for c in children if c.kind == "feature")
@@ -112,11 +132,14 @@ def heuristic_decompose(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) ->
 
     if plan.criteria:
         for i, crit in enumerate(plan.criteria, 1):
+            marker = crit.id or f"criterion {i}"
             children.append(
                 ChildIssue(
                     key=f"C{i}",
                     title=_title_from_text(crit.text),
-                    body=crit.text,
+                    body=_child_context_body(
+                        plan, f'Implements {marker} of the plan "{plan.title}".'
+                    ),
                     kind="feature",
                     labels=_labels(descriptor, "feature"),
                     complexity="standard",
@@ -127,8 +150,11 @@ def heuristic_decompose(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) ->
         children.append(
             ChildIssue(
                 key="C1",
+                # No criteria to work from: the description IS the acceptance
+                # criterion below, so the body only names the plan — repeating
+                # it here is the duplication this helper exists to avoid (#385).
                 title=_title_from_text(plan.title),
-                body=plan.description or plan.title,
+                body=f'Implements the plan "{plan.title}".',
                 kind="feature",
                 labels=_labels(descriptor, "feature"),
                 complexity="standard",
@@ -144,7 +170,9 @@ def heuristic_decompose(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) ->
             ChildIssue(
                 key=f"C{next_index}",
                 title=f"Set up testing for {plan.title}",
-                body=f"Add automated tests covering the features of '{plan.title}'.",
+                body=_child_context_body(
+                    plan, f"Add automated tests covering the features of '{plan.title}'."
+                ),
                 kind="testing",
                 labels=_labels(descriptor, "testing"),
                 depends_on=list(feature_keys),
@@ -158,7 +186,9 @@ def heuristic_decompose(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) ->
             ChildIssue(
                 key=f"C{next_index}",
                 title=f"Set up CI/CD for {plan.title}",
-                body=f"Add a CI/CD pipeline that builds and ships '{plan.title}'.",
+                body=_child_context_body(
+                    plan, f"Add a CI/CD pipeline that builds and ships '{plan.title}'."
+                ),
                 kind="cicd",
                 labels=_labels(descriptor, "cicd"),
                 depends_on=list(feature_keys),
@@ -249,6 +279,9 @@ no markdown fences) matching this schema:
 
 Rules:
 - Create one 'feature' child per acceptance criterion.
+- A child's 'body' must NOT restate its title or its acceptance criteria. Give
+  the implementer what the title cannot: the part of the plan description that
+  constrains this child's work. The criterion goes in 'acceptance_criteria' only.
 - {stage_text}.
 - Dependencies must reference existing child keys only; no cycles, no self-deps.
 - Plan type: {descriptor.name}.
