@@ -39,6 +39,18 @@ _NATIVE_TO_LIFECYCLE: dict[str, str] = {
     "processed": "review",
     "approved": "review",
     "rejected": "failed",
+    # Abandoned outright (#360): "this was never real work". Terminal, and
+    # `failed` rather than `done` because it did not succeed -- same reasoning
+    # as `rejected` above.
+    #
+    # Its ABSENCE here wedged the whole planner. discard() writes
+    # status="discarded", this map missed it, and the running-fallback below
+    # turned a terminal status into `running` -- so every discarded session
+    # kept its admission slot forever, with no lease, which also made it
+    # unreclaimable (reclaim_expired only touches rows WITH an expired lease).
+    # 43 slots leaked over six days until the cap was full and no plan could
+    # start at all.
+    "discarded": "failed",
     "emitted": "done",
     # Synthetic crash/abort marker (not a PFactory board status): the admission
     # path stamps this when process() raises so the durable row leaves `running`
