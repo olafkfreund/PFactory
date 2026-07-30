@@ -1,0 +1,85 @@
+# image-build.yml — Factory#486.
+#
+# Compiles the root Dockerfile on every pull request. Until this existed, no PR
+# check in this repo built that file: #405 bumped the frontend build stage from
+# node 24 to node 26 and collected 23 SUCCESS checks, none of which compiled the
+# line it changed. `docker (P0 acceptance)` in ci.yml only *inspects* base images
+# with `docker buildx imagetools inspect`; the frontend jobs run against the host
+# toolchain, not the image. The first real compile happened in deploy.yml, after
+# merge. This closes that.
+#
+# Shape copied from runner-images.yml, which already does exactly this for the
+# docker/pfactory-runner-* images. Differences from that file, on purpose:
+#
+#   NO `paths:` filter. A required status check that does not run on a given PR
+#   leaves that PR blocked forever, so this runs on every PR unconditionally.
+#   (Related trap this fleet has been bitten by: in GitHub path filters `*` does
+#   not cross `/`, so '*.md' and '**/*.md' select different things.)
+#
+#   No registry write. `push: false`, no docker/login-action, no packages: write.
+#   `load: true` only so the smoke step below can run the image.
+#
+# Rule 4.7 — every way this job can fail to do its work is an explicit failure:
+#   * No matrix, so there is no "matrix resolved to zero targets" silent pass.
+#   * No `if:` on any step, so no step can be skipped into a green.
+#   * The build is not trusted on its own: the smoke step asserts the image was
+#     actually produced (`docker image inspect`) and actually runs. A build that
+#     somehow exported nothing goes red instead of passing quietly.
+#
+# Cost: see the PR that introduced this for measured wall-clock. The gha layer
+# cache (scope=image-build) is populated by the push-to-dev run below, which is
+# what PR runs read from — Actions caches fall back to the default branch.
+
+name: Image build (PR gate)
+
+on:
+  pull_request: {}
+  # Populate the gha layer cache on the default branch so PR runs are warm.
+  push:
+    branches: [dev]
+
+concurrency:
+  # Includes github.workflow: a bare `<name>-${{ github.ref }}` group collides
+  # with any other workflow that reuses the same key on the same ref, and the two
+  # runs then cancel each other (CFactory#265).
+  group: image-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: pfactory:pr-${{ github.sha }}
+
+jobs:
+  build:
+    name: Build root Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # amd64 only, matching deploy.yml — the p510 k3d cluster is amd64 and the
+      # frontend `vite build` fails under QEMU-emulated arm64.
+      - name: Build root Dockerfile (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ${{ env.TAG }}
+          cache-from: type=gha,scope=image-build
+          cache-to: type=gha,mode=max,scope=image-build
+
+      # The build step going green is not proof an image exists. Assert it does,
+      # then run the interpreter the deployed CMD invokes.
+      - name: Smoke — image exists and runs
+        run: |
+          set -euo pipefail
+          docker image inspect "${TAG}" > /dev/null
+          docker run --rm "${TAG}" \
+            /home/projects/MagesticAI/.venv/bin/python \
+            -c 'import sys; print("pfactory image ok:", sys.version)'
