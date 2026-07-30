@@ -1,48 +1,47 @@
 import '@testing-library/jest-dom/vitest';
+import { JSDOM } from 'jsdom';
 
-// Web Storage for Node 26 (Factory#495).
+// Web Storage under Node 26 (Factory#495).
 //
-// Node 26 ships its own global `localStorage` / `sessionStorage`. Both are the
-// plain value `undefined` unless the process was started with
-// `--localstorage-file`, and vitest's jsdom environment does not replace globals
-// Node has already defined — so every `localStorage.getItem` in app code and in
-// tests throws "Cannot read properties of undefined". 147 tests here, 117 in
-// TFactory, on the first CI run that used the image's Node major.
+// Node 26 ships its own global `localStorage` / `sessionStorage`, and both are
+// `undefined` unless the process was started with `--localstorage-file`. Inside
+// vitest's jsdom environment that undefined global is what app and test code
+// see, so every `localStorage.getItem` throws "Cannot read properties of
+// undefined" — 147 tests in PFactory, 117 here, on the first CI run that used
+// the Node major the image already builds the shipped bundle with.
 //
-// Measured under Node 26.5 rather than assumed: `globalThis === window ===
-// document.defaultView`, and `localStorage` is `undefined` on all three. There
-// is no jsdom Storage hiding behind `window` to re-point the global at, so this
-// installs one. `--localstorage-file` is not an option: it is file-backed and
-// shared, which would leak state between test files.
+// WHERE THE FAULT IS NOT. Measured under Node 26.5, not assumed:
 //
-// A Map is enough. vitest isolates per test file, so each file gets a fresh
-// store, which is what the suites already assume (`localStorage.clear()` in
-// beforeEach). No-op on Node 24, where jsdom's own Storage is in place.
+//   * jsdom is fine. jsdom 27.4.0 on Node 26 builds a working Storage and
+//     round-trips it (`new JSDOM(...).window.localStorage` set/get). A jsdom
+//     bump therefore fixes nothing — it is already correct.
+//   * There is nothing to re-point the global at. Inside the environment
+//     `globalThis === window === document.defaultView`, and `localStorage` is
+//     `undefined` on all three — as a plain data property, where Node's own is
+//     an accessor. vitest's global population and Node's new global do not
+//     compose, and the working jsdom Storage never reaches the global.
+//   * `--localstorage-file` is not the answer either: it is file-backed and
+//     process-wide, so it would leak state between test files.
 //
-// The cast is load-bearing: `lib.dom` types these globals as `Storage` and never
+// So borrow a Storage from a throwaway jsdom window: real jsdom Storage with
+// real semantics, out of a devDependency this repo already declares, rather
+// than a hand-rolled Map that would drift from the spec. vitest isolates per
+// test file, so each file gets a clean store — which is what these suites
+// already assume (`localStorage.clear()` in beforeEach). Measured cost of the
+// extra window: none detectable across a 28-file run.
+//
+// No-op on Node 24, which has no such global and gets jsdom's Storage normally.
+//
+// The cast is load-bearing: `lib.dom` types these globals as `Storage`, never
 // undefined, so a direct `!globalThis.localStorage` is a lint error for a
 // condition the type system believes can never be true. The type is wrong on
-// Node 26; the cast says so once instead of suppressing the rule at each use.
+// Node 26; the cast says so once rather than suppressing the rule at each use.
 const webStorageGlobals = globalThis as unknown as Record<string, Storage | undefined>;
-
-function memoryStorage(): Storage {
-  const items = new Map<string, string>();
-  return {
-    get length() {
-      return items.size;
-    },
-    clear: () => items.clear(),
-    getItem: (key: string) => items.get(key) ?? null,
-    key: (index: number) => Array.from(items.keys()).at(index) ?? null,
-    removeItem: (key: string) => void items.delete(key),
-    setItem: (key: string, value: string) => void items.set(key, value),
-  };
-}
-
-for (const key of ['localStorage', 'sessionStorage'] as const) {
-  if (webStorageGlobals[key] === undefined) {
+if (webStorageGlobals.localStorage === undefined) {
+  const donor = new JSDOM('', { url: 'http://localhost/' }).window;
+  for (const key of ['localStorage', 'sessionStorage'] as const) {
     Object.defineProperty(globalThis, key, {
-      value: memoryStorage(),
+      value: donor[key],
       configurable: true,
       writable: true,
     });
