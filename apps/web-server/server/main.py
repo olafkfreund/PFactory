@@ -401,6 +401,18 @@ def create_app() -> FastAPI:
     from .observability import install_metrics
     install_metrics(app)
 
+    # Factory#516 — OTLP distributed tracing. Also after the routers, so
+    # FastAPI instrumentation sees the full route table. A no-op unless
+    # OTEL_EXPORTER_OTLP_ENDPOINT is set, which it is only in-cluster, so
+    # tests and local runs pay nothing. When it IS set, init_tracing()
+    # proves the endpoint and credential with one empty export before it
+    # claims to be enabled — see observability/tracing.py.
+    # Deferred like install_metrics above, and for the same reason:
+    # create_app() is the only caller and the module pulls the OTel SDK,
+    # which must not be an import-time cost of `import server.main`.
+    from .observability import init_tracing  # noqa: PLC0415
+    init_tracing(app)
+
     # Health check endpoint (no auth required)
     @app.get("/api/health")
     async def health_check():

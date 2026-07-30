@@ -87,3 +87,23 @@ itsdangerous>=2.2.0
 # `handler` labels (route templates, not raw paths).
 structlog>=24.4.0
 prometheus-fastapi-instrumentator>=7.0.0
+
+# Factory#516 — OpenTelemetry OTLP tracing to the fleet collector
+# (apps/observe). Until now this service had no OTEL_* configuration and no
+# SDK, so it exported nothing, logged no failure, and its silence read as
+# health; a PARR trace could never span a handoff. See
+# observability/tracing.py for why the "enabled" log line is probed rather
+# than assumed.
+#
+# The http exporter only, NOT the `opentelemetry-exporter-otlp` umbrella:
+# the collector is OTLP/HTTP (OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf) and
+# the umbrella drags in grpcio for a transport nothing here uses. The grpc
+# branch in tracing.py degrades to a logged warning if it is ever selected
+# without the package.
+opentelemetry-api>=1.27
+opentelemetry-sdk>=1.27
+opentelemetry-exporter-otlp-proto-http>=1.27
+# FastAPI extracts the inbound W3C traceparent, httpx injects it on the way
+# out. Those two are what make one trace cross a service boundary.
+opentelemetry-instrumentation-fastapi>=0.48b0
+opentelemetry-instrumentation-httpx>=0.48b0
