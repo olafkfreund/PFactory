@@ -32,14 +32,71 @@ The plan session lifecycle is the heart of PFactory (router prefix
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/plan/sessions` | List plan sessions |
+| `GET /api/plan/sessions` | List plan sessions (tenant-filtered when multi-tenant mode is on) |
 | `POST /api/plan/sessions/ingest-text` | Create a session from raw text / markdown |
 | `POST /api/plan/sessions/ingest` | Create a session from an uploaded PDF / DOCX / MD |
+| `POST /api/plan/sessions/from-issue` | Create a session from an upstream GitHub issue (RFC-0011 hard tier) |
 | `GET /api/plan/sessions/{id}` | Get a session and its state |
 | `POST /api/plan/sessions/{id}/process` | Run enrich → detect → decompose → synthesize → feasibility → review → annotate |
 | `POST /api/plan/sessions/{id}/approve` | **Human approval gate** — unlocks emission |
 | `POST /api/plan/sessions/{id}/reject` | Reject; blocks emission |
 | `POST /api/plan/sessions/{id}/emit` | Emit governed GitHub epics + child issues (and optionally trigger AIFactory) |
+
+#### `POST /api/plan/sessions/from-issue`
+
+The door AIFactory's RFC-0011 intake poller routes `factory:hard` issues
+through (AIFactory#874): the issue body becomes the plan text, and the origin
+issue number becomes the session's correlation key — recorded at intake, so
+the chain back to the filed issue exists even for sessions that never reach
+emit. The payload mirrors the poller's contract exactly:
+
+```json
+{
+  "repo": "owner/name",
+  "provider": "github",
+  "issue_number": 123,
+  "title": "optional issue title",
+  "body": "the issue body — this IS the plan text",
+  "labels": ["factory:hard"],
+  "autonomy_tier": "hard",
+  "change_mode": "accepted-but-unused"
+}
+```
+
+`repo` and `issue_number` are required. `labels` and `change_mode` are
+accepted (the poller sends them) but not acted on — the tier is already
+classified in `autonomy_tier`, and `change_mode` is an AIFactory build-time
+concern.
+
+**The issue body must carry acceptance criteria**, in one of two forms:
+
+1. A `#`-heading containing `acceptance criteria`, `acceptance`, or
+   `requirements` (any level, e.g. `## Acceptance Criteria`), followed by
+   bullet or numbered items.
+2. Inline `AC#N: ...` lines anywhere in the body.
+
+A body without either returns an actionable
+`400: no acceptance criteria found — add an '## Acceptance Criteria' section
+with bullets, or 'AC#N: ...' lines.` A bare title is deliberately not used as
+a fallback: it carries nothing to verify against.
+
+### Multi-tenancy
+
+Off by default. When `PFACTORY_MULTI_TENANT` is truthy (`1` / `true` / `yes` /
+`on`), the tenant is resolved per request from the `X-Tenant-Id` header the
+ingress/oauth2-proxy stamps from the Keycloak `tenant` claim (falling back to
+`default` when absent). With the flag on (#308):
+
+- plan sessions are stamped with the tenant at intake, and
+  `GET /api/plan/sessions` lists only the caller's tenant;
+- the durable `job_states` store carries a `tenant_id` column (Alembic
+  migration `20260717_a7d2e4b8c1f3`);
+- a non-default tenant is written into emitted Task Contracts as
+  `provenance.tenant_id`, so AIFactory can keep the PARR chain tenant-scoped.
+  Default-tenant contracts are byte-identical to single-tenant output.
+
+With the flag off, everything resolves to the single `default` tenant and
+behaviour is unchanged.
 
 Supporting plan routers:
 
