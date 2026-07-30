@@ -35,6 +35,12 @@ version: 2
 updates:
   - package-ecosystem: docker
     directory: "/"
+    # Factory#491: without this, Dependabot raises against whatever the repo
+    # default happens to be, and the default-branch flip to `dev` therefore split
+    # bumps across both branches — #395/#396 landed on `main` and #404/#405 the
+    # same content on `dev`, four commits of duplicated drift. Pin it rather than
+    # inherit it.
+    target-branch: dev
     schedule:
       interval: daily
     labels:
