@@ -15,7 +15,12 @@ on:
     branches: [main]
     paths-ignore:
       - 'docs/**'
-      - '**/*.md'
+      # Root-level markdown only (README, CHANGELOG). NOT '**/*.md': agent
+      # prompts (apps/backend/prompts/*.md) and the skills catalogue
+      # (skills/**/*.md) are baked into the runtime image, so a change to one
+      # of them must ship. '*' does not cross '/' here, so nested markdown
+      # still triggers a deploy. See Factory#454.
+      - '*.md'
   workflow_dispatch: {}
 
 concurrency:
