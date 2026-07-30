@@ -56,7 +56,7 @@ RUN mkdir -p apps/web-server/static \
 # Stage 2: Runtime (Chainguard Python, dev variant for now — minimal split
 # happens in P0.5 once we know what the runtime *actually* needs)
 # ---------------------------------------------------------------------------
-FROM cgr.dev/chainguard/python:latest-dev@sha256:7a568bcee42666f73f041645a41c913ce1d442f4c24cf6019bc543a90820e531 AS runtime
+FROM cgr.dev/chainguard/python:latest-dev@sha256:534fb1a1b9ad4d9d149ab669ca4218be76c84990e2f3379c7f703d224647666b AS runtime
 
 USER root
 
