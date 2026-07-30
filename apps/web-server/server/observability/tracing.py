@@ -311,12 +311,16 @@ def _instrument_one(name: str, fn: Any) -> None:
 
 
 def _instrument_fastapi(app: Any) -> None:
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # noqa: PLC0415
+    from opentelemetry.instrumentation.fastapi import (  # noqa: PLC0415
+        FastAPIInstrumentor,
+    )
 
     FastAPIInstrumentor.instrument_app(app)
 
 
 def _instrument_httpx() -> None:
-    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor  # noqa: PLC0415
+    from opentelemetry.instrumentation.httpx import (  # noqa: PLC0415
+        HTTPXClientInstrumentor,
+    )
 
     HTTPXClientInstrumentor().instrument()
