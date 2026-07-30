@@ -15,5 +15,31 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.targetPort }}
       protocol: TCP
+  # `component: server` narrows this to the SERVING pods, and is load-bearing.
+  #
+  # Without it the selector is just {name, instance}, which every pod of the
+  # release satisfies — a Service selector is a SUBSET match, so extra labels on a
+  # pod never exclude it. That silently made the bundled Postgres StatefulSet
+  # (postgres.bundled=true) an endpoint of THIS Service: it carries
+  # {name, instance, component: postgres}, and while `component: postgres`
+  # correctly narrows the pfactory-postgres Service, nothing narrowed this one.
+  # Postgres listens on 5432, this Service targets {{ .Values.service.targetPort }},
+  # so kube-proxy hands it a share of real API traffic and it answers with
+  # connection refused — and being long-lived, permanently rather than for a
+  # bounded window. Every ordinary signal stays green: the Deployment is Healthy,
+  # the Service exists, both pods are Running. It reads as flakiness.
+  #
+  # Found by a fleet-wide sweep for this defect class, which had already been
+  # confirmed three times elsewhere (TFactory#885, AIFactory#1107,
+  # factory-gitops' minio-create-bucket Job). PFactory dispatches no Jobs of its
+  # own, so this Service selector is the whole of its exposure — but it is the
+  # structural half of the fix everywhere, because it is what stops the next
+  # non-serving pod from rediscovering the same hole.
+  #
+  # The Deployment's own `spec.selector` is deliberately NOT narrowed — it is
+  # immutable, and narrowing it would make `helm upgrade` fail on every existing
+  # install. This selector is mutable, and the chart's maxSurge=0 strategy already
+  # replaces the pod on every upgrade, so no new endpoint gap is introduced.
   selector:
     {{- include "pfactory.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: server

@@ -45,6 +45,15 @@ app.kubernetes.io/part-of: pfactory
 {{/*
 Selector labels — also used by Service + NetworkPolicy.
 */}}
+{{/*
+NOTE: these are the SERVING identity. Never put them on a Job or CronJob pod
+template. A Service selector is a SUBSET match, so a non-serving pod carrying them
+joins the Service as an endpoint, listens on nothing, and answers its share of real
+traffic with connection refused while every ordinary signal stays green. Adding a
+`component` label does not help — extra labels never exclude a pod. The Service
+selector additionally requires `component: server`, which is what keeps
+non-serving pods out; keep it that way.
+*/}}
 {{- define "pfactory.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "pfactory.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}

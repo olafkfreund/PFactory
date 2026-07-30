@@ -26,6 +26,9 @@ spec:
     metadata:
       labels:
         {{- include "pfactory.selectorLabels" . | nindent 8 }}
+        # What the Service now selects on. These are the pods that actually serve
+        # port {{ .Values.service.targetPort }}; nothing else in the chart may carry it.
+        app.kubernetes.io/component: server
       annotations:
         # Roll pods on ConfigMap change.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
