@@ -1,0 +1,36 @@
+name: deploy drift watchdog
+
+# "Is main actually deployed?", asked out of band (Factory#461).
+#
+# PFactory bakes agent prompts and the skills catalogue into its runtime image,
+# so a commit that fails to ship changes planner behaviour silently. The
+# watchdog existed only in CFactory, the one repo in the fleet that bakes
+# neither.
+#
+# The logic lives in the hub, not here, because the pathspec it uses has to
+# mirror deploy.yml's paths-ignore exactly and Factory#454 is the story of that
+# mirror being silently wrong. One implementation, four callers.
+
+on:
+  schedule:
+    # Every 30 minutes. The comparator's grace period (45m) decides what counts
+    # as late; this only controls how quickly a real stall is noticed.
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  # Explicitly NOT cancel-in-progress: cancelling the thing that detects
+  # cancellation damage would be a direct way to reintroduce CFactory#219.
+  group: deploy-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    uses: olafkfreund/Factory/.github/workflows/deploy-drift.yml@main
+    with:
+      gitops_path: apps/pfactory/manifests
+    secrets:
+      GITOPS_PAT: ${{ secrets.GITOPS_PAT }}

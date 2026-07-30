@@ -112,8 +112,16 @@ jobs:
     name: config drift (vendored baseline pinned to hub)
     runs-on: ubuntu-latest
     # The vendored standards/ copy must match the Factory hub at the pinned SHA
-    # (standards/README.md). Soft-skips on a network error fetching the hub so a
-    # GitHub outage cannot red the build.
+    # (standards/README.md).
+    #
+    # It used to soft-skip on a fetch error so a GitHub outage could not red the
+    # build. That made a blocking gate report success from a comparison it never
+    # made, and the failure modes are not all outages: a garbage-collected pin,
+    # a renamed hub file, or Factory going private all fetch-fail forever and
+    # would have skipped forever, silently. Rule 4.7 names this case in as many
+    # words ("a fetch that times out ... has not verified anything"). A real
+    # outage now costs a re-run, which is cheap and visible; the old behaviour
+    # cost nothing and told you nothing (Factory#471).
     steps:
       - uses: actions/checkout@v4
 
@@ -126,7 +134,11 @@ jobs:
           fail=0
           for f in ruff.toml mypy.ini .editorconfig coding-standards.md; do
             if ! curl -fsSL "${base}/${f}" -o "/tmp/hub-${f}"; then
-              echo "::warning::could not fetch ${f} from hub (${HUB_SHA}); skipping drift check"
+              echo "::error::could not fetch ${f} from the hub at ${HUB_SHA}."
+              echo "The drift check cannot run, so it fails rather than passing"
+              echo "(rule 4.7). If this is a transient GitHub error, re-run the job;"
+              echo "if the pin was garbage-collected, bump standards/.hub-sha."
+              fail=1
               continue
             fi
             if ! diff -u "/tmp/hub-${f}" "standards/${f}"; then
