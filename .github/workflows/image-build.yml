@@ -58,6 +58,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Factory#495 — the toolchain CI tests on and the toolchain the image
+      # builds with must be the same Node major.
+      #
+      # They were not. This repo tested on one major and built the shipped bundle
+      # on another, and `engines` was satisfied by both so nothing complained.
+      # The build below (#486) catches a Node major that cannot BUILD. It cannot
+      # catch one that builds a DIFFERENT bundle from the one the tests ran
+      # against — different Rollup native binary, different transpile target,
+      # different `npm ci` resolution — because in that case the tests are green
+      # AND the image builds.
+      #
+      # `.nvmrc` is the single declaration. Every `actions/setup-node` reads it
+      # via `node-version-file`, so the workflow side cannot drift by
+      # construction; this step is what stops the Dockerfile drifting away from
+      # it, which is the direction it drifted last time (a base-image bump that
+      # did not move the workflow). Runs before the build so a mismatch fails in
+      # seconds rather than after a full image compile.
+      #
+      # Fails closed (rule 4.7): a renamed stage, a moved Dockerfile or a deleted
+      # .nvmrc leaves one side empty, and an empty-vs-empty comparison would
+      # otherwise pass. Both sides are asserted non-empty first.
+      - name: Node major — .nvmrc must match the image's frontend build stage
+        env:
+          NODE_DOCKERFILE: Dockerfile
+          NODE_STAGE: frontend-build
+        run: |
+          set -euo pipefail
+          # `|| true` on both captures so an ABSENT input reaches the explicit
+          # error below: under `pipefail` a failing grep would otherwise kill the
+          # step with no message at all, which is a red build nobody can read.
+          declared="$(head -n1 .nvmrc 2>/dev/null | tr -dc '0-9.' | cut -d. -f1 || true)"
+          built="$(grep -E "^FROM .* AS ${NODE_STAGE}\$" "${NODE_DOCKERFILE}" 2>/dev/null \
+                   | grep -oE 'node:[0-9]+' | cut -d: -f2 | sort -u || true)"
+          test -n "${declared}" \
+            || { echo "::error::.nvmrc is missing or declares no Node major"; exit 1; }
+          test -n "${built}" \
+            || { echo "::error::no 'FROM ... node:<major> AS ${NODE_STAGE}' in ${NODE_DOCKERFILE}"; exit 1; }
+          if [ "${declared}" != "${built}" ]; then
+            echo "::error::Node major drift: .nvmrc says ${declared}, ${NODE_DOCKERFILE} stage ${NODE_STAGE} builds on ${built}"
+            exit 1
+          fi
+          echo "Node major aligned: ${declared} (.nvmrc == ${NODE_DOCKERFILE} stage ${NODE_STAGE})"
+
       - uses: docker/setup-buildx-action@v3
 
       # amd64 only, matching deploy.yml — the p510 k3d cluster is amd64 and the
