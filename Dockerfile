@@ -10,10 +10,31 @@
 # Stage 1: Build the React frontend
 # ---------------------------------------------------------------------------
 # Digest is the OCI image-index (manifest-list) sha256 so multi-arch buildx
-# (P0.6) can still resolve the right platform manifest. The `:latest-dev`
-# tag is kept alongside the digest as a human hint and is ignored by docker
-# when a digest is present. Updates land via Renovate PRs (renovate.json).
-FROM cgr.dev/chainguard/node:latest-dev@sha256:ce3f18966af7a0ba76f96aa32d6240b437d00eeb775d92c1e7e75f457fe5a8b7 AS frontend-build
+# (P0.6) can still resolve the right platform manifest. The version tag is
+# kept alongside the digest as a human hint and is ignored by docker when a
+# digest is present.
+#
+# Why not cgr.dev/chainguard/node (AIFactory#1091): this stage was pinned to
+# `node:latest-dev@sha256:...`, which cannot work. Chainguard rebuilds
+# `latest-*` continuously and garbage-collects superseded digests, so the pin
+# 404s within days and `load metadata` fails before the build starts. This
+# repo carried the same dead digest as AIFactory. The usual answer -- pin a
+# versioned tag by digest -- is not available: the public Chainguard catalog
+# publishes only `latest`, `latest-dev`, `latest-slim`, `next` and `next-dev`
+# for node; `node:24-dev` and `node:24` both 404, because versioned tags are a
+# paid Production-tier feature under a customer-specific org path. Docker
+# Official Images do retain superseded digests for versioned tags
+# (node:24.0.0-bookworm-slim from May 2025 still resolves), so a pin here
+# survives while staying reproducible.
+#
+# node >= 24.0.0 and npm >= 10 are required by the root package.json
+# `engines`. Keep a glibc variant: an Alpine/musl image would need the
+# `-musl` Rollup native binaries rather than `-gnu`.
+# Nothing from this stage ships -- only apps/web-server/static is copied into
+# the runtime stage -- so the base's CVE posture is not part of the attack
+# surface. The runtime stage stays on Chainguard, where it does matter.
+# Digest bumps land via Dependabot PRs (.github/dependabot.yml).
+FROM docker.io/node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS frontend-build
 
 USER root
 WORKDIR /build
@@ -149,7 +170,7 @@ RUN mkdir -p /home/nonroot/.npm-global \
 # Bake the provider coder CLIs into the image so the control-plane boot never
 # npm-installs them (mirrors TFactory #791: the install-clis init container hung
 # 8+ min on a slow registry and stalled the rollout). .npm-global/bin is already
-# on PATH. Versions pinned here (Renovate tracks the Dockerfile).
+# on PATH. Versions pinned here (Dependabot tracks the Dockerfile).
 #
 # `install.cjs` is NOT redundant with the npm postinstall (Factory#383). The
 # postinstall downloads the 275 MB platform-native binary correctly, but leaves

@@ -1,0 +1,35 @@
+# Base-image digest updates for the Dockerfile (AIFactory#1091).
+#
+# Why this file exists even though renovate.json is present and already
+# describes exactly this policy: Renovate has never run on this repository.
+# Zero Renovate PRs have ever been opened, there is no Dependency Dashboard
+# issue despite ":dependencyDashboard" being configured, and no workflow
+# self-hosts it -- the GitHub App was never installed. Dependabot, by
+# contrast, is demonstrably active here. So the base-image digests that
+# renovate.json claimed to track were in fact tracked by nothing, and the
+# frontend stage's pin sat at a digest from 2026-05-24 until upstream
+# garbage-collected it and the "docker (P0 acceptance)" gate stopped being
+# able to start a build at all.
+#
+# Daily, not weekly: a digest pin only rots in one direction, and the gate is
+# hard-down for the whole window between upstream moving and the bump landing.
+#
+# Scope is deliberately just "/" -- that is where the digest-pinned bases are.
+# The docker/*-runner Dockerfiles use unpinned version tags, which cannot rot
+# this way; widening this file to them would only add PR noise.
+#
+# NOTE: if Renovate is ever actually installed, remove either its dockerfile
+# manager or this entry. Two bots bumping the same FROM lines will collide.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: daily
+    labels:
+      - dependencies
+      - docker
+      - base-image
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 5
