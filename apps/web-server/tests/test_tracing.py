@@ -18,6 +18,7 @@ import pytest
 from opentelemetry.sdk.trace.export import SpanExportResult
 
 from server.observability.tracing import (
+    _install_exporter,
     _RateLimitFilter,
     auth_scheme,
     rate_limit_exporter_log,
@@ -26,6 +27,18 @@ from server.observability.tracing import (
 from server.observability.tracing import (
     logger as tracing_logger,
 )
+
+
+class _ListHandler(logging.Handler):
+    """Collect records in a list. Subclassed rather than monkeypatching
+    ``emit``, which mypy rightly refuses on a bound method."""
+
+    def __init__(self, sink: list[logging.LogRecord]) -> None:
+        super().__init__()
+        self.sink = sink
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.sink.append(record)
 
 
 @contextmanager
@@ -40,8 +53,7 @@ def captured():
     what it is testing. Measured in CFactory#276.
     """
     records: list[logging.LogRecord] = []
-    handler = logging.Handler()
-    handler.emit = records.append  # type: ignore[method-assign]
+    handler = _ListHandler(records)
     was_disabled, was_level = tracing_logger.disabled, tracing_logger.level
     tracing_logger.disabled = False
     tracing_logger.setLevel(logging.DEBUG)
@@ -142,3 +154,17 @@ def test_rate_limit_attaches_to_the_exporters_own_logger():
         assert len(target.filters) == before + 1
     finally:
         target.filters = target.filters[:before]
+
+
+def test_unsupported_protocol_installs_nothing_and_says_so(monkeypatch):
+    """Only http/protobuf ships an exporter, so grpc must not fail silently.
+
+    Without this branch the grpc import would raise ImportError and be
+    swallowed by the broad handler as "failed to install", which names the
+    symptom rather than the configuration mistake.
+    """
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+    with captured() as records:
+        _install_exporter("http://collector", "svc")
+    assert "NO SPANS WILL LAND" in text(records)
+    assert "http/protobuf" in text(records)

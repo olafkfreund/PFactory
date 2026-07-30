@@ -70,6 +70,9 @@ logger = logging.getLogger(__name__)
 # the collector; the four factories share one OpenObserve org.
 DEFAULT_SERVICE_NAME = "pfactory-web"
 
+# The only OTLP transport this service ships an exporter for.
+PROTOCOL = "http/protobuf"
+
 # How long a rejected exporter stays quiet between log lines, seconds.
 _EXPORT_ERROR_INTERVAL = float(os.environ.get("OTEL_EXPORT_ERROR_INTERVAL", "300"))
 
@@ -86,7 +89,8 @@ def init_tracing(app: Any = None) -> None:
     the service from starting. Reads
 
     - ``OTEL_EXPORTER_OTLP_ENDPOINT`` — unset/empty means no exporter
-    - ``OTEL_EXPORTER_OTLP_PROTOCOL`` — ``http/protobuf`` or grpc (default)
+    - ``OTEL_EXPORTER_OTLP_PROTOCOL`` — ``http/protobuf`` (the default, and
+      the only value this service ships an exporter for)
     - ``OTEL_EXPORTER_OTLP_HEADERS`` — read by the exporter package itself
     - ``OTEL_SERVICE_NAME`` — defaults to ``DEFAULT_SERVICE_NAME``
 
@@ -140,16 +144,27 @@ def init_tracing(app: Any = None) -> None:
 
 def _install_exporter(endpoint: str, service_name: str) -> None:
     """Install the OTLP span exporter, then prove it before claiming it."""
-    protocol = os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").strip().lower()
+    protocol = os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL", PROTOCOL).strip().lower()
+    if protocol != PROTOCOL:
+        # ponytail: http/protobuf only. The collector is OpenObserve over
+        # OTLP/HTTP and only `opentelemetry-exporter-otlp-proto-http` is
+        # installed, so a grpc branch here would be a code path that cannot
+        # import — and it would fail with a confusing ImportError rather than
+        # naming the actual mistake. Say the actual mistake. Adding grpc means
+        # adding the exporter package and one branch here.
+        logger.error(
+            "OTLP exporter NOT installed: OTEL_EXPORTER_OTLP_PROTOCOL=%s, but "
+            "this service ships only the http/protobuf exporter. NO SPANS WILL "
+            "LAND. endpoint=%s service=%s",
+            protocol,
+            endpoint,
+            service_name,
+        )
+        return
     try:
-        if protocol == "http/protobuf":
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
-                OTLPSpanExporter,
-            )
-        else:
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
-                OTLPSpanExporter,
-            )
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
+            OTLPSpanExporter,
+        )
         from opentelemetry.sdk.trace.export import BatchSpanProcessor  # noqa: PLC0415
 
         exporter = OTLPSpanExporter()
