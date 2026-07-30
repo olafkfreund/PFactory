@@ -1,25 +1,36 @@
-# Base-image digest updates for the Dockerfile (AIFactory#1091).
+# Base-image updates for the root Dockerfile. This file is now the only thing in
+# the repo that bumps a base image (Factory#436).
 #
-# Why this file exists even though renovate.json is present and already
-# describes exactly this policy: Renovate has never run on this repository.
-# Zero Renovate PRs have ever been opened, there is no Dependency Dashboard
-# issue despite ":dependencyDashboard" being configured, and no workflow
-# self-hosts it -- the GitHub App was never installed. Dependabot, by
-# contrast, is demonstrably active here. So the base-image digests that
-# renovate.json claimed to track were in fact tracked by nothing, and the
-# frontend stage's pin sat at a digest from 2026-05-24 until upstream
-# garbage-collected it and the "docker (P0 acceptance)" gate stopped being
-# able to start a build at all.
+# How the gap happened. renovate.json came in with the fork from TFactory on
+# 2026-06-03, describing exactly this policy -- pinDigests, a dockerfile manager,
+# a digest rule labelled base-image -- and never once acted on it. The Renovate
+# GitHub App is not installed on this account: zero Renovate PRs exist across all
+# five Factory repos, and no Dependency Dashboard issue was ever opened despite
+# ":dependencyDashboard" being configured. The base-image digests it claimed to
+# track were tracked by nothing, which is why the frontend stage sat on a
+# Chainguard digest until upstream garbage-collected it and the docker acceptance
+# gate could no longer start a build (#393, AIFactory#1091 -- the identical dead
+# digest was pinned in both repos).
 #
-# Daily, not weekly: a digest pin only rots in one direction, and the gate is
+# Docker-only on purpose: that is the lane that actually broke, and a narrow
+# config is one that does not get switched off again the first time a weekly
+# all-ecosystem run opens nine PRs at once, which is how routine updates were
+# lost in the first place (AIFactory#34).
+#
+# Daily, not weekly. A digest pin rots in one direction only, and the gate is
 # hard-down for the whole window between upstream moving and the bump landing.
 #
-# Scope is deliberately just "/" -- that is where the digest-pinned bases are.
-# The docker/*-runner Dockerfiles use unpinned version tags, which cannot rot
-# this way; widening this file to them would only add PR noise.
+# Verified 2026-07-30 with dependabot-cli v1.91.0 against this repo: the docker
+# updater reads `tag@sha256:` pins and proposed
+#   chainguard/python latest-dev  7a568bc -> 534fb1a
+# rewriting the FROM line. Same tag class that was garbage-collected in #393, so
+# this covers the real failure case and not a tidier neighbour of it.
 #
-# NOTE: if Renovate is ever actually installed, remove either its dockerfile
-# manager or this entry. Two bots bumping the same FROM lines will collide.
+# Not covered, stated rather than implied: helmv3 charts, github-actions SHA
+# pinning, and `COPY --from=<image>` pins -- Dependabot's Dockerfile parser only
+# reads FROM. None of those were covered before either; this just stops the
+# config from claiming they were. If the Renovate App is ever installed, delete
+# this file rather than let two bots rewrite the same FROM lines.
 version: 2
 updates:
   - package-ecosystem: docker
