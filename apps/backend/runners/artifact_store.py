@@ -386,11 +386,29 @@ def unpack_workspace(
     return dest
 
 
-def _selftest() -> None:
-    # Reuse the hub's tiny assert helper rather than redefining it (no copy-paste
-    # of _require across the shared scripts/ — Factory#161 jscpd budget).
-    from job_dispatch import _require  # noqa: PLC0415 — self-test-only import
+def _require(cond: bool, msg: str) -> None:
+    """Assert helper for the self-test below.
 
+    Factory#488. This used to be ``from job_dispatch import _require``, on the
+    grounds that a second copy would cost jscpd clone budget (Factory#161). It
+    resolved in the hub, where both files sit flat in ``scripts/``, and NOWHERE
+    ELSE: the two modules are vendored to different, unrelated paths per service,
+    and a service is free to vendor one and not the other. PFactory vendors this
+    module and will never vendor ``job_dispatch`` — it runs a bounded pooled-worker
+    model and builds no Kubernetes Job at all (RFC-0016 §5(c)) — so running
+    ``python apps/backend/runners/artifact_store.py`` there raised ImportError,
+    permanently. A canonical that ships a self-test its consumers cannot execute
+    is the always-green gate one level up from the drift it exists to catch.
+
+    The budget was never actually at stake: ``.jscpd.json`` sets ``minTokens: 50``
+    and this is roughly fifteen. The import bought nothing and cost the self-test
+    its portability.
+    """
+    if not cond:
+        raise AssertionError(msg)
+
+
+def _selftest() -> None:
     # Canonical key layout (apis/concurrency-conventions.md §2 worked example).
     ref = ArtifactRef("aifactory", "9d2c", "build", correlation_key=482, path="app.tar.zst")
     _require(ref.key() == "aifactory/482/9d2c/build/app.tar.zst", f"key layout: {ref.key()}")
@@ -512,8 +530,11 @@ def _evil_archive(name: str) -> bytes:
 def _selftest_workspace() -> None:
     import tempfile  # noqa: PLC0415 — self-test-only
 
-    # Same shared assert helper the key-layout self-test reuses (no copy-paste).
-    from job_dispatch import _require as req  # noqa: PLC0415 — self-test-only import
+    # Factory#488, second site. The issue named only the import in _selftest();
+    # this one is why running the module in a tree without job_dispatch.py still
+    # died after that one was fixed. Found by executing the module from a
+    # directory holding nothing else, which is what a consumer's tree looks like.
+    req = _require
 
     ref = ArtifactRef("aifactory", "9d2c", "build", correlation_key=482)
     # The packed object lands under the WORKSPACE role, regardless of ref.role.
@@ -527,7 +548,7 @@ def _selftest_workspace() -> None:
         _selftest_safety(req, Path(tmp))
 
 
-_Require = Callable[[bool, str], None]  # the shared job_dispatch._require signature
+_Require = Callable[[bool, str], None]  # the _require signature above
 
 
 def _selftest_roundtrip(req: _Require, ref: ArtifactRef, tmp: Path) -> None:
