@@ -119,13 +119,22 @@ jobs:
 
   # Post-deploy PARR seam smoke check (Factory#44). Steps-based on purpose: a
   # cross-repo reusable-workflow `uses:` call fails the deploy at startup, so we
-  # check out the Factory harness and run it directly. Soft gate — continue-on-error
-  # plus `|| true` mean a probe failure can never break or roll back the deploy;
-  # self-skips when FACTORY_TOKEN is unset. TODO: tighten to a required gate once stable.
+  # check out the Factory harness and run it directly.
+  #
+  # SOFT ABOUT SEAMS, HARD ABOUT ITSELF (Factory#471). `continue-on-error` used
+  # to sit on the job, which meant it swallowed everything - including the guard
+  # step that exits when FACTORY_TOKEN is missing. So a rotated or deleted secret
+  # produced a green post-deploy check that had probed nothing at all, which is
+  # indistinguishable from a healthy fleet.
+  #
+  # It now sits on the probe step alone. A regressed seam still shows up as a
+  # failed-but-ignored step and cannot break or roll back a deploy that has
+  # already happened - that intent is unchanged. A missing token is a different
+  # animal: it is never transient, no re-run fixes it, and it means the check did
+  # not run. That fails the job (standards/coding-standards.md rule 4.7).
   seam-check:
     needs: deploy
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout Factory seam harness
         uses: actions/checkout@v4
@@ -135,7 +144,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Require the fleet token (fail closed, rule 4.7)
+        # Deliberately NOT continue-on-error, and deliberately its own step. This
+        # is the "should have run and could not" case: deploy.yml only ever runs
+        # on push to main in this repo, where secrets are always available, so an
+        # empty token is misconfiguration - never the by-design fork-PR case
+        # where GitHub withholds secrets and no amount of fixing would help.
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+        run: |
+          if [ -z "${FACTORY_TOKEN}" ]; then
+            echo "::error::FACTORY_TOKEN is not set; the post-deploy seam check did not run."
+            echo "Set it with: gh secret set FACTORY_TOKEN --repo ${{ github.repository }}"
+            echo "Failing rather than skipping (Factory#471): a green check that"
+            echo "probed nothing looks exactly like a healthy fleet."
+            exit 1
+          fi
+
       - name: PARR seam smoke regression
+        # Soft: a regressed seam shows as failed-but-ignored and does not break a
+        # deploy that already shipped. The exit code stays real so the failure is
+        # visible - Factory#416 was a probe that crashed before its first request
+        # on every deploy and still reported green.
+        continue-on-error: true
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
           PFACTORY_API: ${{ vars.PFACTORY_API }}
@@ -149,17 +180,4 @@ jobs:
           PARR_OIDC_TOKEN_URL: ${{ vars.PARR_OIDC_TOKEN_URL }}
           CFACTORY_OIDC_CLIENT_ID: ${{ vars.CFACTORY_OIDC_CLIENT_ID }}
           CFACTORY_OIDC_CLIENT_SECRET: ${{ secrets.CFACTORY_OIDC_CLIENT_SECRET }}
-        run: |
-          if [ -z "${FACTORY_TOKEN}" ]; then
-            echo "FACTORY_TOKEN not set — skipping seam smoke gate."
-            exit 0
-          fi
-          # No `|| true`. The job is already continue-on-error, so a failing
-          # seam cannot break or roll back the deploy - but discarding the
-          # exit code on top of that hid a hard crash on EVERY deploy
-          # (Factory#416: the probe died on `ValueError: unknown url type`
-          # before its first request and the job still reported green).
-          # Keeping the real exit code visible is also what makes the
-          # standing TODO below achievable: nobody can decide to promote
-          # this to a required gate while it is incapable of failing.
-          python3 scripts/parr_regression.py --smoke
+        run: python3 scripts/parr_regression.py --smoke
