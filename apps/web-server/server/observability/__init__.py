@@ -1,10 +1,12 @@
 """Observability layer for PFactory (Epic #26 P6).
 
-Three concerns, three modules:
+Four concerns, four modules:
   - structlog_setup: JSON logging to stdout, correlation-ID bind.
   - correlation_id:  ASGI middleware + contextvar for X-Request-ID.
   - metrics:         prometheus-fastapi-instrumentator wiring with
                      cardinality cap + optional bearer-token gate.
+  - tracing:         OTLP span export to the fleet collector, with a
+                     startup probe so "enabled" is earned (Factory#516).
 """
 
 from .correlation_id import (
@@ -17,6 +19,7 @@ from .correlation_id import (
 )
 from .metrics import install_metrics
 from .structlog_setup import configure_structlog, get_logger
+from .tracing import init_tracing
 
 __all__ = [
     "CORRELATION_ID_HEADER",
@@ -24,6 +27,7 @@ __all__ = [
     "configure_structlog",
     "get_correlation_id",
     "get_logger",
+    "init_tracing",
     "install_httpx_propagation",
     "install_metrics",
     "reset_correlation_id",
