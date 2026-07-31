@@ -3,7 +3,8 @@
 # Commit message validation
 # Enforces conventional commit format: type(scope)!?: description
 #
-# Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+# Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore,
+#              revert, release, security  (same set as AIFactory/TFactory)
 # Scope allows: letters, numbers, hyphens, underscores, slashes, dots
 # Optional ! for breaking changes
 # Examples:
@@ -21,7 +22,7 @@ commit_msg=$(cat "$commit_msg_file")
 # Format: type(optional-scope)!?: description
 # Scope allows: letters, numbers, hyphens, underscores, slashes, dots (consistent with GitHub workflow)
 # Optional ! for breaking changes: feat!: or feat(scope)!:
-pattern="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_/.-]+\))?!?: .{1,100}$"
+pattern="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|release|security)(\([a-zA-Z0-9_/.-]+\))?!?: .{1,100}$"
 
 # Allow merge commits
 if echo "$commit_msg" | grep -qE "^Merge "; then
@@ -56,6 +57,8 @@ if ! echo "$first_line" | grep -qE "$pattern"; then
   echo "  ci       - CI/CD configuration"
   echo "  chore    - Other changes (maintenance)"
   echo "  revert   - Reverting a previous commit"
+  echo "  release  - A release commit"
+  echo "  security - A security fix"
   echo ""
   echo "Examples:"
   echo "  feat(tasks): add drag and drop support"
