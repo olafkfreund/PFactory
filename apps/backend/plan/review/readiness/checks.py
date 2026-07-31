@@ -17,12 +17,13 @@ import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel, Field
+
 from plan.enrich.relevance import is_cloud_relevant
 from plan.recon.delta import blast_radius, compute_footprints
 from plan.recon.language_reconcile import reconcile_language
 from plan.review.models import Finding
 from plan.review.readiness.models import ReadinessCheckResult, ReadinessReport
-from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
@@ -160,13 +161,20 @@ def _language_reconciled(
         severity="high",
         hard=True,
         waivable=True,
-        detail=rec.reason,
+        detail=(
+            f"{rec.reason} Detected from the word {rec.spec_language_signal!r} in the spec text."
+            if rec.spec_language_signal
+            else rec.reason
+        ),
         remediation=(
             "Align the spec with the repo's language, re-classify as a migration "
             "(rewrite from X to Y), or record a deliberate waiver."
         ),
         evidence={
             "spec_language": rec.spec_language,
+            # The token that drove the detection (#397): without it, an author who
+            # never mentioned the language cannot tell which word produced it.
+            "spec_language_signal": rec.spec_language_signal,
             "repo_language": rec.repo_language,
             "change_mode": plan.change_mode,
         },

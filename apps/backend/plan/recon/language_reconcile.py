@@ -16,6 +16,7 @@ Rules:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -25,16 +26,22 @@ if TYPE_CHECKING:
 
 # Intended-language signals in spec prose. Ordered so the first hit wins; values
 # are the canonical language name (matching project/stack_detector output).
+#
+# Written as plain tokens: matching is word-boundary aware (see _SIGNAL_PATTERNS),
+# so nothing here needs the space-padding these once carried. That padding was a
+# per-needle patch for a whole-class defect -- a bare "rust" still matched inside
+# "untrusted", which is the most natural word in a security criterion, so every
+# spec that satisfied the security lens then hard-failed the language gate as a
+# Rust spec (#397). Boundaries also make the ordering non-load-bearing: "java" no
+# longer matches inside "javascript".
 _LANGUAGE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
-    ("rust", ("rust", "cargo", " rs ", "tokio", "actix")),
-    ("go", ("golang", " go ", "goroutine", "go.mod")),
-    ("typescript", ("typescript", " ts ", "deno", "node.js", "nodejs")),
-    ("javascript", ("javascript", " js ", "express.js")),
-    ("python", ("python", "pytest", "fastapi", "django", "flask", "uv ")),
+    ("rust", ("rust", "cargo", "rs", "tokio", "actix")),
+    ("go", ("golang", "go", "goroutine", "go.mod")),
+    ("typescript", ("typescript", "ts", "deno", "node.js", "nodejs")),
+    ("javascript", ("javascript", "js", "express.js")),
+    ("python", ("python", "pytest", "fastapi", "django", "flask", "uv")),
     ("java", ("java", "spring boot", "maven", "gradle")),
-    # " c#" is space-prefixed like the other short tokens: bare "c#" matches the
-    # house "AC#1:" criterion labels, so every spec using them detected as C#.
-    ("csharp", (" c#", ".net", "dotnet", "asp.net")),
+    ("csharp", ("c#", ".net", "dotnet", "asp.net")),
     ("ruby", ("ruby", "rails")),
     ("php", ("php", "laravel", "symfony")),
     ("kotlin", ("kotlin",)),
@@ -43,28 +50,53 @@ _LANGUAGE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
-def detect_spec_language(plan: NormalizedPlan) -> str | None:
-    """Best-effort: the language the spec text *asks for*, or None if unstated.
+def _boundary(needle: str) -> str:
+    r"""Escape ``needle``, anchoring only the ends that are word characters.
 
-    Pads the text with spaces so single-token signals like ``" go "`` match at
-    string boundaries.
+    ``\b`` asserts a word/non-word transition, so appending it to a needle that
+    already ends in punctuation demands a following word character and the needle
+    can never match: ``\bc\+\+\b`` does not match "c++ " (both ``+`` and the space
+    are non-word). Anchoring per-end keeps "c#" and "c++" matchable while still
+    refusing "AC#1" -- there is no boundary before the ``c`` in "ac#1".
     """
-    text = (
-        " "
-        + " ".join(
-            [
-                plan.title,
-                plan.description,
-                *(c.text for c in plan.criteria),
-                plan.raw_text or "",
-            ]
-        ).lower()
-        + " "
+    return (
+        (r"\b" if needle[0].isalnum() else "")
+        + re.escape(needle)
+        + (r"\b" if needle[-1].isalnum() else "")
     )
-    for lang, needles in _LANGUAGE_SIGNALS:
-        if any(n in text for n in needles):
-            return lang
-    return None
+
+
+_SIGNAL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (lang, re.compile("|".join(_boundary(n) for n in needles)))
+    for lang, needles in _LANGUAGE_SIGNALS
+]
+
+
+def detect_spec_language_signal(plan: NormalizedPlan) -> tuple[str | None, str | None]:
+    """Return ``(language, matched token)``, or ``(None, None)`` if unstated.
+
+    The token is what makes a language conflict diagnosable: the failure names
+    only the detected language, so an author who never mentioned Rust has no way
+    to see that the word "untrusted" is what produced it (#397).
+    """
+    text = " ".join(
+        [
+            plan.title,
+            plan.description,
+            *(c.text for c in plan.criteria),
+            plan.raw_text or "",
+        ]
+    ).lower()
+    for lang, pattern in _SIGNAL_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return lang, match.group(0)
+    return None, None
+
+
+def detect_spec_language(plan: NormalizedPlan) -> str | None:
+    """Best-effort: the language the spec text *asks for*, or None if unstated."""
+    return detect_spec_language_signal(plan)[0]
 
 
 @dataclass
@@ -76,13 +108,16 @@ class LanguageReconcile:
     repo_language: str | None
     conflict: bool
     reason: str = ""
+    # The literal token that produced `spec_language`, so a conflict can name its
+    # own evidence rather than leaving the author to guess which word did it.
+    spec_language_signal: str | None = None
 
 
 def reconcile_language(
     plan: NormalizedPlan, repo_map: RepoMap | None, change_mode: str
 ) -> LanguageReconcile:
     """Decide the language to plan in, flagging an unintended mismatch (#585)."""
-    spec_lang = detect_spec_language(plan)
+    spec_lang, spec_signal = detect_spec_language_signal(plan)
     repo_langs = list(repo_map.languages) if (repo_map and repo_map.available) else []
     repo_lang = repo_langs[0] if repo_langs else None
 
@@ -91,6 +126,7 @@ def reconcile_language(
         return LanguageReconcile(
             resolved_language=spec_lang,
             spec_language=spec_lang,
+            spec_language_signal=spec_signal,
             repo_language=None,
             conflict=False,
         )
@@ -100,6 +136,7 @@ def reconcile_language(
         return LanguageReconcile(
             resolved_language=spec_lang or repo_lang,
             spec_language=spec_lang,
+            spec_language_signal=spec_signal,
             repo_language=repo_lang,
             conflict=False,
             reason="migration: target language differs from source by design",
@@ -110,6 +147,7 @@ def reconcile_language(
         return LanguageReconcile(
             resolved_language=repo_lang,
             spec_language=spec_lang,
+            spec_language_signal=spec_signal,
             repo_language=repo_lang,
             conflict=False,
         )
@@ -118,6 +156,7 @@ def reconcile_language(
     return LanguageReconcile(
         resolved_language=repo_lang,
         spec_language=spec_lang,
+        spec_language_signal=spec_signal,
         repo_language=repo_lang,
         conflict=True,
         reason=(
