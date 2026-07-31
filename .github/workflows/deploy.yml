@@ -105,17 +105,69 @@ jobs:
       - name: Bump factory-gitops (if GITOPS_PAT set)
         if: "${{ env.GITOPS_PAT != '' }}"
         run: |
-          set -e
-          git clone --depth 1 "https://x:${GITOPS_PAT}@github.com/${GITOPS_REPO}.git" gitops
-          cd "gitops/${GITOPS_PATH}"
-          curl -sSL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz | tar xz
-          ./kustomize edit set image "${IMAGE}=${IMAGE}:${{ steps.tags.outputs.sha }}"
-          rm -f kustomize
-          cd "$GITHUB_WORKSPACE/gitops"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "cd(pfactory): ${{ steps.tags.outputs.sha }} [skip ci]" || exit 0
-          git push
+          set -euo pipefail
+          SHA="${{ steps.tags.outputs.sha }}"
+
+          # Factory#527: every service bumps this same repo, so two deploys in
+          # flight together used to race -- clone, edit, push, and the loser got
+          # `! [rejected] main -> main (fetch first)`. Its pin silently stayed on
+          # the previous sha while its build, release PR and issue all reported
+          # success. Retry the WHOLE cycle rather than rebasing: the clone is
+          # shallow (rebase is awkward) and the edit is idempotent, so re-doing it
+          # from a fresh clone is simpler -- and it preserves the rival's commit
+          # instead of force-pushing over it.
+          pushed=""
+          for attempt in 1 2 3 4 5; do
+            rm -rf gitops
+            git clone --quiet --depth 1 "https://x:${GITOPS_PAT}@github.com/${GITOPS_REPO}.git" gitops
+            cd "gitops/${GITOPS_PATH}"
+            curl -sSL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz | tar xz
+            ./kustomize edit set image "${IMAGE}=${IMAGE}:${SHA}"
+            rm -f kustomize
+            cd "$GITHUB_WORKSPACE/gitops"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            if git diff --quiet; then
+              # `|| exit 0` used to conflate two cases. Tell them apart: already
+              # pinned (fine) versus the edit matched nothing (a broken bump that
+              # reported success).
+              if grep -rq "${IMAGE}:${SHA}" "${GITOPS_PATH}/"; then
+                echo "gitops already pinned to ${SHA}; nothing to do."
+                pushed="already"
+                break
+              fi
+              echo "::error::the image edit changed nothing AND the pin is not ${SHA}."
+              echo "::error::The kustomize pattern no longer matches this manifest."
+              exit 1
+            fi
+
+            git commit --quiet -am "cd(pfactory): ${SHA} [skip ci]"
+            if git push --quiet; then
+              pushed="yes"
+              break
+            fi
+            echo "push rejected (attempt ${attempt}/5) - another service bumped first; retrying"
+            cd "$GITHUB_WORKSPACE"
+            sleep $(( attempt * 3 ))
+          done
+
+          if [ -z "$pushed" ]; then
+            echo "::error::could not push the image bump after 5 attempts (Factory#527)."
+            exit 1
+          fi
+
+          # A deploy that cannot prove the pin moved must not report success
+          # (Factory#433). Re-read from the remote rather than trusting the push.
+          cd "$GITHUB_WORKSPACE"
+          rm -rf gitops-verify
+          git clone --quiet --depth 1 "https://x:${GITOPS_PAT}@github.com/${GITOPS_REPO}.git" gitops-verify
+          if grep -rq "${IMAGE}:${SHA}" "gitops-verify/${GITOPS_PATH}/"; then
+            echo "verified: ${GITOPS_REPO} pins ${IMAGE}:${SHA}"
+          else
+            echo "::error::pushed, but ${GITOPS_REPO} does not pin ${IMAGE}:${SHA}."
+            exit 1
+          fi
 
   # Post-deploy PARR seam smoke check (Factory#44). Steps-based on purpose: a
   # cross-repo reusable-workflow `uses:` call fails the deploy at startup, so we
