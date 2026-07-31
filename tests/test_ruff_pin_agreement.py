@@ -77,3 +77,48 @@ def test_the_format_gate_is_named_after_what_it_checks() -> None:
         "cq-ratchet.yml still claims a 'whole repo' format check. Either widen "
         "the `ruff format --check` scope to match, or keep the name honest."
     )
+
+
+# ── the hub pin lives in one file, fleet-wide (#512) ────────────────────────
+
+
+def test_hub_pin_lives_in_the_one_pin_file() -> None:
+    """Rule 5.2: `standards/.hub-sha` is the one pin filename fleet-wide.
+
+    The SHA used to be hardcoded in cq-ratchet.yml's env, which the standard
+    rules out and which was already inconsistent with that workflow's own error
+    message -- it told you to "bump standards/.hub-sha", a file that did not
+    exist. Tooling reading the pin found nothing where every sibling keeps it.
+    """
+    pin = _REPO / "standards" / ".hub-sha"
+    assert pin.is_file(), "standards/.hub-sha must exist (coding-standards.md 5.2)"
+    sha = pin.read_text(encoding="utf-8").strip()
+    assert re.fullmatch(r"[0-9a-f]{40}", sha), f"not a full commit sha: {sha!r}"
+
+
+# The factory-github drift gate pins a DIFFERENT vendored set (a file-granular
+# mirror, not the standards/ directory) and carries its own SHA. Rule 5.2's last
+# sentence generalises the one-pin-filename rule to "any other directory
+# vendored from the hub", which does not cleanly cover a file-granular mirror --
+# Factory#514 is open on exactly that ambiguity and names these gates as the
+# exceptions. Excluding it here rather than forcing a shape the standard has not
+# decided on yet; when #514 settles, delete this exemption.
+# ci.yml is the same case again: it pins ONE vendored file
+# (apps/backend/plan/emit/contracts/task-contract.schema.json) and says so --
+# "Same convention as factory-github-drift.yml". So PFactory has TWO
+# file-granular pins, not one; noted on Factory#514.
+_PIN_EXEMPT = {"factory-github-drift.yml", "ci.yml"}
+
+
+def test_the_standards_gate_does_not_hardcode_a_hub_sha() -> None:
+    """A second copy of the pin is a second thing to forget to bump."""
+    offenders = []
+    for wf in (_REPO / ".github" / "workflows").glob("*.yml"):
+        if wf.name in _PIN_EXEMPT:
+            continue
+        text = wf.read_text(encoding="utf-8")
+        if re.search(r'HUB_SHA:\s*"?[0-9a-f]{40}', text):
+            offenders.append(wf.name)
+    assert not offenders, (
+        f"these workflows hardcode a hub SHA instead of reading standards/.hub-sha: {offenders}"
+    )

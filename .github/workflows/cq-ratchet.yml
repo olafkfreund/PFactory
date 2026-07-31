@@ -126,10 +126,20 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Diff vendored baseline against pinned hub
-        env:
-          HUB_SHA: "93c3bb49ed5f3f3d3d46aae5f8a13ff601550702"
         run: |
           set -euo pipefail
+          # Factory#512 / rule 5.2: `standards/.hub-sha` is the ONE pin filename
+          # fleet-wide. This used to be a SHA hardcoded in this workflow's env --
+          # which the standard rules out, and which was already inconsistent with
+          # the error message below telling you to "bump standards/.hub-sha".
+          # Tooling that wants the pin now finds it where every sibling keeps it.
+          HUB_SHA="$(tr -d '[:space:]' < standards/.hub-sha)"
+          if [ -z "$HUB_SHA" ]; then
+            echo "::error::standards/.hub-sha is empty or missing — the drift check"
+            echo "cannot know what to compare against, so it fails rather than"
+            echo "passing (rule 4.7)."
+            exit 1
+          fi
           base="https://raw.githubusercontent.com/olafkfreund/Factory/${HUB_SHA}/standards"
           fail=0
           for f in ruff.toml mypy.ini .editorconfig coding-standards.md; do
