@@ -132,7 +132,7 @@ jobs:
               # `|| exit 0` used to conflate two cases. Tell them apart: already
               # pinned (fine) versus the edit matched nothing (a broken bump that
               # reported success).
-              if grep -rq "${IMAGE}:${SHA}" "${GITOPS_PATH}/"; then
+              if grep -rq "newTag: ${SHA}\|${IMAGE}:${SHA}" "${GITOPS_PATH}/"; then
                 echo "gitops already pinned to ${SHA}; nothing to do."
                 pushed="already"
                 break
@@ -162,7 +162,12 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           rm -rf gitops-verify
           git clone --quiet --depth 1 "https://x:${GITOPS_PAT}@github.com/${GITOPS_REPO}.git" gitops-verify
-          if grep -rq "${IMAGE}:${SHA}" "gitops-verify/${GITOPS_PATH}/"; then
+          # `kustomize edit set image` writes `name:` and `newTag:` as SEPARATE
+          # YAML fields -- it never emits `image:tag` on one line. Grepping for
+          # the joined form therefore NEVER matched, so this check failed a
+          # deploy that had in fact worked. Accept either shape: newTag for the
+          # kustomize path, image:tag for manifests edited by sed.
+          if grep -rq "newTag: ${SHA}\|${IMAGE}:${SHA}" "gitops-verify/${GITOPS_PATH}/"; then
             echo "verified: ${GITOPS_REPO} pins ${IMAGE}:${SHA}"
           else
             echo "::error::pushed, but ${GITOPS_REPO} does not pin ${IMAGE}:${SHA}."
