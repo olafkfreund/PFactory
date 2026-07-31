@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -77,15 +78,26 @@ async def _collect(async_gen) -> list:
     return items
 
 
-def _ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
-    """Check if a local Ollama server is reachable."""
+def _ollama_models(base_url: str = "http://localhost:11434") -> set[str] | None:
+    """Model names this Ollama has PULLED, or None when the server is unreachable.
+
+    `/api/tags` is the same single call the old reachability probe made -- it
+    just threw the body away, which is why a server that was up but lacked the
+    model produced a hard test FAILURE rather than a skip (#418):
+
+        RuntimeError: Ollama API HTTP error 404: model 'qwen3.5:27b' not found
+
+    Distinguishing "unreachable" (None) from "reachable, model absent" (a set
+    without it) is the whole point: they need different messages, and neither is
+    a failing test.
+    """
     try:
         req = urllib.request.Request(f"{base_url}/api/tags", method="GET")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            resp.read()
-        return True
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
-        return False
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310 - fixed localhost URL
+            data = json.loads(resp.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
+        return None
+    return {m.get("name", "") for m in data.get("models", []) if isinstance(m, dict)}
 
 
 # ===================================================================
@@ -132,7 +144,9 @@ class TestToolExecutorSecurity:
     def test_path_traversal_blocked(self, tmp_path):
         executor = ToolExecutor(working_dir=tmp_path)
         # ../../../etc/passwd  should resolve outside working_dir
-        result = _run(executor.execute("Read", {"file_path": str(tmp_path / ".." / ".." / "etc" / "passwd")}))
+        result = _run(
+            executor.execute("Read", {"file_path": str(tmp_path / ".." / ".." / "etc" / "passwd")})
+        )
         assert result.is_error
         assert "outside" in result.content.lower() or "denied" in result.content.lower()
 
@@ -189,11 +203,16 @@ class TestToolExecutorReadWrite:
         test_file.write_text("def foo():\n    return 42\n")
 
         executor = ToolExecutor(working_dir=tmp_path)
-        result = _run(executor.execute("Edit", {
-            "file_path": str(test_file),
-            "old_string": "return 42",
-            "new_string": "return 99",
-        }))
+        result = _run(
+            executor.execute(
+                "Edit",
+                {
+                    "file_path": str(test_file),
+                    "old_string": "return 42",
+                    "new_string": "return 99",
+                },
+            )
+        )
         assert not result.is_error
         assert "Successfully edited" in result.content
 
@@ -279,12 +298,14 @@ class TestAgenticProviderLoop:
             "message": {
                 "role": "assistant",
                 "content": "Let me read that file.",
-                "tool_calls": [{
-                    "function": {
-                        "name": "Read",
-                        "arguments": {"file_path": str(test_file)},
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "Read",
+                            "arguments": {"file_path": str(test_file)},
+                        }
                     }
-                }],
+                ],
             }
         }
         # Turn 2: model provides final text
@@ -334,12 +355,14 @@ class TestAgenticProviderLoop:
             "message": {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{
-                    "function": {
-                        "name": "Glob",
-                        "arguments": {"pattern": "*.py"},
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "Glob",
+                            "arguments": {"pattern": "*.py"},
+                        }
                     }
-                }],
+                ],
             }
         }
 
@@ -352,7 +375,9 @@ class TestAgenticProviderLoop:
         assert len(messages) == 5
         last = messages[-1]
         assert type(last).__name__ == "AssistantMessage"
-        assert any("maximum" in b.text.lower() for b in last.content if type(b).__name__ == "TextBlock")
+        assert any(
+            "maximum" in b.text.lower() for b in last.content if type(b).__name__ == "TextBlock"
+        )
 
 
 # ===================================================================
@@ -363,9 +388,20 @@ class TestAgenticProviderLoop:
 _LIVE_MODEL = "qwen3.5:27b"
 _OLLAMA_URL = "http://localhost:11434"
 
+# Which model to drive. Pinned for determinism, overridable so a box serving a
+# different model can actually run these instead of always skipping (#418).
+_LIVE_MODEL = os.environ.get("PFACTORY_OLLAMA_TEST_MODEL", _LIVE_MODEL)
+
+_PULLED = _ollama_models(_OLLAMA_URL)
 _skip_no_ollama = pytest.mark.skipif(
-    not _ollama_reachable(_OLLAMA_URL),
-    reason=f"Ollama not reachable at {_OLLAMA_URL}",
+    _PULLED is None or _LIVE_MODEL not in _PULLED,
+    reason=(
+        f"Ollama not reachable at {_OLLAMA_URL}"
+        if _PULLED is None
+        else f"Ollama at {_OLLAMA_URL} has no {_LIVE_MODEL!r} pulled "
+        f"(has: {', '.join(sorted(_PULLED)) or 'nothing'}). "
+        f"Override with PFACTORY_OLLAMA_TEST_MODEL."
+    ),
 )
 
 
@@ -427,11 +463,16 @@ class TestOllamaAgenticLive:
                             tool_result_found = True
 
         assert tool_use_found, f"Expected Read tool call in messages: {self._summarize(messages)}"
-        assert tool_result_found, f"Expected tool result with file content: {self._summarize(messages)}"
+        assert tool_result_found, (
+            f"Expected tool result with file content: {self._summarize(messages)}"
+        )
         # The final text should reference the file content in some way
-        assert ("hello" in final_text.lower() or "pfactory" in final_text.lower()
-                or "greeting" in final_text.lower() or "integration" in final_text.lower()), \
-            f"Expected final text to reference file content. Got: {final_text[:500]}"
+        assert (
+            "hello" in final_text.lower()
+            or "pfactory" in final_text.lower()
+            or "greeting" in final_text.lower()
+            or "integration" in final_text.lower()
+        ), f"Expected final text to reference file content. Got: {final_text[:500]}"
 
     def test_live_write_and_verify(self, provider, tmp_path):
         """Model should write a Python file and then read it back."""
@@ -454,10 +495,12 @@ class TestOllamaAgenticLive:
                     if type(block).__name__ == "ToolUseBlock":
                         tool_names_used.add(block.name)
 
-        assert "Write" in tool_names_used, \
+        assert "Write" in tool_names_used, (
             f"Expected Write tool call. Tools used: {tool_names_used}. Messages: {self._summarize(messages)}"
-        assert "Read" in tool_names_used, \
+        )
+        assert "Read" in tool_names_used, (
             f"Expected Read tool call. Tools used: {tool_names_used}. Messages: {self._summarize(messages)}"
+        )
 
         # The file should actually exist on disk
         assert target.exists(), f"Expected {target} to exist on disk after Write"
@@ -498,17 +541,16 @@ class TestOllamaAgenticLive:
 
         assert glob_called, f"Expected Glob tool call. Messages: {self._summarize(messages)}"
         # Results should contain .py files
-        assert ".py" in glob_result_content, \
+        assert ".py" in glob_result_content, (
             f"Expected .py files in Glob results. Got: {glob_result_content[:500]}"
+        )
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _query_and_collect(
-        provider: OllamaAgenticProvider, prompt: str
-    ) -> list[Any]:
+    async def _query_and_collect(provider: OllamaAgenticProvider, prompt: str) -> list[Any]:
         """Send a query and collect all response messages."""
         async with provider:
             await provider.query(prompt)
