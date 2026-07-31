@@ -303,11 +303,30 @@ def _instrument(app: Any) -> None:
 
 
 def _instrument_one(name: str, fn: Any) -> None:
+    """Install one instrumentor, and SAY whether it worked (Factory#516).
+
+    Both halves used to log at DEBUG, which the deployed pods do not emit. That
+    made the only two outcomes indistinguishable at INFO: instrumentation
+    installed, or instrumentation raised and was swallowed. In the second case
+    no span is ever created, yet init_tracing still logs "OTel tracing enabled
+    ... (startup export accepted)" -- because that line is earned by the
+    EXPORTER probe, which is a different thing and passes either way.
+
+    A service claiming tracing while producing zero spans is precisely what
+    Factory#516 is about, so the failure is a WARNING and the success is an INFO
+    naming what is actually instrumented.
+    """
     try:
         fn()
-        logger.debug("OTel instrumentation installed: %s", name)
-    except Exception:  # noqa: BLE001
-        logger.debug("OTel instrumentation unavailable: %s", name, exc_info=True)
+        logger.info("OTel instrumentation installed: %s", name)
+    except Exception:  # noqa: BLE001 — instrumentation must never stop the service
+        logger.warning(
+            "OTel instrumentation FAILED: %s — no spans will be created for it, "
+            "even though the exporter is configured and its startup probe passed "
+            "(Factory#516).",
+            name,
+            exc_info=True,
+        )
 
 
 def _instrument_fastapi(app: Any) -> None:
