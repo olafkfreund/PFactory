@@ -12,7 +12,7 @@ name: code-quality (ratchet)
 #     at the PR base vs HEAD and fails only if HEAD has MORE. Legacy hotspots stay
 #     green until touched; net-new violations block. This job is BLOCKING. The
 #     blocking-mypy half is issue #192 (mypy was previously informational).
-#   - A whole-repo `ruff format --check` is BLOCKING (formatting is auto-applied,
+#   - `ruff format --check apps/backend` is BLOCKING (formatting is auto-applied,
 #     never reviewed — section 3.6) and pinned to the same ruff version that the
 #     tree was formatted with, so it is green.
 #   - A config-drift gate keeps the vendored baseline pinned to the hub.
@@ -92,7 +92,7 @@ jobs:
           apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}" --package apps/web-server
 
   format-check:
-    name: ruff format --check (whole repo, blocking)
+    name: ruff format --check (apps/backend, blocking)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
