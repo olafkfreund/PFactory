@@ -47,7 +47,9 @@ def test_in_process_migration_leaves_app_logging_intact(
     """Run a real `alembic upgrade head` the way init_db() does, on sqlite."""
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/t.db")
 
-    # would snapshot the wrong URL into the module-level settings.
+    # Deferred by necessity, not style: engine.py snapshots DATABASE_URL into a
+    # module-level constant at import time, so importing it before the line
+    # above would run the migration against the wrong database.
     from server.database.engine import _alembic_upgrade_head_sync  # noqa: PLC0415
 
     _alembic_upgrade_head_sync()
