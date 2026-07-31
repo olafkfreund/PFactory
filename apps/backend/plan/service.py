@@ -179,6 +179,41 @@ class PlanSession(BaseModel):
     def board_state(self) -> BoardColumn:
         return board_state(self.status, self.review)
 
+    def _review_summary(self) -> dict | None:
+        """Compact per-lens verdict for the cockpit (CFactory#245).
+
+        ``gates_passed`` alone tells a consumer THAT a plan is blocked but not
+        WHY, so CFactory could only render an enabled Approve button and let the
+        click 409 with a lens name the card never showed. This carries the
+        per-lens scores and their findings so the button can be disabled with
+        the reason attached, before the click.
+
+        Deliberately not the whole PlanReview: the lens list is short, but
+        findings carry ``detail`` prose and citations that no cockpit control
+        needs. ``aggregate_score`` IS included and is explicitly NOT the test --
+        every lens must clear ``threshold`` individually, which is why the
+        refusal message says so. A consumer reading the aggregate as the verdict
+        would disagree with the server that produced it.
+        """
+        if self.review is None:
+            return None
+        return {
+            "gates_passed": self.review.gates_passed,
+            "threshold": self.review.threshold,
+            "aggregate_score": self.review.aggregate_score,
+            "lenses": [
+                {
+                    "lens": ls.lens,
+                    "score": ls.score,
+                    "findings": [
+                        {"title": f.title, "severity": f.severity, "blocking": f.blocking}
+                        for f in ls.findings
+                    ],
+                }
+                for ls in self.review.lenses
+            ],
+        }
+
     def summary(self) -> dict:
         return {
             "session_id": self.session_id,
@@ -190,6 +225,8 @@ class PlanSession(BaseModel):
             "plan_type": self.plan.plan_type,
             "children": len(self.epic.children) if self.epic else 0,
             "gates_passed": self.review.gates_passed if self.review else None,
+            # CFactory#245: the per-lens detail behind `gates_passed`.
+            "review": self._review_summary(),
             "created_at": self.created_at,
             "correlation_key": self.correlation_key,
             "issue_number": self.emitted_issue_number,
