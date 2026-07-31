@@ -240,9 +240,7 @@ def test_to_dict_emits_sorted_keys():
     e = _full_entry()
     entry_dict = e.to_dict()
     entry_keys = list(entry_dict.keys())
-    assert entry_keys == sorted(entry_keys), (
-        f"to_dict() keys are not sorted: {entry_keys}"
-    )
+    assert entry_keys == sorted(entry_keys), f"to_dict() keys are not sorted: {entry_keys}"
 
     cat = _catalog_with(e)
     cat_dict = cat.to_dict()
@@ -445,9 +443,7 @@ def _make_spec_dir(
             encoding="utf-8",
         )
     if plan:
-        (spec_dir / "test_plan.json").write_text(
-            json.dumps(plan, indent=2), encoding="utf-8"
-        )
+        (spec_dir / "test_plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
     if verdicts:
         findings_dir = spec_dir / "findings"
         findings_dir.mkdir()
@@ -533,11 +529,31 @@ def test_migration_last_verdict_from_verdicts_json(tmp_path: Path):
     assert cat.tests[0].last_verdict == "flag"
 
 
-def test_migration_last_verdict_defaults_to_accept(tmp_path: Path):
-    """last_verdict defaults to 'accept' when verdicts.json is absent."""
+def test_migration_last_verdict_is_flag_when_unknown(tmp_path: Path):
+    """An unknowable verdict is 'flag', never 'accept' (Factory#431).
+
+    This test previously asserted 'accept' -- it encoded the defect. `last_verdict`
+    means "most recent EVALUATOR verdict", so defaulting to accept recorded the
+    Evaluator as having passed a test it never saw: an unknown turned into a
+    confident positive, which is the shape Factory#431 exists to remove.
+
+    'flag' needs no schema change and is the existing "a human should look" token.
+    The Triager groups ("accept", "flag") for regeneration, so nothing is dropped.
+    """
     spec_dir = _make_spec_dir(tmp_path, test_files=["test_foo.py"])
     cat = migrate_v0_1_workspace(spec_dir, _empty_catalog())
-    assert cat.tests[0].last_verdict == "accept"
+    assert cat.tests[0].last_verdict == "flag"
+
+
+def test_migration_unrecognised_verdict_is_flag(tmp_path: Path):
+    """A verdict the catalog does not know is also not a pass."""
+    spec_dir = _make_spec_dir(
+        tmp_path,
+        test_files=["test_expiry.py"],
+        verdicts=[{"test_id": "test-expiry", "verdict": "banana"}],
+    )
+    cat = migrate_v0_1_workspace(spec_dir, _empty_catalog())
+    assert cat.tests[0].last_verdict == "flag"
 
 
 def test_migration_dedup_by_test_id(tmp_path: Path):
