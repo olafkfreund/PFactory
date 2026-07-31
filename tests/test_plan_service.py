@@ -83,3 +83,71 @@ def test_cannot_approve_before_process():
     sid = svc.ingest_text(_SOFTWARE_PLAN, title="Refund API").session_id
     with pytest.raises(PlanServiceError):
         svc.approve(sid, approver="olaf")
+
+
+# ── the cockpit needs WHY a plan is blocked, not just THAT it is (CFactory#245) ──
+
+
+def _blocked_session():
+    from plan.models import Criterion, NormalizedPlan
+    from plan.review.models import Finding, LensScore, PlanReview
+    from plan.service import PlanSession
+
+    plan = NormalizedPlan(
+        plan_id="027",
+        title="VAT quote endpoint",
+        description="d",
+        source_format="markdown",
+        criteria=[Criterion(id="AC#1", text="x")],
+    )
+    review = PlanReview(
+        plan_id="027",
+        threshold=0.75,
+        lenses=[
+            LensScore(
+                lens="security",
+                score=0.70,
+                findings=[
+                    Finding(title="No authentication/authorization criteria", severity="medium")
+                ],
+            ),
+            LensScore(lens="clarity", score=1.0),
+        ],
+    ).recompute()
+    return PlanSession(session_id="027", plan=plan, review=review)
+
+
+def test_summary_carries_the_per_lens_verdict():
+    """`gates_passed` alone cannot disable a button with a reason attached."""
+    out = _blocked_session().summary()
+    assert out["gates_passed"] is False
+
+    review = out["review"]
+    assert review["threshold"] == 0.75
+    lenses = {ls["lens"]: ls for ls in review["lenses"]}
+    assert lenses["security"]["score"] == 0.70
+    assert lenses["security"]["findings"][0]["title"] == "No authentication/authorization criteria"
+    assert lenses["clarity"]["findings"] == []
+
+
+def test_summary_aggregate_is_carried_but_is_not_the_verdict():
+    """The aggregate clears the threshold while the plan is still blocked.
+
+    This is the exact shape that confused a real approval: 'lens security scored
+    0.70, below the 0.75 threshold ... the 0.94 aggregate is not the test'. A
+    consumer reading the aggregate as the verdict would disagree with the server.
+    """
+    review = _blocked_session().summary()["review"]
+    assert review["aggregate_score"] > review["threshold"]
+    assert review["gates_passed"] is False
+
+
+def test_summary_review_is_none_before_the_gates_run():
+    """An un-reviewed session must serialise unchanged for existing consumers."""
+    from plan.models import NormalizedPlan
+    from plan.service import PlanSession
+
+    plan = NormalizedPlan(plan_id="028", title="t", description="d", source_format="markdown")
+    out = PlanSession(session_id="028", plan=plan).summary()
+    assert out["review"] is None
+    assert out["gates_passed"] is None
