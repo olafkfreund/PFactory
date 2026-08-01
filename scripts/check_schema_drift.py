@@ -17,14 +17,21 @@ Usage:
     python scripts/check_schema_drift.py --canonical PATH_OR_URL
     python scripts/check_schema_drift.py --ref <git-ref>
 
-Network failures fetching the canonical schema are a SOFT SKIP (warn, exit 0) so
-a GitHub outage can't red the build; real drift fails hard (exit 1).
+Only a *transient* network failure fetching the canonical schema is a SOFT SKIP
+(loud warning, exit 0) so a GitHub outage can't red the build. A deterministic
+failure — a TLS/certificate error, a 404, malformed JSON — fails hard (exit 1):
+it recurs on every run, so soft-skipping it would leave this gate permanently
+green while never once running, and a silent skip is indistinguishable from a
+pass (Factory#433). Real drift also fails hard (exit 1).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import socket
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -66,19 +73,56 @@ def check_drift(canonical: Any, vendored: Any, path: str = "") -> list[str]:
     return problems
 
 
+def is_transient(exc: BaseException) -> bool:
+    """True only for a failure that could plausibly succeed on the next run.
+
+    ``urlopen`` wraps the real cause in ``urllib.error.URLError``, so a
+    certificate failure arrives as ``URLError(reason=SSLCertVerificationError)``
+    — catching ``URLError`` and calling it transient is exactly the bug in #440.
+    Unwrap ``.reason`` and judge the cause, defaulting to "not transient".
+    """
+    if isinstance(exc, ssl.SSLError):  # includes ssl.SSLCertVerificationError
+        return False
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, BaseException):
+        return is_transient(reason)
+    # A read timeout or a DNS failure may genuinely differ next run. Everything
+    # else (TLS, HTTP 4xx/5xx, bad JSON) is deterministic and must fail.
+    return isinstance(exc, TimeoutError | socket.gaierror)
+
+
+def _warn_skipped(exc: BaseException) -> None:
+    """Announce a soft skip loudly: a skipping gate must not look like a pass."""
+    msg = (
+        f"SCHEMA DRIFT CHECK SKIPPED — NOT VERIFIED ({exc}). The vendored Task "
+        "Contract schema was NOT compared against the canonical hub copy. If you "
+        "see this on every run, the gate is dead — fix the fetch, don't ignore it."
+    )
+    banner = "!" * 78
+    print(f"{banner}\n{msg}\n{banner}")
+    # GitHub Actions annotation: surfaces on the checks page, so a permanently
+    # skipping gate is visible without reading the log.
+    print(f"::warning title=Schema-drift guard SKIPPED (not verified)::{msg}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as fh:
+            fh.write(f"> [!WARNING]\n> {msg}\n")
+
+
 def fetch_canonical(source: str) -> dict | None:
     """Load the canonical schema from a local path or an http(s) URL.
 
-    Returns None on a network error (soft skip); raises on a local read error.
+    Returns None only on a *transient* network error (soft skip). A deterministic
+    failure is re-raised so the caller can fail the gate.
     """
     if source.startswith(("http://", "https://")):
         try:
             with urllib.request.urlopen(source, timeout=15) as resp:  # noqa: S310 - pinned host
                 return json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-            print(
-                f"WARN: could not fetch canonical schema ({exc}); skipping drift check"
-            )
+        except (OSError, ValueError) as exc:  # URLError/SSLError/TimeoutError ⊂ OSError
+            if not is_transient(exc):
+                raise
+            _warn_skipped(exc)
             return None
     return json.loads(Path(source).read_text(encoding="utf-8"))
 
@@ -92,9 +136,18 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     source = args.canonical or _RAW.format(ref=args.ref)
-    canonical = fetch_canonical(source)
+    try:
+        canonical = fetch_canonical(source)
+    except (OSError, ValueError) as exc:
+        print(f"FAIL: could not fetch the canonical schema from {source}: {exc}")
+        print(
+            "This failure is deterministic — it will recur every run — so the "
+            "drift gate cannot run and therefore fails. A gate that cannot run "
+            "must never report success (Factory#433)."
+        )
+        return 1
     if canonical is None:
-        return 0  # soft skip on network failure
+        return 0  # soft skip: transient network failure only, warned loudly above
 
     vendored = json.loads(_VENDORED.read_text(encoding="utf-8"))
     problems = check_drift(canonical, vendored)

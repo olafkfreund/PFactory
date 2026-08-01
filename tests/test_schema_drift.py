@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import http.server
 import importlib.util
 import json
+import shutil
+import socket
+import ssl
+import subprocess
 import sys
+import threading
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -50,6 +57,68 @@ def test_descriptions_ignored():
 
 def test_scalar_mismatch_is_drift():
     assert csd.check_drift({"type": "string"}, {"type": "integer"})
+
+
+# ── a gate that cannot run must fail, never pass (#440, Factory#433) ────
+
+
+def _self_signed_https_server(tmp_path: Path) -> tuple[http.server.HTTPServer, int]:
+    """A real local HTTPS server whose cert no client will trust."""
+    key, crt = tmp_path / "k.pem", tmp_path / "c.pem"
+    subprocess.run(  # noqa: S603 - fixed argv, test-only
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(key), "-out", str(crt), "-days", "1",
+            "-subj", "/CN=localhost",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    srv = http.server.HTTPServer(
+        ("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler
+    )
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(crt, key)
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, srv.server_address[1]
+
+
+def test_certificate_failure_fails_the_gate(tmp_path):
+    """A TLS cert failure is deterministic: exit 1, never a silent green skip.
+
+    Driven through a real ``urlopen`` because the whole bug was the wrapping:
+    the cert error arrives as ``URLError(reason=SSLCertVerificationError)``.
+    """
+    if not shutil.which("openssl"):
+        pytest.skip("openssl not available")
+    srv, port = _self_signed_https_server(tmp_path)
+    try:
+        rc = csd.main(["--canonical", f"https://localhost:{port}/schema.json"])
+    finally:
+        srv.shutdown()
+    assert rc == 1
+
+
+def test_is_transient_unwraps_urlopen_reason():
+    cert_err = ssl.SSLCertVerificationError(1, "CERTIFICATE_VERIFY_FAILED")
+    assert not csd.is_transient(urllib.error.URLError(cert_err))
+    assert not csd.is_transient(cert_err)
+    # A 404 on the pinned ref is deterministic too — reason is a str, not a cause.
+    assert not csd.is_transient(
+        urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+    )
+    # Genuinely transient causes may still soft-skip.
+    assert csd.is_transient(urllib.error.URLError(TimeoutError("timed out")))
+    assert csd.is_transient(urllib.error.URLError(socket.gaierror(-2, "no host")))
+
+
+def test_soft_skip_is_loud(capsys):
+    """A skip must be visibly distinguishable from a pass."""
+    csd._warn_skipped(urllib.error.URLError(TimeoutError("timed out")))
+    out = capsys.readouterr().out
+    assert "SKIPPED" in out and "NOT VERIFIED" in out
+    assert "::warning" in out  # GitHub annotation, visible on the checks page
 
 
 # ── the live vendored schema is in sync with the canonical hub copy ─────
