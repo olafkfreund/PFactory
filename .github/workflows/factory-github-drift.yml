@@ -36,7 +36,7 @@ env:
   # The CANONICAL is pinned (reproducible comparison). The CHECKER is not:
   # a gate fetched from its own pin cannot ship its own fix (Factory#405).
   HUB_CHECKER_REF: "main"
-  HUB_SHA: "d7bd710b4fb1a2848700b576616bd01a73ee77d2"
+  HUB_SHA: "084b167de5ff0ebda8bd5364449707fd29d1dafc"
 
 jobs:
   drift:
