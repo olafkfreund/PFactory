@@ -79,6 +79,7 @@ def _self_signed_https_server(tmp_path: Path) -> tuple[http.server.HTTPServer, i
         ("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler
     )
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2  # don't offer TLSv1/1.1
     ctx.load_cert_chain(crt, key)
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
