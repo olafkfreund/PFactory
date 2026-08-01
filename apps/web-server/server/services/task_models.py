@@ -13,9 +13,12 @@ by the websocket handlers and tests without booting the full service stack.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class TaskPhase(str, Enum):
@@ -32,7 +35,18 @@ class TaskPhase(str, Enum):
 
 
 def phase_to_status(phase: TaskPhase) -> str:
-    """Map execution phase to task status for kanban column placement."""
+    """Map execution phase to task status for kanban column placement.
+
+    The mapping covers every current ``TaskPhase`` member. If a future phase
+    is added here without a matching entry, it must NOT silently read as
+    "in_progress" -- the frontend's kanban board (``TaskStatus`` in
+    ``routes/tasks.py``) has no "unknown" column, and telling the user a
+    task is actively progressing when its real phase is unrecognized hides
+    the fact that nothing is actually watching it. "human_review" is the
+    honest fallback: it puts the task in front of a human instead of letting
+    it sit silently, the same reasoning already used for COMPLETED/FAILED
+    above. See ``test_every_task_phase_is_mapped`` for the drift guard.
+    """
     mapping = {
         TaskPhase.SPEC_CREATION: "in_progress",
         TaskPhase.PLANNING: "in_progress",
@@ -43,7 +57,13 @@ def phase_to_status(phase: TaskPhase) -> str:
         TaskPhase.COMPLETED: "human_review",
         TaskPhase.FAILED: "human_review",
     }
-    return mapping.get(phase, "in_progress")
+    if phase not in mapping:
+        logger.warning(
+            "phase_to_status: unmapped TaskPhase %r; routing to human_review "
+            "instead of silently reporting in_progress",
+            phase,
+        )
+    return mapping.get(phase, "human_review")
 
 
 def phase_to_review_reason(phase: TaskPhase) -> str | None:
