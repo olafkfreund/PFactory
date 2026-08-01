@@ -105,7 +105,7 @@ def _warn_skipped(exc: BaseException) -> None:
     print(f"::warning title=Schema-drift guard SKIPPED (not verified)::{msg}")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
-        with open(summary, "a", encoding="utf-8") as fh:
+        with Path(summary).open("a", encoding="utf-8") as fh:
             fh.write(f"> [!WARNING]\n> {msg}\n")
 
 

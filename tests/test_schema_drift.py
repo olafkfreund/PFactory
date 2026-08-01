@@ -65,9 +65,10 @@ def test_scalar_mismatch_is_drift():
 def _self_signed_https_server(tmp_path: Path) -> tuple[http.server.HTTPServer, int]:
     """A real local HTTPS server whose cert no client will trust."""
     key, crt = tmp_path / "k.pem", tmp_path / "c.pem"
-    subprocess.run(  # noqa: S603 - fixed argv, test-only
+    openssl = shutil.which("openssl")
+    subprocess.run(  # noqa: S603 - fixed argv, resolved binary, test-only
         [
-            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
             "-keyout", str(key), "-out", str(crt), "-days", "1",
             "-subj", "/CN=localhost",
         ],
