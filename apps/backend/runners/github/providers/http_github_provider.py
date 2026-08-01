@@ -62,24 +62,12 @@ from typing import Any
 import httpx
 
 from ._github_json import (
-    collect_comment_pages as _collect_comment_pages,
-)
-from ._github_json import (
-    group_bulk_comments as _group_bulk_comments,
-)
-from ._github_json import (
     PAGE_SIZE as _GITHUB_PAGE_SIZE,
-)
-from ._github_json import (
+    collect_comment_pages as _collect_comment_pages,
+    group_bulk_comments as _group_bulk_comments,
     issue_number_from_url as _issue_number_from_url,
-)
-from ._github_json import (
     milestone_title as _milestone_title,
-)
-from ._github_json import (
     parse_comment as _shared_parse_comment,
-)
-from ._github_json import (
     parse_datetime as _parse_datetime,
 )
 from .protocol import (
