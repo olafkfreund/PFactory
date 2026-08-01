@@ -60,6 +60,16 @@ jobs:
           curl -fsSL \
             "https://raw.githubusercontent.com/${HUB_REPO}/${HUB_CHECKER_REF}/scripts/check_factory_github_drift.py" \
             -o /tmp/hub/check_factory_github_drift.py
+          # ...and its sibling module. Factory#526 added `from gate_evidence
+          # import digest` to the checker on the stated assumption that
+          # "consumers run this gate out of a full hub checkout" -- which is not
+          # true here: we fetch the single file. The self-test therefore died on
+          # `ModuleNotFoundError: No module named 'gate_evidence'` in all four
+          # services, i.e. the drift gate could not run at all. Fetch it from the
+          # SAME ref as the checker, so the two never disagree about a version.
+          curl -fsSL \
+            "https://raw.githubusercontent.com/${HUB_REPO}/${HUB_CHECKER_REF}/scripts/gate_evidence.py" \
+            -o /tmp/hub/gate_evidence.py
           # Canonical as a TREE at the pinned SHA, not a hardcoded file list.
           # The old list could not contain a file nobody knew to add, so the
           # completeness guard globbed a directory that was complete BY
