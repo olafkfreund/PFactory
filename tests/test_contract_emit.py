@@ -115,6 +115,60 @@ def test_sign_when_key_provided() -> None:
     assert len(approval["signature"]) == 64  # sha256 hex
 
 
+def test_emit_stamps_the_kid_from_the_environment(monkeypatch) -> None:
+    """#401: the live signing path must produce a revocable envelope.
+
+    Pre-fix this emitted a four-field envelope with no ``kid`` at all, so
+    AIFactory's AIFACTORY_TRUSTED_PLAN_RETIRED_KIDS had nothing to revoke.
+    """
+    import hashlib
+    import hmac
+
+    from plan.emit.signing import _signing_bytes
+
+    monkeypatch.setenv("AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__2026Q3", "secret")
+    monkeypatch.delenv("PFACTORY_TRUSTED_PLAN_KID", raising=False)
+    ts = "2026-06-06T00:00:00Z"
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        approval_timestamp=ts,
+        dry_run=True,
+    )
+    assert result["signed"] is True
+    approval = result["contract"]["approval"]
+    assert approval["kid"] == "2026q3"
+    # And it verifies the way AIFactory verifies it: kid bound into the bytes.
+    expected = hmac.new(
+        b"secret",
+        _signing_bytes(result["contract"], "pfactory", ts, "2", "2026q3"),
+        hashlib.sha256,
+    ).hexdigest()
+    assert approval["signature"] == expected
+
+
+def test_emit_without_a_keyed_var_still_signs_the_legacy_way(monkeypatch) -> None:
+    # Back-compat: today's deployment has only the unkeyed var and must keep
+    # producing the exact envelope AIFactory already accepts.
+    monkeypatch.setenv("AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY", "secret")
+    monkeypatch.delenv("PFACTORY_TRUSTED_PLAN_KID", raising=False)
+    monkeypatch.delenv("AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__2026Q3", raising=False)
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        approval_timestamp="2026-06-06T00:00:00Z",
+        dry_run=True,
+    )
+    assert result["signed"] is True
+    assert "kid" not in result["contract"]["approval"]
+
+
 def test_live_posts_to_from_plan() -> None:
     http = FakeHttp()
     result = emit_contract(
