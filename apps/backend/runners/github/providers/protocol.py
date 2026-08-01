@@ -41,7 +41,10 @@ class PRData:
     title: str
     body: str
     author: str
-    state: str  # open, closed, merged
+    # "unknown" when the provider returned a status this layer does not map --
+    # it is never guessed into one of the three (Factory#431). Callers compare
+    # by equality, so an unknown simply matches no filter, which is correct.
+    state: str  # open, closed, merged, unknown
     source_branch: str
     target_branch: str
     additions: int
