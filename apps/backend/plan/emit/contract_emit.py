@@ -329,13 +329,16 @@ def emit_contract(
     if errors:
         return {"ok": False, "dry_run": dry_run, "errors": errors, "contract": contract}
 
-    signing_key = key or key_from_env("pfactory")
+    # #401: key and kid resolve together. An explicit `key=` override signs the
+    # legacy way (no kid) — only the environment knows which kid a key belongs to.
+    signing_key, signing_kid = (key, None) if key else key_from_env("pfactory")
     signed = False
     if signing_key:
         attach_signature(
             contract,
             key=signing_key,
             approval_timestamp=approval_timestamp or _utcnow_iso(),
+            kid=signing_kid,
         )
         signed = True
 

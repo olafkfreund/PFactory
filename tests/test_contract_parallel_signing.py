@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 
+import pytest
+
 from plan.decompose.models import ChildIssue, EpicPlan
 from plan.emit.contract_builder import build_phases, build_task_contract
 from plan.emit.execution_profile import (
@@ -120,5 +122,91 @@ def test_canonical_is_deterministic_and_compact():
 
 
 def test_key_from_env():
-    assert key_from_env("pfactory", {"AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY": "x"}) == "x"
-    assert key_from_env("pfactory", {}) is None
+    legacy = {"AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY": "x"}
+    assert key_from_env("pfactory", legacy) == ("x", None)
+    assert key_from_env("pfactory", {}) == (None, None)
+
+
+# ---- key ids / rotation (#401) --------------------------------------------
+
+
+def test_keyed_env_var_yields_the_kid_alongside_the_key():
+    # A keyed var is what makes the signature revocable: AIFactory's
+    # AIFACTORY_TRUSTED_PLAN_RETIRED_KIDS can only name a kid it can see.
+    env = {"AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__2026Q3": "rotated"}
+    assert key_from_env("pfactory", env) == ("rotated", "2026q3")
+
+
+def test_keyed_var_wins_over_the_legacy_var():
+    env = {
+        "AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY": "legacy",
+        "AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__2026Q3": "rotated",
+    }
+    assert key_from_env("pfactory", env) == ("rotated", "2026q3")
+
+
+def test_pinned_kid_selects_among_several_keyed_vars():
+    env = {
+        "AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__2026Q2": "old",
+        "AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__2026Q3": "new",
+        "PFACTORY_TRUSTED_PLAN_KID": "2026Q2",
+    }
+    assert key_from_env("pfactory", env) == ("old", "2026q2")
+
+
+def test_ambiguous_key_config_raises_rather_than_guessing():
+    env = {
+        "AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__2026Q2": "old",
+        "AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__2026Q3": "new",
+    }
+    with pytest.raises(ValueError, match="PFACTORY_TRUSTED_PLAN_KID"):
+        key_from_env("pfactory", env)
+
+
+def test_pinned_kid_without_its_key_raises():
+    # Falling back to the legacy key here would silently emit the unrevocable
+    # contract that #401 exists to prevent.
+    env = {
+        "AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY": "legacy",
+        "PFACTORY_TRUSTED_PLAN_KID": "2026Q3",
+    }
+    with pytest.raises(ValueError, match="2026Q3.*is not set"):
+        key_from_env("pfactory", env)
+
+
+def test_sign_with_kid_stamps_and_binds_it():
+    contract = _contract()
+    env = sign_contract(contract, key=KEY, approval_timestamp=TS, kid="2026q3")
+    assert env["kid"] == "2026q3"
+    # AIFactory appends the kid to the signed parts; recompute it that way.
+    expected = hmac.new(
+        KEY.encode(),
+        _signing_bytes(contract, "pfactory", TS, "2", "2026q3"),
+        hashlib.sha256,
+    ).hexdigest()
+    assert env["signature"] == expected
+
+
+def test_relabelling_the_kid_breaks_the_signature():
+    # The kid is bound into the bytes, so a captured envelope cannot be
+    # re-pointed at a key that has not been retired.
+    contract = _contract()
+    env = sign_contract(contract, key=KEY, approval_timestamp=TS, kid="2026q3")
+    relabelled = hmac.new(
+        KEY.encode(),
+        _signing_bytes(contract, "pfactory", TS, "2", "2026q4"),
+        hashlib.sha256,
+    ).hexdigest()
+    assert env["signature"] != relabelled
+
+
+def test_no_kid_envelope_is_byte_identical_to_the_legacy_one():
+    # Back-compat: in-flight contracts and unkeyed deployments must not move.
+    contract = _contract()
+    legacy_bytes = "|".join(
+        (_canonical({k: v for k, v in contract.items() if k != APPROVAL_KEY}),
+         "pfactory", TS, "2")
+    ).encode("utf-8")
+    assert _signing_bytes(contract, "pfactory", TS, "2") == legacy_bytes
+    assert _signing_bytes(contract, "pfactory", TS, "2", None) == legacy_bytes
+    assert "kid" not in sign_contract(contract, key=KEY, approval_timestamp=TS)
