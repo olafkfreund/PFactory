@@ -31,7 +31,7 @@ Migration rules
 * ``generated_at``: the file's mtime formatted as ISO-8601 UTC.
 * ``generated_by_task``: ``spec_dir.name``.
 * ``last_verdict``: looked up in ``findings/verdicts.json`` (if present) by
-  ``test_id``; defaults to ``"accept"`` if the file is absent or the entry is
+  ``test_id``; defaults to ``"flag"`` if the file is absent or the entry is
   not found.
 * ``target_ref``: ``None``.
 * ``operator_locked``: ``False``.
@@ -124,31 +124,45 @@ def _resolve_last_verdict(test_id: str, verdicts: Any) -> str:
         verdicts: Parsed ``findings/verdicts.json`` dict/list, or ``None``.
 
     Returns:
-        The verdict string, or ``"accept"`` if not found.
+        The verdict string, or ``"flag"`` when it cannot be determined.
+
+    Factory#431: this used to answer ``"accept"`` whenever the verdict was
+    missing, unreadable or unrecognised. ``last_verdict`` means "most recent
+    EVALUATOR verdict", so that recorded the Evaluator as having accepted a test
+    it had never seen -- an unknown turned into a confident positive, which is
+    the shape this epic exists to remove.
+
+    ``"flag"`` is the honest answer and needs no schema change: it is the
+    existing "a human should look at this" token (triage_report ranks flagged
+    candidates; retention.py branches on it), and the Triager groups
+    ``("accept", "flag")`` together for regeneration, so nothing is silently
+    dropped by the change.
     """
     if not verdicts:
-        return "accept"
+        return "flag"
 
     # verdicts.json is either a list of {test_id, verdict, ...} objects
     # or a dict keyed by test_id.
     if isinstance(verdicts, list):
         for item in verdicts:
             if isinstance(item, dict) and item.get("test_id") == test_id:
-                verdict = item.get("verdict", "accept")
-                # Normalise to catalog-valid verdicts; unknown → "accept"
+                verdict = item.get("verdict", "flag")
+                # Normalise to catalog-valid verdicts; unknown -> "flag", never
+                # "accept" (Factory#431): an unreadable verdict is not a pass.
                 if verdict in {"accept", "reject", "flag", "skip"}:
                     return verdict
-                return "accept"
+                return "flag"
     elif isinstance(verdicts, dict):
         item = verdicts.get(test_id)
         if isinstance(item, dict):
-            verdict = item.get("verdict", "accept")
+            verdict = item.get("verdict", "flag")
             if verdict in {"accept", "reject", "flag", "skip"}:
                 return verdict
         elif isinstance(item, str) and item in {"accept", "reject", "flag", "skip"}:
             return item
 
-    return "accept"
+    # Fell through every shape: the verdict is not knowable from this file.
+    return "flag"
 
 
 # ---------------------------------------------------------------------------

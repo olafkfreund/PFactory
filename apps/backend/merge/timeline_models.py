@@ -13,9 +13,12 @@ These models represent the complete evolution of a file from multiple sources:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -163,8 +166,10 @@ class TaskFileView:
     # Drift tracking - how many commits happened in main since branch
     commits_behind_main: int = 0
 
-    # Lifecycle status
-    status: Literal["active", "merged", "abandoned"] = "active"
+    # Lifecycle status. "unknown" is never set by this codebase -- it exists
+    # only for from_dict() to report when a persisted record's real status
+    # can't be determined (see from_dict below).
+    status: Literal["active", "merged", "abandoned", "unknown"] = "active"
     merged_at: datetime | None = None
 
     def to_dict(self) -> dict:
@@ -180,6 +185,27 @@ class TaskFileView:
 
     @classmethod
     def from_dict(cls, data: dict) -> TaskFileView:
+        status: Literal["active", "merged", "abandoned", "unknown"] | None = data.get("status")
+        if status is None:
+            # to_dict() always writes status, so a missing value here means the
+            # persisted record predates that field or was corrupted/truncated.
+            # Defaulting to "active" would make a dead task look alive again:
+            # get_active_tasks()/get_pending_tasks_for_file() would keep warning
+            # other tasks about a conflict that no longer exists, and
+            # add_main_event() would keep incrementing its drift counter
+            # forever. But "abandoned" would be just as dishonest in the other
+            # direction -- it asserts someone gave up on this task, which we
+            # don't know either. "unknown" is the honest read: nothing ever
+            # *sets* it, from_dict() only *reports* it for untrustworthy data,
+            # and every current consumer only branches on `== "active"`, so an
+            # unknown record is correctly excluded from active-task queries
+            # and drift counting without needing a new case.
+            logger.warning(
+                "TaskFileView.from_dict: task_id=%s has no 'status' field; "
+                "reporting unknown rather than defaulting to active",
+                data.get("task_id", "<unknown>"),
+            )
+            status = "unknown"
         return cls(
             task_id=data["task_id"],
             branch_point=BranchPoint.from_dict(data["branch_point"]),
@@ -190,7 +216,7 @@ class TaskFileView:
             if data.get("task_intent")
             else TaskIntent("", ""),
             commits_behind_main=data.get("commits_behind_main", 0),
-            status=data.get("status", "active"),
+            status=status,
             merged_at=datetime.fromisoformat(data["merged_at"]) if data.get("merged_at") else None,
         )
 

@@ -22,20 +22,10 @@ except (ImportError, ValueError, SystemError):
 
 from ._github_json import (
     COMMENT_MAX_PAGES as _SHARED_COMMENT_MAX_PAGES,
-)
-from ._github_json import (
     collect_comment_pages as _collect_comment_pages,
-)
-from ._github_json import (
     group_bulk_comments as _group_bulk_comments,
-)
-from ._github_json import (
     issue_number_from_url as _shared_issue_number_from_url,
-)
-from ._github_json import (
     parse_comment as _shared_parse_comment,
-)
-from ._github_json import (
     parse_datetime as _shared_parse_datetime,
 )
 from .protocol import (

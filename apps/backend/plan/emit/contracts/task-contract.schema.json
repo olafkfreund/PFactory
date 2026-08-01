@@ -85,6 +85,10 @@
         "signature": {
           "type": "string",
           "description": "HMAC-SHA256 hex over the canonical contract + approval metadata."
+        },
+        "kid": {
+          "type": "string",
+          "description": "Optional signing key id, bound into the signature (#401). Present when the signer holds AIFACTORY_TRUSTED_PLAN_KEY_<AUTHORITY>__<KID>; it is what AIFACTORY_TRUSTED_PLAN_RETIRED_KIDS revokes. Absent => legacy single-key envelope, verified against the unkeyed authority key."
         }
       }
     },

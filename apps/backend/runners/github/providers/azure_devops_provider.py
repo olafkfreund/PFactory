@@ -136,8 +136,20 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
                 "completed": "merged",
                 "abandoned": "closed",
             }
-            raw_status = pr_data.get("status", "active")
-            state = status_map.get(raw_status, "open")
+            # Factory#431: an absent or unrecognised ADO status used to become
+            # "active" and then "open" -- two stacked defaults, both asserting
+            # the PR is still open when we do not know that. A caller filtering
+            # on state then acts on an invention. ADO can and does add statuses
+            # ("notSet", "all"), and a provider is the wrong place to guess.
+            raw_status = pr_data.get("status")
+            state = status_map.get(raw_status or "", "unknown")
+            if state == "unknown":
+                logger.warning(
+                    "Azure DevOps returned an unmapped PR status %r for PR %s; "
+                    "reporting state='unknown' rather than assuming 'open'.",
+                    raw_status,
+                    pr_data.get("pullRequestId"),
+                )
 
             return PRData(
                 number=pr_data["pullRequestId"],

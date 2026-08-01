@@ -63,6 +63,32 @@ skip-planning fast-path.
 - The canonical payload is the contract minus its `approval` block, joined with
   the approval metadata.
 
+### Key ids and rotation (#401)
+
+The envelope carries an optional `kid` (key id), bound into the signed bytes.
+It is what AIFactory's `AIFACTORY_TRUSTED_PLAN_RETIRED_KIDS` names when
+revoking a key: **without a `kid` a leaked key can only be answered by rotating
+the secret in place, which invalidates every in-flight approved contract at
+once.**
+
+Which key signs, and whether a `kid` is stamped, is decided entirely by the
+environment:
+
+| Environment | Envelope | Notes |
+|-------------|----------|-------|
+| `AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY` only | no `kid` (4 fields) | Legacy. Byte-identical to before #401; verified against AIFactory's unkeyed authority entry. |
+| one `AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__<KID>` | `kid: <kid>` (lowercased) | Revocable. The keyed var wins over the legacy var. |
+| several `..._PFACTORY__<KID>` vars | — | Ambiguous: raises unless `PFACTORY_TRUSTED_PLAN_KID` picks one. |
+| `PFACTORY_TRUSTED_PLAN_KID` with no matching keyed var | — | Raises. Falling back to the legacy key would silently emit an unrevocable contract. |
+| no key at all | none | Contract emitted unsigned (AIFactory then plans normally). |
+
+**Deployment ordering matters.** AIFactory must hold
+`AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__<KID>` *before* PFactory starts signing
+with that kid, or every new contract is rejected with `no verification key for
+authority 'pfactory' key-id ...`. Keep the legacy var configured on AIFactory
+throughout so contracts already in flight (signed with no `kid`) keep verifying.
+Retire the old kid only once those have drained.
+
 ## Emit transport
 
 `emit_contract` POSTs to `{PFACTORY_AIFACTORY_API_URL}/api/tasks/from-plan`. If the
@@ -90,5 +116,7 @@ the **plan → build → test → (handback)** loop across the suite.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PFACTORY_AIFACTORY_API_URL` | `http://localhost:3101` | AIFactory base URL for `/from-plan` |
-| `AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY` | _(unset)_ | HMAC signing key; without it the contract is emitted unsigned |
+| `AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY` | _(unset)_ | Legacy HMAC signing key (no `kid`); without it and without a keyed var the contract is emitted unsigned |
+| `AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY__<KID>` | _(unset)_ | Keyed HMAC signing key; signs with `kid=<kid>` so the key is individually revocable (#401). Wins over the legacy var |
+| `PFACTORY_TRUSTED_PLAN_KID` | _(unset)_ | Picks which `kid` to sign with when several keyed vars are set. Unnecessary with exactly one |
 | `PFACTORY_AIFACTORY_CONTRACT_VERSION` | `1` | Gates the v2 additive keys on the lightweight handoff |
