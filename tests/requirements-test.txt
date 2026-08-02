@@ -34,3 +34,12 @@ psycopg2-binary>=2.9.0
 # acceptance job's venv (which only installs requirements-test.txt),
 # so declare it explicitly.
 PyYAML>=6.0
+
+# tests/test_ratchet_test_bar.py shells out to ruff to prove the lint ratchet
+# and `ruff check` agree about which files are tests (Factory#510). Declared
+# here rather than in the two jobs that already `uv pip install ruff` because a
+# third job (postgres acceptance) runs the WHOLE suite off this file alone, and
+# that is the one that went red. Pinned to ci.yml's RUFF_VERSION so both gates
+# measure the same bar, and NOT optional: with ruff absent those cases raise
+# FileNotFoundError rather than skipping, which is loud, which is the point.
+ruff==0.15.17

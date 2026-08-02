@@ -10,9 +10,12 @@ rewriting four blocking CI gates at once.
 But the parts that MUST agree are small, and both of the ratchet bugs found on
 2026-07-28 lived in exactly these two rules:
 
-* how a temp copy is named — a randomised name defeated ruff per-file-ignores,
-  so every net-new test file was held to the production bar (fixed via
-  ``write_temp``)
+* what path ruff judges a file by — a randomised temp name defeated ruff
+  per-file-ignores, so every net-new test file was held to the production bar
+  (``write_temp``), and even the real basename could not rescue the PATH globs
+  because a temp copy lives outside the project root (fixed for good via
+  ``ruff_stdin_argv``, Factory#510 — ruff is told the real path instead of
+  being handed a copy)
 * what counts as a test file — mypy applied the production type bar to tests,
   and the shared ``standards/mypy.ini`` cannot express the carve-out because
   per-module wildcards do not match top-level test modules (fixed via
@@ -72,16 +75,56 @@ def is_test_file(path: str) -> bool:
     )
 
 
+def ruff_stdin_argv(config: str, filename: str) -> list[str]:
+    """argv that counts ruff violations for source fed on STDIN as *filename*.
+
+    Ruff decides per-file-ignores from the path it is told a file has, and
+    ``--stdin-filename`` lets that be the REAL repo-relative path. No temp copy
+    can (Factory#510): ruff relativises the path against the project root before
+    matching the globs, and a path OUTSIDE that root falls back to matching the
+    BASENAME only. So ``**/test_*.py`` and ``**/*_test.py`` matched a temp copy
+    but ``**/tests/**`` could never — a test helper under ``tests/`` whose name
+    is neither ``test_*.py`` nor ``*_test.py`` was held to the production assert
+    bar by the ratchet while ``ruff check`` on the real tree exempted it. Two
+    tools disagreeing about what a test is, which is what :func:`is_test_file`
+    was extracted to prevent.
+
+    Measured, because the obvious fix does not work: mirroring the directories
+    inside the temp dir (``<tmpdir>/tests/helpers.py``) still reports S101. The
+    path has to be inside the project root, and stdin is how you get that
+    without writing into the tree being gated.
+
+    The caller passes *source* on stdin (``subprocess.run(..., input=source)``).
+    ``--output-format json`` so the caller counts by rule code.
+    """
+    return [
+        "ruff",
+        "check",
+        "--config",
+        config,
+        "--stdin-filename",
+        filename,
+        "--output-format",
+        "json",
+        "-",
+    ]
+
+
 def write_temp(source: str, filename: str) -> tuple[str, str]:
     """Write *source* under the REAL basename inside a fresh temp dir.
 
-    A random-prefixed name (the old ``NamedTemporaryFile`` suffix trick) defeats
-    per-file-ignores like ``**/test_*.py``, so test files were held to the
-    non-test bar and tripped S101 while being clean under their real path.
+    For MYPY only. Ruff no longer needs a temp copy at all — see
+    :func:`ruff_stdin_argv`, which fixed the path-glob half of this problem that
+    a temp copy structurally cannot. mypy has no ``--stdin-filename``, but it
+    does not need one either: its test carve-out is decided by
+    :func:`is_test_file` from the ORIGINAL path, not by mypy's own config
+    matching the temp path.
 
-    Returns ``(tmpdir, tmp)`` for the caller to clean up. Note the residual
-    limit: the file still lands in a temp DIRECTORY, so only BASENAME globs
-    match — a path-based ignore such as ``**/tests/**`` still will not.
+    The real basename still matters here. A random-prefixed name (the old
+    ``NamedTemporaryFile`` suffix trick) also defeats mypy's per-module sections
+    and makes the error text unreadable.
+
+    Returns ``(tmpdir, tmp)`` for the caller to clean up.
     """
     tmpdir = tempfile.mkdtemp()
     tmp = str(Path(tmpdir) / Path(filename).name)
