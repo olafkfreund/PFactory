@@ -44,6 +44,7 @@ Run ``python3 scripts/artifact_store.py`` for the self-test (no S3 needed).
 
 from __future__ import annotations
 
+import gzip
 import io
 import os
 import sys
@@ -294,14 +295,37 @@ def _workspace_key(ref: ArtifactRef) -> str:
 
 
 def _tar_workspace(src_dir: Path) -> bytes:
-    """tar.gz a directory's contents into an in-memory archive (deterministic-ish,
-    pure: no temp files). Members are stored relative to ``src_dir`` so unpack
-    re-creates the tree under any ``dest_dir``."""
+    """tar.gz a directory's contents into an in-memory archive (pure: no temp
+    files). Members are stored relative to ``src_dir`` so unpack re-creates the
+    tree under any ``dest_dir``.
+
+    Byte-stable for one tree: pack the same directory twice and the two archives
+    are identical. That took an explicit ``mtime=0`` on the GZIP layer
+    (Factory#538). The old comment here claimed "mtime=0 + sorted walk" while
+    setting no mtime anywhere — ``mode="w:gz"`` hands tarfile's gzip writer no
+    timestamp, so it stamps the CURRENT TIME into the gzip header. Two calls in
+    the same second matched; two calls either side of a second boundary did not,
+    which is why the self-test failed roughly once per however-many runs and
+    always passed on a re-run. The tar payload was byte-identical the whole time
+    — measured; only the ten-byte header differed.
+
+    What this deliberately does NOT do is normalise per-member metadata. Member
+    mtimes/uids stay as they are on disk, so "deterministic" here means the same
+    tree packs the same way, not that two machines with the same file contents
+    agree. Zeroing member mtimes would make the stronger claim true, and would
+    also land every unpacked workspace in 1970 — these archives are unpacked and
+    then BUILT IN, and build tools compare mtimes. No caller needs the stronger
+    property today (the object key comes from the ref, not a content hash).
+    """
     if not src_dir.is_dir():
         raise NotADirectoryError(f"workspace src is not a directory: {src_dir}")
     buf = io.BytesIO()
-    # mtime=0 + sorted walk → byte-stable archive for identical trees.
-    with tarfile.open(fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
+    # mtime=0: no wall clock in the output. GzipFile takes no name from a
+    # BytesIO, so the header carries no filename either.
+    with (
+        gzip.GzipFile(fileobj=buf, mode="wb", mtime=0) as gz,
+        tarfile.open(fileobj=gz, mode="w", format=tarfile.PAX_FORMAT) as tar,
+    ):
         for child in sorted(src_dir.rglob("*"), key=lambda p: p.relative_to(src_dir).as_posix()):
             tar.add(child, arcname=child.relative_to(src_dir).as_posix(), recursive=False)
     return buf.getvalue()
@@ -570,7 +594,21 @@ def _selftest_roundtrip(req: _Require, ref: ArtifactRef, tmp: Path) -> None:
     req(packed.get("Tagging") == "role=workspace", f"packed workspace tag: {packed}")
 
     # Determinism: packing the same tree twice yields byte-identical archives.
-    req(_tar_workspace(src) == _tar_workspace(src), "pack is deterministic")
+    #
+    # The equality alone is a WEAK check, and was itself the Factory#538 flake:
+    # the two calls run microseconds apart, so the gzip header's clock agreed
+    # almost every time and disagreed only when they straddled a second
+    # boundary. A defect that shows up in ~1 run in N trains people to hit
+    # re-run, which is how a real determinism regression gets waved through.
+    #
+    # So assert the CAUSE, not just the symptom: the gzip mtime field (header
+    # bytes 4:8, little-endian) must be zero. That fails 100% of the time
+    # against the old code instead of occasionally, and it does not need two
+    # calls to notice.
+    blob_a = _tar_workspace(src)
+    req(blob_a == _tar_workspace(src), "pack is deterministic")
+    stamped = int.from_bytes(blob_a[4:8], "little")
+    req(stamped == 0, f"gzip header carries a wall clock ({stamped}), so packing is time-dependent")
 
     # Round-trip by URI (the WORKSPACE_URI path) → trees match.
     dest = tmp / "dest"
