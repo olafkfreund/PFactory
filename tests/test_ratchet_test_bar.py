@@ -26,12 +26,51 @@ silently drops S101 for the whole repo.
 
 from __future__ import annotations
 
+import os
+import shutil
+import sys
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
 import ratchet_helpers as rh
 
 # scripts/ is put on sys.path by tests/conftest.py.
 import ratchet_lint as rl
 
 _ASSERTION = "assert x is None\n"
+
+
+@pytest.fixture(autouse=True)
+def ruff_on_path() -> Iterator[None]:
+    """Make bare ``ruff`` resolvable, the way the ratchet itself needs it.
+
+    CI runs the suite as ``apps/backend/.venv/bin/pytest``, which does NOT put
+    the venv's bin on PATH — so the pinned ruff installed into that venv is
+    invisible to ``shutil.which``, and ratchet_lint shells out to a bare
+    ``ruff``. Same venv-first-then-PATH lookup tests/test_ratchet_staged.py
+    already uses.
+
+    A hard failure, not a skip, when ruff is nowhere. A skipped gate reads like
+    a passing one, and that is the failure shape this whole line of work exists
+    to stamp out.
+    """
+    venv_bin = Path(sys.executable).parent
+    ruff_dir = str(venv_bin) if (venv_bin / "ruff").exists() else None
+    if ruff_dir is None:
+        found = shutil.which("ruff")
+        if found is None:
+            pytest.fail(
+                "ruff is not in this venv or on PATH; these cases cannot measure "
+                "the gate. Install the pinned ruff (tests/requirements-test.txt)."
+            )
+        ruff_dir = str(Path(found).parent)
+    original = os.environ["PATH"]
+    os.environ["PATH"] = f"{ruff_dir}{os.pathsep}{original}"
+    try:
+        yield
+    finally:
+        os.environ["PATH"] = original
 
 
 def test_ruff_exempts_every_shape_of_test_path() -> None:
