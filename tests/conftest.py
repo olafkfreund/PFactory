@@ -84,6 +84,16 @@ if 'claude_code_sdk' not in sys.modules:
 # Add apps/backend directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "apps" / "backend"))
 
+# Same for scripts/, so the lint ratchet is importable under test
+# (tests/test_ratchet_test_bar.py). It is a script directory, not a package, so
+# there is nothing to install - this is the sibling-import arrangement it
+# already gets when CI runs it as `python scripts/ratchet_lint.py`.
+#
+# APPENDED, not inserted: a script directory has no business shadowing a real
+# first-party module, and prepending it would put all eight of its top-level
+# names ahead of apps/backend for every test in the suite.
+sys.path.append(str(Path(__file__).parent.parent / "scripts"))
+
 
 # =============================================================================
 # MODULE MOCK CLEANUP - Prevents test isolation issues
