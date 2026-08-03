@@ -33,6 +33,10 @@ one place.
 `E,F,W,I,N,UP,B,C4,S,SIM,RUF,PTH,TID,ASYNC,A,DTZ,T20,ARG,ERA,PL` (curated `PL`
 including `C901,PLR0912,PLR0913,PLR0915`). No bare `ruff check`, no blanket
 category ignores. The shared baseline is [`standards/ruff.toml`](./ruff.toml).
+Aliased imports from one module go in ONE statement (`combine-as-imports`):
+ruff's default splits them one statement per alias, which manufactures
+byte-identical prologues in any two files importing the same helpers and put the
+import-sort rule in direct conflict with the jscpd clone budget (Factory#415).
 
 1.2 **Types.** `mypy --strict` over the whole package as a BLOCKING gate
 (`disallow_untyped_defs`, `disallow_any_generics`, `warn_return_any`,
@@ -147,6 +151,41 @@ downgraded).
 4.6 **Ratchet:** gates run on the PR diff; legacy hotspots are allowed until
 touched.
 
+4.7 **A gate that cannot run must fail, never pass.** If a hook cannot resolve
+the tool it needs, it exits non-zero and says what it looked for. Wrapping the
+checks in `if [ -n "$TOOL" ]` turns a missing binary into a silent green
+commit, which is worse than having no hook at all: the absent gate is visible,
+the skipped one is not. An opt-out is allowed only as an env var a developer
+sets deliberately, never as the fallback. Same rule for the executable bit -
+`core.hooksPath` without a `.husky/_` wrapper means git skips a non-executable
+hook without a word, so hook files are committed `100755` and a test asserts
+it. The rule is about gates, not only hooks: a CI job that cannot reach the
+input it compares against - a baseline checkout that 404s, a fetch that times
+out, a missing token - has not verified anything, so it exits non-zero. An
+unverifiable baseline is not a verified one. `continue-on-error: true` paired
+with an `if: steps.x.outcome == 'success'` diff, or a fetch loop that
+`continue`s past a failed download, reports the same green as a real pass
+while a job named "blocking" blocks nothing.
+
+4.8 **Hooks must scrub git's exported environment before running anything that
+shells git.** During a commit git exports `GIT_DIR`, `GIT_INDEX_FILE`,
+`GIT_WORK_TREE`, `GIT_PREFIX`, `GIT_CONFIG_PARAMETERS` and friends to the hook.
+Any child process that runs git - a test suite with repo fixtures, a `git
+worktree add`, a lint helper - inherits them and operates on the REAL repository
+instead of its own. Observed: a fixture's `git add -A` staging 2,136 deletions
+into the repo mid-commit, a fixture's `git branch -M main` clobbering the local
+branch, and a `git worktree add` emptying the caller's index so the commit being
+gated became empty. Scrub once at the shared boundary (the hook, or the test
+suite's root `conftest.py`), not per call site. Commands that must read the
+in-flight commit - `git diff --cached` - are the deliberate exception and keep
+the exports.
+
+4.9 **Prove a gate both ways.** A check is verified only when a violation makes
+it fail; passing on clean input proves nothing, and every "fix" that merely
+made a gate permissive would have passed that half. Each gate leaves behind a
+test for both directions: a change carrying pre-existing debt is accepted, and
+one new violation is rejected.
+
 ## 5. How to consume the shared baseline
 
 Each service extends the hub baseline and may only tighten:
@@ -161,6 +200,40 @@ extend = "path/to/factory-standards/ruff.toml"   # pinned hub baseline
 See [`standards/README.md`](./README.md) for the consumption mechanism (pinned
 vendored copy with a drift gate today; published package once `factory-core` is
 extracted - epic Factory#154).
+
+5.1 **This document is vendored too.** A rule nobody can read locally reaches
+nobody: an agent or a developer working in a service repo does not open the hub.
+So every service vendors `coding-standards.md` alongside the configs, and the
+drift gate compares it like any other vendored file. Copies are byte-identical
+to the hub - no provenance header, because the comparator for a Markdown file
+cannot strip leading `#` lines without also blinding itself to every heading.
+
+5.2 **One pin filename for a vendored DIRECTORY: `.hub-sha`, beside it.**
+`standards/.hub-sha` holds the hub commit that whole directory was vendored
+from, and it is the only thing tooling needs to read to answer "which hub is
+this service on". The same filename is used for any other directory vendored
+from the hub - `apps/backend/factory_common/.hub-sha` and so on.
+
+The rule binds a directory whose CONTENTS ARE THE VENDORED SET. That is what
+makes "beside it" a defined location. Two of the fleet's four hub-vendored sets
+are not that shape: verification-core is six individual files across three roots,
+and factory-ui is two files inside a components directory the portal otherwise
+owns - a `.hub-sha` there would sit next to a hundred files it says nothing
+about.
+
+Those sets pin in their gate's workflow, and that is permitted **only while the
+hub can read the pin without opening the workflow**. The original objection to a
+workflow SHA was exactly that nothing outside the workflow could find it, and
+that objection is answered by machinery, not by exemption:
+`scripts/check_pin_freshness.py` declares every file-granular gate, reads all of
+its consumers' pins daily, and fails if one is gating against a canonical that
+has since moved. A gate absent from that list is a pin nobody can find, and the
+exemption does not cover it. See Factory#514, Factory#519.
+
+5.3 **The vendored set is `ruff.toml`, `mypy.ini`, `.editorconfig`,
+`coding-standards.md`.** Adding a file to the hub does not add it to a service;
+vendor the file and register it in that service's gate in the same change, never
+one without the other.
 
 ## 6. Adoption
 
