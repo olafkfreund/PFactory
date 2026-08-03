@@ -46,6 +46,31 @@ max-statements = 50
 [lint.mccabe]
 max-complexity = 10
 
+[lint.isort]
+# Aliased imports from one module go in ONE statement (Factory#415).
+#
+# Ruff's isort default is `combine-as-imports = false`, which forces a separate
+# `from X import (...)` statement per aliased name. Six aliased helpers from one
+# module become six near-identical four-line blocks — and two files importing the
+# same helpers then produce byte-identical prologues. That is manufactured
+# duplication: nobody wrote it, the config did.
+#
+# It stopped being cosmetic when it collided with the fleet's other rule.
+# `shared/factory-github/providers/http_github_provider.py` could not be
+# import-sorted at all: sorting it made its prologue identical to
+# `github_provider.py`'s and pushed the jscpd clone budget from 38 to 39, so the
+# lint fix and the duplication gate each broke the other (Factory#394, #415).
+# With this setting the six blocks collapse into one, both files sort cleanly,
+# and the clone count stays at 38 — measured, not assumed.
+#
+# Cost, also measured: pre-existing split-alias imports elsewhere now report
+# I001 — hub +1, PFactory +12, CFactory +14, TFactory +13, AIFactory +18. No
+# repo runs a whole-repo blocking `ruff check` (enforcement is the diff-scoped
+# ratchet everywhere), and the ratchet counts base and head under the SAME
+# config, so every one of those is grandfathered and none of them reddens a gate.
+# Services carry a PINNED copy of this file, so they adopt it on re-vendor.
+combine-as-imports = true
+
 [lint.per-file-ignores]
 # Tests may use assert and need not be import-tidy; they still get the security
 # and dead-code rules.
