@@ -223,6 +223,17 @@ export interface ReadinessGate {
   generated_at: string;
   results: ReadinessCheck[];
   waivers: ReadinessWaiver[];
+  /**
+   * The readiness logic these verdicts were computed under, and whether that is
+   * still the logic the service runs (#450). A stale verdict is not wrong, it is
+   * unknown — it was frozen before a gate fix, so it may be blocking on a defect
+   * that no longer exists. Optional: a session planned by an older build carries
+   * neither field.
+   */
+  gate_revision?: string;
+  stale?: boolean;
+  /** When the verdicts were last recomputed; empty means never (as first computed). */
+  recomputed_at?: string;
 }
 
 // ── PlanReview ──────────────────────────────────────────────────────────

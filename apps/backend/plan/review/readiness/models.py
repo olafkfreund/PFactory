@@ -13,8 +13,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import BaseModel, Field, computed_field
+
 from plan.review.models import Citation, Severity
-from pydantic import BaseModel, Field
+from plan.review.readiness.revision import gate_revision
 
 if TYPE_CHECKING:
     from plan.models import NormalizedPlan
@@ -75,6 +77,62 @@ class ReadinessReport(BaseModel):
     results: list[ReadinessCheckResult] = Field(default_factory=list)
     waivers: list[Waiver] = Field(default_factory=list)
     generated_at: str = Field(default_factory=_utcnow_iso)
+    # #450: the readiness logic this verdict was computed under. Empty means the
+    # report predates the stamp, which is itself a stale verdict.
+    gate_revision: str = ""
+    # When the verdicts were last recomputed against the current logic; empty
+    # means they are exactly as first computed. A reader must be able to tell a
+    # refreshed verdict from a frozen one.
+    recomputed_at: str = ""
+
+    # ── staleness (#450) ───────────────────────────────────────────────
+
+    @computed_field  # serialised, so the API/UI sees it without a route change
+    @property
+    def stale(self) -> bool:
+        """True when this verdict was computed by different readiness logic.
+
+        A stale report is not wrong, it is *unknown*: the checks are pure
+        functions of the plan + repo map, so the honest response is to recompute
+        (:meth:`refreshed`), not to keep enforcing an answer the current code
+        might no longer give.
+        """
+        return self.gate_revision != gate_revision()
+
+    def refreshed(self, fresh: ReadinessReport) -> ReadinessReport:
+        """Return ``fresh``'s verdicts carrying this report's waivers.
+
+        Recomputation is not amnesty. A stored HARD failure is only replaced by a
+        verdict the checks actually reached — ``pass`` (cleared) or ``fail`` (still
+        failing, now with current evidence). When the recompute could NOT evaluate
+        the check (``not_applicable`` / ``skipped`` — e.g. an input the first run
+        had is no longer available), that is "unknown", not "fine": the stored
+        failure is kept and the recomputed status recorded on it, so nothing is
+        quietly downgraded to a pass.
+        """
+        stored = {r.check_id: r for r in self.results}
+        results: list[ReadinessCheckResult] = []
+        for new in fresh.results:
+            prev = stored.get(new.check_id)
+            if prev is not None and prev.is_hard_failure() and new.status not in ("pass", "fail"):
+                results.append(
+                    prev.model_copy(
+                        update={"evidence": {**prev.evidence, "recompute_status": new.status}}
+                    )
+                )
+                continue
+            results.append(new)
+        # ponytail: a check deleted from the catalog drops its stored verdict.
+        # Removing a check IS the decision that its requirement no longer gates;
+        # keeping the failure would be unclearable, which is this bug again.
+        return fresh.model_copy(
+            update={
+                "results": results,
+                "waivers": list(self.waivers),
+                "generated_at": self.generated_at,
+                "recomputed_at": _utcnow_iso(),
+            }
+        )
 
     # ── queries ────────────────────────────────────────────────────────
 

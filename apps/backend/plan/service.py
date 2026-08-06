@@ -44,7 +44,7 @@ from plan.plan_types import select_for
 from plan.recon import classify_change_mode, reconnoiter
 from plan.review.approval import approve as approve_review
 from plan.review.approval import reject as reject_review
-from plan.review.gates import run_gates
+from plan.review.gates import refresh_readiness, run_gates
 from plan.review.models import PlanReview
 from plan.service_helpers import (
     BoardColumn,
@@ -1070,12 +1070,39 @@ class PlanService:
 
     # ── approval ───────────────────────────────────────────────────────
 
+    def _refresh_readiness(self, session: PlanSession) -> PlanSession:
+        """Bring the stored readiness verdicts up to the current gate logic (#450).
+
+        Every gate that consults ``unwaived_hard_failures`` routes through here
+        first, so a fixed check unblocks the sessions it wrongly failed without a
+        re-plan and without a waiver for a defect that never existed. Cheap and
+        LLM-free (the checks are pure); the recomputed verdicts are persisted so
+        the stored record matches the decision that was just made.
+        """
+        if session.review is None or session.epic is None:
+            return session
+        refresh_readiness(session.review, session.plan, session.epic)
+        self._save(session)
+        return session
+
+    def re_gate(self, session_id: str) -> PlanSession:
+        """Recompute readiness alone, without re-running planning (#450).
+
+        The cheap, non-destructive remedy for a stale verdict: no LLM, no lost
+        review state, no waiver on the audit trail.
+        """
+        session = self.get(session_id)
+        if session.review is None or session.epic is None:
+            raise PlanServiceError("process the plan before re-running the readiness gate")
+        return self._refresh_readiness(session)
+
     def approve(
         self, session_id: str, *, approver: str, feedback: str | None = None
     ) -> PlanSession:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before approving")
+        self._refresh_readiness(session)
         approve_review(session.review, session.plan, approver=approver, feedback=feedback)
         session.status = "approved"
         self._save(session)
@@ -1095,6 +1122,11 @@ class PlanService:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before waiving")
+        # #450: waive against the CURRENT verdict. Waiving a stale failure would
+        # record a human accepting a risk the code no longer finds — the audit
+        # trail's worst outcome. `waive_review` refuses a check that is not
+        # currently a hard failure, so refreshing first is what makes that true.
+        self._refresh_readiness(session)
         waive_review(
             session.review,
             session.plan,
@@ -1188,6 +1220,10 @@ class PlanService:
         session = self.get(session_id)
         if session.epic is None:
             raise PlanServiceError("process the plan before emitting")
+        # #450: `emit_to_github` refuses unless `review.ready_to_emit(plan)`, which
+        # reads the readiness report — so it needs the same refresh as approve.
+        if not dry_run:
+            self._refresh_readiness(session)
         # A live emit needs a real `gh` runner (#52). Construct the default CLI
         # runner when none is injected; tests/callers may pass a fake. Dry-run
         # needs no runner — nothing is created.
@@ -1305,6 +1341,9 @@ class PlanService:
         # #326: the same hard readiness failures that block `approve` must block a
         # live emit, or skipping approve walks straight around the gate.
         if not dry_run and session.review is not None and session.review.readiness is not None:
+            # #450: same refresh as approve — a live emit must be blocked by what
+            # the checks say now, not by what a pre-fix build once said.
+            self._refresh_readiness(session)
             unwaived = session.review.readiness.unwaived_hard_failures(session.plan)
             if unwaived:
                 failing = ", ".join(r.check_id for r in unwaived)

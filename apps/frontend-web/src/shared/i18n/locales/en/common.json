@@ -303,7 +303,10 @@
       "waivedCount_plural": "{{count}} waived",
       "passCount": "{{pass}}/{{total}} passed",
       "hardCount": "{{count}} hard check",
-      "hardCount_plural": "{{count}} hard checks"
+      "hardCount_plural": "{{count}} hard checks",
+      "recomputed": "recomputed",
+      "asComputed": "as first computed",
+      "stale": "Needs re-evaluation"
     },
     "checks": {
       "heading": "Checks ({{count}})",
