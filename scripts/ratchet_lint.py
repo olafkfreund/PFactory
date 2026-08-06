@@ -199,6 +199,14 @@ def ruff_counts(source: str, filename: str) -> Counter[str]:
     be applied by :func:`_is_excluded` before a file gets here.
     """
     res = _run(ruff_stdin_argv("ruff.toml", filename), stdin=source)
+    # ruff exits 0 clean, 1 with violations, and >=2 on its OWN failure: binary
+    # missing, config parse error, bad argv. Those write nothing to stdout, so
+    # without this the empty-stdout branch below reads "ruff is broken" as "no
+    # violations" and the ratchet passes green on an unrunnable linter. A clean
+    # run prints "[]", never nothing (PFactory#455, TFactory#951).
+    if res.returncode not in (0, 1):
+        sys.stderr.write(res.stdout + res.stderr)
+        sys.exit(2)
     if not res.stdout.strip():
         return Counter()
     try:
@@ -268,6 +276,15 @@ def mypy_errors(path: str, package: str, mypy_config: str) -> int:
         match = _MYPY_ERROR_RE.match(line)
         if match is not None and Path(match.group("path")) == target:
             count += 1
+    # mypy exits 0 clean, 1 with errors, and 2 both for its OWN failure (missing
+    # config, bad argv) and for a blocking error. A blocking error still NAMES a
+    # file, so it lands in `count`; mypy failing to run names nothing. Zero
+    # errors out of a failed run is "did not run", not "clean", and letting it
+    # return 0 makes the base-vs-head comparison pass green having measured
+    # nothing - the same defect as the ruff branch above (PFactory#455).
+    if res.returncode not in (0, 1) and count == 0:
+        sys.stderr.write(res.stdout + res.stderr)
+        sys.exit(2)
     return count
 
 
