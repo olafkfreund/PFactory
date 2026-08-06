@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -720,6 +721,211 @@ def _ac_testable(
         if ok
         else "Rewrite each weak criterion as a measurable, verb+object statement.",
         evidence={} if ok else {"weak_acs": weak},
+    )
+
+
+# ── criteria self-consistency (#402) ──────────────────────────────────────
+#
+# A worked example whose stated arithmetic contradicts an invariant stated in the
+# same criteria set. Live case (session 034): AC2 requires ``total = net + vat``,
+# AC3 works the example ``net 10.00, vat 1.75, total 11.76``. 10.00 + 1.75 is
+# 11.75, so AC3 is unsatisfiable while AC2 holds — and every gate scored 1.0.
+#
+# This is deliberately NOT a solver. It fires only on a *proof*: a sum/difference
+# over three named fields, all three bound to numbers by one criterion, at the
+# same decimal precision, with no conditional qualifier on the invariant. Anything
+# it cannot prove, it stays quiet about — see the docstring of the check for the
+# classes intentionally not caught.
+
+# A plain decimal literal. The lookarounds reject a digit group inside a
+# thousands-separated number ("1,000.00" must not yield 000.00) and a percentage.
+_NUM = r"(?<![\d.,])[-+]?\d+(?:\.\d+)?(?!\d|,\d|\s*%)"
+
+# Prose spellings of the operators, normalised before the relation is matched.
+# Order matters: "is equal to" before "equal", "equal" before bare "is".
+_VERBAL_OPS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bis\s+equal\s+to\b", re.IGNORECASE), " = "),
+    (re.compile(r"\b(?:must|should|shall|will)?\s*equals?\b", re.IGNORECASE), " = "),
+    (re.compile(r"\bis\b", re.IGNORECASE), " = "),
+    (re.compile(r"\bplus\b", re.IGNORECASE), " + "),
+    (re.compile(r"\bminus\b", re.IGNORECASE), " - "),
+)
+# Words that sit between an operator and a field name in English but carry no
+# meaning ("total MUST equal the returned net plus the returned vat").
+_FILLER_RE = re.compile(
+    r"\b(?:the|a|an|its|of|to|returned|resulting|response|body|value)\b", re.IGNORECASE
+)
+_IDENT = r"[`\"']?([A-Za-z_][A-Za-z0-9_]*)[`\"']?"
+# `total` = `net` + `vat`. Whitespace around the operator is required so a
+# hyphenated word ("half-up") cannot read as a subtraction.
+_RELATION_RE = re.compile(rf"{_IDENT}\s*=\s*{_IDENT}\s+([+-])\s+{_IDENT}")
+# `net` + `vat` equals `total` — the same statement written the other way round,
+# which is how sessions 027/029/030 phrase it.
+_RELATION_REVERSED_RE = re.compile(rf"{_IDENT}\s+([+-])\s+{_IDENT}\s*=\s*{_IDENT}")
+# `net` is 30.00 / "unit_price": 10.00 / `total` 11.76
+_QUOTED_BINDING_RE = re.compile(
+    rf"[`\"']([A-Za-z_][A-Za-z0-9_]*)[`\"']\s*(?:is|=|:)?\s*({_NUM})", re.IGNORECASE
+)
+# net = 30.00, with no quoting — an explicit separator is required, so a bare word
+# that merely precedes a number ("HTTP 200", "top 3 rows") is never a binding.
+_BARE_BINDING_RE = re.compile(rf"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:is|=|:)\s*({_NUM})", re.IGNORECASE)
+# A conditional invariant ("when no discount applies, total = net + vat") is not
+# contradicted by an example outside its condition.
+_CONDITIONAL_RE = re.compile(
+    r"\b(?:if|when|unless|except|otherwise|whenever|depending|optional(?:ly)?|assum\w+)\b",
+    re.IGNORECASE,
+)
+# An example that deliberately states a violating triple (a rejection case) is
+# not an author error.
+_NEGATED_RE = re.compile(
+    r"!=|\b(?:must\s+not|not\s+equal|mismatch\w*|incorrect|wrong|reject\w*|invalid)\b",
+    re.IGNORECASE,
+)
+
+
+def _stated_relations(text: str) -> list[tuple[str, str, str, str]]:
+    """Additive relations ``(lhs, a, op, b)`` stated unconditionally in ``text``."""
+    relations: list[tuple[str, str, str, str]] = []
+    for sentence in re.split(r"(?<=[.;])\s+", text):
+        if _CONDITIONAL_RE.search(sentence):
+            continue
+        normalised = sentence
+        for pattern, replacement in _VERBAL_OPS:
+            normalised = pattern.sub(replacement, normalised)
+        normalised = _FILLER_RE.sub(" ", normalised)
+        found = [m.groups() for m in _RELATION_RE.finditer(normalised)]
+        found += [
+            (lhs, left, op, right)
+            for left, op, right, lhs in (
+                m.groups() for m in _RELATION_REVERSED_RE.finditer(normalised)
+            )
+        ]
+        for lhs, left, op, right in found:
+            # a = a + b is a restatement, not a worked relation.
+            distinct = lhs not in (left, right) and left != right
+            if distinct and (lhs, left, op, right) not in relations:
+                relations.append((lhs, left, op, right))
+    return relations
+
+
+def _numeric_bindings(text: str) -> dict[str, Decimal]:
+    """Field -> value for every field ``text`` binds to exactly one number."""
+    seen: dict[str, set[str]] = {}
+    for pattern in (_QUOTED_BINDING_RE, _BARE_BINDING_RE):
+        for match in pattern.finditer(text):
+            seen.setdefault(match.group(1), set()).add(match.group(2))
+    bindings: dict[str, Decimal] = {}
+    for field, raw_values in seen.items():
+        if len(raw_values) != 1:  # bound twice with different values — ambiguous
+            continue
+        try:
+            bindings[field] = Decimal(raw_values.pop())
+        except InvalidOperation:  # pragma: no cover - the regex only yields decimals
+            continue
+    return bindings
+
+
+def _arithmetic_contradictions(plan: NormalizedPlan) -> list[dict[str, str]]:
+    """Worked examples whose numbers contradict a relation stated elsewhere."""
+    relations = [(c.id, rel) for c in plan.criteria for rel in _stated_relations(c.text)]
+    if not relations:
+        return []
+    problems: list[dict[str, str]] = []
+    reported: set[tuple[str, str]] = set()
+    for criterion in plan.criteria:
+        if _NEGATED_RE.search(criterion.text):
+            continue
+        values = _numeric_bindings(criterion.text)
+        for source_id, (lhs, left, op, right) in relations:
+            if not {lhs, left, right} <= values.keys():
+                continue
+            got, a, b = values[lhs], values[left], values[right]
+            # Values written to different precision differ by rounding, not by
+            # contradiction; a sum of two same-precision decimals is exact.
+            if len({got.as_tuple().exponent, a.as_tuple().exponent, b.as_tuple().exponent}) != 1:
+                continue
+            expected = a + b if op == "+" else a - b
+            if expected == got or (criterion.id, lhs) in reported:
+                continue
+            reported.add((criterion.id, lhs))
+            problems.append(
+                {
+                    "criterion": criterion.id,
+                    "relation_from": source_id,
+                    "relation": f"{lhs} = {left} {op} {right}",
+                    "detail": (
+                        f"{criterion.id} asserts {lhs}={got}, but {source_id} requires "
+                        f"{lhs} = {left} {op} {right} = {a} {op} {b} = {expected}"
+                    ),
+                }
+            )
+    return problems
+
+
+@check("criteria-self-consistent")
+def _criteria_self_consistent(
+    plan: NormalizedPlan,
+    epic: EpicPlan,  # noqa: ARG001 - uniform check signature
+    ctx: ReadinessContext,  # noqa: ARG001 - uniform check signature
+) -> ReadinessCheckResult:
+    """A worked example must not contradict an invariant in the same plan (#402).
+
+    Session 034 stated ``total = net + vat`` in AC2 and ``net 10.00, vat 1.75,
+    total 11.76`` in AC3. Both cannot hold. Nothing measured that, so a full build
+    wave was spent on an unsatisfiable criterion and the coder could only choose
+    which criterion to break.
+
+    Hard, because when it fires the contradiction is arithmetic, not a judgement:
+    the criteria themselves state every number, and the detail quotes the sum so a
+    reviewer can confirm it in seconds. Waivable, because a mis-parse must cost one
+    waiver, not a re-plan.
+
+    What it does NOT catch, on purpose (a gate that cries wolf is waived
+    reflexively and then measures nothing):
+
+      - relations other than a sum or difference of two named fields — notably
+        ``x = y * z``, where a stated rounding rule makes exact equality the wrong
+        test;
+      - examples that bind the fields at different decimal precision, where a
+        difference is a rounding artifact rather than a contradiction;
+      - conditional invariants ("when no discount applies, ..."), which an example
+        outside the condition does not contradict;
+      - values stated only in prose without a field name, or split across two
+        criteria — the numbers must all be bound by one criterion;
+      - contradictions that are not arithmetic at all (two criteria demanding
+        incompatible behaviour, an example contradicting the description).
+    """
+    if not plan.criteria:
+        return ReadinessCheckResult(
+            check_id="criteria-self-consistent",
+            title="Worked examples agree with the stated invariants",
+            status="not_applicable",
+            detail="Plan has no explicit criteria to cross-check (see criteria-present).",
+            hard=True,
+            waivable=True,
+        )
+    problems = _arithmetic_contradictions(plan)
+    if not problems:
+        return ReadinessCheckResult(
+            check_id="criteria-self-consistent",
+            title="Worked examples agree with the stated invariants",
+            status="pass",
+            hard=True,
+            waivable=True,
+        )
+    return ReadinessCheckResult(
+        check_id="criteria-self-consistent",
+        title="Worked examples agree with the stated invariants",
+        status="fail",
+        severity="high",
+        hard=True,
+        waivable=True,
+        detail="; ".join(p["detail"] for p in problems) + ".",
+        remediation=(
+            "Correct the worked example or the invariant — as written no "
+            "implementation can satisfy both."
+        ),
+        evidence={"contradictions": problems},
     )
 
 
