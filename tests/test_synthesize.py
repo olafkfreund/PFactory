@@ -16,6 +16,8 @@ pytest.importorskip("yaml")
 
 from plan.decompose.models import ChildIssue, EpicPlan  # noqa: E402
 from plan.models import Criterion, NormalizedPlan  # noqa: E402
+from plan.recon.delta import compute_footprints  # noqa: E402
+from plan.recon.models import RepoMap  # noqa: E402
 from plan.synthesize.cicd_generator import generate_cicd  # noqa: E402
 from plan.synthesize.run import synthesize  # noqa: E402
 from plan.synthesize.testing_strategy import (  # noqa: E402
@@ -142,3 +144,54 @@ def test_synthesize_is_idempotent_on_keys():
     # Running twice does not duplicate the synthesized children.
     assert len(epic.children) == 2
     assert epic.validate_dependencies() == []
+
+
+# ── AIFactory#1113: the CI/CD child must target the pipeline, not a doc ──────
+
+
+def _cicd_footprint(plan, repo_map):
+    """The contract footprint the delta pass derives for the CI/CD child.
+
+    Goes through the real machinery (synthesize -> compute_footprints) because
+    that chain IS the defect: the child's text is the only source of a file
+    target, so whatever the body names is what the coder is told to touch.
+    """
+    plan.repo_map = repo_map
+    epic = EpicPlan(
+        plan_id=plan.plan_id,
+        epic_title=plan.title,
+        children=[ChildIssue(key="C1", title="Implement endpoint")],
+    )
+    synthesize(plan, epic)
+    return compute_footprints(plan, epic).get("CICD", {})
+
+
+def test_cicd_child_names_the_pipeline_file_not_a_design_doc():
+    # Greenfield: no RepoMap at all, so the default pipeline path is used.
+    cicd = generate_cicd(_software_plan())
+    assert cicd is not None
+
+    assert ".github/workflows/ci.yml" in cicd.child.body
+    # The dangling docs/plans/... reference is the path the coder used to create.
+    assert "docs/plans/" not in cicd.child.body
+
+
+def test_cicd_footprint_modifies_the_discovered_pipeline():
+    repo_map = RepoMap(
+        available=True,
+        ci_system="github-actions",
+        ci_pipeline_paths=[".github/workflows/ci.yml"],
+        layout={"files": ["pyproject.toml"], "dirs": ["src"]},
+    )
+    fp = _cicd_footprint(_software_plan(), repo_map)
+
+    assert ".github/workflows/ci.yml" in fp["files_to_modify"]
+    # Regression: the only file it used to create was the design document.
+    assert not [f for f in fp["files_to_create"] if f.endswith(".md")]
+
+
+def test_cicd_footprint_creates_the_default_pipeline_when_repo_has_none():
+    repo_map = RepoMap(available=True, ci_system="gitlab-ci", layout={"files": ["go.mod"]})
+    fp = _cicd_footprint(_software_plan(), repo_map)
+
+    assert ".gitlab-ci.yml" in fp["files_to_create"] + fp["files_to_modify"]

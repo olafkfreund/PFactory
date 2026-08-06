@@ -50,8 +50,15 @@ _FILE_TOKEN = re.compile(r"[\w./-]+\.[A-Za-z]{1,5}")
 
 
 def known_paths(repo_map: RepoMap) -> set[str]:
-    """All file paths reconnaissance saw (IaC inventory + top-level layout)."""
+    """All file paths reconnaissance saw (IaC inventory + CI + top-level layout).
+
+    ``ci_pipeline_paths`` matters because the layout scan is top-level only, so
+    ``.github/workflows/ci.yml`` was invisible here: a child naming it was told
+    to *create* a file that already existed. The CI probe already found it
+    (RFC-0013), so use what it found.
+    """
     paths: set[str] = set()
+    paths.update(repo_map.ci_pipeline_paths or [])
     iac = repo_map.iac_resources or {}
     tf = iac.get("terraform") or {}
     paths.update(tf.get("files", []) or [])
