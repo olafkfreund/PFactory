@@ -37,11 +37,19 @@ function check(overrides: Partial<ReadinessCheck>): ReadinessCheck {
   };
 }
 
-function sessionWith(results: ReadinessCheck[]): PlanSession {
+function sessionWith(
+  results: ReadinessCheck[],
+  readinessOverrides: Record<string, unknown> = {},
+): PlanSession {
   return {
     session_id: 's1',
     review: {
-      readiness: { results, waivers: [], generated_at: '2026-06-18T00:00:00Z' },
+      readiness: {
+        results,
+        waivers: [],
+        generated_at: '2026-06-18T00:00:00Z',
+        ...readinessOverrides,
+      },
     },
   } as unknown as PlanSession;
 }
@@ -73,5 +81,36 @@ describe('ReadinessPanel evidence rendering', () => {
     const ev = screen.getByTestId('readiness-evidence-c2');
     expect(ev).toHaveTextContent('uncovered_acs');
     expect(ev).toHaveTextContent('AC#1');
+  });
+});
+
+describe('ReadinessPanel verdict freshness (#450)', () => {
+  it('flags a verdict computed by older gate logic as needing re-evaluation', () => {
+    const s = sessionWith([check({ check_id: 'c1', status: 'fail', hard: true })], {
+      stale: true,
+    });
+    render(<ReadinessPanel session={s} onUpdated={() => {}} />);
+    expect(screen.getByTestId('readiness-stale-badge')).toBeInTheDocument();
+  });
+
+  it('does not flag a verdict computed by the current gate logic', () => {
+    const s = sessionWith([check({ check_id: 'c1', status: 'fail', hard: true })], {
+      stale: false,
+    });
+    render(<ReadinessPanel session={s} onUpdated={() => {}} />);
+    expect(screen.queryByTestId('readiness-stale-badge')).not.toBeInTheDocument();
+  });
+
+  it('shows the recompute time, not the original compute time, once recomputed', () => {
+    const s = sessionWith([check({ check_id: 'c1' })], {
+      recomputed_at: '2026-08-06T09:00:00Z',
+    });
+    render(<ReadinessPanel session={s} onUpdated={() => {}} />);
+    expect(
+      screen.getByText(new Date('2026-08-06T09:00:00Z').toLocaleString()),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(new Date('2026-06-18T00:00:00Z').toLocaleString()),
+    ).not.toBeInTheDocument();
   });
 });

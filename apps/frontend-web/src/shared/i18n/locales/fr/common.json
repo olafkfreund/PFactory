@@ -303,7 +303,10 @@
       "waivedCount_plural": "{{count}} dispensés",
       "passCount": "{{pass}}/{{total}} réussis",
       "hardCount": "{{count}} vérification bloquante",
-      "hardCount_plural": "{{count}} vérifications bloquantes"
+      "hardCount_plural": "{{count}} vérifications bloquantes",
+      "recomputed": "recalculé",
+      "asComputed": "tel que calculé initialement",
+      "stale": "À réévaluer"
     },
     "checks": {
       "heading": "Vérifications ({{count}})",

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
     from plan.models import NormalizedPlan
     from plan.review.lenses.base import Lens
+    from plan.review.readiness.models import ReadinessReport
 
 # Which lens absorbs a rule/policy finding, keyed by the finding's source.
 _SOURCE_TO_LENS: dict[str, str] = {
@@ -95,13 +96,43 @@ def run_gates(
     # RFC-0015 §3.1: build the constitution block from the plan's captured
     # .factory/constitution.md so the constitution-grounded check surfaces the
     # governing principles (and which are HARD) at approval time. Best-effort.
-    constitution = _constitution_for(plan)
-    review.readiness = run_readiness(
+    review.readiness = _readiness_for(plan, epic, review)
+    return review
+
+
+def _readiness_for(plan: NormalizedPlan, epic: EpicPlan, review: PlanReview) -> ReadinessReport:
+    """Run the readiness checks with the inputs the review can supply.
+
+    The single place that knows how to assemble a readiness context, so a
+    recompute (:func:`refresh_readiness`) is fed exactly what the first run was.
+    """
+    return run_readiness(
         plan,
         epic,
         blocking_findings=review.blocking_findings(),
-        constitution=constitution,
+        constitution=_constitution_for(plan),
     )
+
+
+def refresh_readiness(review: PlanReview, plan: NormalizedPlan, epic: EpicPlan) -> PlanReview:
+    """Recompute the readiness verdicts against the current gate logic (#450).
+
+    A stored verdict is frozen at compute time, so fixing a check never unblocks
+    the sessions it wrongly failed — the plan stays unapprovable on a defect that
+    no longer exists, and the only remedies are to re-plan (expensive, and it
+    discards review state) or to waive (which records a human accepting a risk
+    that was never real).
+
+    The checks are pure functions of the plan + epic + repo map and call no LLM,
+    so refreshing is cheap enough to run at every decision point. It is not
+    amnesty: :meth:`ReadinessReport.refreshed` keeps any stored hard failure the
+    recompute did not positively clear, waivers survive, and the lens scores
+    (which need the LLM) are untouched.
+
+    Returns ``review`` mutated in place.
+    """
+    fresh = _readiness_for(plan, epic, review)
+    review.readiness = fresh if review.readiness is None else review.readiness.refreshed(fresh)
     return review
 
 

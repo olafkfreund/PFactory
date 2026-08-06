@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -293,6 +294,23 @@ async def process(session_id: str) -> dict:
         return _session_dict(await SERVICE.process_async(session_id))
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/re-gate")
+async def re_gate(session_id: str) -> dict[str, Any]:
+    """Recompute the readiness verdicts alone, without re-running planning (#450).
+
+    A stored verdict is frozen at compute time, so a fixed check leaves the
+    sessions it wrongly failed blocked. This is the cheap remedy: the checks are
+    pure functions of the plan + repo map and call no LLM, so nothing is
+    re-planned, no review state is lost, and no waiver is recorded for a defect
+    that never existed. ``approve``/``emit`` refresh on their own; this is for
+    inspecting or clearing a stale verdict on its own.
+    """
+    try:
+        return _session_dict(SERVICE.re_gate(session_id))
+    except PlanServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{session_id}/approve")

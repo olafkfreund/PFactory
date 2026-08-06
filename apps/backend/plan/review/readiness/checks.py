@@ -24,6 +24,7 @@ from plan.recon.delta import blast_radius, compute_footprints
 from plan.recon.language_reconcile import reconcile_language
 from plan.review.models import Finding
 from plan.review.readiness.models import ReadinessCheckResult, ReadinessReport
+from plan.review.readiness.revision import gate_revision
 
 if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
@@ -797,4 +798,7 @@ def run_readiness(  # noqa: PLR0913 - readiness inputs are flat, optional keywor
         plan_id=plan.plan_id,
         plan_hash=plan.content_hash or plan.compute_hash(),
         results=results,
+        # #450: stamp the logic that produced these verdicts, so a later read can
+        # tell whether they still reflect the code.
+        gate_revision=gate_revision(),
     )

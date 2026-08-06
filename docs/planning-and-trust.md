@@ -137,6 +137,34 @@ a deliberate, audited override bound to the plan's hash (so it cannot silently c
 to an edited plan). The emitted contract is HMAC-signed, so AIFactory and TFactory can
 verify it is the exact plan that passed the gate.
 
+### 3.1 A verdict is only as current as the code that produced it
+
+*As a plan author whose session was blocked by a gate bug, I want the block to lift when
+the bug is fixed — without re-planning and without signing a waiver for a defect that was
+never real.*
+
+A readiness verdict used to be computed once and stored, so fixing a check never unblocked
+the sessions it had wrongly failed. Every report now records the **gate revision** it was
+computed under — a fingerprint of the source of the modules the checks decide from — and
+exposes:
+
+| Field | Meaning |
+| --- | --- |
+| `gate_revision` | The readiness logic these verdicts came from. Empty on a report planned before the field existed. |
+| `stale` | True when that is no longer the logic the service runs, i.e. the verdict is *unknown*, not necessarily wrong. |
+| `recomputed_at` | When the verdicts were last recomputed. Empty means never — exactly as first computed. |
+
+The checks are pure functions of the plan, the epic and the repo map, and call no LLM, so
+they are recomputed at every decision point — `approve`, `waive`, `emit` and `emit-contract`
+— and can be refreshed on demand with `POST /api/plan/sessions/{id}/re-gate`, which touches
+nothing else (no re-planning, no lost review state, no waiver on the audit trail).
+
+Recomputation is **not amnesty**. A stored hard failure is only replaced by a verdict the
+checks actually reached: `pass` clears it, `fail` keeps it with current evidence, and a
+check the recompute could not evaluate (`not_applicable` / `skipped`, e.g. an input the
+first run had is gone) keeps the stored failure and records the recomputed status on it.
+Waivers survive a refresh, and lens scores — which need the LLM — are never touched.
+
 ## 4. Why this is trustworthy (the honest version)
 
 - **Everything is named and inspectable.** The decomposition rule, each lane heuristic,
