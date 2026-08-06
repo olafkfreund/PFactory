@@ -25,13 +25,27 @@ name: verification-core drift gate
 on:
   pull_request:
     branches: [dev, main]
-    paths:
-      - "apps/backend/runners/artifact_store.py"
-      - "apps/backend/plan/emit/cost_router_core.py"
-      # Newly gated by Factory#403/#411. Without this the gate is
-      # REGISTERED for this module but never TRIGGERED by it.
-      - "scripts/ratchet_helpers.py"
-      - ".github/workflows/verification-core-drift.yml"
+    # NO paths: FILTER, deliberately (Factory#525). This used to list the
+    # vendored copies, which was correct while the gate only compared bytes --
+    # it had nothing to say unless one of those paths changed, and Factory#400
+    # is the story of that list being incomplete.
+    #
+    # The stray-copy guard (Factory#523) inverted the requirement. It exists to
+    # catch a vendored module appearing at a path NOBODY HAS LISTED: a fresh
+    # copy, or one left behind when a mapping was removed. Such a PR touches
+    # none of the listed paths by definition, so the filter switched the gate
+    # off in exactly the case the guard was written for, and the unmapped copy
+    # landed on the default branch unseen.
+    #
+    # The list was also a second, hand-maintained copy of the hub's
+    # SERVICE_LAYOUTS living in a workflow file -- the fork-with-a-citation
+    # shape Factory#483 exists to undo. Its history here is a changelog of
+    # being patched one module at a time, always after the fact.
+    #
+    # The gate is a few seconds of Python against a checkout. Running it on
+    # every PR costs almost nothing and removes a whole class of "the check did
+    # not run" -- which on a green PR page is indistinguishable from "the check
+    # passed" (Factory#471).
   push:
     branches: [dev, main]
 
@@ -45,7 +59,7 @@ permissions:
 env:
   # Pinned Factory hub commit carrying the canonical modules. Bump deliberately
   # when re-vendoring (see header).
-  HUB_PIN_SHA: "d9bd01de01c357886234dd5f23a546d5799e4e97"
+  HUB_PIN_SHA: "23ae047253e39dc3531050852eb38b1f35519525"
 
 jobs:
   drift:

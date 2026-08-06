@@ -94,9 +94,12 @@ jobs:
 
       - name: Schema-drift guard (RFC-0010)
         # Fail if the vendored Task Contract schema drifts from the canonical
-        # copy in the Factory hub at the PINNED HUB_SHA above. Soft-skips on a
-        # network error fetching the canonical schema, so a GitHub outage can't
-        # red the build.
+        # copy in the Factory hub at the PINNED HUB_SHA above. Soft-skips ONLY on
+        # a transient fetch failure (timeout/DNS), loudly, so a GitHub outage
+        # can't red the build. A deterministic fetch failure — TLS/certificate
+        # error, 404, malformed JSON — fails the step: it recurs every run, so
+        # skipping it would leave this gate permanently green without ever
+        # running (issue #440, Factory#433).
         #
         # Runs AFTER pytest, under !cancelled(), on purpose (issue #302). As a
         # plain step BEFORE pytest it gated the test lane: a drift failure

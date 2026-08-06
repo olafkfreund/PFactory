@@ -365,6 +365,12 @@ export function ReadinessPanel({ session, onUpdated }: Props) {
 
   const allClear = hardFailCount === 0;
 
+  // #450: a verdict frozen before a gate fix must not read as current. Show when
+  // it was last actually computed, and whether that was a recompute.
+  // An empty string (not just a missing field) means "never recomputed".
+  const recomputedAt = readiness.recomputed_at ?? '';
+  const verdictAt = recomputedAt.length > 0 ? recomputedAt : readiness.generated_at;
+
   return (
     <div className="flex flex-col gap-5" data-testid="readiness-panel">
       {/* Summary header */}
@@ -407,8 +413,16 @@ export function ReadinessPanel({ session, onUpdated }: Props) {
 
         <div className="text-right shrink-0">
           <p className="text-[11px] font-mono text-muted-foreground">
-            {new Date(readiness.generated_at).toLocaleString()}
+            {new Date(verdictAt).toLocaleString()}
           </p>
+          <p className="text-[10px] text-muted-foreground/70">
+            {recomputedAt ? t('readiness.summary.recomputed') : t('readiness.summary.asComputed')}
+          </p>
+          {readiness.stale && (
+            <Badge variant="warning" className="mt-1" data-testid="readiness-stale-badge">
+              {t('readiness.summary.stale')}
+            </Badge>
+          )}
         </div>
       </div>
 
