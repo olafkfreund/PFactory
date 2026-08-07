@@ -195,3 +195,83 @@ def test_cicd_footprint_creates_the_default_pipeline_when_repo_has_none():
     fp = _cicd_footprint(_software_plan(), repo_map)
 
     assert ".gitlab-ci.yml" in fp["files_to_create"] + fp["files_to_modify"]
+
+
+# ── PFactory#461: the testing child must target test files, not a doc ────────
+
+
+def _testing(plan, repo_map):
+    """The testing child and the footprint the delta pass derives for it.
+
+    Same machinery as ``_cicd_footprint`` and for the same reason: the child's
+    text is the only source of a file target, so the footprint — not the prose —
+    is what the coder is handed.
+    """
+    plan.repo_map = repo_map
+    epic = EpicPlan(
+        plan_id=plan.plan_id,
+        epic_title=plan.title,
+        children=[ChildIssue(key="C1", title="Implement endpoint")],
+    )
+    synthesize(plan, epic)
+    child = next(c for c in epic.children if c.key == "TEST")
+    return child, compute_footprints(plan, epic).get("TEST", {})
+
+
+def test_testing_child_names_test_files_not_a_design_doc():
+    # Greenfield: no RepoMap, so the language comes from the spec text.
+    plan = _plan(desc="Add a REST API endpoint to the Python service, tested with pytest.")
+    testing = generate_testing_strategy(plan)
+    assert testing is not None
+
+    # A directory alone would mine nothing: _FILE_TOKEN needs an extension.
+    assert "tests/test_add_api_endpoint_unit.py" in testing.child.body
+    # The dangling docs/plans/... reference is the path the coder used to create.
+    assert "docs/plans/" not in testing.child.body
+
+
+def test_testing_footprint_creates_real_test_files():
+    repo_map = RepoMap(
+        available=True,
+        languages=["python"],
+        layout={"files": ["pyproject.toml"], "dirs": ["src"]},
+    )
+    _child, fp = _testing(_software_plan(), repo_map)
+
+    assert fp["files_to_create"] == [
+        "tests/test_add_api_endpoint_e2e.py",
+        "tests/test_add_api_endpoint_integration.py",
+        "tests/test_add_api_endpoint_unit.py",
+    ]
+    # Regression: the only file it used to create was the design document.
+    assert not [f for f in fp["files_to_create"] if f.endswith(".md")]
+
+
+def test_testing_child_uses_the_repos_own_test_dir_and_command():
+    # An already-tested repo: new tests land in the tree it already has (test/,
+    # not tests/) and run under the command reconnaissance already found.
+    repo_map = RepoMap(
+        available=True,
+        languages=["typescript"],
+        layout={"files": ["package.json"], "dirs": ["src", "test"]},
+        existing_test_command="npm run test",
+    )
+    child, fp = _testing(_software_plan(), repo_map)
+
+    assert fp["files_to_create"] == [
+        "test/add_api_endpoint_e2e.test.ts",
+        "test/add_api_endpoint_integration.test.ts",
+        "test/add_api_endpoint_unit.test.ts",
+    ]
+    assert "`npm run test`" in child.body
+
+
+def test_testing_child_names_no_files_for_an_unmapped_language():
+    # C# has no entry in the test-layout table, and its extension is not one the
+    # footprint miner recognises anyway, so the child names no path at all rather
+    # than a plausible Python one (#585).
+    repo_map = RepoMap(available=True, languages=["csharp"], layout={"dirs": ["src"]})
+    child, fp = _testing(_software_plan(), repo_map)
+
+    assert fp == {}
+    assert "docs/plans/" not in child.body
