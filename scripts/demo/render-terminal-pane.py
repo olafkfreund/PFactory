@@ -10,6 +10,7 @@ Usage:
   render-terminal-pane.py <workspace_dir> <command> <out.html>
       [--frameworks "pytest, jest"] [--lane-note "..."]
 """
+
 import argparse
 import html
 import json
@@ -100,14 +101,14 @@ def main() -> None:
     body = f"""<div class="line"><span class="p">❯</span> {html.escape(args.command)}</div>
 <div class="dim sp">  project <b>{html.escape(str(proj))}</b> · spec <b>{html.escape(spec)}</b></div>
 <div class="sp"></div>
-{row('●','Planner', f'{n_sub} subtasks <span class=dim>({html.escape(fw_str)})</span>')}
-{row('●','Gen-Functional', f'generated {n_sub} tests <span class=dim>({html.escape(lang_str)})</span>')}
-{row('●','Executor', 'sandboxed in Docker')}
-{row('●','Evaluator', 'coverage · 3× stability · mutation · semantic')}
-{row('●','Triager', verdict_str)}
+{row("●", "Planner", f"{n_sub} subtasks <span class=dim>({html.escape(fw_str)})</span>")}
+{row("●", "Gen-Functional", f"generated {n_sub} tests <span class=dim>({html.escape(lang_str)})</span>")}
+{row("●", "Executor", "sandboxed in Docker")}
+{row("●", "Evaluator", "coverage · 3× stability · mutation · semantic")}
+{row("●", "Triager", verdict_str)}
 <div class="sp"></div>
 <div class="line"><span class="g">✓ triaged</span> <span class="dim">→ findings/triage_report.md</span></div>
-{f'<div class="dim sp">{html.escape(args.lane_note)}</div>' if args.lane_note else ''}"""
+{f'<div class="dim sp">{html.escape(args.lane_note)}</div>' if args.lane_note else ""}"""
 
     out = f"""<!doctype html><html><head><meta charset=utf-8><style>
 html,body{{margin:0;background:#0d1117;color:#c9d1d9;
@@ -118,11 +119,11 @@ html,body{{margin:0;background:#0d1117;color:#c9d1d9;
 .p{{color:#58a6ff;font-weight:700}} .g{{color:#3fb950}} .r{{color:#f85149}} .y{{color:#d29922}}
 .dim{{color:#6e7681}} .ph{{color:#c9d1d9;white-space:pre}} .row{{margin:3px 0}} .sp{{margin-top:10px}}
 b{{color:#58a6ff;font-weight:600}}
-{_ANIM_CSS if args.animate else ''}
+{_ANIM_CSS if args.animate else ""}
 </style></head><body><div class="wrap">
 <div class="bar">● ● ●&nbsp;&nbsp;Claude Code — PFactory handover</div>
 {body}
-</div>{_ANIM_JS if args.animate else ''}</body></html>"""
+</div>{_ANIM_JS if args.animate else ""}</body></html>"""
     Path(args.out).write_text(out)
     print(f"terminal pane → {args.out}  ({n_sub} subtasks, {verdict_str})")
 
