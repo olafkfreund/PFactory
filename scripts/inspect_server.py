@@ -27,13 +27,12 @@ _ROUTES_DIR = ROOT / "apps" / "web-server" / "server" / "routes"
 
 def _load(module_name: str):
     """Load a route module by file path (avoids importing the server package)."""
-    spec = importlib.util.spec_from_file_location(
-        module_name, _ROUTES_DIR / f"{module_name}.py"
-    )
+    spec = importlib.util.spec_from_file_location(module_name, _ROUTES_DIR / f"{module_name}.py")
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
+
 
 plan_intake = _load("plan_intake")
 plan_pipeline = _load("plan_pipeline")

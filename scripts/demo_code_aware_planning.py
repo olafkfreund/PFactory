@@ -60,12 +60,7 @@ def _subtasks(contract: dict) -> list[dict]:
 
 
 def scenario_a() -> None:
-    print(
-        "\n"
-        + "=" * 70
-        + "\nSCENARIO A — modify existing AWS EKS Terraform\n"
-        + "=" * 70
-    )
+    print("\n" + "=" * 70 + "\nSCENARIO A — modify existing AWS EKS Terraform\n" + "=" * 70)
     fix = _materialize(_EKS)
     rmap = build_repo_map(fix, repo="acme/infra", base_ref="main", commit="abc12345")
     svc_mod.reconnoiter = lambda repo, base_ref=None: rmap
@@ -75,9 +70,7 @@ def scenario_a() -> None:
         "- AC#1: Increase the EKS node group max size to 6\n"
         "- AC#2: Keep the cluster version unchanged\n"
     )
-    s = svc.ingest_text(
-        spec, title="Scale EKS", channel="cli", repo="acme/infra", base_ref="main"
-    )
+    s = svc.ingest_text(spec, title="Scale EKS", channel="cli", repo="acme/infra", base_ref="main")
     out = svc.process(s.session_id)
     c = assemble_contract(out.plan, out.epic, repo="acme/infra")
     print("change_mode      :", c.get("change_mode"))
@@ -91,18 +84,11 @@ def scenario_a() -> None:
 
 
 def scenario_b() -> None:
-    print(
-        "\n"
-        + "=" * 70
-        + "\nSCENARIO B — rewrite Python -> Rust (migration)\n"
-        + "=" * 70
-    )
+    print("\n" + "=" * 70 + "\nSCENARIO B — rewrite Python -> Rust (migration)\n" + "=" * 70)
     fix = _materialize(_PAY)
     rmap = build_repo_map(fix, repo="acme/pay", base_ref="main", commit="def67890")
     svc_mod.reconnoiter = lambda repo, base_ref=None: rmap
-    svc_mod.inspect_source = lambda repo, base_ref, lang: si.build_behavioral_contract(
-        fix, lang
-    )
+    svc_mod.inspect_source = lambda repo, base_ref, lang: si.build_behavioral_contract(fix, lang)
     svc = svc_mod.PlanService(persist=False)
     spec = (
         "# Port payments to Rust\n\nRewrite the payments module from Python to Rust.\n\n"
@@ -115,9 +101,7 @@ def scenario_b() -> None:
     c = assemble_contract(out.plan, out.epic, repo="acme/pay")
     env = c.get("environment", {})
     eq = c.get("tfactory", {}).get("equivalence", {})
-    print(
-        "workflow_type    :", c["workflow_type"], "| change_mode:", c.get("change_mode")
-    )
+    print("workflow_type    :", c["workflow_type"], "| change_mode:", c.get("change_mode"))
     print(
         f"environment      : source={env.get('source_language')} "
         f"target={env.get('target_language')}"
@@ -130,12 +114,7 @@ def scenario_b() -> None:
 def live_clone(repo: str) -> None:
     from plan.recon import reconnoiter
 
-    print(
-        "\n"
-        + "=" * 70
-        + f"\nLIVE RECON — clone {repo} (read-only, static)\n"
-        + "=" * 70
-    )
+    print("\n" + "=" * 70 + f"\nLIVE RECON — clone {repo} (read-only, static)\n" + "=" * 70)
     rm = reconnoiter(repo)
     print("available:", rm.available, "| commit:", (rm.commit or "")[:12])
     print("languages:", rm.languages, "| iac:", rm.iac)
@@ -144,9 +123,7 @@ def live_clone(repo: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--clone", metavar="owner/name", help="live recon clone of a real repo"
-    )
+    ap.add_argument("--clone", metavar="owner/name", help="live recon clone of a real repo")
     args = ap.parse_args()
     if args.clone:
         live_clone(args.clone)

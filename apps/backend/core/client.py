@@ -961,7 +961,7 @@ def create_client(
         explicit_budget=max_thinking_tokens,
     )
     if _thinking_param is not None:
-        options_kwargs["thinking"] = _thinking_param  # type: ignore[typeddict-item]
+        options_kwargs["thinking"] = _thinking_param
     else:
         options_kwargs["max_thinking_tokens"] = max_thinking_tokens
 
@@ -974,7 +974,7 @@ def create_client(
         agent_type=agent_type,
     )
     if _all_betas:
-        options_kwargs["betas"] = _all_betas  # type: ignore[arg-type]
+        options_kwargs["betas"] = _all_betas
 
     # Remote Control session naming (#149). The Claude Agent SDK forwards
     # ``extra_args`` to the underlying ``claude`` CLI, so passing
@@ -990,6 +990,6 @@ def create_client(
     if remote_control_session:
         existing_extra = dict(options_kwargs.get("extra_args") or {})
         existing_extra["remote-control"] = remote_control_session
-        options_kwargs["extra_args"] = existing_extra  # type: ignore[typeddict-item]
+        options_kwargs["extra_args"] = existing_extra
 
     return ClaudeSDKClient(options=ClaudeAgentOptions(**options_kwargs))

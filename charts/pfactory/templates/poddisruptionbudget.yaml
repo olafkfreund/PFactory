@@ -1,4 +1,32 @@
 {{- if .Values.podDisruptionBudget.enabled -}}
+{{/*
+Factory#550. A PDB whose minAvailable is not LESS than the replica floor allows
+zero disruptions, and `kubectl drain` on the node hosting the pod then blocks
+forever. Refuse to render it: a failed `helm install` is a five-second fix, an
+undrainable node is discovered during an incident.
+
+The floor is NOT simply replicaCount. This chart pins replicas to 1 whenever
+`rmux.enabled` (see deployment.yaml), and the HPA owns the count when
+`autoscaling.enabled` -- so an operator can set replicaCount: 3, get one pod,
+and believe a minAvailable: 2 PDB is safe. Read the floor the Deployment
+actually produces.
+
+Percentage minAvailable (e.g. "50%") is left to the API server -- note it rounds
+UP, so "50%" of 1 replica is still 1 and still blocks.
+*/}}
+{{- $floor := int .Values.replicaCount -}}
+{{- if .Values.autoscaling.enabled -}}
+{{- $floor = int .Values.autoscaling.minReplicas -}}
+{{- end -}}
+{{- if .Values.rmux.enabled -}}
+{{- $floor = 1 -}}
+{{- end -}}
+{{- if not (kindIs "string" .Values.podDisruptionBudget.minAvailable) -}}
+{{- $min := int .Values.podDisruptionBudget.minAvailable -}}
+{{- if ge $min $floor -}}
+{{- fail (printf "podDisruptionBudget.minAvailable (%d) must be less than the replica floor (%d) or the PDB allows zero disruptions and no node hosting this pod can ever be drained. Raise replicaCount/autoscaling.minReplicas (note rmux.enabled pins replicas to 1), lower minAvailable, or set podDisruptionBudget.enabled: false. See Factory#550." $min $floor) -}}
+{{- end -}}
+{{- end -}}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

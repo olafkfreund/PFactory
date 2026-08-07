@@ -55,9 +55,7 @@ def check_drift(canonical: Any, vendored: Any, path: str = "") -> list[str]:
             if key == "description":  # prose drift is allowed
                 continue
             if key not in vendored:
-                problems.append(
-                    f"{path}/{key}: present in canonical, missing in vendored"
-                )
+                problems.append(f"{path}/{key}: present in canonical, missing in vendored")
                 continue
             problems += check_drift(cval, vendored[key], f"{path}/{key}")
     elif isinstance(canonical, list):
@@ -130,9 +128,7 @@ def fetch_canonical(source: str) -> dict | None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--canonical", help="path or URL to the canonical schema")
-    ap.add_argument(
-        "--ref", default="main", help="git ref of the Factory hub (default: main)"
-    )
+    ap.add_argument("--ref", default="main", help="git ref of the Factory hub (default: main)")
     args = ap.parse_args(argv)
 
     source = args.canonical or _RAW.format(ref=args.ref)

@@ -10,6 +10,7 @@ Checks (no network, no Backstage install required):
 
 Run via `catalog-validate` in the Nix devShell. Exits non-zero on any failure.
 """
+
 from __future__ import annotations
 
 import sys

@@ -16,7 +16,7 @@ from typing import Any
 try:
     import kuzu
 except ImportError:
-    import real_ladybug as kuzu  # type: ignore
+    import real_ladybug as kuzu
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def create_patched_kuzu_driver(db: str = ":memory:", max_concurrent_queries: int
                 dict_results = [list(result.rows_as_dict()) for result in results]
             else:
                 dict_results = list(results.rows_as_dict())
-            return dict_results, None, None  # type: ignore
+            return dict_results, None, None
 
         async def build_indices_and_constraints(self, delete_existing: bool = False):
             """

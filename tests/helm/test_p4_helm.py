@@ -57,8 +57,10 @@ def test_helm_template_renders(helm_template) -> None:
         "Service",
         "ConfigMap",
         "ServiceAccount",
-        "PodDisruptionBudget",
     }
+    # PodDisruptionBudget is deliberately NOT here — Factory#550. It used to be,
+    # which is how the chart came to ship a PDB that cannot be drained past.
+    # test_pdb_off_by_default_and_refuses_to_strand_a_node owns it now.
     rendered_kinds = set()
     for line in helm_template.splitlines():
         if line.startswith("kind:"):
@@ -336,3 +338,83 @@ def test_custom_ca_bundle_is_trusted_by_pod(helm_available, chart_dir) -> None:
     assert "SSL_CERT_FILE" in cm_data
     assert cm_data["SSL_CERT_FILE"].startswith("/etc/ssl/custom-ca/")
     assert "REQUESTS_CA_BUNDLE" in cm_data
+
+
+@pytest.mark.helm
+def test_pdb_off_by_default_and_refuses_to_strand_a_node(helm_available, chart_dir) -> None:
+    """Factory#550. The chart shipped `podDisruptionBudget.enabled: true` with
+    `minAvailable: 1` against `replicaCount: 1`. That combination allows ZERO
+    disruptions, so `kubectl drain` on the node hosting the pod never completes
+    -- measured on the reference cluster, where the drain retried "Cannot evict
+    pod as it would violate the pod's disruption budget" until timeout and
+    succeeded the instant the PDB was deleted.
+
+    The rmux case is the one worth a test of its own: deployment.yaml pins
+    replicas to 1 whenever `rmux.enabled`, no matter what replicaCount says, so
+    an operator can set replicaCount: 5 and still be one pod away from an
+    undrainable node.
+    """
+    import subprocess
+
+    def render(*sets: str) -> subprocess.CompletedProcess[str]:
+        argv = ["helm", "template", "pfactory", str(chart_dir)]
+        for s in sets:
+            argv += ["--set", s]
+        return subprocess.run(argv, capture_output=True, text=True, timeout=60)
+
+    default = render()
+    assert default.returncode == 0, default.stderr[-1500:]
+    assert "kind: PodDisruptionBudget" not in default.stdout, (
+        "the chart must not ship a PDB at replicaCount 1 -- it would block node drains"
+    )
+
+    stranding = render("podDisruptionBudget.enabled=true")
+    assert stranding.returncode != 0, (
+        "enabling the PDB at the default single replica must FAIL the render, "
+        "not quietly produce an undrainable node"
+    )
+    assert "must be less than the replica floor" in stranding.stderr
+
+    rmux_pinned = render(
+        "podDisruptionBudget.enabled=true", "replicaCount=5", "rmux.enabled=true"
+    )
+    assert rmux_pinned.returncode != 0, (
+        "rmux.enabled pins the Deployment to 1 replica regardless of replicaCount; "
+        "the guard must use the floor the Deployment actually produces"
+    )
+
+    hpa_floor = render(
+        "podDisruptionBudget.enabled=true", "autoscaling.enabled=true", "replicaCount=5"
+    )
+    assert hpa_floor.returncode != 0, (
+        "replicaCount is irrelevant when autoscaling owns the replica count; "
+        "the guard must read autoscaling.minReplicas (1)"
+    )
+
+    ok = render("podDisruptionBudget.enabled=true", "replicaCount=2")
+    assert ok.returncode == 0, ok.stderr[-1500:]
+    assert "kind: PodDisruptionBudget" in ok.stdout
+
+
+@pytest.mark.helm
+def test_sa_token_is_not_mounted_and_that_is_still_true(helm_template) -> None:
+    """Factory#550. PFactory is the one control-plane service that genuinely
+    does NOT need its SA token, and this pins that.
+
+    Verified against the deployed image rather than the source: neither
+    `kubernetes` nor `kubernetes_asyncio` imports and there is no kubectl on
+    PATH, so the single `load_incluster_config()` call in the codebase
+    (plan/enrich/adapters/kubernetes.py) cannot execute there. If a k8s client
+    is ever added to the image this test should be flipped deliberately, not
+    discovered by a 403 in production.
+    """
+    import yaml
+
+    docs = [d for d in yaml.safe_load_all(helm_template) if d]
+    sa = next(d for d in docs if d["kind"] == "ServiceAccount")
+    assert sa["automountServiceAccountToken"] is False
+
+    dep = next(d for d in docs if d["kind"] == "Deployment")
+    pod_spec = dep["spec"]["template"]["spec"]
+    # A pod-level override wins over the ServiceAccount; it must not contradict.
+    assert pod_spec.get("automountServiceAccountToken", False) is False

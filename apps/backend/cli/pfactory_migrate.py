@@ -86,14 +86,14 @@ def _migrate_spec(
     Imports lazily so the module is usable in test environments that install
     only a subset of the backend packages.
     """
-    from tests_catalog.migration import migrate_v0_1_workspace  # type: ignore[import]
+    from tests_catalog.migration import migrate_v0_1_workspace
 
     return migrate_v0_1_workspace(spec_dir, catalog)
 
 
 def _empty_catalog() -> Any:
     """Return an empty TestsCatalog."""
-    from tests_catalog.schema import TestsCatalog  # type: ignore[import]
+    from tests_catalog.schema import TestsCatalog
 
     return TestsCatalog(version=1, updated_at=_now_z(), tests=())
 

@@ -6,6 +6,7 @@ produced. Proves PFactory's provider abstraction works for that platform.
 
   TF_MODEL=<model-string> python verify_provider.py <label>
 """
+
 import asyncio, json, os, shutil, sys, time
 from pathlib import Path
 
@@ -19,8 +20,16 @@ LABEL = sys.argv[1] if len(sys.argv) > 1 else "provider"
 PROJECT_ID = "pfactory-demo-python"
 SPEC_ID = "001-pricing-helper"
 REPO = Path(os.path.expanduser("~/.pfactory/demo-suts/python-unit"))
-TERMINAL = {"planned", "planned_empty", "planner_failed", "stuck",
-            "generating", "generated", "replan_needed", "generated_empty"}
+TERMINAL = {
+    "planned",
+    "planned_empty",
+    "planner_failed",
+    "stuck",
+    "generating",
+    "generated",
+    "replan_needed",
+    "generated_empty",
+}
 
 
 def log(*a):
@@ -36,26 +45,47 @@ async def main() -> int:
     for sub in ("context", "tests", "findings", "logs", "memory"):
         (spec_dir / sub).mkdir(exist_ok=True)
     snapshot_aifactory_spec(
-        project_id=PROJECT_ID, spec_id=SPEC_ID, branch="pfactory/demo-python-unit",
-        base_ref="main", project_root_path=str(REPO), dest_spec_dir=spec_dir)
+        project_id=PROJECT_ID,
+        spec_id=SPEC_ID,
+        branch="pfactory/demo-python-unit",
+        base_ref="main",
+        project_root_path=str(REPO),
+        dest_spec_dir=spec_dir,
+    )
 
     # Per-phase model override (auto profile).
-    (spec_dir / "task_metadata.json").write_text(json.dumps({
-        "isAutoProfile": True,
-        "phaseModels": {"spec": MODEL, "planning": MODEL, "coding": MODEL, "qa": MODEL},
-    }, indent=2))
+    (spec_dir / "task_metadata.json").write_text(
+        json.dumps(
+            {
+                "isAutoProfile": True,
+                "phaseModels": {"spec": MODEL, "planning": MODEL, "coding": MODEL, "qa": MODEL},
+            },
+            indent=2,
+        )
+    )
 
     now = TC._now_iso()
-    TC._status_file(PROJECT_ID, SPEC_ID).write_text(json.dumps({
-        "task_id": SPEC_ID, "project_id": PROJECT_ID, "spec_id": SPEC_ID,
-        "status": "pending", "phase": "created",
-        "lane_progress": dict.fromkeys(TC._MVP_LANES, "pending"),
-        "created_at": now, "updated_at": now}, indent=2))
+    TC._status_file(PROJECT_ID, SPEC_ID).write_text(
+        json.dumps(
+            {
+                "task_id": SPEC_ID,
+                "project_id": PROJECT_ID,
+                "spec_id": SPEC_ID,
+                "status": "pending",
+                "phase": "created",
+                "lane_progress": dict.fromkeys(TC._MVP_LANES, "pending"),
+                "created_at": now,
+                "updated_at": now,
+            },
+            indent=2,
+        )
+    )
 
     task = schedule_planner(spec_dir=spec_dir, project_dir=REPO, mode="initial")
     log("planner scheduled:", task is not None)
     if task is None:
-        log("ERROR: planner not scheduled"); return 2
+        log("ERROR: planner not scheduled")
+        return 2
 
     status_path = TC._status_file(PROJECT_ID, SPEC_ID)
     deadline = time.time() + 6 * 60
@@ -85,8 +115,7 @@ async def main() -> int:
         except Exception as exc:
             log("test_plan.json present but invalid:", exc)
     final = json.loads(status_path.read_text()).get("status")
-    log("RESULT:", "PASS" if ok else "FAIL",
-        f"| status={final} | test_plan subtasks={n}")
+    log("RESULT:", "PASS" if ok else "FAIL", f"| status={final} | test_plan subtasks={n}")
     return 0 if ok else 1
 
 

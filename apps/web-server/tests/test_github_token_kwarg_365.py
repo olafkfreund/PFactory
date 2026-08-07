@@ -54,10 +54,10 @@ _REPO_ROOT = _WEB_SERVER.parents[1]
 sys.path.insert(0, str(_WEB_SERVER))
 sys.path.insert(0, str(_REPO_ROOT / "apps" / "backend"))
 
-from runners.github.providers.github_provider import (  # type: ignore[import-not-found]  # noqa: E402
+from runners.github.providers.github_provider import (  # noqa: E402
     GitHubProvider,
 )
-from runners.github.providers.http_github_provider import (  # type: ignore[import-not-found]  # noqa: E402
+from runners.github.providers.http_github_provider import (  # noqa: E402
     HttpGitHubProvider,
 )
 from server.routes.github import _get_project_provider  # noqa: E402

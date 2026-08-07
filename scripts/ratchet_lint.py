@@ -17,11 +17,18 @@ green while genuine new violations are caught.
 
 Mechanism (mypy): same no-regression model. For each changed Python file, run
 `mypy --strict` (standards/mypy.ini) and count the errors mypy attributes to
-that file, at the PR base and at HEAD; fail if HEAD has more. mypy needs the
-file at its real path for import resolution, so the base count is taken by
-swapping the file's content to its base version in place (HEAD content is
-restored afterwards, always). Errors mypy reports in OTHER files (imported
-modules) are not attributed to the changed file and so never gate it.
+that file, at the PR base and at HEAD; fail if HEAD has more. mypy is invoked
+from inside the owning package with the file path relative to it and
+`--explicit-package-bases --namespace-packages`, so each module has exactly one
+name (issue #466: run from the repo root, `apps/backend/plan/...` resolved as
+both `plan.*` and `backend.*` via the stray `apps/backend/__init__.py`, and mypy
+exited 2 without checking anything). The target Python version comes from the
+interpreter the gate runs under, not from the shared baseline's floor of 3.11
+(issue #467 - see ``interpreter_target``). mypy needs the file at its real path for
+import resolution, so the base count is taken by swapping the file's content to
+its base version in place (HEAD content is restored afterwards, always). Errors
+mypy reports in OTHER files (imported modules) are not attributed to the changed
+file and so never gate it.
 
 Originally vendored from CFactory/scripts/ratchet_lint.py (intentional
 cross-service reuse of the Factory shared ratchet); PACKAGE_DEFAULT matches this
@@ -68,7 +75,7 @@ from pathlib import Path
 # write_temp is deliberately NOT imported: mypy runs on the file in place here
 # (see mypy_errors) and ruff is fed stdin, so nothing in this fork needs a temp
 # copy any more.
-from ratchet_helpers import MYPY_TEST_RELAX, is_test_file, ruff_stdin_argv
+from ratchet_helpers import MYPY_TEST_RELAX, is_test_file, require_tool_ran, ruff_stdin_argv
 
 PACKAGE_DEFAULT = "apps/backend"
 MYPY_CONFIG_DEFAULT = "standards/mypy.ini"
@@ -142,10 +149,7 @@ def owning_package(path: str, packages: list[str]) -> str:
     The LONGEST match wins, so a nested package beats its parent.
     """
     target = Path(path)
-    matches = [
-        pkg for pkg in packages
-        if Path(pkg) in target.parents or Path(pkg) == target.parent
-    ]
+    matches = [pkg for pkg in packages if Path(pkg) in target.parents or Path(pkg) == target.parent]
     return max(matches, key=len) if matches else packages[0]
 
 
@@ -181,8 +185,6 @@ def changed_python_files(base: str, packages: list[str], *, staged: bool = False
     return out
 
 
-
-
 def ruff_counts(source: str, filename: str) -> Counter[str]:
     """Per-rule ruff violation counts for *source* checked as *filename*.
 
@@ -199,6 +201,12 @@ def ruff_counts(source: str, filename: str) -> Counter[str]:
     be applied by :func:`_is_excluded` before a file gets here.
     """
     res = _run(ruff_stdin_argv("ruff.toml", filename), stdin=source)
+    # The shared "did the tool actually run" rule (Factory#590). This used to be
+    # four lines restated here, and in the mypy counter below, and in both halves
+    # of the four sibling ratchets -- nine copies of one rule, which is why fixing
+    # it once cost five PRs (PFactory#455, TFactory#951). It now lives in the
+    # drift-gated canonical, so the next correction reaches every consumer.
+    require_tool_ran("ruff", res)
     if not res.stdout.strip():
         return Counter()
     try:
@@ -235,39 +243,106 @@ def regressions(base: str, path: str, *, staged: bool = False) -> list[str]:
     return out
 
 
+def interpreter_target() -> str:
+    """The ``--python-version`` this gate must target: the venv it checks against.
 
+    The shared ``standards/mypy.ini`` declares ``python_version = 3.11``. That is
+    correct for the hub baseline -- it is the fleet FLOOR (coding-standards.md
+    section 1, "Python (3.11+)"), the hub's own ratchet still builds 3.11, and
+    raising it centrally would raise the floor for every repo. It is wrong as
+    THIS gate's target: the venv whose site-packages mypy reads is 3.12, and
+    numpy's stubs there use PEP 695 ``type`` statements. Told to target 3.11 mypy
+    refuses to parse them, exits 2 having checked nothing, and every file that
+    reaches numpy transitively is ungated (issue #467: 36 files hard-failed by
+    require_tool_ran, plus 5 more that reported one unrelated import error and so
+    passed the guard while their real counts, 4 to 28, went unmeasured).
 
+    Derived from the running interpreter rather than written as ``3.12``, because
+    a literal is exactly how ``3.11`` went stale: the venv moves and the target
+    does not. ``mypy`` comes from that same venv (the workflow puts it first on
+    PATH and runs this script with its python), so its version is this process's.
+
+    Not a loosening under the tighten-only rule: every strict flag in the shared
+    baseline still applies, unchanged. Only the syntax/stdlib level moves, and it
+    moves to the one actually in use -- which is what mypy would default to on
+    its own were the baseline not naming a version.
+    """
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
 def mypy_errors(path: str, package: str, mypy_config: str) -> int:
     """Number of mypy --strict errors attributed to *path*.
 
-    Runs mypy on the file in place so imports resolve against the package, then
-    counts only error lines whose location is *path* itself (errors surfaced in
-    imported modules belong to those files, not the changed one).
+    Runs mypy FROM INSIDE *package*, with the file named relative to it, so the
+    package is the one and only import root — mirroring the app's runtime
+    ``sys.path`` (issue #466). Invoked from the repo root instead, mypy reaches
+    the same file two ways: as ``plan.service`` via ``MYPYPATH=apps/backend``,
+    and as ``backend.plan.service`` by walking up the stray
+    ``apps/backend/__init__.py`` from the root. It then aborts the whole run
+    with "Source file found twice under different module names" and exits 2
+    having checked nothing. That is not a mypy quirk to route around: two names
+    for one module is genuinely ambiguous, and the fix is to leave exactly one.
+
+    ``--explicit-package-bases --namespace-packages`` is what makes the cwd
+    decisive: without them mypy still crawls up through ``__init__.py`` files and
+    re-derives the second name from inside the package too. With them the module
+    name comes from the MYPYPATH bases below, nothing else. Same treatment
+    TFactory's ratchet already applies for the same stray ``__init__.py``.
+
+    Only error lines whose location is the file itself are counted (errors
+    surfaced in imported modules belong to those files, not the changed one).
     """
+    pkg = Path(package).resolve()
+    rel = os.path.relpath(Path(path).resolve(), pkg)
     relax = MYPY_TEST_RELAX if is_test_file(path) else []
     env = dict(os.environ)
-    # Make the package importable so mypy can follow first-party imports.
+    # The package dir is the import base, mirroring the app's runtime sys.path.
+    # Sibling app packages are appended because the web server imports the
+    # backend at runtime; without them mypy cannot resolve `plan.*` from a
+    # web-server file and reports import-not-found, which is unfixable from the
+    # file itself and would block any NEW file, whose base count is 0. They are
+    # separate trees, so they add no second name for anything under `.`.
+    siblings = [
+        os.path.relpath(p, pkg)
+        for p in sorted(pkg.parent.iterdir())
+        if p.is_dir() and p != pkg and not p.name.startswith(".")
+    ]
+    search = os.pathsep.join([".", *siblings])
     for var in ("MYPYPATH", "PYTHONPATH"):
-        existing = env.get(var)
-        env[var] = f"{package}{os.pathsep}{existing}" if existing else package
+        env[var] = search
+    # The config path is repo-root-relative; the child runs in the package dir.
+    config = os.path.relpath(Path(mypy_config).resolve(), pkg)
     # CI-controlled argv (see _run); mypy is resolved from PATH (the pinned venv
     # is put first on PATH by the workflow), matching how the ruff ratchet shells
     # out to `ruff`.
     res = subprocess.run(  # noqa: S603
-        ["mypy", "--config-file", mypy_config, *relax, path],  # noqa: S607
+        [  # noqa: S607
+            "mypy",
+            "--config-file",
+            config,
+            "--python-version",
+            interpreter_target(),
+            "--explicit-package-bases",
+            "--namespace-packages",
+            *relax,
+            rel,
+        ],
         capture_output=True,
         text=True,
         check=False,
+        cwd=str(pkg),
         env=env,
     )
-    target = Path(path)
+    target = Path(rel)
     count = 0
     for line in res.stdout.splitlines():
         match = _MYPY_ERROR_RE.match(line)
         if match is not None and Path(match.group("path")) == target:
             count += 1
+    # Same shared rule as the ruff counter, with `measured` passed: mypy's exit 2
+    # also covers a BLOCKING error, which still names a file and so belongs in the
+    # count rather than aborting the run.
+    require_tool_ran("mypy", res, measured=count)
     return count
 
 

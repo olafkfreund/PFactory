@@ -12,9 +12,9 @@ name: code-quality (ratchet)
 #     at the PR base vs HEAD and fails only if HEAD has MORE. Legacy hotspots stay
 #     green until touched; net-new violations block. This job is BLOCKING. The
 #     blocking-mypy half is issue #192 (mypy was previously informational).
-#   - `ruff format --check apps/backend` is BLOCKING (formatting is auto-applied,
-#     never reviewed — section 3.6) and pinned to the same ruff version that the
-#     tree was formatted with, so it is green.
+#   - `ruff format --check apps/backend scripts` is BLOCKING (formatting is
+#     auto-applied, never reviewed — section 3.6) and pinned to the same ruff
+#     version that the tree was formatted with, so it is green.
 #   - A config-drift gate keeps the vendored baseline pinned to the hub.
 #
 # A whole-repo blocking `ruff check` / `mypy --strict` strict gate is
@@ -22,6 +22,27 @@ name: code-quality (ratchet)
 # the same ratchet): the ~6.5k legacy violation count (plus a large untyped
 # backlog) would make it instantly red. Legacy is fixed on touch under the
 # ratchet.
+#
+# SCOPE: apps/backend, apps/web-server and scripts/.
+#
+# scripts/ was added in Factory#597 for one reason: scripts/ratchet_lint.py IS
+# this gate, and it sat outside every ruff and mypy scope this repo has — the
+# file that counts findings on each changed backend file was the one file no run
+# looked at. `ruff check` findings in it, measured on dev at the time: 0 (this
+# repo's fork was already clean under both the root config and the bare shared
+# baseline; #455's rewire removed the last one). `ruff format` drift: 9 files
+# under scripts/, the ratchet among them, swept in the same PR because the
+# format gate is WHOLE-TREE and cannot grandfather anything.
+#
+# scripts/ratchet_helpers.py stays out, and needed no new config to do so: it is
+# already in ruff.toml's extend-exclude as the byte-exact hub canonical, and this
+# ratchet honours those excludes itself (_ruff_excludes). Reformatting a vendored
+# copy to satisfy a LOCAL rule is what breaks the next re-vendor (Factory#403).
+#
+# .husky/pre-commit is deliberately NOT widened to match. It rewrites staged
+# files with whatever ruff is on PATH, unpinned (#452), so extending its glob to
+# scripts/ would import exactly the drift this change exists to remove. The hook
+# keeps its apps/backend glob; scripts/ is gated by CI, where the pin holds.
 
 on:
   pull_request:
@@ -71,6 +92,10 @@ jobs:
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
           uv pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
+          # Stubs for the mypy half of the ratchet: without them mypy reports
+          # import-untyped and then treats those libraries as Any, so the strict
+          # bar stops applying at the boundary (PFactory#468).
+          uv pip install -r requirements-typestubs.txt
 
       - name: Determine base ref
         id: base
@@ -89,10 +114,10 @@ jobs:
           # model as ruff: a changed file may not GAIN mypy --strict errors vs the
           # PR base; legacy untyped files stay green until touched.
           export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
-          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}" --package apps/web-server
+          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}" --package apps/web-server --package scripts
 
   format-check:
-    name: ruff format --check (apps/backend, blocking)
+    name: ruff format --check (apps/backend + scripts, blocking)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,8 +130,8 @@ jobs:
       - name: Install ruff (pinned)
         run: uv tool install "ruff==${RUFF_VERSION}"
 
-      - name: Ruff format check (apps/backend)
-        run: ruff format --check apps/backend
+      - name: Ruff format check (apps/backend + scripts)
+        run: ruff format --check apps/backend scripts
 
   config-drift:
     name: config drift (vendored baseline pinned to hub)
