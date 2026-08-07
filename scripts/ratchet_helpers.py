@@ -21,18 +21,38 @@ But the parts that MUST agree are small, and both of the ratchet bugs found on
   per-module wildcards do not match top-level test modules (fixed via
   ``is_test_file``)
 
+A third rule joined them on 2026-08-05 (Factory#590), and it is the one that
+proves the shape: whether the linter ACTUALLY RAN. ``ruff_counts()`` read empty
+ruff stdout as "no violations" when a clean run prints ``[]`` and empty stdout
+means ruff failed, so a blocking gate reported green on a linter that never ran.
+Found in PFactory#455, found independently a day earlier in TFactory#951, and
+the sweep that followed found it in all five repos in BOTH the ruff and the mypy
+half — nine guards, five PRs, five chances to get one subtly wrong. TFactory#951
+itself shipped a half-fix, because ``mypy_errors()`` sat directly below the
+function it corrected with the identical defect. That rule now lives here once,
+as :func:`require_tool_ran`.
+
+Note what this module deliberately does NOT hold: the invocation. The five
+ratchets run mypy five genuinely different ways (in place with MYPYPATH, from
+inside the package with ``--explicit-package-bases``, from a temp copy next to
+the file, from a temp dir, from a git worktree) because their package layouts
+differ. Those differences are real and load-bearing. The VERDICT on whether a
+run produced a measurement is not, and that is the seam.
+
 So this module is the canonical for the RULES, while each service keeps its own
 orchestration. Same shape as ``shared/factory-github/``: a canonical layer, not
 a canonical program.
 
-Pure stdlib and side-effect free, so a service can vendor it byte-exact next to
-its ratchet script and import it directly. It is byte-exact drift-gated by
+Pure stdlib, so a service can vendor it byte-exact next to its ratchet script and
+import it directly. It is byte-exact drift-gated by
 ``scripts/check_verification_core_drift.py``; edit the hub copy and re-vendor,
 never a service copy.
 """
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -73,6 +93,46 @@ def is_test_file(path: str) -> bool:
         or name.startswith("test_")
         or name.endswith("_test.py")
     )
+
+
+def require_tool_ran(
+    tool: str,
+    res: subprocess.CompletedProcess[str],
+    *,
+    measured: int = 0,
+) -> None:
+    """Abort the ratchet unless *tool* actually produced a measurement.
+
+    ruff and mypy both exit 0 when clean and 1 when they found something. Any
+    OTHER exit code is the tool failing for its own reasons — binary missing,
+    config parse error, bad argv — and a failed run reports nothing. Nothing
+    reads as zero, zero reads as clean, and BOTH sides of the base-vs-head
+    comparison come back equal because the cause is environmental and hits both.
+    The ratchet then passes green having measured nothing (Factory#590).
+
+    *measured* is how many findings the caller already attributed to the file,
+    and it is the entire difference between the two tools:
+
+    * ruff writes nothing to stdout when it fails, so the caller has counted
+      nothing yet and the default 0 is correct. Any exit >= 2 is fatal.
+    * mypy exits 2 both for its own failure AND for a blocking error (a syntax
+      error in the file under test). A blocking error still emits an error line,
+      so it lands in the caller's count and must be gated as the regression it
+      is. A ZERO count out of an exit-2 run is "did not run", not "clean".
+
+    Raises ``SystemExit(2)`` — the ratchet's "could not measure" code, distinct
+    from exit 1, which means "measured, and it regressed". Callers pass their own
+    ``CompletedProcess``; this helper never invokes a subprocess itself, so the
+    per-repo invocation strategy stays where it belongs.
+    """
+    if res.returncode in (0, 1) or measured:
+        return
+    sys.stderr.write(
+        f"ratchet: {tool} exited {res.returncode} having reported nothing — it did not run. "
+        "A gate cannot report clean on a tool that never measured anything.\n"
+    )
+    sys.stderr.write((res.stdout or "") + (res.stderr or ""))
+    raise SystemExit(2)
 
 
 def ruff_stdin_argv(config: str, filename: str) -> list[str]:
