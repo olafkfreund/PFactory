@@ -22,7 +22,7 @@ from plan.synthesize.models import SynthesizedArtifact
 # `*Test.java` — a `tests/unit/` subdir would be scaffolding that never runs.
 # Only these seven languages appear: plan.recon.delta._CODE_EXTS is the set of
 # extensions the footprint miner recognises, so a `.cs` or `.kt` path named here
-# would be invisible to it anyway (see _test_files).
+# would be invisible to it anyway (see test_paths).
 _TEST_LAYOUT: dict[str, tuple[str, str]] = {
     "python": ("tests", "test_{name}.py"),
     "typescript": ("tests", "{name}.test.ts"),
@@ -35,7 +35,6 @@ _TEST_LAYOUT: dict[str, tuple[str, str]] = {
 # A test root already in the repo beats the language default. Top-level only —
 # that is all reconnaissance's layout scan sees.
 _TEST_DIRS = ("tests", "test", "spec", "__tests__")
-_LANES = ("unit", "integration", "e2e")
 
 # Coverage targets per lane (deterministic; tuned per plan type if desired).
 _COVERAGE_TARGETS: list[tuple[str, str, str]] = [
@@ -85,7 +84,7 @@ def _test_root(plan: NormalizedPlan, default: str) -> str:
     return default
 
 
-def test_files(plan: NormalizedPlan) -> list[str]:
+def test_paths(plan: NormalizedPlan) -> list[str]:
     """The test files the ``testing`` child must create — one per lane.
 
     This is the whole fix for PFactory#461, the same defect #460 fixed for the
@@ -114,7 +113,7 @@ def test_files(plan: NormalizedPlan) -> list[str]:
         return []
     slug = slugify(plan.title).replace("-", "_")  # importable: pytest/go reject "-"
     out = []
-    for lane in _LANES:
+    for lane, _target, _scope in _COVERAGE_TARGETS:
         name = f"{slug}_{lane}"
         camel = "".join(part.title() for part in name.split("_"))
         out.append(f"{_test_root(plan, root)}/{template.format(name=name, camel=camel)}")
@@ -213,7 +212,7 @@ def _build_child(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) -> ChildI
         "Coverage targets per lane are met or explicitly waived.",
         "Tests run in CI and gate the build.",
     ]
-    files = test_files(plan)
+    files = test_paths(plan)
     if files:
         targets = "Test files to add:\n" + "".join(f"- `{f}`\n" for f in files)
     else:
