@@ -243,10 +243,6 @@ def regressions(base: str, path: str, *, staged: bool = False) -> list[str]:
     return out
 
 
-
-
-
-
 def interpreter_target() -> str:
     """The ``--python-version`` this gate must target: the venv it checks against.
 
