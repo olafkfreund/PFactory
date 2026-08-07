@@ -18,6 +18,37 @@ from plan.synthesize.models import SynthesizedArtifact
 _CONTAINER_KEYWORDS = ("kubernetes", "openshift", "helm", "k8s")
 _TERRAFORM_KEYWORDS = ("terraform",)
 
+# The pipeline file a CI system uses when reconnaissance found none.
+_DEFAULT_PIPELINE_PATH: dict[str, str] = {
+    "github-actions": ".github/workflows/ci.yml",
+    "gitlab-ci": ".gitlab-ci.yml",
+    "azure-pipelines": "azure-pipelines.yml",
+}
+_FALLBACK_PIPELINE_PATH = ".github/workflows/ci.yml"
+# ponytail: three providers because that is what plan.recon.ci_probe detects.
+# Add a default here only when the probe learns to report a fourth.
+
+
+def pipeline_paths(plan: NormalizedPlan) -> list[str]:
+    """The CI file(s) the ``cicd`` child must edit — discovered, else the default.
+
+    This is the whole fix for AIFactory#1113. The child's text is the ONLY place
+    a file target can come from: :func:`plan.recon.delta.compute_footprints`
+    mines file-like tokens out of ``title + body + acceptance_criteria`` and that
+    becomes the contract subtask's ``files_to_modify`` / ``files_to_create``,
+    which AIFactory renders to the coder as "Files to Modify". The old body named
+    only ``docs/plans/<id>-cicd-pipeline.md`` — a document PFactory never writes
+    into the target repo — so the coder was handed one file to create, a
+    markdown file, and created it. Its acceptance criteria ("stages run on every
+    push and PR") were unsatisfiable by construction. Naming the real pipeline
+    file makes the same machinery point at the workflow instead.
+    """
+    repo_map = plan.repo_map
+    if repo_map is not None and repo_map.available and repo_map.ci_pipeline_paths:
+        return list(repo_map.ci_pipeline_paths)[:3]
+    system = (repo_map.ci_system if repo_map is not None else None) or ""
+    return [_DEFAULT_PIPELINE_PATH.get(system, _FALLBACK_PIPELINE_PATH)]
+
 
 def _plan_text(plan: NormalizedPlan) -> str:
     """Lowercased title + description + criteria + raw text for signal scanning."""
@@ -195,13 +226,20 @@ def _build_child(
     if wants_terraform:
         acceptance.append("Infra changes run `terraform plan` on PRs and a gated `apply` on merge.")
 
-    body = (
-        f"Implement the CI/CD pipeline specified in "
-        f"`docs/plans/{plan.plan_id}-cicd-pipeline.md`.\n\n"
-        "Stages: lint → test → build → security scan → deploy"
+    stages = (
+        "lint -> test -> build -> security scan -> deploy"
         + (" (containerised, deployed to cluster)" if wants_container else "")
         + (", with gated Terraform plan/apply" if wants_terraform else "")
-        + "."
+    )
+    paths = pipeline_paths(plan)
+    body = (
+        "Add these pipeline stages to this repo's CI configuration: "
+        f"{stages}.\n\n"
+        "File(s) to change:\n"
+        + "".join(f"- `{p}`\n" for p in paths)
+        + "\nThe acceptance criteria are about stages that RUN in CI, so this "
+        "subtask is done only when the file(s) above change. Writing a design "
+        "document satisfies none of them (AIFactory#1113)."
     )
 
     return ChildIssue(
