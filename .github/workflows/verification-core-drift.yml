@@ -59,12 +59,7 @@ permissions:
 env:
   # Pinned Factory hub commit carrying the canonical modules. Bump deliberately
   # when re-vendoring (see header).
-  # NOTE (Factory#600): this points at the HEAD of Factory PR #602 (the canonical
-  # change this re-vendors), NOT at a commit on the hub's main. Factory
-  # squash-merges, so this SHA does not survive the merge -- re-point it at the
-  # resulting main commit before merging this PR, or the gate checks out a SHA
-  # that only exists on the closed PR branch.
-  HUB_PIN_SHA: "40665ac25557c5ac7a8afafc8baa989a504286e7"
+  HUB_PIN_SHA: "61a50a15c379b345819bc3bef2500c78166c3194"
 
 jobs:
   drift:
