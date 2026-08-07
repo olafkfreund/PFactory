@@ -149,10 +149,7 @@ def owning_package(path: str, packages: list[str]) -> str:
     The LONGEST match wins, so a nested package beats its parent.
     """
     target = Path(path)
-    matches = [
-        pkg for pkg in packages
-        if Path(pkg) in target.parents or Path(pkg) == target.parent
-    ]
+    matches = [pkg for pkg in packages if Path(pkg) in target.parents or Path(pkg) == target.parent]
     return max(matches, key=len) if matches else packages[0]
 
 
@@ -186,8 +183,6 @@ def changed_python_files(base: str, packages: list[str], *, staged: bool = False
         if any(pkg in path.parents or pkg == path.parent for pkg in pkgs):
             out.append(str(path))
     return out
-
-
 
 
 def ruff_counts(source: str, filename: str) -> Counter[str]:

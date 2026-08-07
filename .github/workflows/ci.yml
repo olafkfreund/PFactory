@@ -81,7 +81,7 @@ jobs:
           else
             base="HEAD~1"
           fi
-          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${base}" --package apps/backend --package apps/web-server
+          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${base}" --package apps/backend --package apps/web-server --package scripts
 
       - name: Pytest (skip slow)
         env:
@@ -155,7 +155,7 @@ jobs:
           else
             base="HEAD~1"
           fi
-          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${base}" --package apps/backend --package apps/web-server
+          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${base}" --package apps/backend --package apps/web-server --package scripts
 
       - name: Pytest (critical lane only)
         env:
