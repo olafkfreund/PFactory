@@ -22,6 +22,8 @@ syntax error rather than counting it.
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 # scripts/ is put on sys.path by tests/conftest.py.
@@ -202,3 +204,43 @@ def test_mypy_runs_from_inside_the_package_with_one_module_name(
     env = seen["env"]
     assert isinstance(env, dict)
     assert env["MYPYPATH"].split(":")[0] == "."
+
+
+# --------------------------------------------------------------------------- #
+# mypy target version: the venv being checked, not the fleet floor (issue #467) #
+# --------------------------------------------------------------------------- #
+
+
+def test_mypy_targets_the_interpreter_it_runs_under_not_the_baseline_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate must declare the Python it is actually checking against.
+
+    Issue #467: ``standards/mypy.ini`` pins ``python_version = 3.11`` -- the
+    fleet FLOOR, right for a baseline every repo inherits. This repo's venv is
+    3.12, and numpy's stubs in it use PEP 695 ``type`` statements. Told to target
+    3.11, mypy refuses to parse them and exits 2 having checked nothing, so 36
+    files were hard-failed by ``require_tool_ran`` and 5 more were silently
+    under-counted.
+
+    Asserted against ``sys.version_info`` rather than a literal ``3.12``: a
+    literal is precisely how 3.11 went stale, and a test written that way would
+    go stale with it instead of catching the next bump.
+    """
+    seen: dict[str, object] = {}
+
+    def _record(argv: list[str], **_kwargs: object) -> _Res:
+        seen["argv"] = argv
+        return _Res(0, stdout="Success: no issues found in 1 source file\n")
+
+    monkeypatch.setattr(rl.subprocess, "run", _record)
+    assert _mypy_errors() == 0
+
+    argv = seen["argv"]
+    assert isinstance(argv, list)
+    expected = f"{sys.version_info.major}.{sys.version_info.minor}"
+    assert argv[argv.index("--python-version") + 1] == expected
+    # The CLI flag has to WIN over the config file, so both must be present:
+    # dropping --config-file loses the strict bar, dropping the version override
+    # puts the 3.11 floor back and the numpy stubs stop parsing.
+    assert "--config-file" in argv
