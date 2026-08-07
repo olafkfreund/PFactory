@@ -22,7 +22,9 @@ from inside the owning package with the file path relative to it and
 `--explicit-package-bases --namespace-packages`, so each module has exactly one
 name (issue #466: run from the repo root, `apps/backend/plan/...` resolved as
 both `plan.*` and `backend.*` via the stray `apps/backend/__init__.py`, and mypy
-exited 2 without checking anything). mypy needs the file at its real path for
+exited 2 without checking anything). The target Python version comes from the
+interpreter the gate runs under, not from the shared baseline's floor of 3.11
+(issue #467 - see ``interpreter_target``). mypy needs the file at its real path for
 import resolution, so the base count is taken by swapping the file's content to
 its base version in place (HEAD content is restored afterwards, always). Errors
 mypy reports in OTHER files (imported modules) are not attributed to the changed
@@ -147,10 +149,7 @@ def owning_package(path: str, packages: list[str]) -> str:
     The LONGEST match wins, so a nested package beats its parent.
     """
     target = Path(path)
-    matches = [
-        pkg for pkg in packages
-        if Path(pkg) in target.parents or Path(pkg) == target.parent
-    ]
+    matches = [pkg for pkg in packages if Path(pkg) in target.parents or Path(pkg) == target.parent]
     return max(matches, key=len) if matches else packages[0]
 
 
@@ -184,8 +183,6 @@ def changed_python_files(base: str, packages: list[str], *, staged: bool = False
         if any(pkg in path.parents or pkg == path.parent for pkg in pkgs):
             out.append(str(path))
     return out
-
-
 
 
 def ruff_counts(source: str, filename: str) -> Counter[str]:
@@ -246,8 +243,31 @@ def regressions(base: str, path: str, *, staged: bool = False) -> list[str]:
     return out
 
 
+def interpreter_target() -> str:
+    """The ``--python-version`` this gate must target: the venv it checks against.
 
+    The shared ``standards/mypy.ini`` declares ``python_version = 3.11``. That is
+    correct for the hub baseline -- it is the fleet FLOOR (coding-standards.md
+    section 1, "Python (3.11+)"), the hub's own ratchet still builds 3.11, and
+    raising it centrally would raise the floor for every repo. It is wrong as
+    THIS gate's target: the venv whose site-packages mypy reads is 3.12, and
+    numpy's stubs there use PEP 695 ``type`` statements. Told to target 3.11 mypy
+    refuses to parse them, exits 2 having checked nothing, and every file that
+    reaches numpy transitively is ungated (issue #467: 36 files hard-failed by
+    require_tool_ran, plus 5 more that reported one unrelated import error and so
+    passed the guard while their real counts, 4 to 28, went unmeasured).
 
+    Derived from the running interpreter rather than written as ``3.12``, because
+    a literal is exactly how ``3.11`` went stale: the venv moves and the target
+    does not. ``mypy`` comes from that same venv (the workflow puts it first on
+    PATH and runs this script with its python), so its version is this process's.
+
+    Not a loosening under the tighten-only rule: every strict flag in the shared
+    baseline still applies, unchanged. Only the syntax/stdlib level moves, and it
+    moves to the one actually in use -- which is what mypy would default to on
+    its own were the baseline not naming a version.
+    """
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
 def mypy_errors(path: str, package: str, mypy_config: str) -> int:
@@ -300,6 +320,8 @@ def mypy_errors(path: str, package: str, mypy_config: str) -> int:
             "mypy",
             "--config-file",
             config,
+            "--python-version",
+            interpreter_target(),
             "--explicit-package-bases",
             "--namespace-packages",
             *relax,

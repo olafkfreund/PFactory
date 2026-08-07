@@ -55,7 +55,9 @@ def main() -> int:
     req = urllib.request.Request(
         f"{API}/api/settings/claude-profiles",
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"}, method="POST")
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
         urllib.request.urlopen(req, timeout=15).read()
     except urllib.error.HTTPError as e:
@@ -63,8 +65,10 @@ def main() -> int:
         return 1
 
     status = _get(f"{API}/api/settings/auth-status")
-    print(f"synced Claude subscription token -> hasToken={status.get('hasToken')} "
-          f"source={status.get('source')}")
+    print(
+        f"synced Claude subscription token -> hasToken={status.get('hasToken')} "
+        f"source={status.get('source')}"
+    )
     return 0
 
 
