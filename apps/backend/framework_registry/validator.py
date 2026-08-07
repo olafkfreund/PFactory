@@ -24,7 +24,7 @@ import fnmatch
 import re
 from typing import Any
 
-from packaging.specifiers import (  # type: ignore[import-untyped]
+from packaging.specifiers import (
     InvalidSpecifier,
     SpecifierSet,
 )
@@ -261,7 +261,7 @@ def validate_descriptor(data: dict) -> FrameworkDescriptor:
     templates = _optional_list_of_str(data, "templates")
     evaluator_hooks = _optional_list_of_str(data, "evaluator_hooks")
 
-    coverage_strategy = _parse_coverage_strategy(data["coverage_strategy"])  # type: ignore[arg-type]
+    coverage_strategy = _parse_coverage_strategy(data["coverage_strategy"])
 
     context_block_raw = data.get("context_block")
     if context_block_raw is None:

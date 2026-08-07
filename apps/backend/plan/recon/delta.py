@@ -155,7 +155,7 @@ def build_ac_to_code_map(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, list
     rm = plan.repo_map
     base = {c.id: [] for c in plan.criteria}
     if rm is None or not rm.available:
-        return base  # type: ignore[return-value]
+        return base
     paths = known_paths(rm)
     for crit in plan.criteria:
         modify, _create = _referenced(crit.text, paths, rm)

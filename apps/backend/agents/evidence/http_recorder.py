@@ -297,7 +297,7 @@ def record_http_to_har(spec_dir: Path, test_id: str):
 
     # ── Patch urllib.request.urlopen ────────────────────────────────────
     _orig_urlopen = urllib.request.urlopen
-    urllib.request.urlopen = _make_urllib_patch(_orig_urlopen)  # type: ignore[assignment]
+    urllib.request.urlopen = _make_urllib_patch(_orig_urlopen)
 
     # ── Optionally patch httpx ───────────────────────────────────────────
     _orig_httpx_send = None
@@ -315,7 +315,7 @@ def record_http_to_har(spec_dir: Path, test_id: str):
         yield
     finally:
         # ── Restore originals ────────────────────────────────────────────
-        urllib.request.urlopen = _orig_urlopen  # type: ignore[assignment]
+        urllib.request.urlopen = _orig_urlopen
         if _orig_httpx_send is not None and _httpx_client_cls is not None:
             _httpx_client_cls.send = _orig_httpx_send  # type: ignore[method-assign]
 

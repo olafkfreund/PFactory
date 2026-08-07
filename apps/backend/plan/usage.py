@@ -87,7 +87,7 @@ class PlanUsage(BaseModel):
 
 def _as_int(value: object) -> int:
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)
     except (TypeError, ValueError):
         return 0
 
