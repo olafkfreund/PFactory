@@ -279,7 +279,7 @@ def _resolve_job_store() -> object | None:
             # Deferred + optional: server.jobstore (SQLAlchemy-backed) is not
             # importable in the dependency-light backend venv, so this import
             # MUST stay inside the guard (PLC0415 is intentional here).
-            from server.jobstore import (  # type: ignore[import-not-found]  # noqa: PLC0415
+            from server.jobstore import (  # noqa: PLC0415
                 JobStateStore,
             )
 
@@ -743,7 +743,7 @@ class PlanService:
         """
         # Deferred + optional import (see _resolve_job_store): only reached when
         # a durable store is configured, so server.jobstore is importable here.
-        from server.jobstore import (  # type: ignore[import-not-found]  # noqa: PLC0415
+        from server.jobstore import (  # noqa: PLC0415
             SlotDenied,
             lease_heartbeat_interval,
         )

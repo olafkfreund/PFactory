@@ -1,0 +1,38 @@
+# Type stubs for the mypy --strict ratchet (scripts/ratchet_lint.py), PFactory#468.
+#
+# WHY A SEPARATE FILE. These are needed by the GATE, not by the app: nothing here
+# is imported at runtime. Without them mypy reports `import-untyped` ("Library
+# stubs not installed for X") and then treats every call into those libraries as
+# `Any` -- so the strict bar silently stops applying at exactly the boundary
+# section 1.7 says must be typed. Measured: installing them cleared 18
+# import-untyped errors and 6 no-any-return (those calls now have a genuine
+# return type; 4 of the 6 are in server/auth.py and the auth/oidc routes -- the
+# JWT path -- the other 2 come from PyYAML), and surfaced 7 that had been hiding
+# behind `Any`. Net -17.
+#
+# Of those 7, ONE was a real bug: pfactory_secrets/backends/vault.py calls
+# `.get()` on `hvac.Client.read()`, which is `dict[str, Any] | Response`, and
+# raises AttributeError on the non-JSON path (#480). The other 6 are a single
+# `hvac.Client(**dict[str, str])` splat that mypy cannot prove lands only on the
+# str parameters -- correct code, reported once per non-str parameter. Recorded
+# because it is the honest ratio: "newly visible" is not "newly broken", and a
+# backlog "fixed" by pinning `Any` onto working code is worse than the backlog.
+#
+# Three of these cover the credential surface (`jose` signs and verifies the JWTs,
+# `passlib` hashes the passwords, `hvac` talks to Vault), which is the same
+# surface that accumulated 133 unguarded credential-bearing pydantic fields
+# (#377) while nothing was checking it.
+#
+# Pinned for the same reason ruff and mypy are pinned in the workflows: a stub
+# release can add checks, and an unpinned bump would turn CI red on a day nobody
+# changed any code. Bump deliberately, like the linters.
+#
+# Only libraries with a published stub package belong here. `boto3`, the `azure`
+# and `google.cloud` SDKs, `bashlex` and `ptyprocess` have none, so their 19
+# import-untyped errors stay visible in the backlog rather than being suppressed.
+
+types-Authlib==1.7.2.20260807
+types-hvac==2.4.0.20260731
+types-passlib==1.7.7.20260211
+types-python-jose==3.5.0.20260408
+types-PyYAML==6.0.12.20260724

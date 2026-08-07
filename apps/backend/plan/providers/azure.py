@@ -48,7 +48,7 @@ class AzureProvider(ProviderMCP):
         if self.client is not None:
             return self.client
         try:  # pragma: no cover - exercised only with a real MCP install
-            from plan.providers._mcp import AzureMcpClient  # type: ignore
+            from plan.providers._mcp import AzureMcpClient
 
             return AzureMcpClient(**self.config)
         except Exception:

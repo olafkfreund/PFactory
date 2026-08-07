@@ -53,7 +53,7 @@ def _to_yaml(data: dict[str, Any], indent: int = 0) -> str:
     for the scaffolded output.
     """
     try:
-        import yaml  # type: ignore[import]
+        import yaml
 
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
     except ImportError:
@@ -432,7 +432,7 @@ def init_command(
     try:
         # Import lazily so the CLI can be imported without the full backend
         # dependency chain being installed (useful in test environments).
-        from pfactory_yml import load_pfactory_yml  # type: ignore[import]
+        from pfactory_yml import load_pfactory_yml
 
         config = load_pfactory_yml(root)
         if config is None:

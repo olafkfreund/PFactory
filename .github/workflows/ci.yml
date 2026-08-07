@@ -61,6 +61,10 @@ jobs:
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
           uv pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
+          # Stubs for the mypy half of the ratchet: without them mypy reports
+          # import-untyped and then treats those libraries as Any, so the strict
+          # bar stops applying at the boundary (PFactory#468).
+          uv pip install -r requirements-typestubs.txt
 
       - name: Lint ratchet (diff-scoped ruff + mypy, blocks net-new violations)
         # The shared strict select set (root ruff.toml -> standards/ruff.toml) has
@@ -142,6 +146,10 @@ jobs:
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
           uv pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
+          # Stubs for the mypy half of the ratchet: without them mypy reports
+          # import-untyped and then treats those libraries as Any, so the strict
+          # bar stops applying at the boundary (PFactory#468).
+          uv pip install -r requirements-typestubs.txt
 
       - name: Lint ratchet (diff-scoped ruff + mypy, blocks net-new violations)
         # Same no-regression ratchet as the full backend job (see its comment):

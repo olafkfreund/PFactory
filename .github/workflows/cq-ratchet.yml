@@ -92,6 +92,10 @@ jobs:
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
           uv pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
+          # Stubs for the mypy half of the ratchet: without them mypy reports
+          # import-untyped and then treats those libraries as Any, so the strict
+          # bar stops applying at the boundary (PFactory#468).
+          uv pip install -r requirements-typestubs.txt
 
       - name: Determine base ref
         id: base
