@@ -50,6 +50,13 @@ def _mypy_errors() -> int:
     return rl.mypy_errors("apps/backend/pfactory/prod.py", "apps/backend", "mypy.ini")
 
 
+# mypy is invoked from INSIDE the package (issue #466), so the paths it prints
+# are relative to that dir, not to the repo root. The stubs below must emit what
+# real mypy emits or they would assert against a shape the ratchet never sees.
+_PROD = "pfactory/prod.py"
+_OTHER = "pfactory/other.py"
+
+
 # --------------------------------------------------------------------------- #
 # ruff                                                                         #
 # --------------------------------------------------------------------------- #
@@ -122,7 +129,7 @@ def test_mypy_blocking_error_is_counted_not_treated_as_a_crash(
     # instead of counting the error and gating on it.
     _stub_mypy(
         monkeypatch,
-        _Res(2, stdout="apps/backend/pfactory/prod.py:1: error: Invalid syntax  [syntax]\n"),
+        _Res(2, stdout=f"{_PROD}:1: error: Invalid syntax  [syntax]\n"),
     )
     assert _mypy_errors() == 1
 
@@ -130,8 +137,8 @@ def test_mypy_blocking_error_is_counted_not_treated_as_a_crash(
 def test_mypy_errors_are_still_counted(monkeypatch: pytest.MonkeyPatch) -> None:
     # Control: exit 1 is the ordinary "found something" path.
     out = (
-        "apps/backend/pfactory/prod.py:3: error: Missing type annotation  [no-untyped-def]\n"
-        "apps/backend/pfactory/prod.py:9: error: Returning Any  [no-any-return]\n"
+        f"{_PROD}:3: error: Missing type annotation  [no-untyped-def]\n"
+        f"{_PROD}:9: error: Returning Any  [no-any-return]\n"
     )
     _stub_mypy(monkeypatch, _Res(1, stdout=out))
     assert _mypy_errors() == 2
@@ -142,5 +149,56 @@ def test_mypy_ignores_errors_belonging_to_other_files(
 ) -> None:
     # Control: an error mypy surfaces in an imported module is that file's, and
     # with exit 1 the run succeeded, so zero here is honest.
-    _stub_mypy(monkeypatch, _Res(1, stdout="apps/backend/pfactory/other.py:3: error: nope\n"))
+    _stub_mypy(monkeypatch, _Res(1, stdout=f"{_OTHER}:3: error: nope\n"))
     assert _mypy_errors() == 0
+
+
+# --------------------------------------------------------------------------- #
+# mypy invocation: one module name per file (issue #466)                       #
+# --------------------------------------------------------------------------- #
+
+
+def test_mypy_runs_from_inside_the_package_with_one_module_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The invocation that stops mypy resolving a file under two module names.
+
+    Issue #466: run from the repo root, ``apps/backend/plan/...`` resolved as
+    both ``plan.*`` (via MYPYPATH) and ``backend.*`` (by crawling up the stray
+    ``apps/backend/__init__.py``), so mypy exited 2 without checking anything
+    and the ratchet's mypy half measured nothing for seven weeks.
+
+    Three things have to hold together, and each is asserted because dropping
+    any one of them brings the ambiguity back:
+
+    * ``cwd`` is the package dir, and the file is named RELATIVE to it -- a
+      repo-root path re-introduces the root as a second base;
+    * ``--explicit-package-bases`` so the module name comes from MYPYPATH
+      rather than from crawling up ``__init__.py`` files, which re-derives the
+      second name even from inside the package;
+    * ``--namespace-packages``, which ``--explicit-package-bases`` requires.
+    """
+    seen: dict[str, object] = {}
+
+    def _record(argv: list[str], **kwargs: object) -> _Res:
+        seen["argv"] = argv
+        seen["cwd"] = kwargs.get("cwd")
+        seen["env"] = kwargs.get("env")
+        return _Res(0, stdout="Success: no issues found in 1 source file\n")
+
+    monkeypatch.setattr(rl.subprocess, "run", _record)
+    assert _mypy_errors() == 0
+
+    argv = seen["argv"]
+    assert isinstance(argv, list)
+    assert "--explicit-package-bases" in argv
+    assert "--namespace-packages" in argv
+    # The file is named relative to the package, never by its repo-root path.
+    assert argv[-1] == _PROD
+    assert "apps/backend" not in argv[-1]
+    # ...and mypy is actually run from in there.
+    assert str(seen["cwd"]).endswith("apps/backend")
+    # The package itself is the first import base, mirroring runtime sys.path.
+    env = seen["env"]
+    assert isinstance(env, dict)
+    assert env["MYPYPATH"].split(":")[0] == "."
