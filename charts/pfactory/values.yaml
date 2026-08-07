@@ -9,7 +9,8 @@
 #   service         — ClusterIP by default; Ingress controls public exposure
 #   ingress         — disabled by default; operators wire their controller
 #   serviceAccount  — dedicated SA, no automount of API token
-#   podDisruptionBudget — minAvailable: 1
+#   podDisruptionBudget — OFF; minAvailable: 1 at replicaCount 1 blocks node
+#                     drains outright (Factory#550)
 #   hpa             — disabled by default (single replica)
 #   networkPolicy   — default-deny + explicit 443 egress
 #   migrations      — Alembic Job mode (autoApply=false in prod)
@@ -111,8 +112,24 @@ serviceAccount:
 rbac:
   create: false  # the app doesn't read the K8s API in v1.0
 
+# Factory#550. OFF by default, and that is a decision rather than an oversight.
+# `replicaCount` is pinned to 1 above, and `minAvailable: 1` over a single
+# replica allows ZERO disruptions: `kubectl drain` on the node hosting the pod
+# retries "Cannot evict pod as it would violate the pod's disruption budget"
+# forever. Measured on the reference cluster, where the same drain succeeds the
+# moment the PDB is removed. That is not availability protection, it is a node
+# you cannot take out of service.
+#
+# There is no PDB shape that both protects and drains at one replica:
+# `minAvailable: 50%` rounds UP to 1, and `maxUnavailable: 1` permits every
+# eviction and so protects nothing.
+#
+# Turn it on when you actually run more than one replica -- raise replicaCount
+# (or autoscaling.minReplicas) above minAvailable first. The template refuses to
+# render an unevictable PDB, so a mistake here fails `helm install` rather than
+# stranding a node.
 podDisruptionBudget:
-  enabled: true
+  enabled: false
   minAvailable: 1
 
 autoscaling:
