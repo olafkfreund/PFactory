@@ -51,10 +51,18 @@ never a service copy.
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+# Every mypy diagnostic names the file it is about: `path/to/file.py:12: error:`.
+# Matched here only to answer "how many DISTINCT files did this run blame", which
+# is what separates a blocking error in the file under test from one in a file it
+# merely imports (Factory#600). Notes are deliberately excluded — only `error:`.
+_ERROR_PATH_RE = re.compile(r"^(?P<path>.+?):\d+: error:")
 
 # Flags that relax the strict type bar for test files. mypy per-module sections
 # cannot express this: a bare `[mypy-test_*]` (and even `[mypy-*]`) silently
@@ -95,6 +103,15 @@ def is_test_file(path: str) -> bool:
     )
 
 
+def _blamed_files(output: str) -> set[str]:
+    """Normalised paths *output* attributed at least one error to."""
+    return {
+        os.path.normpath(match.group("path"))
+        for line in output.splitlines()
+        if (match := _ERROR_PATH_RE.match(line)) is not None
+    }
+
+
 def require_tool_ran(
     tool: str,
     res: subprocess.CompletedProcess[str],
@@ -120,18 +137,55 @@ def require_tool_ran(
       so it lands in the caller's count and must be gated as the regression it
       is. A ZERO count out of an exit-2 run is "did not run", not "clean".
 
+    A non-zero *measured* is not on its own enough, though (Factory#600). mypy
+    also exits 2 when a file the target merely IMPORTS fails to parse, and then
+    it stops before type-checking anything — while whatever it had already
+    emitted about the target during module discovery (typically one
+    ``import-not-found``) still lands in the caller's count. ``measured`` is then
+    1 out of a real 4 to 28, and the file is gated at the undercount. Measured
+    twice: 5 such files in PFactory#467, 3 in TFactory#968, one of them carrying
+    28 errors while gated at 1.
+
+    What separates the two is WHERE the errors are, not how many there are. mypy
+    blames a file in every error line, and the ratchets check ONE file at a time,
+    so a second distinct path in an exit-2 run is by construction a file nobody
+    asked about — mypy reporting on an import means it aborted there. Hence:
+
+    * exit 2, errors in one file only -> a blocking error in the file under test;
+      the count is whole, gate it.
+    * exit 2, errors in two or more files -> mypy stopped early on an import; the
+      count is partial and the honest verdict is "could not measure".
+
+    Deliberately NOT "at least one error names the target": that reads as
+    satisfied in exactly the undercount case, because module discovery names the
+    target too. It also needs the target path, which each fork spells
+    differently (temp copy, worktree, in place) — counting distinct blamed files
+    needs no such argument and so works for all five forks unchanged.
+
     Raises ``SystemExit(2)`` — the ratchet's "could not measure" code, distinct
     from exit 1, which means "measured, and it regressed". Callers pass their own
     ``CompletedProcess``; this helper never invokes a subprocess itself, so the
     per-repo invocation strategy stays where it belongs.
     """
-    if res.returncode in (0, 1) or measured:
+    if res.returncode in (0, 1):
         return
-    sys.stderr.write(
-        f"ratchet: {tool} exited {res.returncode} having reported nothing — it did not run. "
-        "A gate cannot report clean on a tool that never measured anything.\n"
-    )
-    sys.stderr.write((res.stdout or "") + (res.stderr or ""))
+    output = (res.stdout or "") + (res.stderr or "")
+    blamed = _blamed_files(output)
+    if measured and len(blamed) <= 1:
+        return
+    if measured:
+        sys.stderr.write(
+            f"ratchet: {tool} exited {res.returncode} blaming {len(blamed)} files "
+            f"({', '.join(sorted(blamed))}) — it stopped early on one the file under test "
+            f"only imports, so the {measured} it attributed to that file is a partial count. "
+            "A gate cannot ratchet a file against a number the tool never finished computing.\n"
+        )
+    else:
+        sys.stderr.write(
+            f"ratchet: {tool} exited {res.returncode} having reported nothing — it did not run. "
+            "A gate cannot report clean on a tool that never measured anything.\n"
+        )
+    sys.stderr.write(output)
     raise SystemExit(2)
 
 

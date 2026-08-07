@@ -59,7 +59,7 @@ permissions:
 env:
   # Pinned Factory hub commit carrying the canonical modules. Bump deliberately
   # when re-vendoring (see header).
-  HUB_PIN_SHA: "3591e9de2fc0a177e9da8010d9edebce64da3d5d"
+  HUB_PIN_SHA: "61a50a15c379b345819bc3bef2500c78166c3194"
 
 jobs:
   drift:
