@@ -104,6 +104,37 @@ PROTOCOL = "http/protobuf"
 # How long a rejected exporter stays quiet between log lines, seconds.
 _EXPORT_ERROR_INTERVAL = float(os.environ.get("OTEL_EXPORT_ERROR_INTERVAL", "300"))
 
+# Factory#608: the startup export probe is the ONE synchronous step in the whole
+# tracing path, and it runs while create_app() is still building the service.
+# Against a black-holed collector, the OTLP HTTP exporter's default deadline
+# plus its retry budget made that 20.0s of dead startup — inside the 70s
+# readiness budget, but paid on every pod start by a service whose own function
+# has nothing to do with tracing, and governed by an SDK default rather than by
+# anything this fleet controls.
+#
+# The probe does not need that budget. It exists to tell 200 from 401
+# (Factory#465), and a collector that cannot answer that in a couple of seconds
+# is one the probe has nothing useful to say about — a case already handled, as
+# "enabled but UNVERIFIED". The exporter that does the real work keeps the full
+# default budget: it retries on a background thread where nobody is waiting.
+#
+# Measured in-pod, 2026-08-07, exporter pointed at TEST-NET-1 (192.0.2.1:4318,
+# which black-holes rather than refusing — a refusal is instant and costs
+# nothing):
+#
+#     BEFORE (SDK default): export([]) blocked 20.0s -> FAILURE
+#     AFTER  (timeout=2.0): export([]) blocked  4.0s -> FAILURE
+#
+# 4s rather than 2s because requests applies the deadline per connection phase,
+# so the wall cost is about twice the value set here. Against the REAL collector
+# the probe is unchanged and still diagnostic: 0.003s -> SUCCESS with the Basic
+# credential, 0.003s -> FAILURE (401) with a Bearer one.
+#
+# Keep this inside the once-per-process ``_initialized`` guard. Two services in
+# this fleet build the app twice (Factory#516), so an exporter install moved out
+# of that guard would pay this cost twice.
+_PROBE_TIMEOUT_SECONDS = 2.0
+
 # Set once the PROCESS-WIDE half is done (provider, exporter, httpx). The
 # per-app half is NOT covered by this flag — see init_tracing().
 _initialized = False
@@ -209,7 +240,15 @@ def _install_exporter(endpoint: str, service_name: str) -> None:
         # costs one line here rather than one every few seconds forever.
         rate_limit_exporter_log(exporter)
         _tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
-        verify_export_auth(exporter, endpoint, protocol, service_name)
+        # Factory#608: the probe gets its OWN exporter, with a short deadline —
+        # see _PROBE_TIMEOUT_SECONDS. The exporter installed above keeps the
+        # full budget, because it retries where nobody is waiting.
+        verify_export_auth(
+            OTLPSpanExporter(timeout=_PROBE_TIMEOUT_SECONDS),
+            endpoint,
+            protocol,
+            service_name,
+        )
     except Exception:  # noqa: BLE001
         logger.warning(
             "Failed to install the OTLP exporter; tracing degrades to "
