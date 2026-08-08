@@ -11,23 +11,19 @@ This package provides:
 - Git operations and utilities
 - Display and UI functions
 - Finalization and user interaction
-- Merge operations (imported from workspace.py via importlib)
+- Merge operations
 
 Public API exported from sub-modules.
 """
 
-import importlib.util
-import sys
-from pathlib import Path
-
-# Import merge functions from workspace.py (which coexists with this package)
-# We use importlib to explicitly load workspace.py since Python prefers the package
-_workspace_file = Path(__file__).parent.parent / "workspace.py"
-_spec = importlib.util.spec_from_file_location("workspace_module", _workspace_file)
-_workspace_module = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_workspace_module)
-merge_existing_build = _workspace_module.merge_existing_build
-_run_parallel_merges = _workspace_module._run_parallel_merges
+# The merge operations below (`.merge`) reached this package through an
+# importlib shim until #477: the logic lived in `core/workspace.py`, BESIDE this
+# package, where Python could never load it — a package always wins over a
+# same-named module — so __init__ executed the file by path under the separate
+# name `workspace_module`. That made 1507 lines of merge logic invisible to
+# every static tool and gave it a second module identity, so anything comparing
+# types or module state across the two paths saw different objects. It now lives
+# inside the package as `merge.py` and is imported like everything else here.
 
 # Models and Enums
 # Display Functions
@@ -80,6 +76,7 @@ from .git_utils import (
     is_process_running,
     validate_merged_syntax,
 )
+from .merge import _run_parallel_merges, merge_existing_build
 from .models import (
     MergeLock,
     MergeLockError,

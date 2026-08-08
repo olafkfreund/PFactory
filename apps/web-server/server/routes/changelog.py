@@ -28,9 +28,7 @@ def log_count(value) -> int:
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="count must be an integer") from None
     if not 1 <= count <= _MAX_LOG_COUNT:
-        raise HTTPException(
-            status_code=400, detail=f"count must be between 1 and {_MAX_LOG_COUNT}"
-        )
+        raise HTTPException(status_code=400, detail=f"count must be between 1 and {_MAX_LOG_COUNT}")
     return count
 
 
@@ -77,8 +75,7 @@ def extract_last_version_from_changelog(content: str) -> str | None:
     # The version can be followed by optional date, link reference, or other text
     # Captures the semantic version number (X.Y.Z format, optionally with pre-release/build metadata)
     version_pattern = re.compile(
-        r'^##\s+\[?v?(\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?)\]?',
-        re.MULTILINE
+        r"^##\s+\[?v?(\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?)\]?", re.MULTILINE
     )
 
     match = version_pattern.search(content)
@@ -186,9 +183,7 @@ async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest 
         try:
             task_id = safe_spec_component(raw_task_id, field="task_id")
         except ValueError:
-            specs.append(
-                {"taskId": raw_task_id, "content": None, "error": "Invalid task id"}
-            )
+            specs.append({"taskId": raw_task_id, "content": None, "error": "Invalid task id"})
             continue
         # Try to find spec.md for this task
         # Task IDs are like "001-feature-name"
@@ -225,11 +220,7 @@ async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest 
                         {"taskId": task_id, "content": None, "error": "Failed to read spec"}
                     )
             else:
-                specs.append({
-                    "taskId": task_id,
-                    "content": None,
-                    "error": "Spec not found"
-                })
+                specs.append({"taskId": task_id, "content": None, "error": "Spec not found"})
 
     return {"success": True, "data": specs}
 
@@ -285,9 +276,7 @@ async def generate_changelog(projectId: str = Path(...), request: ChangelogGener
 
     # Start generation in background
     success = await service.start_generation(
-        project_id=projectId,
-        project_path=project_path,
-        request=request_dict
+        project_id=projectId, project_path=project_path, request=request_dict
     )
 
     if not success:
@@ -346,12 +335,12 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
         package_json = project_path / "package.json"
         if package_json.exists():
             try:
-                with open(package_json, 'r') as f:
+                with open(package_json, "r") as f:
                     pkg = json.load(f)
-                pkg['version'] = request.version
-                with open(package_json, 'w') as f:
+                pkg["version"] = request.version
+                with open(package_json, "w") as f:
                     json.dump(pkg, f, indent=2)
-                    f.write('\n')  # Add trailing newline
+                    f.write("\n")  # Add trailing newline
                 updated_files.append("package.json")
             except Exception as e:
                 logger.warning(f"Failed to update package.json: {e}")
@@ -378,7 +367,7 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
         for init_py in init_py_paths:
             try:
                 content = init_py.read_text()
-                if '__version__' in content:
+                if "__version__" in content:
                     updated = re.sub(
                         r'(__version__\s*=\s*)["\']([^"\']+)["\']',
                         f'\\1"{request.version}"',
@@ -428,12 +417,7 @@ async def read_existing_changelog(projectId: str = Path(...)):
     changelog_path = project_path / "CHANGELOG.md"
 
     if not changelog_path.exists():
-        return {
-            "success": True,
-            "data": {
-                "exists": False
-            }
-        }
+        return {"success": True, "data": {"exists": False}}
 
     try:
         content = changelog_path.read_text()
@@ -458,7 +442,9 @@ async def suggest_version(projectId: str = Path(...), request: SuggestVersionReq
 
 
 @router.post("/suggest-version-commits")
-async def suggest_version_from_commits(projectId: str = Path(...), request: SuggestVersionCommitsRequest = ...):
+async def suggest_version_from_commits(
+    projectId: str = Path(...), request: SuggestVersionCommitsRequest = ...
+):
     """Suggest version based on commits."""
     return {
         "success": True,
@@ -544,12 +530,14 @@ async def get_changelog_branches(projectId: str = Path(...)):
                 continue
 
             seen_names[display_name] = len(branch_objects)
-            branch_objects.append({
-                "name": display_name,
-                "ref": git_ref,
-                "isRemote": is_remote,
-                "isCurrent": is_current
-            })
+            branch_objects.append(
+                {
+                    "name": display_name,
+                    "ref": git_ref,
+                    "isRemote": is_remote,
+                    "isCurrent": is_current,
+                }
+            )
 
         return {"success": True, "data": branch_objects}
     except subprocess.TimeoutExpired:
@@ -580,7 +568,12 @@ async def get_changelog_tags(projectId: str = Path(...)):
         # Format: tagname|date|commit
         # Uses both %(*objectname:short) for annotated tags and %(objectname:short) for lightweight tags
         result = subprocess.run(
-            ["git", "tag", "--sort=-v:refname", "--format=%(refname:short)|%(creatordate:iso-strict)|%(*objectname:short)%(objectname:short)"],
+            [
+                "git",
+                "tag",
+                "--sort=-v:refname",
+                "--format=%(refname:short)|%(creatordate:iso-strict)|%(*objectname:short)%(objectname:short)",
+            ],
             cwd=project_path,
             capture_output=True,
             text=True,
@@ -681,13 +674,7 @@ async def get_commits_preview(projectId: str = Path(...), request: CommitsPrevie
             if not options.get("includeMergeCommits", True):
                 cmd.append("--no-merges")
 
-        result = subprocess.run(
-            cmd,
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
+        result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=30)
 
         if result.returncode != 0:
             # Check if it's just an empty result (no commits)
@@ -765,7 +752,10 @@ async def save_changelog_image(projectId: str = Path(...), request: SaveImageReq
 
         # Validate filename has an extension
         if "." not in filename:
-            return {"success": False, "error": "Filename must include an extension (e.g., .png, .jpg)"}
+            return {
+                "success": False,
+                "error": "Filename must include an extension (e.g., .png, .jpg)",
+            }
 
         # Create assets directory if it doesn't exist
         assets_dir = project_path / ".pfactory" / "assets"

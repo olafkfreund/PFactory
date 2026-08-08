@@ -66,6 +66,21 @@ class VaultBackend(SecretsBackend):
             resp = client.read(ref.locator)
         except Exception as exc:
             raise SecretsError(f"Vault read of {ref.locator!r} failed: {exc}") from exc
+        # hvac.Client.read() is `dict | Response | None`: the parsed JSON body on
+        # the normal path, None when the path is missing, and the RAW
+        # requests.Response when the body is not JSON — a proxy error page, an
+        # HTML 502 from a load balancer in front of Vault, a 204 No Content.
+        # Response must be caught here, ahead of the falsy check: it is truthy
+        # for a 2xx (so it reached .get() below and raised AttributeError
+        # OUTSIDE the try above, bypassing the error type every caller handles)
+        # and falsy for an error status (so it was reported as a missing path,
+        # which is a different and equally wrong answer). See #480.
+        if resp is not None and not isinstance(resp, dict):
+            raise SecretsError(
+                f"Vault returned a non-JSON response for {ref.locator!r} "
+                f"(HTTP {getattr(resp, 'status_code', 'unknown')}); check for a "
+                "proxy or load balancer in front of Vault."
+            )
         if not resp:
             raise SecretNotFoundError(f"Vault path not found: {ref.locator}")
 

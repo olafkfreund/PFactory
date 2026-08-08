@@ -38,9 +38,7 @@ class EncryptedString(TypeDecorator):
         if value is None:
             return None
         if not isinstance(value, str):
-            raise TypeError(
-                f"EncryptedString expects str on write, got {type(value).__name__}"
-            )
+            raise TypeError(f"EncryptedString expects str on write, got {type(value).__name__}")
         return get_backend().encrypt(value.encode("utf-8"))
 
     def process_result_value(self, value, dialect):

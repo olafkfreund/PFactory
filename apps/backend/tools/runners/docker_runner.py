@@ -8,7 +8,7 @@ Python SDK so the dependency stays at zero — works the same way under
 
 Typical usage from the Executor in the test pipeline (Task 8+)::
 
-    runner = DockerRunner(image="pfactory-runner-python:latest")
+    runner = DockerRunner(image="pfactory-runner-pytest:latest")
     result = runner.run(
         repo_path=Path("/path/to/project"),
         scratch_path=Path("/path/to/workspace/scratch"),
@@ -37,6 +37,76 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Image resolution
+# ---------------------------------------------------------------------------
+
+# Where runner-images.yml publishes (and signs) the per-framework sandbox
+# images. Bare `pfactory-runner-*` tags are qualified with this so a lane runs
+# the image CI built from a commit, not whatever happens to sit in the local
+# daemon under the same name (#449).
+#
+# Before #449 the workflow built six images, smoke-tested them and threw them
+# away, while frameworks/*/descriptor.yaml and DEFAULT_IMAGE below named bare
+# tags and guides/shipping.md told operators to `docker build -t
+# pfactory-runner-pytest:latest` by hand. Nothing tied the tag a lane executed
+# to a commit -- the hollow-verify shape of TFactory#886.
+DEFAULT_RUNNER_REGISTRY = "ghcr.io/olafkfreund"
+
+#: Override the registry that bare runner tags resolve to.
+#:
+#: * unset      -> DEFAULT_RUNNER_REGISTRY, i.e. the images CI publishes.
+#: * "" (empty) -> no qualification; bare tags resolve against the local daemon
+#:                 exactly as before. This is the escape hatch for iterating on
+#:                 a Dockerfile locally, where the point IS to run your build.
+#: * any other  -> that registry/namespace, e.g. a mirror or a fork's GHCR.
+#:
+#: Already-qualified images (anything containing a "/") and images that are not
+#: `pfactory-runner-*` are passed through untouched, so an explicitly requested
+#: image always wins.
+RUNNER_REGISTRY_ENV = "PFACTORY_RUNNER_REGISTRY"
+
+#: The runner image a caller gets when it names none.
+#:
+#: The pytest sandbox, because it is the one the pipeline actually produces
+#: (#493). This was `pfactory-runner-python:latest` until 2026-08-08 -- the v0.1
+#: name, dropped when `docker/runners/python.Dockerfile` was renamed to
+#: `docker/pfactory-runner-pytest/`. Nothing built the old name: not
+#: `runner-images.yml`'s matrix (pytest, jest, playwright, vitest, cypress,
+#: cloud), not a compose service, not a script -- only a hand-typed `docker
+#: build` in that Dockerfile's own header comment. So every caller landing on
+#: the default asked for an image no pipeline produces: `pull access denied`
+#: before #449, a 404 against ghcr.io after it. Never a regression, and never
+#: resolvable either.
+#:
+#: Module-level rather than only a class attribute so a caller can read the
+#: default WITHOUT the class: `gen_functional` carried its own copy of the
+#: literal, which is how one of the two stayed on the v0.1 name after the
+#: rename, and its tests replace `DockerRunner` wholesale -- a default read off
+#: the replacement is not the default.
+DEFAULT_RUNNER_IMAGE = "pfactory-runner-pytest:latest"
+
+_RUNNER_PREFIX = "pfactory-runner-"
+
+
+def resolve_runner_image(image: str) -> str:
+    """Qualify a bare ``pfactory-runner-*`` tag with the publishing registry.
+
+    >>> resolve_runner_image("pfactory-runner-pytest:latest")
+    'ghcr.io/olafkfreund/pfactory-runner-pytest:latest'
+    >>> resolve_runner_image("ghcr.io/acme/pfactory-runner-pytest:latest")
+    'ghcr.io/acme/pfactory-runner-pytest:latest'
+    >>> resolve_runner_image("python:3.12-slim")
+    'python:3.12-slim'
+    """
+    if "/" in image or not image.startswith(_RUNNER_PREFIX):
+        return image
+    registry = os.environ.get(RUNNER_REGISTRY_ENV, DEFAULT_RUNNER_REGISTRY).strip().strip("/")
+    if not registry:
+        return image
+    return f"{registry}/{image}"
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +156,7 @@ class DockerRunner:
     """Build + execute the docker invocation for a sandboxed test run.
 
     Args:
-        image: Container image tag (e.g. ``pfactory-runner-python:latest``).
+        image: Container image tag (e.g. ``pfactory-runner-pytest:latest``).
         binary: ``docker`` or ``podman``. Defaults to env override
             ``PFACTORY_CONTAINER_BIN`` else ``docker``.
         cpus: CPU quota (Docker ``--cpus`` value).
@@ -99,7 +169,7 @@ class DockerRunner:
             limited to the bind-mounted /scratch.
     """
 
-    DEFAULT_IMAGE = "pfactory-runner-python:latest"
+    DEFAULT_IMAGE = DEFAULT_RUNNER_IMAGE
     REPO_MOUNT = "/work"
     SCRATCH_MOUNT = "/scratch"
 
@@ -113,7 +183,10 @@ class DockerRunner:
         network: str = "none",
         read_only_rootfs: bool = True,
     ) -> None:
-        self.image = image or self.DEFAULT_IMAGE
+        # One resolution point: descriptors, lane_dispatch and every agent that
+        # names an image all route through here, so qualifying it once covers
+        # them all (#449).
+        self.image = resolve_runner_image(image or self.DEFAULT_IMAGE)
         self.binary = binary or os.environ.get("PFACTORY_CONTAINER_BIN", "docker")
         self.cpus = cpus
         self.memory = memory

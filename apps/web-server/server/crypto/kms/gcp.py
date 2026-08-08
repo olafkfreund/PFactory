@@ -73,6 +73,7 @@ class GcpKmsBackend:
         declared dependency in apps/web-server/requirements.txt.
         """
         import google_crc32c
+
         c = google_crc32c.Checksum()
         c.update(data)
         return int.from_bytes(c.digest(), "big")
@@ -96,13 +97,11 @@ class GcpKmsBackend:
         # corruption between KMS and the client.
         if not resp.verified_plaintext_crc32c:
             raise RuntimeError(
-                "Cloud KMS did not verify the plaintext CRC32C — "
-                "possible in-flight corruption"
+                "Cloud KMS did not verify the plaintext CRC32C — possible in-flight corruption"
             )
         if resp.ciphertext_crc32c.value != self._crc32c(resp.ciphertext):
             raise RuntimeError(
-                "Cloud KMS ciphertext CRC32C mismatch — "
-                "possible response corruption"
+                "Cloud KMS ciphertext CRC32C mismatch — possible response corruption"
             )
         return resp.ciphertext
 
@@ -122,8 +121,5 @@ class GcpKmsBackend:
             }
         )
         if resp.plaintext_crc32c.value != self._crc32c(resp.plaintext):
-            raise RuntimeError(
-                "Cloud KMS plaintext CRC32C mismatch — "
-                "possible response corruption"
-            )
+            raise RuntimeError("Cloud KMS plaintext CRC32C mismatch — possible response corruption")
         return resp.plaintext

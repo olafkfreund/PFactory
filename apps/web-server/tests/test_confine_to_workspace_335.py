@@ -1,4 +1,5 @@
 """#335 phase 2: server-side path confinement to the workspace / registered roots."""
+
 from __future__ import annotations
 
 import os

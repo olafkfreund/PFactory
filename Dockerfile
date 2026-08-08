@@ -34,7 +34,7 @@
 # the runtime stage -- so the base's CVE posture is not part of the attack
 # surface. The runtime stage stays on Chainguard, where it does matter.
 # Digest bumps land via Dependabot PRs (.github/dependabot.yml).
-FROM docker.io/node:26-bookworm-slim@sha256:2d49d876e96237d76de412761cf05dbfe5aee325cc4406a4d41d5824c5bb8beb AS frontend-build
+FROM docker.io/node:26-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73 AS frontend-build
 
 USER root
 WORKDIR /build
@@ -184,9 +184,9 @@ RUN mkdir -p /home/nonroot/.npm-global \
 # because nothing asserted the CLI works. Full path, since PATH is set for the
 # runtime user rather than for RUN.
 RUN npm install -g \
-        @anthropic-ai/claude-code@2.1.215 \
-        @openai/codex@0.144.6 \
-        @google/gemini-cli@0.51.0 \
+        @anthropic-ai/claude-code@2.1.224 \
+        @openai/codex@0.147.0 \
+        @google/gemini-cli@0.54.4 \
  && node /home/nonroot/.npm-global/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
  && /home/nonroot/.npm-global/bin/claude --version \
  && npm cache clean --force \

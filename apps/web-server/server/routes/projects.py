@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 router.include_router(github.project_router, prefix="/{projectId}/github", tags=["GitHub"])
 router.include_router(changelog.router, prefix="/{projectId}/changelog", tags=["Changelog"])
 router.include_router(insights.router, prefix="/{projectId}/insights", tags=["Insights"])
-router.include_router(insights.files_router, prefix="/{projectId}/files/insights", tags=["Files Insights"])
+router.include_router(
+    insights.files_router, prefix="/{projectId}/files/insights", tags=["Files Insights"]
+)
 router.include_router(context.project_router, prefix="/{projectId}", tags=["Context"])
 router.include_router(git.project_router, prefix="", tags=["Git"])
 router.include_router(git.releases_router, prefix="/{projectId}/releases", tags=["Releases"])
@@ -103,9 +105,7 @@ class ProjectCreate(BaseModel):
     @model_validator(mode="after")
     def _require_exactly_one_source(self):
         if not self.path and not self.gitUrl:
-            raise ValueError(
-                "Either 'path' (local mode) or 'gitUrl' (clone mode) must be provided"
-            )
+            raise ValueError("Either 'path' (local mode) or 'gitUrl' (clone mode) must be provided")
         if self.path and self.gitUrl:
             raise ValueError(
                 "'path' and 'gitUrl' are mutually exclusive — provide one or the other"
@@ -174,9 +174,15 @@ class Project(ProjectBase):
 
     id: str = Field(..., description="Unique project ID")
     name: str = Field(..., description="Display name")
-    createdAt: str = Field(..., alias="created_at", description="ISO timestamp when project was added")
-    updatedAt: str = Field(..., alias="updated_at", description="ISO timestamp when project was last updated")
-    autoBuildPath: str | None = Field(None, alias="auto_build_path", description="Path to .pfactory if initialized")
+    createdAt: str = Field(
+        ..., alias="created_at", description="ISO timestamp when project was added"
+    )
+    updatedAt: str = Field(
+        ..., alias="updated_at", description="ISO timestamp when project was last updated"
+    )
+    autoBuildPath: str | None = Field(
+        None, alias="auto_build_path", description="Path to .pfactory if initialized"
+    )
     settings: ProjectSettings = Field(default_factory=ProjectSettings)
 
 
@@ -369,9 +375,7 @@ async def _resolve_git_credential(cred_id: str) -> tuple[str, str] | None:
     from ..database.engine import get_db
 
     async for session in get_db():
-        result = await session.execute(
-            select(GitCredential).where(GitCredential.id == cred_id)
-        )
+        result = await session.execute(select(GitCredential).where(GitCredential.id == cred_id))
         cred = result.scalar_one_or_none()
         if cred is None:
             return None
@@ -390,9 +394,7 @@ async def list_projects():
     the frontend api-client.ts adds the {success, data} wrapper automatically.
     """
     projects = load_projects()
-    project_list = [
-        project_to_response(pid, pdata) for pid, pdata in projects.items()
-    ]
+    project_list = [project_to_response(pid, pdata) for pid, pdata in projects.items()]
     return project_list
 
 
@@ -440,7 +442,9 @@ async def scan_for_projects(request: ScanProjectsRequest):
     try:
         # Validate and resolve base path
         try:
-            base = confine_to_workspace(request.basePath)  # #335: confine scan root to the workspace
+            base = confine_to_workspace(
+                request.basePath
+            )  # #335: confine scan root to the workspace
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -502,15 +506,17 @@ async def scan_for_projects(request: ScanProjectsRequest):
 
                     # If it looks like a project, add it
                     if has_git or has_package or has_requirements:
-                        projects.append(DiscoveredProject(
-                            name=entry.name,
-                            path=str(entry),
-                            has_git=has_git,
-                            has_package_json=has_package,
-                            has_requirements=has_requirements,
-                            has_magestic_ai=has_magestic_ai,
-                            has_claude_md=has_claude_md,
-                        ))
+                        projects.append(
+                            DiscoveredProject(
+                                name=entry.name,
+                                path=str(entry),
+                                has_git=has_git,
+                                has_package_json=has_package,
+                                has_requirements=has_requirements,
+                                has_magestic_ai=has_magestic_ai,
+                                has_claude_md=has_claude_md,
+                            )
+                        )
                     elif current_depth < request.maxDepth:
                         # Not a project, but scan deeper if we haven't reached max depth
                         scan_directory(entry, current_depth + 1)
@@ -585,7 +591,9 @@ async def add_project(project: ProjectCreate):
         # Local mode — register the existing directory.
         assert project.path is not None  # model_validator guarantees this
         try:
-            project_path = confine_to_workspace(project.path)  # #335: confine registered dir to the workspace
+            project_path = confine_to_workspace(
+                project.path
+            )  # #335: confine registered dir to the workspace
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -670,7 +678,9 @@ async def update_project(project_id: str, project: ProjectCreate):
     project_data = projects[project_id]
     if project.path:
         try:
-            project_path = confine_to_workspace(project.path)  # #335: confine updated path to the workspace
+            project_path = confine_to_workspace(
+                project.path
+            )  # #335: confine updated path to the workspace
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -917,18 +927,12 @@ async def update_project_settings(project_id: str, settings: ProjectSettingsUpda
 
         save_projects(projects)
 
-        return {
-            "success": True,
-            "message": "Project settings updated successfully"
-        }
+        return {"success": True, "message": "Project settings updated successfully"}
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update project settings: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to update project settings: {str(e)}")
 
 
 @router.get("/{project_id}/worktrees")
@@ -999,7 +1003,7 @@ async def list_project_worktrees(project_id: str):
 
             # Extract spec name from path (e.g., .pfactory/worktrees/tasks/001-feature)
             # Pattern: pfactory worktrees are in .pfactory/worktrees/tasks/{spec-name}
-            spec_match = re.search(r'/\.pfactory/worktrees/tasks/([^/]+)$', wt_path)
+            spec_match = re.search(r"/\.pfactory/worktrees/tasks/([^/]+)$", wt_path)
             if not spec_match:
                 continue
 
@@ -1035,36 +1039,40 @@ async def list_project_worktrees(project_id: str):
                 if diff_result.returncode == 0 and diff_result.stdout.strip():
                     stat_line = diff_result.stdout.strip()
                     # Parse "X files changed, Y insertions(+), Z deletions(-)"
-                    files_match = re.search(r'(\d+) files? changed', stat_line)
-                    add_match = re.search(r'(\d+) insertions?\(\+\)', stat_line)
-                    del_match = re.search(r'(\d+) deletions?\(-\)', stat_line)
+                    files_match = re.search(r"(\d+) files? changed", stat_line)
+                    add_match = re.search(r"(\d+) insertions?\(\+\)", stat_line)
+                    del_match = re.search(r"(\d+) deletions?\(-\)", stat_line)
 
                     files_changed = int(files_match.group(1)) if files_match else 0
                     additions = int(add_match.group(1)) if add_match else 0
                     deletions = int(del_match.group(1)) if del_match else 0
 
-                enriched_worktrees.append({
-                    "specName": spec_name,
-                    "path": wt_path,
-                    "branch": branch.replace("refs/heads/", ""),
-                    "baseBranch": base_branch,
-                    "commitCount": commit_count,
-                    "filesChanged": files_changed,
-                    "additions": additions,
-                    "deletions": deletions
-                })
+                enriched_worktrees.append(
+                    {
+                        "specName": spec_name,
+                        "path": wt_path,
+                        "branch": branch.replace("refs/heads/", ""),
+                        "baseBranch": base_branch,
+                        "commitCount": commit_count,
+                        "filesChanged": files_changed,
+                        "additions": additions,
+                        "deletions": deletions,
+                    }
+                )
             except Exception:
                 # Still include the worktree with default stats
-                enriched_worktrees.append({
-                    "specName": spec_name,
-                    "path": wt_path,
-                    "branch": branch.replace("refs/heads/", ""),
-                    "baseBranch": base_branch,
-                    "commitCount": 0,
-                    "filesChanged": 0,
-                    "additions": 0,
-                    "deletions": 0
-                })
+                enriched_worktrees.append(
+                    {
+                        "specName": spec_name,
+                        "path": wt_path,
+                        "branch": branch.replace("refs/heads/", ""),
+                        "baseBranch": base_branch,
+                        "commitCount": 0,
+                        "filesChanged": 0,
+                        "additions": 0,
+                        "deletions": 0,
+                    }
+                )
 
         return {"worktrees": enriched_worktrees}
     except Exception:
@@ -1135,10 +1143,10 @@ async def create_project_task(project_id: str, task_data: TaskCreateRequest):
     title = task_data.title.strip()
     if not title:
         # Generate title from first line/sentence of description
-        desc_lines = task_data.description.strip().split('\n')
+        desc_lines = task_data.description.strip().split("\n")
         first_line = desc_lines[0].strip()
         # Truncate to reasonable length
-        title = first_line[:80] + ('...' if len(first_line) > 80 else '')
+        title = first_line[:80] + ("..." if len(first_line) > 80 else "")
         if not title:
             title = "New Task"
 
@@ -1188,7 +1196,18 @@ Created via PFactory Web UI
         # Copy model-related fields that phase_config.py expects
         # Also include 'mode' for Quick Mode prompt selection and 'requireReviewBeforeCoding' for approval gate
         # Also include selectedSkills so agent_service.py can inject skill context
-        model_fields = ["model", "thinkingLevel", "isAutoProfile", "phaseModels", "phaseThinking", "mode", "requireReviewBeforeCoding", "selectedSkills", "enableRemoteControl", "enableDelegation"]
+        model_fields = [
+            "model",
+            "thinkingLevel",
+            "isAutoProfile",
+            "phaseModels",
+            "phaseThinking",
+            "mode",
+            "requireReviewBeforeCoding",
+            "selectedSkills",
+            "enableRemoteControl",
+            "enableDelegation",
+        ]
         for field in model_fields:
             if field in task_data.metadata:
                 task_metadata[field] = task_data.metadata[field]

@@ -33,10 +33,30 @@ from __future__ import annotations
 
 import base64
 import os
+from typing import Any
 
 
 _DEFAULT_KEY = "pfactory-root"
 _DEFAULT_MOUNT = "transit"
+
+
+def _json_body(resp: object, op: str) -> dict[str, Any]:
+    """Return the parsed Vault JSON body, or fail with a message that says why.
+
+    hvac hands back the raw ``requests.Response`` instead of a dict whenever the
+    body is not JSON — a proxy error page, an HTML 502 from a load balancer in
+    front of Vault, a 204 No Content. Subscripting that raises
+    ``TypeError: 'Response' object is not subscriptable`` from inside the KMS
+    layer, which names neither Vault nor the operation. Same defect as #480 in
+    ``pfactory_secrets/backends/vault.py``.
+    """
+    if not isinstance(resp, dict):
+        raise RuntimeError(
+            f"Vault Transit {op} returned a non-JSON response "
+            f"(HTTP {getattr(resp, 'status_code', 'unknown')}); check for a proxy "
+            "or load balancer in front of Vault."
+        )
+    return resp
 
 
 class VaultTransitBackend:
@@ -96,7 +116,7 @@ class VaultTransitBackend:
             plaintext=b64_plaintext,
             mount_point=self._mount_point,
         )
-        return resp["data"]["ciphertext"].encode("utf-8")
+        return _json_body(resp, "encrypt")["data"]["ciphertext"].encode("utf-8")
 
     def decrypt(self, ciphertext: bytes) -> bytes:
         """Unwrap a previously-wrapped data key.
@@ -111,4 +131,4 @@ class VaultTransitBackend:
             ciphertext=wire,
             mount_point=self._mount_point,
         )
-        return base64.b64decode(resp["data"]["plaintext"])
+        return base64.b64decode(_json_body(resp, "decrypt")["data"]["plaintext"])

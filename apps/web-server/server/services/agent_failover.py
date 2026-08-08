@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..config import Settings  # noqa: TID252
+    from ..config import Settings
 
 
 class AgentFailoverMixin:
@@ -35,7 +35,9 @@ class AgentFailoverMixin:
         settings: Settings
         _task_profiles: dict[str, dict[str, Any]]
 
-    def _resolve_claude_token(self, exclude_profile_id: str | None = None) -> tuple[str | None, str | None, str | None]:  # noqa: E501
+    def _resolve_claude_token(
+        self, exclude_profile_id: str | None = None
+    ) -> tuple[str | None, str | None, str | None]:
         """Resolve Claude OAuth token from profiles with fallback chain.
 
         Resolution order:
@@ -50,7 +52,8 @@ class AgentFailoverMixin:
         Returns:
             Tuple of (token, profile_id, profile_name) or (None, None, None) if no token found
         """
-        import logging  # noqa: PLC0415
+        import logging
+
         logger = logging.getLogger(__name__)
 
         # Check environment override first
@@ -58,12 +61,19 @@ class AgentFailoverMixin:
             # Allow failover when this "env-override" profile is excluded.
             if exclude_profile_id != "env-override":
                 logger.info("[AgentService] Using CLAUDE_CODE_OAUTH_TOKEN from environment")
-                return (os.environ["CLAUDE_CODE_OAUTH_TOKEN"], "env-override", "Environment Override")  # noqa: E501
-            logger.info("[AgentService] Skipping environment token due to exclude_profile_id=env-override (failover enabled)")  # noqa: E501
+                return (
+                    os.environ["CLAUDE_CODE_OAUTH_TOKEN"],
+                    "env-override",
+                    "Environment Override",
+                )
+            logger.info(
+                "[AgentService] Skipping environment token due to exclude_profile_id=env-override (failover enabled)"  # noqa: E501
+            )
 
         # Load claude-profiles.json
         profiles_file = Path(self.settings.PROJECTS_DATA_DIR) / "claude-profiles.json"
-        from ..paths import get_data_file  # noqa: PLC0415, TID252
+        from ..paths import get_data_file  # noqa: TID252, PLC0415
+
         legacy_profiles_file = get_data_file("claude-profiles.json")
         if not profiles_file.exists() and legacy_profiles_file.exists():
             profiles_file = legacy_profiles_file
@@ -77,7 +87,8 @@ class AgentFailoverMixin:
 
                 # Filter usable profiles (has token, not excluded)
                 usable = [
-                    p for p in profiles
+                    p
+                    for p in profiles
                     if p.get("id") != exclude_profile_id
                     and (p.get("oauthToken") or p.get("token"))  # Support both field names
                 ]
@@ -89,7 +100,9 @@ class AgentFailoverMixin:
                             token = p.get("oauthToken") or p.get("token")
                             profile_id = p.get("id")
                             profile_name = p.get("name", "Active Profile")
-                            logger.info(f"[AgentService] Using active profile: {profile_name} ({profile_id})")  # noqa: E501
+                            logger.info(
+                                f"[AgentService] Using active profile: {profile_name} ({profile_id})"  # noqa: E501
+                            )
                             return (token, profile_id, profile_name)
 
                     # Use first usable profile
@@ -168,6 +181,7 @@ class AgentFailoverMixin:
             True if both settings are enabled
         """
         import logging  # noqa: PLC0415
+
         logger = logging.getLogger(__name__)
 
         # Primary path: PROJECTS_DATA_DIR/auto-switch.json
@@ -179,10 +193,14 @@ class AgentFailoverMixin:
         legacy_settings_file = Path.home() / ".pfactory" / "data" / "auto-switch.json"
         if not settings_file.exists() and legacy_settings_file.exists():
             settings_file = legacy_settings_file
-            logger.debug(f"[AgentService] Using legacy auto-switch settings file at {settings_file}")  # noqa: E501
+            logger.debug(
+                f"[AgentService] Using legacy auto-switch settings file at {settings_file}"
+            )
 
         if not settings_file.exists():
-            logger.debug(f"[AgentService] Auto-switch settings not found at {settings_file}, failover disabled")  # noqa: E501
+            logger.debug(
+                f"[AgentService] Auto-switch settings not found at {settings_file}, failover disabled"  # noqa: E501
+            )
             return False
 
         try:
@@ -194,7 +212,9 @@ class AgentFailoverMixin:
                 logger.info("[AgentService] Auto-switch enabled - failover allowed")
                 return True
             else:
-                logger.debug(f"[AgentService] Auto-switch disabled - enabled: {enabled}, autoSwitchOnRateLimit: {auto_switch_on_rate_limit}")  # noqa: E501
+                logger.debug(
+                    f"[AgentService] Auto-switch disabled - enabled: {enabled}, autoSwitchOnRateLimit: {auto_switch_on_rate_limit}"  # noqa: E501
+                )
                 return False
 
         except (json.JSONDecodeError, OSError) as e:
@@ -217,7 +237,7 @@ class AgentFailoverMixin:
         old_profile_id: str,
         new_profile_id: str,
         new_profile_name: str,
-        reason: str
+        reason: str,
     ) -> None:
         """Emit profile switch event via WebSocket.
 
@@ -228,18 +248,23 @@ class AgentFailoverMixin:
             new_profile_name: New profile display name
             reason: Reason for switch (e.g., "early_failure")
         """
-        from ..websockets.events import broadcast_event  # noqa: PLC0415, TID252
+        from ..websockets.events import broadcast_event  # noqa: TID252, PLC0415
 
-        await broadcast_event("task:profile-switch", {
-            "taskId": task_id,
-            "oldProfileId": old_profile_id,
-            "newProfileId": new_profile_id,
-            "newProfileName": new_profile_name,
-            "reason": reason,
-            "timestamp": datetime.now().isoformat()  # noqa: DTZ005
-        })
+        await broadcast_event(
+            "task:profile-switch",
+            {
+                "taskId": task_id,
+                "oldProfileId": old_profile_id,
+                "newProfileId": new_profile_id,
+                "newProfileName": new_profile_name,
+                "reason": reason,
+                "timestamp": datetime.now().isoformat(),  # noqa: DTZ005
+            },
+        )
 
-    def _update_active_profile(self, profile_id: str, profile_name: str, reason: str = "rate_limit") -> None:  # noqa: E501
+    def _update_active_profile(
+        self, profile_id: str, profile_name: str, reason: str = "rate_limit"
+    ) -> None:
         """Update active profile system-wide when reactive failover occurs.
 
         This updates the activeProfileId in claude-profiles.json so that all future
@@ -251,10 +276,12 @@ class AgentFailoverMixin:
             reason: Why the switch occurred (e.g., "rate_limit", "reactive_failover")
         """
         import logging  # noqa: PLC0415
+
         logger = logging.getLogger(__name__)
 
         profiles_file = Path(self.settings.PROJECTS_DATA_DIR) / "claude-profiles.json"
-        from ..paths import get_data_file  # noqa: PLC0415, TID252
+        from ..paths import get_data_file  # noqa: TID252, PLC0415
+
         legacy_profiles_file = get_data_file("claude-profiles.json")
 
         if not profiles_file.exists() and legacy_profiles_file.exists():
@@ -262,7 +289,9 @@ class AgentFailoverMixin:
             logger.debug(f"[AgentService] Using legacy profiles file at {profiles_file}")
 
         if not profiles_file.exists():
-            logger.warning("[AgentService] claude-profiles.json not found, skipping active profile update")  # noqa: E501
+            logger.warning(
+                "[AgentService] claude-profiles.json not found, skipping active profile update"
+            )
             return
 
         try:
@@ -277,7 +306,7 @@ class AgentFailoverMixin:
             # claude-profiles.json; any non-atomic one of them tears the file for
             # the others, and load_profiles turns a torn read into
             # {"profiles": []} — which the next save makes permanent.
-            from ..paths import atomic_write_secret_json
+            from ..paths import atomic_write_secret_json  # noqa: TID252, PLC0415
 
             atomic_write_secret_json(profiles_file, data)
 
@@ -294,17 +323,25 @@ class AgentFailoverMixin:
             else:
                 logger.warning("[AgentService] Active profile has no token; env not updated")
 
-            logger.info(f"[AgentService] Updated active profile: {old_active} → {profile_id} (reason: {reason})")  # noqa: E501
+            logger.info(
+                f"[AgentService] Updated active profile: {old_active} → {profile_id} (reason: {reason})"  # noqa: E501
+            )
 
             # Emit WebSocket event for system-wide profile change
-            from ..websockets.events import broadcast_event  # noqa: PLC0415, TID252
-            asyncio.create_task(broadcast_event("profile:changed", {  # noqa: RUF006
-                "oldProfileId": old_active,
-                "newProfileId": profile_id,
-                "newProfileName": profile_name,
-                "reason": reason,
-                "timestamp": datetime.now().isoformat()  # noqa: DTZ005
-            }))
+            from ..websockets.events import broadcast_event  # noqa: TID252, PLC0415
+
+            asyncio.create_task(  # noqa: RUF006
+                broadcast_event(
+                    "profile:changed",
+                    {
+                        "oldProfileId": old_active,
+                        "newProfileId": profile_id,
+                        "newProfileName": profile_name,
+                        "reason": reason,
+                        "timestamp": datetime.now().isoformat(),  # noqa: DTZ005
+                    },
+                )
+            )
 
         except Exception as e:  # noqa: BLE001
             logger.error(f"[AgentService] Failed to update active profile: {e}")
@@ -326,6 +363,7 @@ class AgentFailoverMixin:
             New subprocess or None if retry not possible
         """
         import logging  # noqa: PLC0415
+
         logger = logging.getLogger(__name__)
 
         profile_info = self._task_profiles.get(task_id, {})
@@ -340,15 +378,21 @@ class AgentFailoverMixin:
         else:
             new_cmd.extend(["--model", "sonnet"])
 
-        logger.info(f"[AgentService] [Model: sonnet] Fallback triggered for {task_id} (original: {failed_model})")  # noqa: E501
+        logger.info(
+            f"[AgentService] [Model: sonnet] Fallback triggered for {task_id} (original: {failed_model})"  # noqa: E501
+        )
 
         # Emit WebSocket event for model fallback
-        from ..websockets.events import broadcast_event  # noqa: PLC0415, TID252
-        await broadcast_event("task:log", {
-            "taskId": task_id,
-            "type": "model_fallback",
-            "message": f"Model '{failed_model}' failed. Falling back to Claude Sonnet.",
-        })
+        from ..websockets.events import broadcast_event  # noqa: TID252, PLC0415
+
+        await broadcast_event(
+            "task:log",
+            {
+                "taskId": task_id,
+                "type": "model_fallback",
+                "message": f"Model '{failed_model}' failed. Falling back to Claude Sonnet.",
+            },
+        )
 
         # Update tracking
         if task_id in self._task_profiles:
@@ -358,6 +402,7 @@ class AgentFailoverMixin:
 
         # Relaunch subprocess
         import pty  # noqa: PLC0415
+
         master_fd, slave_fd = pty.openpty()
 
         proc = await asyncio.create_subprocess_exec(
@@ -398,17 +443,24 @@ class AgentFailoverMixin:
             New subprocess or None if retry not possible
         """
         import logging  # noqa: PLC0415
+
         logger = logging.getLogger(__name__)
 
         # Resolve alternate token (excluding failed profile)
-        token, profile_id, profile_name = self._resolve_claude_token(exclude_profile_id=failed_profile_id)  # noqa: E501
+        token, profile_id, profile_name = self._resolve_claude_token(
+            exclude_profile_id=failed_profile_id
+        )
 
         if not token:
-            logger.warning(f"[AgentService] No alternate profile available for retry (excluded: {failed_profile_id})")  # noqa: E501
+            logger.warning(
+                f"[AgentService] No alternate profile available for retry (excluded: {failed_profile_id})"  # noqa: E501
+            )
             return None
 
         if profile_id == failed_profile_id:
-            logger.warning(f"[AgentService] Only profile available is the one that failed ({failed_profile_id})")  # noqa: E501
+            logger.warning(
+                f"[AgentService] Only profile available is the one that failed ({failed_profile_id})"  # noqa: E501
+            )
             return None
 
         # Update environment with new token
@@ -436,11 +488,12 @@ class AgentFailoverMixin:
                 "profileId": profile_id,
                 "profileName": profile_name,
                 "attempt": 2,  # Second attempt
-                "previousProfileId": failed_profile_id
+                "previousProfileId": failed_profile_id,
             }
 
         # Relaunch subprocess with new token
         import pty  # noqa: PLC0415
+
         master_fd, slave_fd = pty.openpty()  # noqa: RUF059
 
         proc = await asyncio.create_subprocess_exec(

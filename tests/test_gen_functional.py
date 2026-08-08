@@ -604,7 +604,13 @@ def test_runner_fn_parameterized_by_descriptor_image(
 def test_runner_fn_legacy_uses_default_image_with_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_runner_fn(None) → pfactory-runner-python:latest + DeprecationWarning."""
+    """_resolve_runner_fn(None) -> the canonical default + DeprecationWarning.
+
+    Compared against `DEFAULT_RUNNER_IMAGE`, not a literal (#493). The literal
+    here was the SECOND copy of the constant, and repeating it in the test is
+    what let both copies name `pfactory-runner-python` -- an image no pipeline
+    builds -- while this assertion stayed green.
+    """
     import warnings
     captured: dict = {}
 
@@ -625,7 +631,9 @@ def test_runner_fn_legacy_uses_default_image_with_warning(
             _resolve_runner_fn(framework_descriptor=None)
         depr = [x for x in w if issubclass(x.category, DeprecationWarning)]
         assert depr, "expected DeprecationWarning for legacy path"
-        assert captured["image"] == "pfactory-runner-python:latest"
+        from tools.runners.docker_runner import DEFAULT_RUNNER_IMAGE
+
+        assert captured["image"] == DEFAULT_RUNNER_IMAGE
     finally:
         dr_mod.DockerRunner = original
 

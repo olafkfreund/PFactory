@@ -49,7 +49,9 @@ class ClaudeProvider(ProviderStrategy):
         try:
             result = subprocess.run(
                 ["bash", "-l", "-c", "which claude"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():
                 self._claude_path = result.stdout.strip()
@@ -70,6 +72,7 @@ class ClaudeProvider(ProviderStrategy):
 
     def _resolve_claude_token(self) -> tuple[str | None, str | None, str | None]:
         from ...config import get_settings
+
         settings = get_settings()
 
         env_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
@@ -78,6 +81,7 @@ class ClaudeProvider(ProviderStrategy):
 
         profiles_file = Path(settings.PROJECTS_DATA_DIR) / "claude-profiles.json"
         from ...paths import get_data_file
+
         legacy_profiles_file = get_data_file("claude-profiles.json")
         if not profiles_file.exists() and legacy_profiles_file.exists():
             profiles_file = legacy_profiles_file
@@ -145,7 +149,8 @@ class ClaudeProvider(ProviderStrategy):
             claude_bin,
             "--print",
             "--verbose",
-            "--output-format", "stream-json",
+            "--output-format",
+            "stream-json",
         ]
 
         if model_config:
@@ -168,6 +173,7 @@ class ClaudeProvider(ProviderStrategy):
         # The Claude CLI we spawn here would happily use the direct-API
         # key if it inherited one; we want OAuth via CLAUDE_CODE_OAUTH_TOKEN.
         from ...utils.subprocess_env import make_subprocess_env
+
         env = make_subprocess_env()
         env["PYTHONUNBUFFERED"] = "1"
         env.pop("CLAUDECODE", None)
@@ -182,11 +188,14 @@ class ClaudeProvider(ProviderStrategy):
         logger.info(f"[ClaudeProvider] Starting CLI: {' '.join(cmd[:5])}...")
 
         try:
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "text",
-                "content": "",
-            })
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "text",
+                    "content": "",
+                },
+            )
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -217,72 +226,99 @@ class ClaudeProvider(ProviderStrategy):
                                     if block.get("type") == "text":
                                         text = block.get("text", "")
                                         accumulated_content += text
-                                        await broadcast_event("insights:chunk", {
-                                            "projectId": project_id,
-                                            "type": "text",
-                                            "content": text,
-                                        })
+                                        await broadcast_event(
+                                            "insights:chunk",
+                                            {
+                                                "projectId": project_id,
+                                                "type": "text",
+                                                "content": text,
+                                            },
+                                        )
                             elif isinstance(content, str):
                                 accumulated_content += content
-                                await broadcast_event("insights:chunk", {
-                                    "projectId": project_id,
-                                    "type": "text",
-                                    "content": content,
-                                })
+                                await broadcast_event(
+                                    "insights:chunk",
+                                    {
+                                        "projectId": project_id,
+                                        "type": "text",
+                                        "content": content,
+                                    },
+                                )
 
                         elif event_type == "content_block_delta":
                             delta = data.get("delta", {})
                             if delta.get("type") == "text_delta":
                                 text = delta.get("text", "")
                                 accumulated_content += text
-                                await broadcast_event("insights:chunk", {
-                                    "projectId": project_id,
-                                    "type": "text",
-                                    "content": text,
-                                })
+                                await broadcast_event(
+                                    "insights:chunk",
+                                    {
+                                        "projectId": project_id,
+                                        "type": "text",
+                                        "content": text,
+                                    },
+                                )
 
                         elif event_type == "tool_use":
                             tool_name = data.get("name", data.get("tool", "Unknown"))
                             tool_input = data.get("input", "")
                             if isinstance(tool_input, dict):
-                                tool_input = tool_input.get("file_path") or tool_input.get("pattern") or str(tool_input)[:100]
-                            tools_used.append({
-                                "name": tool_name,
-                                "input": str(tool_input)[:200],
-                                "timestamp": datetime.now().isoformat(),
-                            })
-                            await broadcast_event("insights:chunk", {
-                                "projectId": project_id,
-                                "type": "tool_start",
-                                "tool": {"name": tool_name, "input": str(tool_input)[:200]},
-                            })
+                                tool_input = (
+                                    tool_input.get("file_path")
+                                    or tool_input.get("pattern")
+                                    or str(tool_input)[:100]
+                                )
+                            tools_used.append(
+                                {
+                                    "name": tool_name,
+                                    "input": str(tool_input)[:200],
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
+                            await broadcast_event(
+                                "insights:chunk",
+                                {
+                                    "projectId": project_id,
+                                    "type": "tool_start",
+                                    "tool": {"name": tool_name, "input": str(tool_input)[:200]},
+                                },
+                            )
 
                         elif event_type == "tool_result":
-                            await broadcast_event("insights:chunk", {
-                                "projectId": project_id,
-                                "type": "tool_end",
-                            })
+                            await broadcast_event(
+                                "insights:chunk",
+                                {
+                                    "projectId": project_id,
+                                    "type": "tool_end",
+                                },
+                            )
 
                         elif event_type == "result":
                             result = data.get("result", "")
                             if result and result != accumulated_content:
                                 accumulated_content = result
-                                await broadcast_event("insights:chunk", {
-                                    "projectId": project_id,
-                                    "type": "text",
-                                    "content": result,
-                                })
+                                await broadcast_event(
+                                    "insights:chunk",
+                                    {
+                                        "projectId": project_id,
+                                        "type": "text",
+                                        "content": result,
+                                    },
+                                )
 
                         continue
                     except json.JSONDecodeError:
                         pass
 
                 accumulated_content += line + "\n"
-                await broadcast_event("insights:chunk", {
-                    "projectId": project_id,
-                    "type": "text",
-                    "content": line + "\n",
-                })
+                await broadcast_event(
+                    "insights:chunk",
+                    {
+                        "projectId": project_id,
+                        "type": "text",
+                        "content": line + "\n",
+                    },
+                )
 
             await proc.wait()
 
@@ -295,11 +331,14 @@ class ClaudeProvider(ProviderStrategy):
             if proc.returncode != 0 and not accumulated_content.strip():
                 error_msg = stderr_text or f"Claude CLI exited with code {proc.returncode}"
                 logger.error(f"[ClaudeProvider] CLI failed: {error_msg}")
-                await broadcast_event("insights:chunk", {
-                    "projectId": project_id,
-                    "type": "error",
-                    "error": error_msg,
-                })
+                await broadcast_event(
+                    "insights:chunk",
+                    {
+                        "projectId": project_id,
+                        "type": "error",
+                        "error": error_msg,
+                    },
+                )
                 return ""
 
             elapsed = time.monotonic() - stream_start
@@ -307,24 +346,30 @@ class ClaudeProvider(ProviderStrategy):
             estimated_tokens = max(1, len(accumulated_content) // 4)
             tokens_per_sec = round(estimated_tokens / elapsed, 1) if elapsed > 0 else 0
 
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "done",
-                "metrics": {
-                    "outputTokens": estimated_tokens,
-                    "tokensPerSecond": tokens_per_sec,
-                    "elapsedSeconds": round(elapsed, 1),
-                    "estimated": True,
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "done",
+                    "metrics": {
+                        "outputTokens": estimated_tokens,
+                        "tokensPerSecond": tokens_per_sec,
+                        "elapsedSeconds": round(elapsed, 1),
+                        "estimated": True,
+                    },
                 },
-            })
+            )
 
             return accumulated_content
 
         except Exception as e:
             logger.error(f"[ClaudeProvider] Error: {e}", exc_info=True)
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "error",
-                "error": str(e),
-            })
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "error",
+                    "error": str(e),
+                },
+            )
             return ""

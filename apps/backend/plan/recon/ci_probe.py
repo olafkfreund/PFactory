@@ -45,6 +45,123 @@ _ENV_TOKENS: tuple[tuple[str, str], ...] = (
 
 _K8S_KIND = re.compile(r"^\s*kind:\s*['\"]?([A-Za-z0-9]+)['\"]?\s*$", re.MULTILINE)
 
+# Stage name -> what counts as that stage already being wired into a pipeline.
+# The values are TOOL names as they appear in a workflow, not stage labels: a
+# pipeline that runs `ruff check .` has a lint stage without containing the word
+# "lint", and demanding one that says "lint" would report a gap that is not
+# there. Vocabulary mirrors AIFactory's `agents/pipeline_evidence.py` so the two
+# ends of the same handoff agree on what "already has lint" means -- but
+# re-implemented rather than imported, like the rest of this module (PFactory
+# does not import across repos).
+#
+# Used to scope the synthesized CI/CD child to the DELTA: without this the child
+# restated a whole pipeline on every feature, including stages the repo had had
+# working for months (#462).
+_STAGE_EVIDENCE: dict[str, tuple[str, ...]] = {
+    "lint": (
+        "lint",
+        "ruff",
+        "eslint",
+        "flake8",
+        "pylint",
+        "golangci",
+        "clippy",
+        "gofmt",
+        "black",
+        "prettier",
+        "rubocop",
+        "checkstyle",
+    ),
+    "test": (
+        "test",
+        "pytest",
+        "jest",
+        "vitest",
+        "mocha",
+        "rspec",
+        "phpunit",
+        "gotestsum",
+        "nextest",
+        "tox",
+    ),
+    "build": (
+        "build",
+        "docker build",
+        "compile",
+        "package",
+        "bundle",
+        "wheel",
+        "buildx",
+        "sdist",
+    ),
+    "security scan": (
+        "security",
+        "trivy",
+        "bandit",
+        "pip-audit",
+        "npm audit",
+        "codeql",
+        "semgrep",
+        "snyk",
+        "gitleaks",
+        "grype",
+        "osv-scanner",
+        "dependency-audit",
+        "dependency-review",
+        "sast",
+        "secret-scan",
+        "safety",
+        "govulncheck",
+        "cargo audit",
+    ),
+    "containerise": (
+        "docker build",
+        "buildx",
+        "kaniko",
+        "podman build",
+        "docker/build-push-action",
+        "ko build",
+    ),
+    "deploy": (
+        "deploy",
+        "helm upgrade",
+        "kubectl apply",
+        "argocd",
+        "rollout",
+        "flyctl",
+        "serverless deploy",
+    ),
+    "terraform": ("terraform", "tofu"),
+}
+
+# Reading every workflow in a monorepo is cheap but not free; the evidence
+# tokens are all short, so a truncated read still finds them.
+_MAX_CI_BYTES = 200_000
+
+
+def pipeline_stages(root: Path, paths: list[str]) -> list[str]:
+    """Stages the discovered pipeline files already show evidence of running.
+
+    Best-effort and deliberately generous: a false "already wired" only narrows
+    the synthesized child, while a false gap puts work back on the plan that the
+    repo has done for months, which is the failure #462 reports.
+    """
+    root = Path(root)
+    blob = []
+    budget = _MAX_CI_BYTES
+    for rel in paths:
+        if budget <= 0:
+            break
+        text = _read(root / rel)[:budget]
+        budget -= len(text)
+        blob.append(text)
+    haystack = "\n".join(blob).lower()
+    if not haystack.strip():
+        return []
+    return [
+        stage for stage, tokens in _STAGE_EVIDENCE.items() if any(tok in haystack for tok in tokens)
+    ]
+
 
 def _read(fp: Path) -> str:
     try:

@@ -55,9 +55,7 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
     email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -65,17 +63,13 @@ class User(Base):
     # successful OIDC login (JIT-provisioned). Nullable so that
     # locally-registered users (no SSO) don't need it; unique so that
     # the same IdP user can't accidentally collide across logins.
-    oidc_sub: Mapped[str | None] = mapped_column(
-        String(255), unique=True, nullable=True
-    )
+    oidc_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     # Epic #26 P5.5 — GDPR right-to-erasure timestamp. When set, PII
     # columns (email, name, OAuth tokens) MUST be NULL. Used by the
     # admin UI to render "Erased on YYYY-MM-DD" placeholders instead
     # of treating the user row as deleted. The audit chain preserves
     # historical user_id references via SHA-256 hashing.
-    gdpr_erased_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
-    )
+    gdpr_erased_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -97,9 +91,7 @@ class User(Base):
         back_populates="user",
         foreign_keys="OrgMember.user_id",
     )
-    api_keys: Mapped[list["ApiKey"]] = relationship(
-        "ApiKey", back_populates="user"
-    )
+    api_keys: Mapped[list["ApiKey"]] = relationship("ApiKey", back_populates="user")
 
     def __repr__(self) -> str:
         return f"<User id={self.id!r} email={self.email!r}>"
@@ -115,14 +107,10 @@ class Organization(Base):
 
     __tablename__ = "organizations"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    owner_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False
-    )
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     plan: Mapped[str] = mapped_column(String(50), nullable=False, default="free")
     settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -138,15 +126,9 @@ class Organization(Base):
         back_populates="owned_organizations",
         foreign_keys=[owner_id],
     )
-    members: Mapped[list["OrgMember"]] = relationship(
-        "OrgMember", back_populates="organization"
-    )
-    projects: Mapped[list["Project"]] = relationship(
-        "Project", back_populates="organization"
-    )
-    api_keys: Mapped[list["ApiKey"]] = relationship(
-        "ApiKey", back_populates="organization"
-    )
+    members: Mapped[list["OrgMember"]] = relationship("OrgMember", back_populates="organization")
+    projects: Mapped[list["Project"]] = relationship("Project", back_populates="organization")
+    api_keys: Mapped[list["ApiKey"]] = relationship("ApiKey", back_populates="organization")
 
     def __repr__(self) -> str:
         return f"<Organization id={self.id!r} slug={self.slug!r}>"
@@ -161,47 +143,30 @@ class OrgMember(Base):
     """Membership linking a user to an organization with a specific role."""
 
     __tablename__ = "org_members"
-    __table_args__ = (
-        UniqueConstraint("org_id", "user_id", name="uq_org_members_org_user"),
-    )
+    __table_args__ = (UniqueConstraint("org_id", "user_id", name="uq_org_members_org_user"),)
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    org_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("organizations.id"), nullable=False
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     role: Mapped[str] = mapped_column(
         String(50), nullable=False, default="member"
     )  # owner | admin | member | viewer
     invited_by: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("users.id"), nullable=True
     )
-    joined_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
-    )
+    joined_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     # Relationships
-    organization: Mapped["Organization"] = relationship(
-        "Organization", back_populates="members"
-    )
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="members")
     user: Mapped["User"] = relationship(
         "User",
         back_populates="org_memberships",
         foreign_keys=[user_id],
     )
-    inviter: Mapped["User | None"] = relationship(
-        "User", foreign_keys=[invited_by]
-    )
+    inviter: Mapped["User | None"] = relationship("User", foreign_keys=[invited_by])
 
     def __repr__(self) -> str:
-        return (
-            f"<OrgMember org_id={self.org_id!r} "
-            f"user_id={self.user_id!r} role={self.role!r}>"
-        )
+        return f"<OrgMember org_id={self.org_id!r} user_id={self.user_id!r} role={self.role!r}>"
 
 
 # ---------------------------------------------------------------------------
@@ -224,15 +189,11 @@ class OidcRefreshSession(Base):
 
     __tablename__ = "oidc_refresh_sessions"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id"), nullable=False, index=True
     )
-    jti: Mapped[str] = mapped_column(
-        String(64), unique=True, nullable=False
-    )
+    jti: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     oidc_sub: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
@@ -259,12 +220,8 @@ class Project(Base):
 
     __tablename__ = "projects"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    org_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("organizations.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     path: Mapped[str] = mapped_column(String(1024), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -280,9 +237,7 @@ class Project(Base):
     )
 
     # Relationships
-    organization: Mapped["Organization"] = relationship(
-        "Organization", back_populates="projects"
-    )
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="projects")
     creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="project")
 
@@ -300,17 +255,11 @@ class Task(Base):
 
     __tablename__ = "tasks"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    project_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("projects.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="backlog"
-    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="backlog")
     spec_dir: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_by: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("users.id"), nullable=True
@@ -327,12 +276,8 @@ class Task(Base):
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="tasks")
-    creator: Mapped["User | None"] = relationship(
-        "User", foreign_keys=[created_by]
-    )
-    assignee: Mapped["User | None"] = relationship(
-        "User", foreign_keys=[assigned_to]
-    )
+    creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
+    assignee: Mapped["User | None"] = relationship("User", foreign_keys=[assigned_to])
 
     def __repr__(self) -> str:
         return f"<Task id={self.id!r} title={self.title!r} status={self.status!r}>"
@@ -348,15 +293,9 @@ class ApiKey(Base):
 
     __tablename__ = "api_keys"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False
-    )
-    org_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("organizations.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -368,9 +307,7 @@ class ApiKey(Base):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="api_keys")
-    organization: Mapped["Organization"] = relationship(
-        "Organization", back_populates="api_keys"
-    )
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="api_keys")
 
     def __repr__(self) -> str:
         return f"<ApiKey id={self.id!r} name={self.name!r}>"
@@ -401,12 +338,8 @@ class GitCredential(Base):
 
     __tablename__ = "git_credentials"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    org_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("organizations.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=False)
     # Human-readable label, e.g. "github-deploy-bot" or "gitlab-readonly".
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     # Credential kind. V1: ``pat`` only. ``deploy_key`` and ``github_app``
@@ -454,12 +387,8 @@ class TestTargetCredential(Base):
 
     __tablename__ = "test_target_credentials"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    org_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("organizations.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     kind: Mapped[str] = mapped_column(String(50), nullable=False, default="form")
     # Plaintext username/identifier (not a secret on its own).
@@ -479,9 +408,7 @@ class TestTargetCredential(Base):
     organization: Mapped["Organization"] = relationship("Organization")
 
     # A credential name is unique per org so .pfactory.yml refs are unambiguous.
-    __table_args__ = (
-        UniqueConstraint("org_id", "name", name="uq_test_cred_org_name"),
-    )
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_test_cred_org_name"),)
 
     def __repr__(self) -> str:
         return f"<TestTargetCredential id={self.id!r} name={self.name!r}>"
@@ -497,29 +424,17 @@ class EmailAccount(Base):
 
     __tablename__ = "email_accounts"
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", "provider", name="uq_email_accounts_user_provider"
-        ),
+        UniqueConstraint("user_id", "provider", name="uq_email_accounts_user_provider"),
     )
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False
-    )
-    provider: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )  # "outlook" | "gmail"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)  # "outlook" | "gmail"
     email_address: Mapped[str] = mapped_column(String(255), nullable=False)
     # P2.3: OAuth credentials encrypted at rest via EncryptedString.
     # See apps/web-server/server/crypto/ for the at-rest encryption layer.
-    access_token: Mapped[str] = mapped_column(
-        _EncryptedString(), nullable=False
-    )
-    refresh_token: Mapped[str | None] = mapped_column(
-        _EncryptedString(), nullable=True
-    )
+    access_token: Mapped[str] = mapped_column(_EncryptedString(), nullable=False)
+    refresh_token: Mapped[str | None] = mapped_column(_EncryptedString(), nullable=True)
     token_expiry: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -534,8 +449,7 @@ class EmailAccount(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<EmailAccount id={self.id!r} provider={self.provider!r} "
-            f"email={self.email_address!r}>"
+            f"<EmailAccount id={self.id!r} provider={self.provider!r} email={self.email_address!r}>"
         )
 
 
@@ -553,12 +467,8 @@ class LLMEndpoint(Base):
         Index("ix_llm_endpoints_user_id", "user_id"),
     )
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     base_url: Mapped[str] = mapped_column(String(1024), nullable=False)
     # P2.3: provider API key encrypted at rest via EncryptedString.
@@ -575,10 +485,7 @@ class LLMEndpoint(Base):
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
 
     def __repr__(self) -> str:
-        return (
-            f"<LLMEndpoint id={self.id!r} label={self.label!r} "
-            f"base_url={self.base_url!r}>"
-        )
+        return f"<LLMEndpoint id={self.id!r} label={self.label!r} base_url={self.base_url!r}>"
 
 
 class DocsTargetConnection(Base):
@@ -595,12 +502,8 @@ class DocsTargetConnection(Base):
         Index("ix_docs_target_connections_user_id", "user_id"),
     )
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     kind: Mapped[str] = mapped_column(String(50), nullable=False)  # backstage | confluence
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     base_url: Mapped[str] = mapped_column(String(1024), nullable=False)
@@ -620,10 +523,7 @@ class DocsTargetConnection(Base):
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
 
     def __repr__(self) -> str:
-        return (
-            f"<DocsTargetConnection id={self.id!r} kind={self.kind!r} "
-            f"label={self.label!r}>"
-        )
+        return f"<DocsTargetConnection id={self.id!r} kind={self.kind!r} label={self.label!r}>"
 
 
 # ---------------------------------------------------------------------------
@@ -642,15 +542,11 @@ class AuditLog(Base):
         Index("ix_audit_logs_created_at", "created_at"),
     )
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
     org_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("organizations.id"), nullable=True
     )
-    user_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=True
-    )
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(255), nullable=False)
     resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -663,29 +559,22 @@ class AuditLog(Base):
     # retention_until <= now(). Default policy: 13 months (SOC2 12mo +
     # buffer); set per-row at write time so the policy can vary by
     # action class (login events: short, security events: long).
-    retention_until: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True, index=True
-    )
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     # Epic #26 P5.2 — Per-row hash chain. SHA-256 of the previous
     # row's content (or the genesis sentinel for the first row).
     # Threat model: tamper-detection within the audit log only.
     # Signed external anchor = v1.1.
-    prev_hash: Mapped[str | None] = mapped_column(
-        String(64), nullable=True
-    )
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Relationships (read-only lookups, no back_populates needed)
     organization: Mapped["Organization | None"] = relationship(
         "Organization", foreign_keys=[org_id]
     )
-    user: Mapped["User | None"] = relationship(
-        "User", foreign_keys=[user_id]
-    )
+    user: Mapped["User | None"] = relationship("User", foreign_keys=[user_id])
 
     def __repr__(self) -> str:
         return (
-            f"<AuditLog id={self.id!r} action={self.action!r} "
-            f"resource_type={self.resource_type!r}>"
+            f"<AuditLog id={self.id!r} action={self.action!r} resource_type={self.resource_type!r}>"
         )
 
 
@@ -709,33 +598,34 @@ class KmsDataKey(Base):
 
     __tablename__ = "kms_data_keys"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_generate_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
     org_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("organizations.id", ondelete="CASCADE"),
-        nullable=False, unique=True, index=True,
+        String(36),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
     )
     wrapped_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     kms_key_id: Mapped[str] = mapped_column(
-        String(255), nullable=False,
+        String(255),
+        nullable=False,
         comment="Identifier of the KMS root key that wrapped this data key. "
-                "For fernet backend: literal `fernet:default`. For aws_kms: "
-                "the KMS ARN. Lets rotation runbooks know which backend "
-                "wrapped each row.",
+        "For fernet backend: literal `fernet:default`. For aws_kms: "
+        "the KMS ARN. Lets rotation runbooks know which backend "
+        "wrapped each row.",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
     rotated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now(),
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
         comment="Updated on every re-wrap (root key rotation). The "
-                "DataKeyManager polls this column to invalidate its "
-                "in-process LRU cache.",
+        "DataKeyManager polls this column to invalidate its "
+        "in-process LRU cache.",
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<KmsDataKey id={self.id!r} org_id={self.org_id!r} "
-            f"kms_key_id={self.kms_key_id!r}>"
-        )
+        return f"<KmsDataKey id={self.id!r} org_id={self.org_id!r} kms_key_id={self.kms_key_id!r}>"

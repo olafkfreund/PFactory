@@ -46,9 +46,7 @@ async def trigger_gdpr_erasure(
     try:
         summary = await erase_user(db, user_id)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
     logger.warning(
         "GDPR erasure executed: user_id=%s by actor=%s audit_rows=%d",

@@ -29,7 +29,7 @@ the cloud estates they touch — not with headcount.
 | Per-seat | ❌ | Wrong for a service nobody "sits at"; punishes the async, agent-handoff workflow. |
 | Pure usage (per-token) | ⚠️ enterprise overage lever only | Opaque and unbounded; BYO-LLM runs cost us no inference, so tokens are the wrong primary unit. |
 
-> A BYO-LLM run (🔒 Local, DEC-005 / #38) costs us no inference — so pricing meters
+> A BYO-LLM run (LOCAL, DEC-005 / #38) costs us no inference — so pricing meters
 > the *governance + grounding orchestration*, not tokens. Regulated teams on local
 > models pay for the platform and the live-infra checks, not per-call.
 

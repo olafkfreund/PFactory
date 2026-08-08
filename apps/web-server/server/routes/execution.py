@@ -36,7 +36,10 @@ class StartTaskRequest(BaseModel):
     workers: int | None = Field(None, description="Number of parallel workers")
     model: str | None = Field(None, description="Model override for execution")
     baseBranch: str | None = Field(None, description="Base branch for worktree creation")
-    mode: str | None = Field("full", description="Execution mode: 'quick' for simplified prompts, 'full' for comprehensive")
+    mode: str | None = Field(
+        "full",
+        description="Execution mode: 'quick' for simplified prompts, 'full' for comprehensive",
+    )
 
 
 class RecoverTaskRequest(BaseModel):
@@ -154,8 +157,12 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
 
             plan_data = json.loads(test_plan.read_text())
             # Valid plan must have "phases" key (even if empty array)
-            plan_is_valid = "phases" in plan_data and isinstance(plan_data.get("phases"), (list, dict))
-            logger.info(f"[StartTask] Plan validity check: has_phases={plan_is_valid}, keys={list(plan_data.keys())}")
+            plan_is_valid = "phases" in plan_data and isinstance(
+                plan_data.get("phases"), (list, dict)
+            )
+            logger.info(
+                f"[StartTask] Plan validity check: has_phases={plan_is_valid}, keys={list(plan_data.keys())}"
+            )
 
             # Guard against re-starting a completed task
             if plan_data.get("status") == "done":
@@ -171,7 +178,10 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
         # Need to run spec creation first - read title/description from requirements.json
         import json
         from datetime import datetime
-        logger.info(f"[StartTask] No valid implementation plan found, will run spec creation for {task_id}")
+
+        logger.info(
+            f"[StartTask] No valid implementation plan found, will run spec creation for {task_id}"
+        )
         requirements_file = spec_dir / "requirements.json"
         if not requirements_file.exists():
             raise HTTPException(
@@ -199,7 +209,9 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
 
         # === FAST PATH: Simple tasks skip spec creation entirely ===
         if complexity == "simple":
-            logger.info(f"[StartTask] Simple task fast path: generating spec + plan programmatically for {task_id}")
+            logger.info(
+                f"[StartTask] Simple task fast path: generating spec + plan programmatically for {task_id}"
+            )
 
             # 1. Generate minimal spec.md
             spec_file = spec_dir / "spec.md"
@@ -232,11 +244,16 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
 
             # 3. Pre-approve (skip review gate)
             review_state_file = spec_dir / "review_state.json"
-            review_state_file.write_text(json.dumps({
-                "approved": True,
-                "approved_by": "auto-simple",
-                "approved_at": datetime.now().isoformat(),
-            }, indent=2))
+            review_state_file.write_text(
+                json.dumps(
+                    {
+                        "approved": True,
+                        "approved_by": "auto-simple",
+                        "approved_at": datetime.now().isoformat(),
+                    },
+                    indent=2,
+                )
+            )
 
             # 4. Set task_metadata for quick mode + reduced thinking
             task_metadata_file = spec_dir / "task_metadata.json"
@@ -285,7 +302,9 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
                     plan["status"] = "in_progress"
                     plan["phase"] = "spec_creation"
                     test_plan.write_text(json.dumps(plan, indent=2))
-                    logger.info(f"[StartTask] Persisted status=in_progress (spec creation) to {test_plan}")
+                    logger.info(
+                        f"[StartTask] Persisted status=in_progress (spec creation) to {test_plan}"
+                    )
                 except (json.JSONDecodeError, OSError) as e:
                     logger.warning(f"[StartTask] Failed to persist spec creation status: {e}")
 
@@ -354,7 +373,9 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
     if agent_service.is_running(task_id):
         if force_execution:
             # Plan was approved — clean up stale spec creation process before starting execution
-            logger.info(f"[StartTask] Cleaning up stale spec creation process for approved task {task_id}")
+            logger.info(
+                f"[StartTask] Cleaning up stale spec creation process for approved task {task_id}"
+            )
             try:
                 await agent_service.stop_task(task_id)
             except Exception as stop_err:
@@ -385,7 +406,9 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
                     plan["status"] = "human_review"
                     plan["reviewReason"] = "plan_review"
                     test_plan.write_text(json.dumps(plan, indent=2))
-                    logger.info(f"[StartTask] Plan requires approval for {task_id}, set human_review")
+                    logger.info(
+                        f"[StartTask] Plan requires approval for {task_id}, set human_review"
+                    )
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"[StartTask] Failed to persist human_review status: {e}")
 
@@ -617,7 +640,8 @@ async def recover_task(task_id: str, request: RecoverTaskRequest = RecoverTaskRe
         "success": True,
         "data": {
             "task_id": task_id,
-            "message": "Task recovered" + (" and restarted" if auto_restarted else f" and reset to {reset_status}"),
+            "message": "Task recovered"
+            + (" and restarted" if auto_restarted else f" and reset to {reset_status}"),
             "newStatus": reset_status,
             "autoRestarted": auto_restarted,
             "autoRestartError": auto_restart_error,

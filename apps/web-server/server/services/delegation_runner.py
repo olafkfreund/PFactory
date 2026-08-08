@@ -178,9 +178,7 @@ async def run_delegation(
     }
 
 
-async def _existing_enrichment_comment(
-    provider: Any, issue_number: int
-) -> int | None:
+async def _existing_enrichment_comment(provider: Any, issue_number: int) -> int | None:
     """Return the comment ID of any prior PFactory enrichment comment
     on this issue, or None.
 

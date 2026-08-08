@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from tools.runners.docker_runner import DockerRunner
+from tools.runners.docker_runner import DockerRunner, resolve_runner_image
 from tools.runners.lane_dispatch import (
     DispatchResult,
     LaneNotImplementedError,
@@ -79,7 +79,7 @@ def test_v01_alias_dispatch_emits_deprecation_warning(
         return cp
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
-    r = DockerRunner(image="pfactory-runner-python:latest")
+    r = DockerRunner(image="pfactory-runner-pytest:latest")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         result = dispatch_lane(
@@ -148,7 +148,9 @@ def test_lit_lane_invokes_docker_runner(lane, monkeypatch, tmp_path):
     assert result.docker_result.returncode == 0
     # The docker invocation actually fired
     assert "docker" in captured["argv"][0]
-    assert "pfactory-runner-pytest:latest" in captured["argv"]
+    # The RESOLVED image, i.e. the one CI publishes and signs -- not the bare
+    # tag, which resolves to whatever was last built on this machine (#449).
+    assert resolve_runner_image("pfactory-runner-pytest:latest") in captured["argv"]
 
 
 # ── dispatch_browser_lane (Task 8 / #24) ────────────────────────────────

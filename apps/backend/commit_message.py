@@ -233,6 +233,13 @@ async def _call_claude(prompt: str) -> str:
         print(f"    [WARN] Commit message generation failed: {e}", file=sys.stderr)
         return ""
 
+    # Reachable: an `async with` whose __aexit__ returns truthy SUPPRESSES the
+    # exception, and control resumes after the block rather than in the handler
+    # above. This function then fell off the end and returned None while
+    # declaring -> str, so a suppressed SDK error produced a commit message of
+    # None instead of the "" every other failure path returns. mypy's [return].
+    return ""
+
 
 def generate_commit_message_sync(
     project_dir: Path,

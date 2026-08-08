@@ -22,39 +22,26 @@ import pytest
 # =============================================================================
 # SKIP WEB-SERVER TESTS WHEN THEIR DEPS LIVE IN A DIFFERENT VENV
 # =============================================================================
-# Many tests exercise the web-server (FastAPI / SQLAlchemy / the ``server.*``
-# package). Those deps live in the web-server's own venv (apps/web-server),
-# NOT in the backend test venv that `pytest tests/` and the pre-commit hook
-# use — so they raise ModuleNotFoundError there, either at import (collection)
-# or inside a fixture (setup). Rather than hand-maintain an ignore list, skip
-# any test module that imports an unavailable web-server dep. They still run
-# under the web-server venv where FastAPI/SQLAlchemy are installed.
-_missing_dep_modules: list[str] = []
-if importlib.util.find_spec("fastapi") is None:
-    _missing_dep_modules += ["fastapi", "server"]
-if importlib.util.find_spec("sqlalchemy") is None:
-    _missing_dep_modules.append("sqlalchemy")
-_DEP_IMPORT_RE = (
-    re.compile(r"^\s*(?:import|from)\s+(?:" + "|".join(_missing_dep_modules) + r")\b")
-    if _missing_dep_modules
-    else None
+# The mechanism itself lives in tests/missing_deps.py, because it is needed by
+# TWO conftests: this one and apps/web-server/tests/conftest.py. A conftest's
+# hooks apply to its own directory and below, so the copy that used to be
+# inline here could never reach apps/web-server/tests/ — the sibling tree whose
+# tests it was written to protect. See that module for the full rationale (#453).
+# Loaded by path, not by name: prepending tests/ to sys.path here would put all
+# of its top-level names ahead of apps/backend for the whole session.
+_MECHANISM_SPEC = importlib.util.spec_from_file_location(
+    "missing_deps", Path(__file__).parent / "missing_deps.py"
 )
+missing_deps = importlib.util.module_from_spec(_MECHANISM_SPEC)
+_MECHANISM_SPEC.loader.exec_module(missing_deps)
+
+_missing_dep_modules = missing_deps.MISSING
+_DEP_IMPORT_RE = missing_deps.IMPORT_RE
 
 
 def pytest_ignore_collect(collection_path, config):
     """Skip a test module that imports a web-server dep absent from this venv."""
-    if _DEP_IMPORT_RE is None:
-        return None
-    p = Path(collection_path)
-    if p.suffix != ".py" or not p.name.startswith("test_"):
-        return None
-    try:
-        text = p.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return None
-    if any(_DEP_IMPORT_RE.match(line) for line in text.splitlines()):
-        return True
-    return None
+    return missing_deps.should_ignore(collection_path)
 
 
 # =============================================================================
@@ -209,6 +196,34 @@ def pytest_runtest_setup(item):
                     importlib.reload(sys.modules[review_module])
                 except Exception:
                     pass
+
+
+# =============================================================================
+# A TEST'S FAKE CI SIGNAL MUST NEVER REACH THE REAL CI JOB
+# =============================================================================
+# `$GITHUB_STEP_SUMMARY` is set on every Actions runner and names a file the
+# runner renders as the job's own summary. Anything a test appends to it is
+# indistinguishable, to a human reading the run, from something the build
+# actually reported.
+#
+# That is not hypothetical: `tests/test_schema_drift.py::test_soft_skip_is_loud`
+# calls `_warn_skipped()` to check a skip is loud, and `_warn_skipped()`'s third
+# signal is a file append that `capsys` does not intercept. Measured on this
+# suite: 254 bytes and one "SCHEMA DRIFT CHECK SKIPPED — NOT VERIFIED" block
+# written into the summary of a run whose drift gate ran and PASSED (issue
+# #457). A false skip notice is worse than no notice — it is exactly the signal
+# #440 added the warning to carry, so if it also appears when nothing was
+# skipped it stops meaning anything.
+#
+# Unset for every test, not just that one: the property is "no test writes to
+# the real job summary", which belongs to the suite rather than to whichever
+# module happens to trip it today. A test that wants to ASSERT summary-writing
+# points the variable at its own tmp_path — a `monkeypatch.setenv` in the test
+# body runs after this fixture and wins.
+@pytest.fixture(autouse=True)
+def _no_real_step_summary(monkeypatch):
+    """Detach $GITHUB_STEP_SUMMARY so no test can write to the real CI job."""
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
 
 
 # =============================================================================

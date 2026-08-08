@@ -20,6 +20,7 @@ Covers:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,9 +28,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from tools.runners.docker_runner import (
+    DEFAULT_RUNNER_IMAGE,
+    DEFAULT_RUNNER_REGISTRY,
+    RUNNER_REGISTRY_ENV,
     DockerRunner,
     DockerRunnerError,
     DockerTimeoutError,
+    resolve_runner_image,
 )
 
 # ── argv construction ────────────────────────────────────────────────────
@@ -67,14 +72,21 @@ def test_argv_workdir_is_scratch():
 
 def test_argv_default_image_appears_before_command():
     argv = _basic_argv()
-    image_idx = argv.index("pfactory-runner-python:latest")
+    image_idx = argv.index(resolve_runner_image(DockerRunner.DEFAULT_IMAGE))
     cmd_idx = argv.index("pytest")
     assert image_idx < cmd_idx
 
 
 def test_argv_uses_default_image_constant():
+    """The argv carries the RESOLVED default, i.e. the image CI publishes (#449).
+
+    It used to carry the bare tag, which resolves against whatever sits in the
+    local daemon under that name -- so the lane ran whatever was last built by
+    hand rather than what CI built from a commit.
+    """
     argv = _basic_argv()
-    assert DockerRunner.DEFAULT_IMAGE in argv
+    assert resolve_runner_image(DockerRunner.DEFAULT_IMAGE) in argv
+    assert f"{DEFAULT_RUNNER_REGISTRY}/{DockerRunner.DEFAULT_IMAGE}" in argv
 
 
 def test_tmpfs_tmp_added_when_read_only_rootfs():
@@ -137,7 +149,7 @@ def test_extra_args_appended_before_image():
         command=["cmd"],
         extra_args=["--user", "1000"],
     )
-    image_idx = argv.index("pfactory-runner-python:latest")
+    image_idx = argv.index(resolve_runner_image(DockerRunner.DEFAULT_IMAGE))
     user_idx = argv.index("--user")
     assert user_idx < image_idx
 
@@ -145,7 +157,100 @@ def test_extra_args_appended_before_image():
 def test_custom_image_honoured():
     argv = _basic_argv(image="myreg/custom:dev")
     assert "myreg/custom:dev" in argv
-    assert "pfactory-runner-python:latest" not in argv
+    assert resolve_runner_image(DockerRunner.DEFAULT_IMAGE) not in argv
+
+
+# ── the default image must be one something builds (#493) ────────────────
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_RUNNER_IMAGES_WORKFLOW = _REPO_ROOT / ".github/workflows/runner-images.yml"
+
+
+def _built_runners() -> set[str]:
+    """The frameworks `runner-images.yml` actually builds, read from its matrix.
+
+    Read rather than hand-listed: a second copy of the matrix in a test is the
+    thing that drifts, and drift is the whole of #493.
+    """
+    matrix = re.search(
+        r"^\s*runner:\s*\[([^\]]+)\]", _RUNNER_IMAGES_WORKFLOW.read_text(), re.M
+    )
+    assert matrix, "runner-images.yml no longer declares a `runner:` matrix list"
+    return {name.strip() for name in matrix.group(1).split(",")}
+
+
+def test_default_image_is_built_by_the_runner_images_workflow():
+    """#493: `DEFAULT_IMAGE` named `pfactory-runner-python`, which nothing built.
+
+    Not in `runner-images.yml`'s matrix, no `docker/pfactory-runner-python/`,
+    no compose service, no script -- only a hand-typed `docker build` in a
+    Dockerfile's own header comment. Every caller landing on the default asked
+    for an image no pipeline produces: `pull access denied` before #449, a 404
+    against ghcr.io after it.
+
+    Asserted against the workflow rather than against a literal, so the default
+    cannot drift off the matrix again without this going red.
+    """
+    framework = DockerRunner.DEFAULT_IMAGE.removeprefix("pfactory-runner-").split(":")[0]
+    assert framework in _built_runners(), (
+        f"DEFAULT_IMAGE={DockerRunner.DEFAULT_IMAGE!r} names a runner "
+        f"runner-images.yml does not build (it builds {sorted(_built_runners())})"
+    )
+    dockerfile = _REPO_ROOT / f"docker/pfactory-runner-{framework}/Dockerfile"
+    assert dockerfile.exists(), f"no Dockerfile at {dockerfile}"
+
+
+def test_class_default_is_the_module_constant():
+    """One definition, two names (#493).
+
+    `gen_functional._resolve_runner_fn` is deprecated, not dead, and it carried
+    its own `pfactory-runner-python:latest` literal. Two spellings of one
+    default is how one of them stayed on the v0.1 name after the rename, and it
+    is why #493 had to name two files.
+    """
+    assert DockerRunner.DEFAULT_IMAGE is DEFAULT_RUNNER_IMAGE
+
+
+# ── runner image resolution (#449) ───────────────────────────────────────
+
+
+def test_bare_runner_tag_is_qualified_with_the_publishing_registry():
+    assert (
+        resolve_runner_image("pfactory-runner-pytest:latest")
+        == f"{DEFAULT_RUNNER_REGISTRY}/pfactory-runner-pytest:latest"
+    )
+
+
+def test_already_qualified_image_is_untouched():
+    """An explicitly requested image always wins over the default registry."""
+    for image in (
+        "ghcr.io/acme/pfactory-runner-pytest:latest",
+        "docker.io/library/python:3.12-slim",
+        "localhost:5000/pfactory-runner-jest:dev",
+    ):
+        assert resolve_runner_image(image) == image
+
+
+def test_non_runner_image_is_untouched():
+    assert resolve_runner_image("python:3.12-slim") == "python:3.12-slim"
+
+
+def test_registry_env_override(monkeypatch):
+    monkeypatch.setenv(RUNNER_REGISTRY_ENV, "registry.example.com/mirror")
+    assert (
+        resolve_runner_image("pfactory-runner-cloud:latest")
+        == "registry.example.com/mirror/pfactory-runner-cloud:latest"
+    )
+
+
+def test_empty_registry_env_restores_bare_local_tags(monkeypatch):
+    """The escape hatch for iterating on a Dockerfile, where running YOUR build
+    is the point. Setting it empty must not fall back to the default."""
+    monkeypatch.setenv(RUNNER_REGISTRY_ENV, "")
+    assert resolve_runner_image("pfactory-runner-pytest:latest") == "pfactory-runner-pytest:latest"
+    assert DockerRunner(image="pfactory-runner-pytest:latest").image == (
+        "pfactory-runner-pytest:latest"
+    )
 
 
 def test_custom_binary_honoured():
@@ -416,7 +521,7 @@ def test_docker_image_runs_echo(tmp_path):
     """Smoke: the runner can fire a docker invocation and capture stdout.
 
     Uses busybox (3MB, ships everywhere) — does NOT require the
-    pfactory-runner-python image to be built. Validates the wiring
+    pfactory-runner-pytest image to be built. Validates the wiring
     end-to-end without the build artifact.
     """
     r = DockerRunner(image="busybox:latest")

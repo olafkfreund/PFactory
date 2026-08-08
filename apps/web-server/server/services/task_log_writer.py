@@ -28,13 +28,25 @@ class TaskLogWriter:
     # Tool patterns for Claude Code CLI output
     TOOL_PATTERNS = [  # noqa: RUF012
         # Pattern: "⏺ ToolName" or emoji + tool name
-        (r'[⏺🔧📖✏️📝🔍💻]\s*(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\b', 'tool_start'),  # noqa: E501
+        (
+            r"[⏺🔧📖✏️📝🔍💻]\s*(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\b",
+            "tool_start",
+        ),
         # Pattern: "Tool: ToolName" format
-        (r'^Tool:\s*(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\b', 'tool_start'),  # noqa: E501
+        (
+            r"^Tool:\s*(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\b",
+            "tool_start",
+        ),
         # Pattern: Claude Code verbose format "Using Read tool"
-        (r'Using\s+(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\s+tool', 'tool_start'),  # noqa: E501
+        (
+            r"Using\s+(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\s+tool",
+            "tool_start",
+        ),
         # Pattern: Tool invocation with parameters like "Read(file_path=...)"
-        (r'^(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\s*\(', 'tool_start'),  # noqa: E501
+        (
+            r"^(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\s*\(",
+            "tool_start",
+        ),
     ]
 
     # Phase mapping from TaskPhase to task_logs.json phases
@@ -84,30 +96,30 @@ class TaskLogWriter:
                     "status": "pending",
                     "started_at": None,
                     "completed_at": None,
-                    "entries": []
+                    "entries": [],
                 },
                 "coding": {
                     "phase": "coding",
                     "status": "pending",
                     "started_at": None,
                     "completed_at": None,
-                    "entries": []
+                    "entries": [],
                 },
                 "validation": {
                     "phase": "validation",
                     "status": "pending",
                     "started_at": None,
                     "completed_at": None,
-                    "entries": []
-                }
-            }
+                    "entries": [],
+                },
+            },
         }
 
     def _save(self, data: dict[str, Any]) -> None:
         """Save task_logs.json."""
         self.spec_dir.mkdir(parents=True, exist_ok=True)
         data["updated_at"] = datetime.now().isoformat()  # noqa: DTZ005
-        with open(self.log_file, 'w') as f:  # noqa: PTH123
+        with open(self.log_file, "w") as f:  # noqa: PTH123
             json.dump(data, f, indent=2)
 
     def _detect_tool(self, line: str) -> tuple[str, str] | None:
@@ -117,7 +129,7 @@ class TaskLogWriter:
             if match:
                 tool_name = match.group(1)
                 # Try to extract input after tool name
-                input_match = re.search(rf'{tool_name}\s*\(([^)]*)\)', line)
+                input_match = re.search(rf"{tool_name}\s*\(([^)]*)\)", line)
                 tool_input = input_match.group(1) if input_match else ""
                 # Also check for file paths or other context
                 if not tool_input:
@@ -130,6 +142,7 @@ class TaskLogWriter:
     def _maybe_emit_text(self, spec_id: str, phase: TaskPhase) -> None:
         """Emit accumulated text if enough time has passed (throttled)."""
         import time  # noqa: PLC0415
+
         now = time.time()
         if now - self._last_text_emit_time >= self._text_emit_interval:
             self._flush_pending_text(spec_id, phase)
@@ -137,6 +150,7 @@ class TaskLogWriter:
     def _flush_pending_text(self, spec_id: str, phase: TaskPhase) -> None:
         """Flush accumulated text lines as a single entry."""
         import time  # noqa: PLC0415
+
         if self._pending_text_lines:
             # Take last 20 lines to avoid huge entries
             content = "\n".join(self._pending_text_lines[-20:])
@@ -144,10 +158,17 @@ class TaskLogWriter:
             self._pending_text_lines = []
             self._last_text_emit_time = time.time()
 
-    def add_entry(self, spec_id: str, phase: TaskPhase, entry_type: str,  # noqa: PLR0913
-                  content: str, tool_name: str | None = None,
-                  tool_input: str | None = None, detail: str | None = None,
-                  subphase: str | None = None) -> None:
+    def add_entry(  # noqa: PLR0913
+        self,
+        spec_id: str,
+        phase: TaskPhase,
+        entry_type: str,
+        content: str,
+        tool_name: str | None = None,
+        tool_input: str | None = None,
+        detail: str | None = None,
+        subphase: str | None = None,
+    ) -> None:
         """Add a log entry to the appropriate phase."""
         data = self._ensure_initialized(spec_id)
         phase_key = self.PHASE_MAP.get(phase, "coding")
@@ -216,10 +237,14 @@ class TaskLogWriter:
             # If there was a previous tool, close it
             if self._current_tool:
                 self.add_entry(
-                    spec_id, phase, "tool_end",
+                    spec_id,
+                    phase,
+                    "tool_end",
                     f"Completed {self._current_tool}",
                     tool_name=self._current_tool,
-                    detail="\n".join(self._pending_tool_output[-50:]) if self._pending_tool_output else None  # noqa: E501
+                    detail="\n".join(self._pending_tool_output[-50:])
+                    if self._pending_tool_output
+                    else None,
                 )
 
             # Start new tool
@@ -230,17 +255,19 @@ class TaskLogWriter:
             self._pending_tool_output = []
 
             self.add_entry(
-                spec_id, phase, "tool_start",
+                spec_id,
+                phase,
+                "tool_start",
                 f"Using {tool_name}",
                 tool_name=tool_name,
-                tool_input=tool_input
+                tool_input=tool_input,
             )
         elif self._current_tool:
             # Accumulate output for current tool
             self._pending_tool_output.append(line)
 
             # Check for tool completion patterns
-            if any(p in line.lower() for p in ['done', 'completed', 'success', 'error', 'failed']):
+            if any(p in line.lower() for p in ["done", "completed", "success", "error", "failed"]):
                 # Might be end of tool, but don't close yet - let next tool close it
                 pass
         else:
@@ -266,10 +293,14 @@ class TaskLogWriter:
             # Close any pending tool
             if self._current_tool:
                 self.add_entry(
-                    spec_id, phase, "tool_end",
+                    spec_id,
+                    phase,
+                    "tool_end",
                     f"Completed {self._current_tool}",
                     tool_name=self._current_tool,
-                    detail="\n".join(self._pending_tool_output[-50:]) if self._pending_tool_output else None  # noqa: E501
+                    detail="\n".join(self._pending_tool_output[-50:])
+                    if self._pending_tool_output
+                    else None,
                 )
                 self._current_tool = None
                 self._pending_tool_output = []
@@ -283,10 +314,14 @@ class TaskLogWriter:
 
         if self._current_tool:
             self.add_entry(
-                spec_id, phase, "tool_end",
+                spec_id,
+                phase,
+                "tool_end",
                 f"Completed {self._current_tool}",
                 tool_name=self._current_tool,
-                detail="\n".join(self._pending_tool_output[-50:]) if self._pending_tool_output else None  # noqa: E501
+                detail="\n".join(self._pending_tool_output[-50:])
+                if self._pending_tool_output
+                else None,
             )
             self._current_tool = None
             self._pending_tool_output = []

@@ -44,8 +44,16 @@ export function classifyEgress(baseUrl: string | null | undefined): EgressClass 
   return 'self_hosted';
 }
 
+// Plain text, no glyphs — same rule and same reason as the backend `_BADGE`
+// map this file mirrors (#400). `tone` already carries the visual signal, so
+// the icon a design wants comes from the tone or the class, never from
+// characters baked into a user-visible string.
+//
+// The wording says ENDPOINT, not traffic: classifyEgress() inspects a
+// configured URL and makes no request, so "no data egress" would claim a
+// measurement neither side of this pair performs.
 export const EGRESS_META: Record<EgressClass, { badge: string; label: string; tone: 'success' | 'info' | 'warning' }> = {
-  local: { badge: '🔒 Local', label: 'Local — no data egress', tone: 'success' },
-  self_hosted: { badge: '🏠 Self-hosted', label: 'Self-hosted — your server', tone: 'info' },
-  managed_cloud: { badge: '☁️ Managed cloud', label: 'Managed cloud — data leaves your network', tone: 'warning' },
+  local: { badge: 'LOCAL', label: 'Local - endpoint is on your network', tone: 'success' },
+  self_hosted: { badge: 'SELF-HOSTED', label: 'Self-hosted - endpoint is your own server', tone: 'info' },
+  managed_cloud: { badge: 'MANAGED CLOUD', label: 'Managed cloud - endpoint is a third-party API', tone: 'warning' },
 };

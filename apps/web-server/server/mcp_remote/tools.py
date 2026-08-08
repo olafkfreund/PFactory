@@ -64,15 +64,11 @@ DEFAULT_LOOPBACK_URL = "http://localhost:3114"
 
 
 def _loopback_url() -> str:
-    return os.environ.get("PFACTORY_MCP_LOOPBACK_URL", DEFAULT_LOOPBACK_URL).rstrip(
-        "/"
-    )
+    return os.environ.get("PFACTORY_MCP_LOOPBACK_URL", DEFAULT_LOOPBACK_URL).rstrip("/")
 
 
 def _format_json(data: Any) -> dict[str, Any]:
-    return {
-        "content": [{"type": "text", "text": json.dumps(data, indent=2, default=str)}]
-    }
+    return {"content": [{"type": "text", "text": json.dumps(data, indent=2, default=str)}]}
 
 
 def _format_error(message: str) -> dict[str, Any]:
@@ -82,9 +78,7 @@ def _format_error(message: str) -> dict[str, Any]:
     }
 
 
-async def _call_internal(
-    method: str, path: str, key: AuthenticatedKey, **kwargs: Any
-) -> Any:
+async def _call_internal(method: str, path: str, key: AuthenticatedKey, **kwargs: Any) -> Any:
     """Make a self-call against the web-server's own REST surface.
 
     The legacy ``settings.API_TOKEN`` from the env carries the request
@@ -309,9 +303,7 @@ async def dispatch_tool_call(
         if tool_name == "pfactory.list_tasks":
             project_id = arguments["project_id"]
             return _format_json(
-                await _call_internal(
-                    "GET", f"/api/projects/{project_id}/tasks", key
-                )
+                await _call_internal("GET", f"/api/projects/{project_id}/tasks", key)
             )
         if tool_name == "pfactory.get_task":
             return _format_json(
@@ -408,9 +400,7 @@ async def dispatch_tool_call(
         return _format_error(f"missing required argument: {exc.args[0]}")
     except httpx.HTTPStatusError as exc:
         body = exc.response.text[:500] if exc.response.content else ""
-        return _format_error(
-            f"{tool_name} returned HTTP {exc.response.status_code}: {body}"
-        )
+        return _format_error(f"{tool_name} returned HTTP {exc.response.status_code}: {body}")
     except Exception as exc:  # noqa: BLE001  -- surface as content, not 500
         logger.exception("MCP tool %s failed", tool_name)
         return _format_error(f"{tool_name} failed: {exc}")

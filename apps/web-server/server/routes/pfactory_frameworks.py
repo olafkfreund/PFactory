@@ -83,9 +83,7 @@ def _descriptor_to_dict(desc: Any) -> dict:
     # Convert Lane enum members (they are stored as objects in the dataclass
     # fields represented as tuple[Lane, ...]) to their string values.
     if "lanes" in raw:
-        raw["lanes"] = [
-            (v.value if hasattr(v, "value") else str(v)) for v in raw["lanes"]
-        ]
+        raw["lanes"] = [(v.value if hasattr(v, "value") else str(v)) for v in raw["lanes"]]
     # RuntimeSpec is a nested dataclass; asdict handles it automatically.
     return raw
 
@@ -96,9 +94,7 @@ def _summary_row(name: str, desc: Any) -> dict:
         "name": name,
         "language": desc.language,
         "coverage_strategy": desc.coverage_strategy,
-        "lanes": [
-            (v.value if hasattr(v, "value") else str(v)) for v in desc.lanes
-        ],
+        "lanes": [(v.value if hasattr(v, "value") else str(v)) for v in desc.lanes],
         "version_range": desc.version_range,
         "template_count": len(desc.templates),
     }

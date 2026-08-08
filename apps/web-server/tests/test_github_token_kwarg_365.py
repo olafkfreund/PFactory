@@ -93,9 +93,7 @@ def project(monkeypatch: pytest.MonkeyPatch) -> _InstallProject:
 
     def _install(settings: dict[str, str]) -> None:
         projects = {_PROJECT_ID: {"path": "/nonexistent/project", "settings": settings}}
-        monkeypatch.setattr(
-            "server.routes.projects.load_projects", lambda: projects, raising=True
-        )
+        monkeypatch.setattr("server.routes.projects.load_projects", lambda: projects, raising=True)
 
     return _install
 

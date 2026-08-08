@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.server
 import importlib.util
 import json
+import os
 import shutil
 import socket
 import ssl
@@ -116,11 +117,43 @@ def test_is_transient_unwraps_urlopen_reason():
 
 
 def test_soft_skip_is_loud(capsys):
-    """A skip must be visibly distinguishable from a pass."""
+    """A skip must be visibly distinguishable from a pass.
+
+    This test does NOT reach the real CI job summary: the autouse
+    ``_no_real_step_summary`` fixture in ``tests/conftest.py`` detaches
+    ``$GITHUB_STEP_SUMMARY`` first. ``capsys`` catches the two stdout signals;
+    it never caught the third, which is a file append (#457).
+    """
     csd._warn_skipped(urllib.error.URLError(TimeoutError("timed out")))
     out = capsys.readouterr().out
     assert "SKIPPED" in out and "NOT VERIFIED" in out
     assert "::warning" in out  # GitHub annotation, visible on the checks page
+
+
+def test_no_test_writes_to_the_real_step_summary(monkeypatch):
+    """The suite must not be able to fake a 'gate skipped' notice on a green run.
+
+    Guards the autouse fixture itself: with ``$GITHUB_STEP_SUMMARY`` set exactly
+    as an Actions runner sets it, the fixture has already detached it by the
+    time any test body runs, so ``_warn_skipped`` finds nothing to append to.
+    """
+    assert "GITHUB_STEP_SUMMARY" not in os.environ
+    csd._warn_skipped(urllib.error.URLError(TimeoutError("timed out")))
+
+
+def test_a_real_skip_still_reaches_the_job_summary(tmp_path, monkeypatch):
+    """...and the notice a REAL skip writes is unaffected.
+
+    The fix must not mute the warning, only stop tests forging it. A test that
+    deliberately opts in — as the drift gate itself does on CI — still gets the
+    full ``> [!WARNING]`` block.
+    """
+    summary = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    csd._warn_skipped(urllib.error.URLError(TimeoutError("timed out")))
+    written = summary.read_text(encoding="utf-8")
+    assert "> [!WARNING]" in written
+    assert "SCHEMA DRIFT CHECK SKIPPED" in written and "NOT VERIFIED" in written
 
 
 # ── the live vendored schema is in sync with the canonical hub copy ─────
