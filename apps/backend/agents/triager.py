@@ -46,9 +46,18 @@ import os
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from agents.agent_infra import now_iso, read_status, truthy, write_status_patch
+
+if TYPE_CHECKING:
+    # tests_catalog is imported LAZILY at the three call sites below, but
+    # `_mutate_catalog` and friends annotate `TestsCatalog` at module level.
+    # `from __future__ import annotations` makes that a string at runtime, so
+    # nothing broke -- but no checker could resolve the name either, so the
+    # annotation asserted nothing and mypy reported [name-defined]. This block
+    # is type-time only: the runtime import stays lazy.
+    from tests_catalog import TestsCatalog
 
 _triage_log = _logging.getLogger(__name__)
 
@@ -695,13 +704,19 @@ async def run_triager(
         pr_number = int(source_meta.get("pr_number") or 0)
         pr_comment_summary: dict = {"skipped": True, "reason": "no PR number"}
         if pr_number > 0 and report_md:
-            request = PRCommentRequest(
+            # Named apart from the GitWriteRequest bound to `request` earlier in
+            # this function: one local name held two unrelated request types, so
+            # the second was checked against the first's type and
+            # post_pr_comment's argument was reported incompatible. Disjoint
+            # branches, so it never misfired -- but the annotation could not say
+            # so, which is the whole point of the strict bar.
+            pr_request = PRCommentRequest(
                 repo_dir=project_dir,
                 pr_number=pr_number,
                 body=report_md,
                 repo_slug=source_meta.get("repo_slug") or None,
             )
-            pc = post_pr_comment(request, dry_run=pr_dry)
+            pc = post_pr_comment(pr_request, dry_run=pr_dry)
             pr_comment_summary = {
                 "skipped": False,
                 "dry_run": pc.dry_run,

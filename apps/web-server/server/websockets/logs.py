@@ -5,6 +5,7 @@ Provides real-time log streaming from agent execution.
 """
 
 import asyncio
+from collections.abc import Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -89,7 +90,8 @@ async def all_logs_websocket(websocket: WebSocket):
 
     agent_service = get_agent_service()
     message_queue: asyncio.Queue[TaskLog] = asyncio.Queue()
-    unregister_callbacks: list[callable] = []
+    # See progress.py: `callable` is the builtin function, not a type.
+    unregister_callbacks: list[Callable[[], None]] = []
 
     async def log_callback(log: TaskLog):
         await message_queue.put(log)

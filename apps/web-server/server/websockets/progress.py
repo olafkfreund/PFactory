@@ -5,6 +5,7 @@ Provides real-time progress updates during agent execution.
 """
 
 import asyncio
+from collections.abc import Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -100,7 +101,11 @@ async def all_progress_websocket(websocket: WebSocket):
 
     agent_service = get_agent_service()
     message_queue: asyncio.Queue[TaskProgress] = asyncio.Queue()
-    unregister_callbacks: list[callable] = []
+    # `list[callable]` named the BUILTIN `callable()`, which is not a type:
+    # mypy rejected it outright, so every reader got a guarantee nothing
+    # checked. register_progress_callback returns a no-argument unregister
+    # closure (agent_service.py:103).
+    unregister_callbacks: list[Callable[[], None]] = []
 
     async def progress_callback(progress: TaskProgress):
         await message_queue.put(progress)
