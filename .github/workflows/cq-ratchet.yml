@@ -12,9 +12,9 @@ name: code-quality (ratchet)
 #     at the PR base vs HEAD and fails only if HEAD has MORE. Legacy hotspots stay
 #     green until touched; net-new violations block. This job is BLOCKING. The
 #     blocking-mypy half is issue #192 (mypy was previously informational).
-#   - `ruff format --check apps/backend scripts` is BLOCKING (formatting is
-#     auto-applied, never reviewed — section 3.6) and pinned to the same ruff
-#     version that the tree was formatted with, so it is green.
+#   - `ruff format --check apps/backend apps/web-server scripts` is BLOCKING
+#     (formatting is auto-applied, never reviewed — section 3.6) and pinned to
+#     the same ruff version that the tree was formatted with, so it is green.
 #   - A config-drift gate keeps the vendored baseline pinned to the hub.
 #
 # A whole-repo blocking `ruff check` / `mypy --strict` strict gate is
@@ -33,6 +33,14 @@ name: code-quality (ratchet)
 # baseline; #455's rewire removed the last one). `ruff format` drift: 9 files
 # under scripts/, the ratchet among them, swept in the same PR because the
 # format gate is WHOLE-TREE and cannot grandfather anything.
+#
+# apps/web-server was the last piece of the LINT scope still outside the FORMAT
+# scope (#479). The ratchet covered all three trees; `ruff format --check`
+# covered two, so this tree was held to the rule bar and to no formatting bar at
+# all — 122 of its 190 files were unformatted, 64% of the tree. That is the same
+# divergence #363 (Factory#384) fixed for `ruff check`, one gate later. The sweep
+# is the commit before this one, because a WHOLE-TREE format gate cannot
+# grandfather anything.
 #
 # scripts/ratchet_helpers.py stays out, and needed no new config to do so: it is
 # already in ruff.toml's extend-exclude as the byte-exact hub canonical, and this
@@ -117,7 +125,7 @@ jobs:
           apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}" --package apps/web-server --package scripts
 
   format-check:
-    name: ruff format --check (apps/backend + scripts, blocking)
+    name: ruff format --check (apps/backend + apps/web-server + scripts, blocking)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -130,8 +138,8 @@ jobs:
       - name: Install ruff (pinned)
         run: uv tool install "ruff==${RUFF_VERSION}"
 
-      - name: Ruff format check (apps/backend + scripts)
-        run: ruff format --check apps/backend scripts
+      - name: Ruff format check (apps/backend + apps/web-server + scripts)
+        run: ruff format --check apps/backend apps/web-server scripts
 
   config-drift:
     name: config drift (vendored baseline pinned to hub)
