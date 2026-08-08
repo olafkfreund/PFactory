@@ -22,39 +22,26 @@ import pytest
 # =============================================================================
 # SKIP WEB-SERVER TESTS WHEN THEIR DEPS LIVE IN A DIFFERENT VENV
 # =============================================================================
-# Many tests exercise the web-server (FastAPI / SQLAlchemy / the ``server.*``
-# package). Those deps live in the web-server's own venv (apps/web-server),
-# NOT in the backend test venv that `pytest tests/` and the pre-commit hook
-# use — so they raise ModuleNotFoundError there, either at import (collection)
-# or inside a fixture (setup). Rather than hand-maintain an ignore list, skip
-# any test module that imports an unavailable web-server dep. They still run
-# under the web-server venv where FastAPI/SQLAlchemy are installed.
-_missing_dep_modules: list[str] = []
-if importlib.util.find_spec("fastapi") is None:
-    _missing_dep_modules += ["fastapi", "server"]
-if importlib.util.find_spec("sqlalchemy") is None:
-    _missing_dep_modules.append("sqlalchemy")
-_DEP_IMPORT_RE = (
-    re.compile(r"^\s*(?:import|from)\s+(?:" + "|".join(_missing_dep_modules) + r")\b")
-    if _missing_dep_modules
-    else None
+# The mechanism itself lives in tests/missing_deps.py, because it is needed by
+# TWO conftests: this one and apps/web-server/tests/conftest.py. A conftest's
+# hooks apply to its own directory and below, so the copy that used to be
+# inline here could never reach apps/web-server/tests/ — the sibling tree whose
+# tests it was written to protect. See that module for the full rationale (#453).
+# Loaded by path, not by name: prepending tests/ to sys.path here would put all
+# of its top-level names ahead of apps/backend for the whole session.
+_MECHANISM_SPEC = importlib.util.spec_from_file_location(
+    "missing_deps", Path(__file__).parent / "missing_deps.py"
 )
+missing_deps = importlib.util.module_from_spec(_MECHANISM_SPEC)
+_MECHANISM_SPEC.loader.exec_module(missing_deps)
+
+_missing_dep_modules = missing_deps.MISSING
+_DEP_IMPORT_RE = missing_deps.IMPORT_RE
 
 
 def pytest_ignore_collect(collection_path, config):
     """Skip a test module that imports a web-server dep absent from this venv."""
-    if _DEP_IMPORT_RE is None:
-        return None
-    p = Path(collection_path)
-    if p.suffix != ".py" or not p.name.startswith("test_"):
-        return None
-    try:
-        text = p.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return None
-    if any(_DEP_IMPORT_RE.match(line) for line in text.splitlines()):
-        return True
-    return None
+    return missing_deps.should_ignore(collection_path)
 
 
 # =============================================================================
