@@ -40,6 +40,56 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Image resolution
+# ---------------------------------------------------------------------------
+
+# Where runner-images.yml publishes (and signs) the per-framework sandbox
+# images. Bare `pfactory-runner-*` tags are qualified with this so a lane runs
+# the image CI built from a commit, not whatever happens to sit in the local
+# daemon under the same name (#449).
+#
+# Before #449 the workflow built six images, smoke-tested them and threw them
+# away, while frameworks/*/descriptor.yaml and DEFAULT_IMAGE below named bare
+# tags and guides/shipping.md told operators to `docker build -t
+# pfactory-runner-pytest:latest` by hand. Nothing tied the tag a lane executed
+# to a commit -- the hollow-verify shape of TFactory#886.
+DEFAULT_RUNNER_REGISTRY = "ghcr.io/olafkfreund"
+
+#: Override the registry that bare runner tags resolve to.
+#:
+#: * unset      -> DEFAULT_RUNNER_REGISTRY, i.e. the images CI publishes.
+#: * "" (empty) -> no qualification; bare tags resolve against the local daemon
+#:                 exactly as before. This is the escape hatch for iterating on
+#:                 a Dockerfile locally, where the point IS to run your build.
+#: * any other  -> that registry/namespace, e.g. a mirror or a fork's GHCR.
+#:
+#: Already-qualified images (anything containing a "/") and images that are not
+#: `pfactory-runner-*` are passed through untouched, so an explicitly requested
+#: image always wins.
+RUNNER_REGISTRY_ENV = "PFACTORY_RUNNER_REGISTRY"
+
+_RUNNER_PREFIX = "pfactory-runner-"
+
+
+def resolve_runner_image(image: str) -> str:
+    """Qualify a bare ``pfactory-runner-*`` tag with the publishing registry.
+
+    >>> resolve_runner_image("pfactory-runner-pytest:latest")
+    'ghcr.io/olafkfreund/pfactory-runner-pytest:latest'
+    >>> resolve_runner_image("ghcr.io/acme/pfactory-runner-pytest:latest")
+    'ghcr.io/acme/pfactory-runner-pytest:latest'
+    >>> resolve_runner_image("python:3.12-slim")
+    'python:3.12-slim'
+    """
+    if "/" in image or not image.startswith(_RUNNER_PREFIX):
+        return image
+    registry = os.environ.get(RUNNER_REGISTRY_ENV, DEFAULT_RUNNER_REGISTRY).strip().strip("/")
+    if not registry:
+        return image
+    return f"{registry}/{image}"
+
+
+# ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
 
@@ -113,7 +163,10 @@ class DockerRunner:
         network: str = "none",
         read_only_rootfs: bool = True,
     ) -> None:
-        self.image = image or self.DEFAULT_IMAGE
+        # One resolution point: descriptors, lane_dispatch and every agent that
+        # names an image all route through here, so qualifying it once covers
+        # them all (#449).
+        self.image = resolve_runner_image(image or self.DEFAULT_IMAGE)
         self.binary = binary or os.environ.get("PFACTORY_CONTAINER_BIN", "docker")
         self.cpus = cpus
         self.memory = memory
