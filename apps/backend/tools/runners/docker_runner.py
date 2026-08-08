@@ -8,7 +8,7 @@ Python SDK so the dependency stays at zero — works the same way under
 
 Typical usage from the Executor in the test pipeline (Task 8+)::
 
-    runner = DockerRunner(image="pfactory-runner-python:latest")
+    runner = DockerRunner(image="pfactory-runner-pytest:latest")
     result = runner.run(
         repo_path=Path("/path/to/project"),
         scratch_path=Path("/path/to/workspace/scratch"),
@@ -67,6 +67,26 @@ DEFAULT_RUNNER_REGISTRY = "ghcr.io/olafkfreund"
 #: `pfactory-runner-*` are passed through untouched, so an explicitly requested
 #: image always wins.
 RUNNER_REGISTRY_ENV = "PFACTORY_RUNNER_REGISTRY"
+
+#: The runner image a caller gets when it names none.
+#:
+#: The pytest sandbox, because it is the one the pipeline actually produces
+#: (#493). This was `pfactory-runner-python:latest` until 2026-08-08 -- the v0.1
+#: name, dropped when `docker/runners/python.Dockerfile` was renamed to
+#: `docker/pfactory-runner-pytest/`. Nothing built the old name: not
+#: `runner-images.yml`'s matrix (pytest, jest, playwright, vitest, cypress,
+#: cloud), not a compose service, not a script -- only a hand-typed `docker
+#: build` in that Dockerfile's own header comment. So every caller landing on
+#: the default asked for an image no pipeline produces: `pull access denied`
+#: before #449, a 404 against ghcr.io after it. Never a regression, and never
+#: resolvable either.
+#:
+#: Module-level rather than only a class attribute so a caller can read the
+#: default WITHOUT the class: `gen_functional` carried its own copy of the
+#: literal, which is how one of the two stayed on the v0.1 name after the
+#: rename, and its tests replace `DockerRunner` wholesale -- a default read off
+#: the replacement is not the default.
+DEFAULT_RUNNER_IMAGE = "pfactory-runner-pytest:latest"
 
 _RUNNER_PREFIX = "pfactory-runner-"
 
@@ -136,7 +156,7 @@ class DockerRunner:
     """Build + execute the docker invocation for a sandboxed test run.
 
     Args:
-        image: Container image tag (e.g. ``pfactory-runner-python:latest``).
+        image: Container image tag (e.g. ``pfactory-runner-pytest:latest``).
         binary: ``docker`` or ``podman``. Defaults to env override
             ``PFACTORY_CONTAINER_BIN`` else ``docker``.
         cpus: CPU quota (Docker ``--cpus`` value).
@@ -149,7 +169,7 @@ class DockerRunner:
             limited to the bind-mounted /scratch.
     """
 
-    DEFAULT_IMAGE = "pfactory-runner-python:latest"
+    DEFAULT_IMAGE = DEFAULT_RUNNER_IMAGE
     REPO_MOUNT = "/work"
     SCRATCH_MOUNT = "/scratch"
 
