@@ -995,6 +995,14 @@ class PlanService:
         )
         enrichment = plan.enrichment.model_copy(deep=True)
 
+        # Does this plan target cloud/cluster infrastructure at all? Shared
+        # heuristic so the readiness `enrichment-integrity` check, the infra
+        # adapters below and the knowledge connectors below THAT can never
+        # disagree — which they did, and #386 is the result.
+        from plan.enrich.relevance import is_cloud_relevant
+
+        cloud_relevant = is_cloud_relevant(plan)
+
         # ── infra adapters (probe AWS / k8s / …) ───────────────────────
         adapters = [
             n.strip()
@@ -1003,12 +1011,7 @@ class PlanService:
         ]
         if adapters:
             # Only probe cloud/cluster infra when the plan actually targets it.
-            # Shared heuristic so the readiness `enrichment-integrity` check and
-            # this stage always agree on cloud-relevance.
-            from plan.enrich.relevance import is_cloud_relevant
-
             cloud_adapters = {"aws", "azure", "gcp", "kubernetes", "openshift"}
-            cloud_relevant = is_cloud_relevant(plan)
             adapters = [n for n in adapters if n not in cloud_adapters or cloud_relevant]
         if adapters:
             from plan.enrich.base import get_adapter
@@ -1032,10 +1035,17 @@ class PlanService:
             enrichment = enrichment.model_copy(update={"infra": infra})
 
         # ── knowledge connectors (review wiki / search best practices) ──
+        # `best-practices` is a wholly cloud-infrastructure catalogue (EKS, RDS,
+        # ElastiCache, Well-Architected), so it is gated on the SAME judgement
+        # the infra adapters above are gated on. Without that, a plan whose own
+        # cost estimate reads `source: no-resources` was cited AWS RDS Multi-AZ
+        # and EKS network management — matched out of its own OUT-OF-SCOPE
+        # sentence ("Out of scope: ... a database") — under a `why` string that
+        # asserts "the plan should follow it" (#386).
         connectors = [
             n.strip()
             for n in os.environ.get("PFACTORY_ENRICH_CONNECTORS", "").split(",")
-            if n.strip()
+            if n.strip() and (n.strip() != "best-practices" or cloud_relevant)
         ]
         if connectors:
             from plan.enrich.knowledge.base import get_connector

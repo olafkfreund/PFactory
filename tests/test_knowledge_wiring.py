@@ -92,3 +92,62 @@ def test_lens_no_knowledge_no_golden_path_finding() -> None:
     epic = EpicPlan(plan_id="001-x", epic_title="x", children=[])
     score = BestPracticesLens().evaluate(_plan_with_knowledge([]), epic)
     assert not any(f.title == "Golden-path guidance available" for f in score.findings)
+
+
+# ── PFactory#386: infra guidance belongs only on a plan with infrastructure ──
+
+
+def _slug_plan() -> NormalizedPlan:
+    """Plan 044 from the issue: a pure-Python FastAPI service, no infrastructure.
+
+    Its own cost estimate reads `source: no-resources`, and its spec explicitly
+    puts a database out of scope — which is precisely the sentence the
+    best-practices catalogue matched "database" inside.
+    """
+    return NormalizedPlan(
+        plan_id="044-url-safe-slug-service-python-fastapi",
+        title="URL-safe slug service",
+        description=(
+            "A pure-Python FastAPI service that converts arbitrary text into a "
+            "URL-safe slug. Exposes a single REST API endpoint. Out of scope: "
+            "authentication, persistence, rate limiting, a database, and any "
+            "frontend."
+        ),
+        source_format="markdown",
+        target_kind="software",
+    ).with_hash()
+
+
+def _eks_plan() -> NormalizedPlan:
+    return NormalizedPlan(
+        plan_id="050-eks-platform",
+        title="Provision the EKS platform",
+        description="Stand up an EKS cluster with RDS Postgres and multi-AZ failover.",
+        source_format="markdown",
+        target_kind="software",
+    ).with_hash()
+
+
+def _knowledge_connectors(plan: NormalizedPlan, monkeypatch) -> set[str]:
+    """Which connectors the enrich stage actually reaches for this plan."""
+    from plan.service import PlanService
+
+    monkeypatch.setenv("PFACTORY_ENRICH_CONNECTORS", "best-practices")
+    monkeypatch.setenv("PFACTORY_ENRICH_ADAPTERS", "")
+    enriched = PlanService._enrich(None, plan)  # does not use self
+    return {k.get("connector") for k in enriched.enrichment.knowledge if isinstance(k, dict)}
+
+
+def test_no_infra_citations_on_a_plan_with_no_infrastructure(monkeypatch) -> None:
+    """The reported defect: AWS RDS Multi-AZ and EKS networking on a slug service.
+
+    They were matched out of the plan's own OUT-OF-SCOPE sentence ("a database")
+    and out of the phrase "REST API endpoint". The `why` string asserts "the
+    plan should follow it", so a reader has no way to tell this from a real one.
+    """
+    assert _knowledge_connectors(_slug_plan(), monkeypatch) == set()
+
+
+def test_infra_citations_still_surface_on_a_plan_with_infrastructure(monkeypatch) -> None:
+    """Scoping must not delete the feature — the useful case is the whole point."""
+    assert "best-practices" in _knowledge_connectors(_eks_plan(), monkeypatch)
