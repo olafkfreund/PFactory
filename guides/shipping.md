@@ -46,8 +46,33 @@ docker build --check .
 
 ### Runner images
 
-Each test framework runs in its own sandbox image. Build the ones you need
-(image names must match `runtime.image` in the matching descriptor):
+Each test framework runs in its own sandbox image. **You normally do not build
+these.** `.github/workflows/runner-images.yml` builds, smoke-tests, publishes and
+signs all six on every push to `main`, and the runner resolves bare
+`pfactory-runner-*` tags to that published copy:
+
+```
+ghcr.io/olafkfreund/pfactory-runner-{pytest,jest,vitest,playwright,cypress,cloud}:latest
+ghcr.io/olafkfreund/pfactory-runner-...:<commit-sha>     # what :latest points at
+```
+
+Building them by hand used to be the only way to get them, and it is what made
+the lanes untraceable: nothing tied the tag a lane executed to a commit (#449).
+
+Verify what you are about to run:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp \
+  '^https://github\.com/olafkfreund/PFactory/\.github/workflows/runner-images\.yml@refs/heads/main$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/olafkfreund/pfactory-runner-pytest:latest
+```
+
+Build locally only when you are **changing** a runner image. Set
+`PFACTORY_RUNNER_REGISTRY=` (empty) so bare tags resolve to your build instead of
+the published one, then (image names must match `runtime.image` in the matching
+descriptor):
 
 ```bash
 docker build -f docker/pfactory-runner-pytest/Dockerfile \

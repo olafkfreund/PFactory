@@ -3,13 +3,33 @@
 # Build all PFactory framework runner images on push to main and on PRs
 # that touch any Dockerfile or this workflow file.
 #
-# Registry push is deferred to a separate task once a registry (GHCR or ECR)
-# is provisioned. For now the workflow verifies each image builds successfully
-# and passes a hello-world smoke by loading it into the local Docker daemon.
+# On PRs the workflow builds + smoke-tests each image and stops there. On push to
+# main, after the smoke passes, each image is published to GHCR and signed.
 #
-# Image tags produced (build-only, not pushed):
+# Image tags produced:
 #   pfactory-runner-{pytest,jest,playwright,vitest,cypress,cloud}:<commit-sha>
-#   pfactory-runner-{pytest,jest,playwright,vitest,cypress,cloud}:latest
+#   pfactory-runner-{...}:latest                     (loaded locally for the smoke)
+# Published + signed on main only:
+#   ghcr.io/<owner>/pfactory-runner-{...}:<commit-sha>
+#   ghcr.io/<owner>/pfactory-runner-{...}:latest
+#
+# Until #449 this workflow built six images and published none. The header said
+# so -- "Registry push is deferred to a separate task once a registry ... is
+# provisioned" -- and the registry had been provisioned for the application image
+# for some time. The consequence was not that the lanes had no images: it was
+# that nothing tied the tag a lane runs to a commit. The consumers resolve
+# `pfactory-runner-*:latest` by bare tag, and guides/shipping.md tells the
+# operator to `docker build -t pfactory-runner-pytest:latest` by hand, so the
+# lanes executed whatever was last built on that machine while CI built an image,
+# smoke-tested it, and threw it away. That is the shape of TFactory#886 -- a
+# merged fix that never reaches the image the lane runs -- with the publish step
+# missing rather than the workflow.
+#
+# The push and the signature land together on purpose. An unsigned image in the
+# registry is the state Factory#524 exists to clean up, and this workflow was
+# named in that issue as unsignable precisely because it published nothing.
+# Steps below are the ones TFactory's runner-images.yml already runs; copied, not
+# re-derived, so the two cannot drift.
 
 name: Build runner images
 
@@ -31,6 +51,8 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write   # publish runner images to GHCR (push to main only)
+  id-token: write   # cosign keyless via GitHub OIDC (Factory#524)
 
 jobs:
   build:
@@ -52,7 +74,7 @@ jobs:
 
       # Build the image and load it into the local Docker daemon so the
       # hello-world smoke step below can run it.
-      # push: false — no registry configured yet (deferred task).
+      # push: false — nothing reaches the registry until the smoke has passed.
       # load: true  — exports image to local daemon for the smoke test.
       - name: Build pfactory-runner-${{ matrix.runner }}
         uses: docker/build-push-action@v5
@@ -159,3 +181,67 @@ jobs:
                 checkov --version
               ;;
           esac
+
+      # ---------------------------------------------------------------------
+      # Publish to GHCR — only on push to main, and only after the smoke above
+      # passed, so a broken image never reaches the registry. PRs (including
+      # forks) skip these steps and stay build-and-smoke only.
+      # ---------------------------------------------------------------------
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Re-run the build to push: every layer is already in the GHA cache from
+      # the build step above, so this is effectively just a registry upload.
+      - name: Push pfactory-runner-${{ matrix.runner }} to GHCR
+        id: push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v5
+        with:
+          context: docker/pfactory-runner-${{ matrix.runner }}
+          file: docker/pfactory-runner-${{ matrix.runner }}/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}:latest
+          cache-from: type=gha,scope=runner-${{ matrix.runner }}
+          cache-to: type=gha,mode=max,scope=runner-${{ matrix.runner }}
+
+      # ---------------------------------------------------------------------
+      # Sign what this workflow publishes (Factory#524).
+      #
+      # These six images are where LLM-generated test code is executed. Landing
+      # the push without the signature would create exactly the unsigned-image
+      # state that issue exists to clean up.
+      #
+      # Sign by DIGEST: cosign signatures are digest-keyed, so one signature
+      # covers both :<sha> and :latest for this runner.
+      # ---------------------------------------------------------------------
+      - name: Install cosign
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Sign pfactory-runner-${{ matrix.runner }}
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: "ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}"
+          DIGEST: "${{ steps.push.outputs.digest }}"
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      # Assert the EXACT identity an admission rule will pin, anchored at both
+      # ends — not a repo prefix. A self-test looser than the gate it models
+      # passes on signatures the gate rejects (Factory#522).
+      - name: Verify signature (self-test) — ${{ matrix.runner }}
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: "ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}"
+          DIGEST: "${{ steps.push.outputs.digest }}"
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "^https://github\.com/${{ github.repository }}/\.github/workflows/runner-images\.yml@refs/heads/main$" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${IMAGE}@${DIGEST}"

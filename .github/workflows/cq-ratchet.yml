@@ -15,7 +15,10 @@ name: code-quality (ratchet)
 #   - `ruff format --check apps/backend apps/web-server scripts` is BLOCKING
 #     (formatting is auto-applied, never reviewed — section 3.6) and pinned to
 #     the same ruff version that the tree was formatted with, so it is green.
-#   - A config-drift gate keeps the vendored baseline pinned to the hub.
+#   - A config-drift gate keeps the vendored baseline pinned to the hub, and
+#     (#470) keeps the repo-ROOT ruff.toml / mypy.ini / .editorconfig from
+#     loosening that baseline — the tighten-only rule of section 0 / 1.2, which
+#     until now was asserted in a comment and enforced by nothing.
 #
 # A whole-repo blocking `ruff check` / `mypy --strict` strict gate is
 # intentionally NOT used here (and the existing ci.yml ruff step was converted to
@@ -190,3 +193,56 @@ jobs:
             fi
           done
           exit $fail
+
+      # ---------------------------------------------------------------------
+      # Tighten-only (#470). The step above pins the VENDORED baseline to the
+      # hub; these three pin the REPO-ROOT configs to that baseline. Both halves
+      # are needed and they check different things: standards/ is what CI reads
+      # (ratchet_lint.MYPY_CONFIG_DEFAULT), the root files are what a bare
+      # `mypy` / `ruff` and every editor read locally -- which is where a type
+      # error is meant to be caught first.
+      #
+      # Until now nothing checked the root copies. A PR could set
+      # `strict = False` in mypy.ini, or drop `disallow_untyped_defs`, and every
+      # gate stayed green: the CI verdict would not move (the ratchet reads
+      # standards/mypy.ini directly) while every developer's local bar silently
+      # dropped. Section 0 / 1.2 says per-service configs may only TIGHTEN and
+      # that "a config-lint CI check enforces tighten-only"; the hub has run
+      # exactly these steps in its own config-drift job for months. Ported
+      # rather than reinvented.
+      # ---------------------------------------------------------------------
+      - name: root ruff.toml must extend the canonical baseline
+        run: grep -q 'extend = "standards/ruff.toml"' ruff.toml
+
+      - name: root mypy.ini must not loosen the strict baseline
+        run: |
+          set -euo pipefail
+          # Every `<key> = True` spelled out in the canonical baseline must also
+          # be True in the root copy. Tighten-only: extra flags are fine, missing
+          # or flipped ones are not.
+          #
+          # `|| true`: grep exits 1 on no match, and under `pipefail` that would
+          # abort here with no diagnostic. Let it produce an empty list and be
+          # rejected explicitly below, so the log says WHY.
+          keys="$(grep -E '^[a-z_]+ = True' standards/mypy.ini | cut -d' ' -f1 || true)"
+          # An empty key list would make the loop below a no-op and the step a
+          # green check of nothing -- the exact failure rule 4.7 names, and the
+          # one this job's fetch step was already fixed for. A renamed or emptied
+          # standards/mypy.ini fails here instead of passing.
+          if [ -z "$keys" ]; then
+            echo "::error::no strict flags found in standards/mypy.ini — this"
+            echo "check would compare nothing, so it fails rather than passing"
+            echo "(rule 4.7)."
+            exit 1
+          fi
+          for key in $keys; do
+            grep -qE "^${key} = True" mypy.ini || {
+              echo "::error::mypy.ini is missing strict flag: ${key}"
+              echo "Root configs may only TIGHTEN the shared baseline (section 0 / 1.2)."
+              exit 1; }
+          done
+          grep -qE '^strict = True' mypy.ini || {
+            echo "::error::mypy.ini does not set strict = True"; exit 1; }
+
+      - name: root .editorconfig matches the fleet baseline
+        run: diff -u standards/.editorconfig .editorconfig

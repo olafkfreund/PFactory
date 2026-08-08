@@ -104,19 +104,67 @@ if [ -n "$STAGED_PY_FILES" ]; then
     RUFF="ruff"
   fi
 
+  # The rewrite steps below are gated on the ruff version, not just on ruff
+  # existing (#452). This hook does not merely lint: it runs `--fix`, it runs
+  # `format`, and it `git add`s the result. So a version skew does not produce a
+  # warning, it produces a commit. Hit for real with a local ruff 0.14.10:
+  # formatting apps/backend/plan/service.py collapsed eleven import blocks that
+  # the pinned 0.15.17 keeps exploded -- a 44-line unrelated diff, staged
+  # automatically, which then reddened the blocking CI format check on a file the
+  # author never meant to touch. The cause (the hook, not the edit) is invisible
+  # from the diff.
+  #
+  # ci.yml's RUFF_VERSION is the declared single source of truth for the pin and
+  # is already agreement-tested against every other workflow and the
+  # pre-commit-config rev (tests/test_ruff_pin_agreement.py). Read it rather than
+  # writing the number down a fourth time.
+  PINNED_RUFF=""
+  if [ -f ".github/workflows/ci.yml" ]; then
+    PINNED_RUFF=$(sed -n 's/^[[:space:]]*RUFF_VERSION:[[:space:]]*"\{0,1\}\([0-9][^"[:space:]]*\).*/\1/p' \
+      .github/workflows/ci.yml | head -1)
+  fi
+  LOCAL_RUFF=""
   if [ -n "$RUFF" ]; then
+    LOCAL_RUFF=$($RUFF --version 2>/dev/null | awk '{print $2}')
+  fi
+
+  RUFF_PIN_OK=0
+  if [ -n "$RUFF" ] && [ -n "$PINNED_RUFF" ] && [ "$LOCAL_RUFF" = "$PINNED_RUFF" ]; then
+    RUFF_PIN_OK=1
+  fi
+
+  if [ -n "$RUFF" ] && [ "$RUFF_PIN_OK" -eq 0 ]; then
+    echo ""
+    echo "  ruff version skew - SKIPPING autofix/format/re-stage."
+    echo "    pinned by .github/workflows/ci.yml: ${PINNED_RUFF:-<could not read>}"
+    echo "    found at ${RUFF}: ${LOCAL_RUFF:-<could not read>}"
+    echo ""
+    echo "  This hook rewrites and re-stages your files. Doing that with the wrong"
+    echo "  ruff lands formatting churn you did not ask for and reddens the blocking"
+    echo "  CI format check on files your change never touched, so it does nothing"
+    echo "  instead. Your commit is NOT blocked."
+    echo ""
+    echo "  Install the pin:  cd apps/backend && uv pip install 'ruff==${PINNED_RUFF:-<see ci.yml>}'"
+    echo "  The ratchet below still runs, but with an unpinned ruff its verdict is"
+    echo "  advisory - CI's is the one that counts."
+    echo ""
+  fi
+
+  if [ -n "$RUFF" ] && [ "$RUFF_PIN_OK" -eq 1 ]; then
     # Auto-fix and format with the REPO config, best-effort: remaining
     # violations are judged by the ratchet below, not by ruff's exit code
     # (a bare blocking `ruff check` rejects commits over pre-existing debt
     # the commit never touched - see #389). --force-exclude keeps ruff off
     # the vendored byte-exact mirrors excluded in ruff.toml.
-    echo "Running ruff autofix + format (repo config) on staged files..."
+    echo "Running ruff autofix + format (repo config, ruff ${LOCAL_RUFF}) on staged files..."
     echo "$STAGED_PY_FILES" | xargs $RUFF check --fix --force-exclude --config ruff.toml || true
     echo "$STAGED_PY_FILES" | xargs $RUFF format --force-exclude --config ruff.toml
 
     # Re-stage only the files that were originally staged (in case ruff modified them)
     echo "$STAGED_PY_FILES" | xargs git add
+  fi
 
+  if [ -n "$RUFF" ]; then
     # Block only NET-NEW violations, exactly as CI does (index vs HEAD).
     RATCHET_PY="python3"
     if [ -f "apps/backend/.venv/bin/python" ]; then

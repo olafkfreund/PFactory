@@ -244,6 +244,7 @@ inspect it. Read in the respective agent modules.
 | `PFACTORY_RED_TEAM_RISK_THRESHOLD` | `high` | No | — | Severity at/above which red-team findings block (`low`/`medium`/`high`/`critical`). | `plan/review/lenses/red_team.py` |
 | `PFACTORY_CONTAINER_BIN` | `docker` | No | — | Container CLI for the sandboxed test runner (`docker` or `podman`). | `tools/runners/docker_runner.py` |
 | `PFACTORY_DOCKER_IMAGE_PYTHON` | `pfactory-runner-python:latest` | No | — | Image for the Executor's sandboxed pytest run. (Consumed by the runner config.) | runner config / `.env` |
+| `PFACTORY_RUNNER_REGISTRY` | `ghcr.io/olafkfreund` | No | Empty string restores bare local tags | Registry/namespace that bare `pfactory-runner-*` tags resolve to, so a lane runs the image CI published from a commit rather than whatever was last built on the machine (#449). Any other value points at a mirror or a fork's GHCR. Images that are already qualified (contain a `/`) and non-runner images are never rewritten. | `tools/runners/docker_runner.py` |
 | `PFACTORY_TEST_AGENT_CMD` | `""` | No | — | E2E test hook: replaces the real agent command with a stub (test harness only). | `services/agent_service.py` |
 | `AIFACTORY_BASH_SANDBOX` | `true` | No | Off disables the bash sandbox | Toggle the bash sandbox for agent tool calls. | `core/client.py` |
 | `PFACTORY_EXTENSION_REGISTRY` | bundled | No | — | Path override for the review-extension registry. | `plan/review/extension_registry.py` |
