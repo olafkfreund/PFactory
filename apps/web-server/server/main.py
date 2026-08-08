@@ -88,6 +88,7 @@ async def lifespan(app: FastAPI):
     backend_path = Path(settings.BACKEND_PATH)
     if backend_path.exists():
         from .routes.settings import load_app_settings, save_app_settings
+
         app_settings = load_app_settings()
         if not app_settings.autoBuildPath:
             app_settings.autoBuildPath = str(backend_path)
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     # lifespan startup is JSON-formatted from the very first event.
     # Idempotent: re-calling overrides the processor chain wholesale.
     from .observability import configure_structlog
+
     configure_structlog(level="DEBUG" if settings.DEBUG else "INFO")
 
     # Version comes from apps/backend/__init__.py — the canonical source
@@ -216,6 +218,7 @@ def create_app() -> FastAPI:
     # secret is the JWT secret (already a strong process secret).
     # Cookie is scoped to the OIDC routes via SameSite=Lax + HTTP-only.
     from starlette.middleware.sessions import SessionMiddleware
+
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.JWT_SECRET,
@@ -231,6 +234,7 @@ def create_app() -> FastAPI:
     # carry the ID in their response, which auditors rely on to trace
     # failed auth attempts).
     from .observability import CorrelationIdMiddleware, install_httpx_propagation
+
     app.add_middleware(CorrelationIdMiddleware)
     # Patch httpx clients to forward the correlation ID on outbound
     # calls. Idempotent.
@@ -243,6 +247,7 @@ def create_app() -> FastAPI:
     # Endpoints return 404 when APP_OIDC_ENABLED isn't set, so this is a
     # no-op for installations that haven't configured an IdP.
     from .routes import oidc_routes
+
     app.include_router(oidc_routes.router)
 
     # Organization routes (prefix defined in router: /api/orgs)
@@ -268,6 +273,7 @@ def create_app() -> FastAPI:
     # Epic #26 P5.3 — /api/audit/export streaming + P5.5 GDPR erasure.
     app.include_router(audit.export_router)
     from .routes import gdpr as gdpr_routes
+
     app.include_router(gdpr_routes.router)
 
     # Notification routes (prefix defined in router: /api/notifications)
@@ -281,6 +287,7 @@ def create_app() -> FastAPI:
     # PFactory portal endpoints (Task 9 / #10) — read-only over the
     # PFactory workspace filesystem at ~/.pfactory/workspaces/.
     from .routes import pfactory_tasks as pfactory_tasks_routes
+
     app.include_router(
         pfactory_tasks_routes.router,
         prefix="/api/pfactory/tasks",
@@ -292,6 +299,7 @@ def create_app() -> FastAPI:
     from .routes import plan_intake as plan_intake_routes
     from .routes import plan_meta as plan_meta_routes
     from .routes import plan_pipeline as plan_pipeline_routes
+
     app.include_router(plan_intake_routes.router)
     app.include_router(plan_pipeline_routes.router)
     app.include_router(plan_meta_routes.router)
@@ -388,8 +396,10 @@ def create_app() -> FastAPI:
     # the rmux/ package imports break at module load when the
     # bundled binary isn't present.
     from .rmux import is_rmux_enabled
+
     if is_rmux_enabled():
         from .rmux import console_router
+
         app.include_router(console_router)
         logger.info("[main] rmux Live Agent Console enabled — bridge router mounted")
 
@@ -399,6 +409,7 @@ def create_app() -> FastAPI:
     # Optional METRICS_SCRAPE_TOKEN bearer gate is read from env at
     # install time.
     from .observability import install_metrics
+
     install_metrics(app)
 
     # Factory#516 — OTLP distributed tracing. Also after the routers, so
@@ -411,6 +422,7 @@ def create_app() -> FastAPI:
     # create_app() is the only caller and the module pulls the OTel SDK,
     # which must not be an import-time cost of `import server.main`.
     from .observability import init_tracing  # noqa: PLC0415
+
     init_tracing(app)
 
     # Health check endpoint (no auth required)
@@ -442,9 +454,7 @@ def create_app() -> FastAPI:
             if content_type.startswith("text/html"):
                 response.headers["Cache-Control"] = "no-cache, must-revalidate"
             elif "/assets/" in (scope.get("path") or ""):
-                response.headers["Cache-Control"] = (
-                    "public, max-age=31536000, immutable"
-                )
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             return response
 
     static_dir = Path(__file__).parent.parent / "static"

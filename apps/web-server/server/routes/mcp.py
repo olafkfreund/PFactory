@@ -72,9 +72,7 @@ def _describe_marker_status(
     return {
         "matches": bool(matched),
         "reason": (
-            f"matched: {', '.join(matched)}"
-            if matched
-            else f"none of: {', '.join(marker_keys)}"
+            f"matched: {', '.join(matched)}" if matched else f"none of: {', '.join(marker_keys)}"
         ),
         "required": marker_keys,
         "matched": matched,
@@ -108,9 +106,7 @@ async def get_mcp_status(project_id: str) -> dict[str, Any]:
     """
     projects = _load_projects()
     if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     project_path = Path(projects[project_id]["path"]).expanduser()
 

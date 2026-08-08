@@ -208,3 +208,98 @@ def test_backstage_bare_list_payload() -> None:
     conn = BackstageConnector(base_url="https://bs.example.com", http=http)
     refs = conn.search("payments")
     assert refs and refs[0].title == "Payments API"
+
+
+# ── PFactory#386: a citation must not survive on a similarity accident ───────
+
+# The plan from the issue: a pure-Python FastAPI service whose own spec says
+# "Out of scope: ... a database", and whose cost estimate reads
+# `source: no-resources`.
+_SLUG_PLAN_TEXT = (
+    "URL-safe slug service. A pure-Python FastAPI service that converts "
+    "arbitrary text into a URL-safe slug. Exposes a single REST API endpoint. "
+    "Out of scope: authentication, persistence, rate limiting, a database, and "
+    "any frontend. POST /slugify returns a URL-safe slug for any input."
+)
+
+
+def test_backstage_ignores_entities_that_share_only_a_common_word() -> None:
+    """`nixos-module` and `component/tfactory` were cited because English matched.
+
+    The old filter admitted any entity sharing ONE query term, and the query is
+    the whole plan text — so "a", "the" and "any" were query terms. The
+    connector computed a relevance score and then ignored it.
+    """
+    catalog = {
+        "items": [
+            {
+                "kind": "Template",
+                "metadata": {
+                    "name": "nixos-module",
+                    "title": "NixOS Module",
+                    "description": "Scaffold a NixOS module for any host.",
+                    "namespace": "default",
+                    "uid": "u-9",
+                },
+                "spec": {"type": "template"},
+            },
+        ]
+    }
+    conn = BackstageConnector(base_url="https://bs.example.com", http=_FakeHttp(catalog))
+    titles = [r.title for r in conn.search(_SLUG_PLAN_TEXT, limit=10)]
+    assert "NixOS Module" not in titles
+
+
+def test_backstage_ignores_an_entity_sharing_exactly_one_significant_word() -> None:
+    """`component/tfactory` shares "service" with the plan and nothing else.
+
+    Stopword filtering alone does not remove this one — "service" is a real
+    word that genuinely appears in both. One shared topic word out of a whole
+    plan is still a coincidence, which is what the hit floor is for.
+    """
+    catalog = {
+        "items": [
+            {
+                "kind": "Component",
+                "metadata": {
+                    "name": "tfactory",
+                    "title": "TFactory",
+                    "description": "The testing factory service.",
+                    "namespace": "default",
+                    "uid": "u-11",
+                },
+                "spec": {"type": "service"},
+            },
+        ]
+    }
+    conn = BackstageConnector(base_url="https://bs.example.com", http=_FakeHttp(catalog))
+    assert [r.title for r in conn.search(_SLUG_PLAN_TEXT, limit=10)] == []
+
+
+def test_backstage_still_returns_a_genuinely_matching_entity() -> None:
+    """The floor must not delete the useful case, only the accidental one."""
+    catalog = {
+        "items": [
+            {
+                "kind": "Template",
+                "metadata": {
+                    "name": "python-fastapi-service",
+                    "title": "Python FastAPI Service",
+                    "description": "Scaffold a Python FastAPI service with a REST endpoint.",
+                    "namespace": "default",
+                    "tags": ["python", "fastapi"],
+                    "uid": "u-10",
+                },
+                "spec": {"type": "service"},
+            },
+        ]
+    }
+    conn = BackstageConnector(base_url="https://bs.example.com", http=_FakeHttp(catalog))
+    titles = [r.title for r in conn.search(_SLUG_PLAN_TEXT, limit=10)]
+    assert "Python FastAPI Service" in titles
+
+
+def test_backstage_narrow_query_still_needs_only_one_hit() -> None:
+    """A deliberately one-term query has one term to match; the cap allows it."""
+    conn = BackstageConnector(base_url="https://bs.example.com", http=_FakeHttp(_CATALOG))
+    assert [r.title for r in conn.search("payments")] == ["Payments API"]

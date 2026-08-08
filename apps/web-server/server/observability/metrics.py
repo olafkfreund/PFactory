@@ -45,9 +45,9 @@ def install_metrics(
     register would be a programmer error).
     """
     instrumentator = Instrumentator(
-        should_group_status_codes=True,       # 2xx, 3xx, ... not 200/204
+        should_group_status_codes=True,  # 2xx, 3xx, ... not 200/204
         should_ignore_untemplated=False,
-        should_group_untemplated=True,        # /api/projects/{id}/tasks
+        should_group_untemplated=True,  # /api/projects/{id}/tasks
         should_respect_env_var=False,
         excluded_handlers=list(excluded_handlers),
     )
@@ -79,6 +79,4 @@ def install_metrics(
         token = auth.removeprefix("Bearer ").strip()
         if token != expected_token:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token")
-        return Response(
-            generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST
-        )
+        return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)

@@ -138,4 +138,4 @@ of *any* execution stack, not a walled garden.
 - **MCP- & API-first handoff:** `mcp__pfactory__plan_*` tools let Claude Code,
   Antigravity, and Codex/Copilot hand a plan in and track it to approval.
 - **Honest egress posture (BYO-LLM):** LOCAL / SELF_HOSTED / MANAGED_CLOUD
-  classification so regulated teams get a truthful "🔒 Local — no data egress" badge.
+  classification so regulated teams get a truthful "LOCAL - endpoint is on your network" badge.

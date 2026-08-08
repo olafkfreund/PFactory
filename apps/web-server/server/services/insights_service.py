@@ -55,7 +55,7 @@ def _parse_task_json(raw: str) -> dict:
                 depth -= 1
                 if depth == 0:
                     try:
-                        parsed = json.loads(cleaned[start:i + 1])
+                        parsed = json.loads(cleaned[start : i + 1])
                         if isinstance(parsed, dict):
                             return {
                                 "title": str(parsed.get("title", "")).strip(),
@@ -71,19 +71,21 @@ def _parse_task_json(raw: str) -> dict:
 @dataclass
 class InsightsMessage:
     """A single chat message."""
+
     id: str
     role: str  # 'user' or 'assistant'
     content: str
     timestamp: str
     suggested_task: dict | None = None
     tools_used: list | None = None
-    provider: str | None = None        # e.g. 'claude', 'ollama', 'codex'
-    provider_model: str | None = None   # e.g. 'opus', 'llama3:8b'
+    provider: str | None = None  # e.g. 'claude', 'ollama', 'codex'
+    provider_model: str | None = None  # e.g. 'opus', 'llama3:8b'
 
 
 @dataclass
 class InsightsSession:
     """A chat session with history."""
+
     id: str
     project_id: str
     title: str
@@ -142,7 +144,7 @@ class InsightsService:
             "updatedAt": session.updated_at,
         }
 
-        with open(session_file, 'w') as f:
+        with open(session_file, "w") as f:
             json.dump(data, f, indent=2)
 
         self._sessions[session.id] = session
@@ -242,13 +244,15 @@ class InsightsService:
             try:
                 with open(session_file) as f:
                     data = json.load(f)
-                sessions.append({
-                    "id": data["id"],
-                    "title": data.get("title", "Untitled"),
-                    "messageCount": len(data.get("messages", [])),
-                    "createdAt": data.get("createdAt"),
-                    "updatedAt": data.get("updatedAt"),
-                })
+                sessions.append(
+                    {
+                        "id": data["id"],
+                        "title": data.get("title", "Untitled"),
+                        "messageCount": len(data.get("messages", [])),
+                        "createdAt": data.get("createdAt"),
+                        "updatedAt": data.get("updatedAt"),
+                    }
+                )
             except (json.JSONDecodeError, KeyError):
                 continue
 
@@ -316,7 +320,9 @@ class InsightsService:
         # Merge session config with message-level config (message takes precedence)
         effective_config = dict(self.DEFAULT_MODEL_CONFIG)
         if session.model_config:
-            effective_config.update({k: v for k, v in session.model_config.items() if v is not None})
+            effective_config.update(
+                {k: v for k, v in session.model_config.items() if v is not None}
+            )
         if model_config:
             effective_config.update({k: v for k, v in model_config.items() if v is not None})
         model_config = effective_config
@@ -348,7 +354,9 @@ class InsightsService:
 
         # Route to provider
         provider = get_provider(provider_id)
-        logger.info(f"[InsightsService] Routing to provider: {provider_id} (model: {provider_model})")
+        logger.info(
+            f"[InsightsService] Routing to provider: {provider_id} (model: {provider_model})"
+        )
 
         try:
             response_content = await provider.send_message(
@@ -376,17 +384,23 @@ class InsightsService:
         except asyncio.CancelledError:
             logger.info(f"[InsightsService] Chat cancelled for project {project_id}")
             # Finalize partial content if any
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "done",
-            })
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "done",
+                },
+            )
         except Exception as e:
             logger.error(f"[InsightsService] Provider error: {e}", exc_info=True)
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "error",
-                "error": str(e),
-            })
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "error",
+                    "error": str(e),
+                },
+            )
         finally:
             self._running_tasks.pop(project_id, None)
 
@@ -455,7 +469,9 @@ class InsightsService:
         # Resolve model
         effective_config = dict(self.DEFAULT_MODEL_CONFIG)
         if session.model_config:
-            effective_config.update({k: v for k, v in session.model_config.items() if v is not None})
+            effective_config.update(
+                {k: v for k, v in session.model_config.items() if v is not None}
+            )
         if model_config:
             effective_config.update({k: v for k, v in model_config.items() if v is not None})
 
@@ -470,6 +486,7 @@ class InsightsService:
 
         # Scrub ANTHROPIC_API_KEY (OAuth-only policy — see core/auth.py).
         from ..utils.subprocess_env import make_subprocess_env
+
         env = make_subprocess_env()
         env["PYTHONUNBUFFERED"] = "1"
         env.pop("CLAUDECODE", None)

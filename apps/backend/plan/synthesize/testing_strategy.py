@@ -20,9 +20,20 @@ from plan.synthesize.models import SynthesizedArtifact
 # Flat on purpose: the lane goes in the *file name*, not a subdirectory, because
 # cargo only compiles `tests/*.rs` at the top level and surefire only runs
 # `*Test.java` — a `tests/unit/` subdir would be scaffolding that never runs.
-# Only these seven languages appear: plan.recon.delta._CODE_EXTS is the set of
-# extensions the footprint miner recognises, so a `.cs` or `.kt` path named here
-# would be invisible to it anyway (see test_paths).
+#
+# This table covers the same languages as plan.recon.delta._CODE_EXTS, and must
+# keep doing so in both directions: a language here whose extension the miner
+# discards yields a child that names a file nobody is handed, and a language the
+# miner can see but that is missing here yields a child that names no file at
+# all. It listed seven while the miner knew seven; both now list twelve (#475).
+#
+# The five added names follow each ecosystem's own discovery rule, which is not
+# cosmetic — a test file the runner does not match simply never executes:
+#   C#      xUnit/NUnit discover by assembly, `*Tests.cs` is the convention
+#   Kotlin  Gradle/JUnit require src/test/kotlin, mirroring the Java entry
+#   PHP     PHPUnit's default suffix filter is literally `*Test.php`
+#   Swift   SwiftPM only compiles targets under Tests/
+#   C/C++   CTest/GoogleTest register per-file; `*_test.cpp` is the convention
 _TEST_LAYOUT: dict[str, tuple[str, str]] = {
     "python": ("tests", "test_{name}.py"),
     "typescript": ("tests", "{name}.test.ts"),
@@ -31,6 +42,11 @@ _TEST_LAYOUT: dict[str, tuple[str, str]] = {
     "rust": ("tests", "{name}.rs"),
     "java": ("src/test/java", "{camel}Test.java"),
     "ruby": ("spec", "{name}_spec.rb"),
+    "csharp": ("tests", "{camel}Tests.cs"),
+    "kotlin": ("src/test/kotlin", "{camel}Test.kt"),
+    "php": ("tests", "{camel}Test.php"),
+    "swift": ("Tests", "{camel}Tests.swift"),
+    "cpp": ("tests", "{name}_test.cpp"),
 }
 # A test root already in the repo beats the language default. Top-level only —
 # that is all reconnaissance's layout scan sees.

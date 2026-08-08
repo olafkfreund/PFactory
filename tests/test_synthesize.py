@@ -267,10 +267,10 @@ def test_testing_child_uses_the_repos_own_test_dir_and_command():
 
 
 def test_testing_child_names_no_files_for_an_unmapped_language():
-    # C# has no entry in the test-layout table, and its extension is not one the
-    # footprint miner recognises anyway, so the child names no path at all rather
-    # than a plausible Python one (#585).
-    repo_map = RepoMap(available=True, languages=["csharp"], layout={"dirs": ["src"]})
+    # A language with no entry in the test-layout table gets no path at all,
+    # rather than a plausible Python one (#585). Haskell, because C# — the
+    # original example — is mapped now that the miner can see `.cs` (#475).
+    repo_map = RepoMap(available=True, languages=["haskell"], layout={"dirs": ["src"]})
     child, fp = _testing(_software_plan(), repo_map)
 
     assert fp == {}
@@ -382,3 +382,73 @@ def test_cicd_child_is_unchanged_when_recon_found_no_pipeline():
     assert "coverage report" in criteria
     assert "manual approval" in criteria
     assert "already wired" not in cicd.document
+# ── PFactory#475: the five languages the miner could not see ─────────────────
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        ("csharp", [
+            "tests/AddApiEndpointE2ETests.cs",
+            "tests/AddApiEndpointIntegrationTests.cs",
+            "tests/AddApiEndpointUnitTests.cs",
+        ]),
+        ("kotlin", [
+            "src/test/kotlin/AddApiEndpointE2ETest.kt",
+            "src/test/kotlin/AddApiEndpointIntegrationTest.kt",
+            "src/test/kotlin/AddApiEndpointUnitTest.kt",
+        ]),
+        ("php", [
+            "tests/AddApiEndpointE2ETest.php",
+            "tests/AddApiEndpointIntegrationTest.php",
+            "tests/AddApiEndpointUnitTest.php",
+        ]),
+        ("swift", [
+            "Tests/AddApiEndpointE2ETests.swift",
+            "Tests/AddApiEndpointIntegrationTests.swift",
+            "Tests/AddApiEndpointUnitTests.swift",
+        ]),
+        ("cpp", [
+            "tests/add_api_endpoint_e2e_test.cpp",
+            "tests/add_api_endpoint_integration_test.cpp",
+            "tests/add_api_endpoint_unit_test.cpp",
+        ]),
+    ],
+)
+def test_testing_footprint_reaches_the_five_added_languages(language, expected):
+    """A repo in these languages used to get an EMPTY footprint (#475).
+
+    Two lists had to agree for a path to reach the coder: the test-layout table
+    has to name a file, and `delta._CODE_EXTS` has to recognise its extension.
+    These five were in neither, so the child arrived at AIFactory with no file
+    target at all — this asserts the whole chain, not just the extension list.
+    """
+    repo_map = RepoMap(available=True, languages=[language], layout={"dirs": ["src"]})
+    _child, fp = _testing(_software_plan(), repo_map)
+
+    assert fp.get("files_to_create") == expected
+
+
+def test_code_exts_covers_every_detectable_language():
+    """The extension list and the language signal table must not drift apart.
+
+    #475 was exactly this drift: `_LANGUAGE_SIGNALS` could name twelve
+    languages and `_CODE_EXTS` could mine seven, so PFactory detected a repo's
+    language and then planned as if its files did not exist. A language added to
+    the signal table without an extension here is silently unplannable.
+    """
+    from plan.recon.delta import _CODE_EXTS
+    from plan.recon.language_reconcile import _LANGUAGE_SIGNALS
+
+    exts_for = {
+        "rust": ".rs", "go": ".go", "typescript": ".ts", "javascript": ".js",
+        "python": ".py", "java": ".java", "csharp": ".cs", "ruby": ".rb",
+        "php": ".php", "kotlin": ".kt", "swift": ".swift", "cpp": ".cpp",
+    }
+    for language, _needles in _LANGUAGE_SIGNALS:
+        ext = exts_for.get(language)
+        assert ext is not None, f"{language} detectable but this test has no extension for it"
+        assert ext in _CODE_EXTS, (
+            f"{language} is detectable by _LANGUAGE_SIGNALS but {ext} is not in "
+            f"_CODE_EXTS, so every file token in that repo's children is discarded"
+        )

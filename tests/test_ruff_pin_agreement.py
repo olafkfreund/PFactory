@@ -79,6 +79,52 @@ def test_the_format_gate_is_named_after_what_it_checks() -> None:
     )
 
 
+def _cq_ratchet() -> str:
+    return (_REPO / ".github" / "workflows" / "cq-ratchet.yml").read_text(encoding="utf-8")
+
+
+def _ratchet_packages() -> set[str]:
+    """The trees `ratchet_lint.py` is invoked over, with `${PACKAGE_DIR}` resolved."""
+    wf = _cq_ratchet()
+    m = re.search(r'^\s*PACKAGE_DIR:\s*"?([^"\n]+)"?', wf, re.M)
+    package_dir = m.group(1).strip() if m else ""
+    cmd = re.search(r"^\s*apps/backend/\.venv/bin/python scripts/ratchet_lint\.py .*$", wf, re.M)
+    assert cmd, "could not find the ratchet invocation in cq-ratchet.yml"
+    found = set(re.findall(r'--package\s+"?([^"\s]+)"?', cmd.group(0)))
+    return {package_dir if p == "${PACKAGE_DIR}" else p for p in found}
+
+
+def _format_check_trees() -> set[str]:
+    """The trees `ruff format --check` is run over."""
+    m = re.search(r"^\s*run:\s*ruff format --check (.+)$", _cq_ratchet(), re.M)
+    assert m, "could not find the ruff format --check step in cq-ratchet.yml"
+    return set(m.group(1).split())
+
+
+def test_the_format_gate_covers_every_tree_the_ratchet_covers() -> None:
+    """Rule scope and formatting scope must not diverge (#479, #471).
+
+    They diverged twice. `scripts/` was under the ratchet but under no format
+    bar until #473; `apps/web-server` was under the ratchet but under no format
+    bar until #479, by which point 122 of its 190 files -- 64% of the tree --
+    were unformatted and the sweep had to land as its own 122-file commit.
+
+    The failure is silent in both directions: a tree held to the ruff RULE bar
+    looks gated, so nobody notices it is held to no FORMATTING bar, and the drift
+    only surfaces when someone touches one file and the gate they widen buries
+    their change. Asserting the containment makes the next divergence fail here
+    instead of accumulating for months.
+    """
+    ratchet, formatted = _ratchet_packages(), _format_check_trees()
+    missing = ratchet - formatted
+    assert not missing, (
+        f"cq-ratchet.yml runs the ratchet over {sorted(ratchet)} but "
+        f"`ruff format --check` over only {sorted(formatted)}. "
+        f"Ungated for formatting: {sorted(missing)}. Widen the format check "
+        "(after sweeping the tree -- the gate is whole-tree and grandfathers nothing)."
+    )
+
+
 # ── the hub pin lives in one file, fleet-wide (#512) ────────────────────────
 
 

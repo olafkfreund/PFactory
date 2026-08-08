@@ -63,6 +63,7 @@ class OpenAICompatProvider(ProviderStrategy):
 
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=1.5) as client:
                 resp = await client.get(f"{self.base_url}/v1/models")
                 resp.raise_for_status()
@@ -71,10 +72,12 @@ class OpenAICompatProvider(ProviderStrategy):
                 for m in data.get("data", []):
                     model_id = m.get("id", "")
                     if model_id:
-                        info.models.append(ProviderModel(
-                            id=model_id,
-                            label=model_id,
-                        ))
+                        info.models.append(
+                            ProviderModel(
+                                id=model_id,
+                                label=model_id,
+                            )
+                        )
 
                 if info.models:
                     info.available = True
@@ -97,10 +100,12 @@ class OpenAICompatProvider(ProviderStrategy):
         messages = []
         if conversation_history:
             for msg in conversation_history[-10:]:
-                messages.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                })
+                messages.append(
+                    {
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", ""),
+                    }
+                )
         messages.append({"role": "user", "content": message})
 
         payload = {
@@ -114,11 +119,14 @@ class OpenAICompatProvider(ProviderStrategy):
         try:
             import httpx
 
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "text",
-                "content": "",
-            })
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "text",
+                    "content": "",
+                },
+            )
 
             accumulated = ""
             stream_start = time.monotonic()
@@ -148,11 +156,14 @@ class OpenAICompatProvider(ProviderStrategy):
                                 content = delta.get("content", "")
                                 if content:
                                     accumulated += content
-                                    await broadcast_event("insights:chunk", {
-                                        "projectId": project_id,
-                                        "type": "text",
-                                        "content": content,
-                                    })
+                                    await broadcast_event(
+                                        "insights:chunk",
+                                        {
+                                            "projectId": project_id,
+                                            "type": "text",
+                                            "content": content,
+                                        },
+                                    )
                             except (json.JSONDecodeError, IndexError):
                                 continue
 
@@ -160,24 +171,30 @@ class OpenAICompatProvider(ProviderStrategy):
             estimated_tokens = max(1, len(accumulated) // 4)
             tokens_per_sec = round(estimated_tokens / elapsed, 1) if elapsed > 0 else 0
 
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "done",
-                "metrics": {
-                    "outputTokens": estimated_tokens,
-                    "tokensPerSecond": tokens_per_sec,
-                    "elapsedSeconds": round(elapsed, 1),
-                    "estimated": True,
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "done",
+                    "metrics": {
+                        "outputTokens": estimated_tokens,
+                        "tokensPerSecond": tokens_per_sec,
+                        "elapsedSeconds": round(elapsed, 1),
+                        "estimated": True,
+                    },
                 },
-            })
+            )
 
             return accumulated
 
         except Exception as e:
             logger.error(f"[OpenAICompat:{self.provider_id}] Error: {e}", exc_info=True)
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "error",
-                "error": str(e),
-            })
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "error",
+                    "error": str(e),
+                },
+            )
             return ""

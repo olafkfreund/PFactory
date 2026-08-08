@@ -41,6 +41,7 @@ router = APIRouter()
 
 class AutoFixConfigPayload(BaseModel):
     """Mirrors AutoFixConfig at apps/frontend-web/src/shared/types/github-api.ts:21"""
+
     enabled: bool = False
     labels: list[str] = Field(default_factory=list)
     requireHumanApproval: bool = False
@@ -112,6 +113,7 @@ async def start_auto_fix_one(projectId: str, issueNumber: int) -> dict[str, Any]
     except Exception as e:
         logger.exception(
             "[auto_fix] start_auto_fix failed project=%s issue=%d",
-            projectId, issueNumber,
+            projectId,
+            issueNumber,
         )
         raise HTTPException(status_code=500, detail=f"start failed: {e}")

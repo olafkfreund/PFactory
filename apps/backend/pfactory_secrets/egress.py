@@ -64,11 +64,11 @@ class EgressManifest:
 
     def render_markdown(self) -> str:
         if not self.enabled:
-            return "## Egress manifest\n\n🔒 Egress disabled — no credentials are resolved.\n"
+            return "## Egress manifest\n\nEgress DISABLED - no credentials are resolved.\n"
         lines = [
             "## Egress manifest",
             "",
-            f"☁️ Egress **enabled** — {len(self.rows)} credential(s).",
+            f"Egress **ENABLED** - {len(self.rows)} credential(s).",
             "",
         ]
         if self.rows:

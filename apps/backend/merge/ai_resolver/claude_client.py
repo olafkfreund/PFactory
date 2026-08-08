@@ -91,6 +91,14 @@ def create_claude_resolver() -> AIResolver:
                 print(f"    [ERROR] Claude SDK error: {e}", file=sys.stderr)
                 return ""
 
+            # Reachable: an `async with` whose __aexit__ returns truthy
+            # SUPPRESSES the exception, so control resumes here rather than in
+            # the handler above. This coroutine then fell off the end and
+            # returned None while declaring -> str -- and asyncio.run's result
+            # is handed straight to AIResolver as the merge resolution.
+            # mypy's [return].
+            return ""
+
         try:
             return asyncio.run(_run_merge())
         except Exception as e:

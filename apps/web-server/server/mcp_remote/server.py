@@ -118,9 +118,10 @@ async def sse_endpoint(request: Request):
 
     token = _current_key.set(key)
     try:
-        async with _sse_transport.connect_sse(
-            request.scope, request.receive, request._send
-        ) as (read_stream, write_stream):
+        async with _sse_transport.connect_sse(request.scope, request.receive, request._send) as (
+            read_stream,
+            write_stream,
+        ):
             await _mcp_server.run(
                 read_stream,
                 write_stream,

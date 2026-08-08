@@ -27,6 +27,23 @@ if TYPE_CHECKING:
     from plan.models import NormalizedPlan
     from plan.recon.models import RepoMap
 
+# Extensions a file token must carry to be mined into a child's footprint.
+#
+# SCOPE. This list covers every language `plan.recon.language_reconcile.
+# _LANGUAGE_SIGNALS` can detect. It used to cover seven of them, so a repo in
+# C#, Kotlin, PHP, Swift or C/C++ had every file token in every child's text
+# discarded — the child reached AIFactory with an EMPTY footprint and the coder
+# got no file target at all. PFactory could name those languages and then plan
+# as if their files did not exist (#475). Tying the two lists together is what
+# stops that reopening: a language added to the signal table without an
+# extension here is silently unplannable again.
+#
+# WHY `.md`, `.yaml`, `.json` ARE STILL HERE. The list does two jobs — "is this
+# a code file" and "is this a file at all" — and #461's design-doc defect came
+# in through `.md`. Removing it is not the fix: plans legitimately name docs to
+# create or modify, and the #461 defect was a child pointing at a design doc as
+# its TEST target, which was fixed at its source by naming concrete test files.
+# Narrowing here would break real footprints to re-fix a fixed bug.
 _CODE_EXTS = (
     ".py",
     ".tf",
@@ -38,6 +55,20 @@ _CODE_EXTS = (
     ".rs",
     ".java",
     ".rb",
+    # C#, Kotlin, PHP, Swift, C/C++ — the five the signal table knew and this
+    # list did not (#475).
+    ".cs",
+    ".kt",
+    ".kts",
+    ".php",
+    ".swift",
+    ".c",
+    ".h",
+    ".cc",
+    ".hh",
+    ".cpp",
+    ".hpp",
+    ".cxx",
     ".yaml",
     ".yml",
     ".json",
@@ -46,6 +77,10 @@ _CODE_EXTS = (
     ".tpl",
     ".md",
 )
+# NOTE: the {1,5} bound means a 6-character extension is never even tokenised,
+# so `.csproj` and `.gradle` paths cannot be mined however this list grows.
+# Left as-is: widening it also admits more false positives from prose, and no
+# child currently needs to name one.
 _FILE_TOKEN = re.compile(r"[\w./-]+\.[A-Za-z]{1,5}")
 
 

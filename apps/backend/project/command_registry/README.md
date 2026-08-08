@@ -92,9 +92,15 @@ from project.command_registry.languages import LANGUAGE_COMMANDS
 
 ### Legacy Import (Backward Compatible)
 ```python
-# Still works via the facade in project/command_registry.py
+# Still works — resolves to this package's __init__.py, which re-exports it.
 from project.command_registry import BASE_COMMANDS
 ```
+
+There was also a `project/command_registry.py` facade module claiming to serve
+this import. It never did: Python resolves the PACKAGE and ignores a same-named
+module beside it, so the file was unreachable, and its body
+(`from .command_registry import ...`) would have imported this package if it had
+ever run. It was deleted in PFactory#477.
 
 ## Benefits
 

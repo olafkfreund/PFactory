@@ -168,6 +168,7 @@ async def init_db() -> None:
     # Lazy import to avoid a circular dependency between engine.py and config.py
     # at module load (config imports settings which imports paths which...).
     from ..config import get_settings
+
     settings = get_settings()
 
     # SQLite default needs its parent directory created; Postgres URLs don't.
@@ -177,7 +178,8 @@ async def init_db() -> None:
     else:
         logger.info(
             "Initializing database (dialect=%s, driver=%s)",
-            engine.dialect.name, engine.dialect.driver,
+            engine.dialect.name,
+            engine.dialect.driver,
         )
 
     if settings.MIGRATIONS_AUTO_APPLY:
@@ -185,6 +187,7 @@ async def init_db() -> None:
         # Alembic uses a sync engine internally; run via to_thread so we
         # don't block the asyncio loop on the DDL transactions.
         import asyncio
+
         await asyncio.to_thread(_alembic_upgrade_head_sync)
     else:
         logger.info(
@@ -205,20 +208,22 @@ async def init_db() -> None:
     # resolved above for the autoApply gate).
     if settings.DISABLE_AUTH:
         from .models import User
+
         async with async_session_factory() as session:
             from sqlalchemy import select
-            existing = await session.execute(
-                select(User).where(User.id == "default")
-            )
+
+            existing = await session.execute(select(User).where(User.id == "default"))
             if not existing.scalar_one_or_none():
-                session.add(User(
-                    id="default",
-                    email="default@localhost",
-                    name="Default User",
-                    password_hash="disabled",
-                    role="admin",
-                    is_active=True,
-                ))
+                session.add(
+                    User(
+                        id="default",
+                        email="default@localhost",
+                        name="Default User",
+                        password_hash="disabled",
+                        role="admin",
+                        is_active=True,
+                    )
+                )
                 await session.commit()
                 logger.info("Created default user for auth-disabled mode")
 

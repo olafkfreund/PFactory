@@ -20,12 +20,16 @@ class DummyProcess:
     def __init__(self, return_code: int = 1):
         self.return_code = return_code
 
-    async def wait(self, timeout: float | None = None) -> int:  # pragma: no cover - signature parity
+    async def wait(
+        self, timeout: float | None = None
+    ) -> int:  # pragma: no cover - signature parity
         return self.return_code
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_triggers_failover_retry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rate_limit_triggers_failover_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ensure a detected rate limit forces a profile retry even when logs exist."""
     service = AgentService()
     task_id = "task-1"
@@ -35,10 +39,16 @@ async def test_rate_limit_triggers_failover_retry(tmp_path: Path, monkeypatch: p
     # Seed spec dir with a task log so the failure isn't classified as "early"
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
     spec_dir.mkdir(parents=True, exist_ok=True)
-    (spec_dir / "task_logs.json").write_text(json.dumps({"phases": {"planning": {"entries": [{"content": "log"}]}}}))
+    (spec_dir / "task_logs.json").write_text(
+        json.dumps({"phases": {"planning": {"entries": [{"content": "log"}]}}})
+    )
 
     # Track initial profile state and rate-limit detection
-    service._task_profiles[task_id] = {"profileId": "primary", "profileName": "Primary", "attempt": 1}  # noqa: SLF001
+    service._task_profiles[task_id] = {
+        "profileId": "primary",
+        "profileName": "Primary",
+        "attempt": 1,
+    }  # noqa: SLF001
     service._task_rate_limits[task_id] = True  # noqa: SLF001
 
     # Force failover path
@@ -56,15 +66,21 @@ async def test_rate_limit_triggers_failover_retry(tmp_path: Path, monkeypatch: p
     retry_mock.assert_awaited_once()
 
 
-def test_env_override_can_failover_when_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_env_override_can_failover_when_excluded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Exclude 'env-override' causes token resolution to fall back to stored profiles."""
     service = AgentService()
     service.settings.PROJECTS_DATA_DIR = str(tmp_path)
 
-    (tmp_path / "claude-profiles.json").write_text(json.dumps({
-        "activeProfileId": "p1",
-        "profiles": [{"id": "p1", "name": "Profile 1", "oauthToken": "sk-ant-oat01-test"}],
-    }))
+    (tmp_path / "claude-profiles.json").write_text(
+        json.dumps(
+            {
+                "activeProfileId": "p1",
+                "profiles": [{"id": "p1", "name": "Profile 1", "oauthToken": "sk-ant-oat01-test"}],
+            }
+        )
+    )
 
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-env")
 
@@ -72,12 +88,16 @@ def test_env_override_can_failover_when_excluded(tmp_path: Path, monkeypatch: py
     assert token == "sk-ant-oat01-env"
     assert profile_id == "env-override"
 
-    token, profile_id, profile_name = service._resolve_claude_token(exclude_profile_id="env-override")  # noqa: SLF001
+    token, profile_id, profile_name = service._resolve_claude_token(
+        exclude_profile_id="env-override"
+    )  # noqa: SLF001
     assert token == "sk-ant-oat01-test"
     assert profile_id == "p1"
 
 
-def test_should_retry_reads_primary_auto_switch_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_should_retry_reads_primary_auto_switch_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Primary auto-switch path (PROJECTS_DATA_DIR/auto-switch.json) enables failover."""
     service = AgentService()
     service.settings.PROJECTS_DATA_DIR = str(tmp_path)
@@ -88,7 +108,9 @@ def test_should_retry_reads_primary_auto_switch_file(tmp_path: Path, monkeypatch
     assert service._should_retry_with_failover() is True  # noqa: SLF001
 
 
-def test_should_retry_uses_legacy_auto_switch_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_should_retry_uses_legacy_auto_switch_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Legacy path ~/.pfactory/data/auto-switch.json is still honored when primary is missing."""
     # Point PROJECTS_DATA_DIR to a non-existent folder so only the legacy path is considered
     service = AgentService()
@@ -99,7 +121,9 @@ def test_should_retry_uses_legacy_auto_switch_path(tmp_path: Path, monkeypatch: 
 
     legacy_dir = tmp_path / ".pfactory" / "data"
     legacy_dir.mkdir(parents=True, exist_ok=True)
-    (legacy_dir / "auto-switch.json").write_text(json.dumps({"enabled": True, "autoSwitchOnRateLimit": True}))
+    (legacy_dir / "auto-switch.json").write_text(
+        json.dumps({"enabled": True, "autoSwitchOnRateLimit": True})
+    )
 
     assert service._should_retry_with_failover() is True  # noqa: SLF001
 
@@ -120,8 +144,8 @@ def test_rate_limit_updates_active_profile(tmp_path: Path, monkeypatch: pytest.M
         "activeProfileId": "primary",
         "profiles": [
             {"id": "primary", "name": "Primary Account", "oauthToken": "sk-ant-oat01-primary"},
-            {"id": "backup", "name": "Backup Account", "oauthToken": "sk-ant-oat01-backup"}
-        ]
+            {"id": "backup", "name": "Backup Account", "oauthToken": "sk-ant-oat01-backup"},
+        ],
     }
     profiles_file.write_text(json.dumps(profiles_data, indent=2))
 
@@ -140,7 +164,9 @@ def test_rate_limit_updates_active_profile(tmp_path: Path, monkeypatch: pytest.M
     assert profiles_file.stat().st_mode & 0o777 == 0o600
 
 
-def test_early_failure_does_not_update_active_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_early_failure_does_not_update_active_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify early failures don't update active profile (only rate limits do)."""
     service = AgentService()
 
@@ -155,8 +181,8 @@ def test_early_failure_does_not_update_active_profile(tmp_path: Path, monkeypatc
         "activeProfileId": "primary",
         "profiles": [
             {"id": "primary", "name": "Primary Account", "oauthToken": "sk-ant-oat01-primary"},
-            {"id": "backup", "name": "Backup Account", "oauthToken": "sk-ant-oat01-backup"}
-        ]
+            {"id": "backup", "name": "Backup Account", "oauthToken": "sk-ant-oat01-backup"},
+        ],
     }
     profiles_file.write_text(json.dumps(profiles_data, indent=2))
 
