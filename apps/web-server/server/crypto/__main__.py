@@ -81,16 +81,15 @@ def _cmd_rotate_root(args: argparse.Namespace) -> int:
         return 2
 
     backend_name = (
-        os.environ.get("APP_KMS_BACKEND")
-        or os.environ.get("KMS_BACKEND")
-        or "fernet"
-    ).strip().lower()
+        (os.environ.get("APP_KMS_BACKEND") or os.environ.get("KMS_BACKEND") or "fernet")
+        .strip()
+        .lower()
+    )
 
     key_env = _KEY_ENV_BY_BACKEND.get(backend_name)
     if key_env is None:
         print(
-            f"unknown backend {backend_name!r}; "
-            f"supported: {sorted(_KEY_ENV_BY_BACKEND)}",
+            f"unknown backend {backend_name!r}; supported: {sorted(_KEY_ENV_BY_BACKEND)}",
             file=sys.stderr,
         )
         return 2

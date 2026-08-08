@@ -41,12 +41,14 @@ PROJECT_WRITE_SCOPE = "project:write"
 TASK_WRITE_SCOPE = "task:write"
 TASK_MERGE_SCOPE = "task:merge"
 
-ALL_SCOPES = frozenset({
-    MCP_READ_SCOPE,
-    PROJECT_WRITE_SCOPE,
-    TASK_WRITE_SCOPE,
-    TASK_MERGE_SCOPE,
-})
+ALL_SCOPES = frozenset(
+    {
+        MCP_READ_SCOPE,
+        PROJECT_WRITE_SCOPE,
+        TASK_WRITE_SCOPE,
+        TASK_MERGE_SCOPE,
+    }
+)
 
 
 @dataclass(frozen=True)

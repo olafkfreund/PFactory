@@ -49,36 +49,42 @@ async def task_progress_websocket(websocket: WebSocket, task_id: str):
     try:
         # Send initial connection message with current status
         is_running = agent_service.is_running(task_id)
-        await websocket.send_json({
-            "type": "connected",
-            "task_id": task_id,
-            "is_running": is_running,
-            "message": "Connected to progress stream",
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "task_id": task_id,
+                "is_running": is_running,
+                "message": "Connected to progress stream",
+            }
+        )
 
         while True:
             try:
                 progress = await asyncio.wait_for(message_queue.get(), timeout=30.0)
 
-                await websocket.send_json({
-                    "type": "progress",
-                    "task_id": progress.task_id,
-                    "phase": progress.phase.value,
-                    "message": progress.message,
-                    "timestamp": progress.timestamp,
-                    "subtask": progress.subtask,
-                    "subtask_index": progress.subtask_index,
-                    "subtask_total": progress.subtask_total,
-                    "percentage": progress.percentage,
-                    "data": progress.data,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "progress",
+                        "task_id": progress.task_id,
+                        "phase": progress.phase.value,
+                        "message": progress.message,
+                        "timestamp": progress.timestamp,
+                        "subtask": progress.subtask,
+                        "subtask_index": progress.subtask_index,
+                        "subtask_total": progress.subtask_total,
+                        "percentage": progress.percentage,
+                        "data": progress.data,
+                    }
+                )
 
             except asyncio.TimeoutError:
                 # Send heartbeat
-                await websocket.send_json({
-                    "type": "heartbeat",
-                    "is_running": agent_service.is_running(task_id),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "heartbeat",
+                        "is_running": agent_service.is_running(task_id),
+                    }
+                )
 
     except WebSocketDisconnect:
         pass
@@ -118,11 +124,13 @@ async def all_progress_websocket(websocket: WebSocket):
     try:
         await update_subscriptions()
 
-        await websocket.send_json({
-            "type": "connected",
-            "running_tasks": agent_service.get_running_tasks(),
-            "message": "Connected to unified progress stream",
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "running_tasks": agent_service.get_running_tasks(),
+                "message": "Connected to unified progress stream",
+            }
+        )
 
         last_task_check = asyncio.get_event_loop().time()
 
@@ -130,18 +138,20 @@ async def all_progress_websocket(websocket: WebSocket):
             try:
                 progress = await asyncio.wait_for(message_queue.get(), timeout=5.0)
 
-                await websocket.send_json({
-                    "type": "progress",
-                    "task_id": progress.task_id,
-                    "phase": progress.phase.value,
-                    "message": progress.message,
-                    "timestamp": progress.timestamp,
-                    "subtask": progress.subtask,
-                    "subtask_index": progress.subtask_index,
-                    "subtask_total": progress.subtask_total,
-                    "percentage": progress.percentage,
-                    "data": progress.data,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "progress",
+                        "task_id": progress.task_id,
+                        "phase": progress.phase.value,
+                        "message": progress.message,
+                        "timestamp": progress.timestamp,
+                        "subtask": progress.subtask,
+                        "subtask_index": progress.subtask_index,
+                        "subtask_total": progress.subtask_total,
+                        "percentage": progress.percentage,
+                        "data": progress.data,
+                    }
+                )
 
             except asyncio.TimeoutError:
                 current_time = asyncio.get_event_loop().time()
@@ -149,10 +159,12 @@ async def all_progress_websocket(websocket: WebSocket):
                     await update_subscriptions()
                     last_task_check = current_time
 
-                await websocket.send_json({
-                    "type": "heartbeat",
-                    "running_tasks": agent_service.get_running_tasks(),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "heartbeat",
+                        "running_tasks": agent_service.get_running_tasks(),
+                    }
+                )
 
     except WebSocketDisconnect:
         pass

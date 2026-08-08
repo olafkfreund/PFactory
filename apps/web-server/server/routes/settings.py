@@ -54,7 +54,9 @@ class AppSettings(BaseModel):
     # BUG-4.1-005: Validate theme against allowed values
     theme: ThemeType = Field("dark", description="UI theme (dark/light/system)")
     # BUG-4.1-006: Validate colorTheme against allowed values
-    colorTheme: ColorThemeType | None = Field("ocean", description="Color theme (default/dusk/lime/ocean/retro/neo/forest)")
+    colorTheme: ColorThemeType | None = Field(
+        "ocean", description="Color theme (default/dusk/lime/ocean/retro/neo/forest)"
+    )
     language: str = Field("en", description="UI language code")
     # BUG-4.1-008: uiScale with min/max validation (75-200)
     uiScale: int | None = Field(125, ge=75, le=200, description="UI scale percentage (75-200)")
@@ -121,7 +123,9 @@ class AppSettings(BaseModel):
         description="Automatically run QA after implementation",
     )
     # Terminal - using camelCase with snake_case aliases
-    defaultShell: str = Field("/bin/bash", alias="default_shell", description="Default shell for terminals")
+    defaultShell: str = Field(
+        "/bin/bash", alias="default_shell", description="Default shell for terminals"
+    )
     terminalFontSize: int = Field(14, alias="terminal_font_size", description="Terminal font size")
     autoNameTerminals: bool = Field(True, description="Auto-generate terminal names")
 
@@ -132,10 +136,14 @@ class AppSettings(BaseModel):
     customTerminalPath: str | None = Field(None, description="Custom terminal path")
 
     # Integrations - using camelCase with snake_case aliases
-    githubEnabled: bool = Field(False, alias="github_enabled", description="Enable GitHub integration")
+    githubEnabled: bool = Field(
+        False, alias="github_enabled", description="Enable GitHub integration"
+    )
 
     # Memory - using camelCase with snake_case aliases
-    graphitiEnabled: bool = Field(True, alias="graphiti_enabled", description="Enable Graphiti memory")
+    graphitiEnabled: bool = Field(
+        True, alias="graphiti_enabled", description="Enable Graphiti memory"
+    )
     memoryEnabled: bool | None = Field(None, description="Enable memory system")
     # BUG-4.1-011: Validate memoryEmbeddingProvider against allowed values
     memoryEmbeddingProvider: MemoryEmbeddingProviderType | None = Field(
@@ -163,9 +171,13 @@ class AppSettings(BaseModel):
     autoUpdateAutoBuild: bool = Field(True, description="Auto-update PFactory source")
 
     # Global API keys
-    globalClaudeOAuthToken: str | None = Field(None, description="Global Claude OAuth token", repr=False)
+    globalClaudeOAuthToken: str | None = Field(
+        None, description="Global Claude OAuth token", repr=False
+    )
     globalOpenAIApiKey: str | None = Field(None, description="Global OpenAI API key", repr=False)
-    globalAnthropicApiKey: str | None = Field(None, description="Global Anthropic API key", repr=False)
+    globalAnthropicApiKey: str | None = Field(
+        None, description="Global Anthropic API key", repr=False
+    )
 
     # Onboarding
     onboardingCompleted: bool | None = Field(None, description="Whether onboarding is completed")
@@ -174,10 +186,18 @@ class AppSettings(BaseModel):
     betaUpdates: bool | None = Field(False, description="Opt into beta updates")
 
     # Email Notification OAuth Credentials (app-level, not per-user)
-    emailMicrosoftClientId: str | None = Field(None, description="Microsoft OAuth Client ID for email notifications")
-    emailMicrosoftClientSecret: str | None = Field(None, description="Microsoft OAuth Client Secret for email notifications", repr=False)
-    emailGoogleClientId: str | None = Field(None, description="Google OAuth Client ID for email notifications")
-    emailGoogleClientSecret: str | None = Field(None, description="Google OAuth Client Secret for email notifications", repr=False)
+    emailMicrosoftClientId: str | None = Field(
+        None, description="Microsoft OAuth Client ID for email notifications"
+    )
+    emailMicrosoftClientSecret: str | None = Field(
+        None, description="Microsoft OAuth Client Secret for email notifications", repr=False
+    )
+    emailGoogleClientId: str | None = Field(
+        None, description="Google OAuth Client ID for email notifications"
+    )
+    emailGoogleClientSecret: str | None = Field(
+        None, description="Google OAuth Client Secret for email notifications", repr=False
+    )
 
     # LLM Provider Settings (for AI features: changelog, insights)
     llmProvider: Literal["ollama", "anthropic", "openai"] | None = Field(
@@ -431,15 +451,13 @@ async def update_api_key(request: UpdateApiKeyRequest):
     valid_key_types = ["anthropic", "openai", "claude"]
     if request.keyType.lower() not in valid_key_types:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid keyType. Must be one of: {', '.join(valid_key_types)}"
+            status_code=400, detail=f"Invalid keyType. Must be one of: {', '.join(valid_key_types)}"
         )
 
     # Validate key format (basic validation)
     if not request.keyValue or len(request.keyValue) < 20:
         raise HTTPException(
-            status_code=400,
-            detail="API key appears invalid. Must be at least 20 characters."
+            status_code=400, detail="API key appears invalid. Must be at least 20 characters."
         )
 
     # Additional format validation based on key type
@@ -512,10 +530,7 @@ async def update_api_key(request: UpdateApiKeyRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update API key: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to update API key: {str(e)}")
 
 
 @router.get("/local-llm/detect")
@@ -586,10 +601,7 @@ async def detect_local_llm_providers():
             all_names = [l.split()[0] for l in model_lines if l.split()]
             # Filter out embedding/reranker models — only show chat LLMs
             _embed_kw = {"embed", "minilm", "bge", "gte", "e5", "rerank"}
-            model_names = [
-                n for n in all_names
-                if not any(kw in n.lower() for kw in _embed_kw)
-            ]
+            model_names = [n for n in all_names if not any(kw in n.lower() for kw in _embed_kw)]
             result["models"] = model_names
             result["modelCount"] = len(model_names)
             if model_names:
@@ -758,12 +770,14 @@ async def list_ollama_models(ollamaBaseUrl: str = Query(default="http://localhos
             if is_embedding_model(model["name"]):
                 continue
 
-            models.append({
-                "name": model["name"],
-                "size": model["size"],
-                "modified": model["modified_at"],
-                "details": details,
-            })
+            models.append(
+                {
+                    "name": model["name"],
+                    "size": model["size"],
+                    "modified": model["modified_at"],
+                    "details": details,
+                }
+            )
 
         return {"models": models}
     except Exception:
@@ -845,8 +859,7 @@ async def test_openai_compat_connection(request: OpenAICompatTestRequest):
         # Filter out embedding / reranker models (same keywords as the list endpoint)
         _embed_kw = {"embed", "embedding", "minilm", "bge", "gte", "e5", "rerank"}
         model_count = sum(
-            1 for m in raw_models
-            if not any(kw in m.get("id", "").lower() for kw in _embed_kw)
+            1 for m in raw_models if not any(kw in m.get("id", "").lower() for kw in _embed_kw)
         )
 
         return {
@@ -872,9 +885,7 @@ async def pull_ollama_model(
         # Stream the pull progress
         async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream(
-                "POST",
-                f"{ollamaBaseUrl}/api/pull",
-                json={"name": modelName}
+                "POST", f"{ollamaBaseUrl}/api/pull", json={"name": modelName}
             ) as response:
                 response.raise_for_status()
 
@@ -893,8 +904,7 @@ async def pull_ollama_model(
 
 @router.post("/ollama/test")
 async def test_ollama_connection(
-    ollamaBaseUrl: str = Body(..., embed=True),
-    modelName: str = Body(..., embed=True)
+    ollamaBaseUrl: str = Body(..., embed=True), modelName: str = Body(..., embed=True)
 ):
     """Test Ollama connection and model availability."""
     try:
@@ -966,15 +976,9 @@ async def save_tab_state(state: dict):
         tab_file.write_text(json.dumps(state, indent=2))
         return {"success": True}
     except OSError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to save tab state: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to save tab state: {str(e)}")
     except (TypeError, ValueError) as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid tab state data: {str(e)}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid tab state data: {str(e)}")
 
 
 # --------------------------------------------------------------------------
@@ -1020,9 +1024,7 @@ def load_profiles() -> dict:
             data = json.loads(profiles_file.read_text())
             # Normalize field names for backward compatibility
             if "profiles" in data:
-                data["profiles"] = [
-                    normalize_profile_fields(p) for p in data["profiles"]
-                ]
+                data["profiles"] = [normalize_profile_fields(p) for p in data["profiles"]]
             return data
         except json.JSONDecodeError:
             pass
@@ -1125,7 +1127,10 @@ async def save_claude_profile(profile: ClaudeProfile):
         if len(token) < 20:
             return {"success": False, "error": "Token must be at least 20 characters"}
         if not (token.startswith("sess-") or token.startswith("sk-ant-")):
-            return {"success": False, "error": "Invalid token format. Must start with 'sess-' or 'sk-ant-'"}
+            return {
+                "success": False,
+                "error": "Invalid token format. Must start with 'sess-' or 'sk-ant-'",
+            }
 
     data = load_profiles()
     profiles = data.get("profiles", [])
@@ -1199,9 +1204,7 @@ async def delete_claude_profile(profile_id: str):
                     "Removed OAuth fallback file after last Claude profile deleted"
                 )
             except OSError as e:
-                logging.getLogger(__name__).warning(
-                    f"Failed to remove OAuth fallback file: {e}"
-                )
+                logging.getLogger(__name__).warning(f"Failed to remove OAuth fallback file: {e}")
 
     return {"success": True}
 
@@ -1350,7 +1353,9 @@ def _poll_token_and_save(profile_id: str, logger: logging.Logger, mtime_before: 
                     if p.get("id") == profile_id:
                         # Only save if the profile doesn't already have this token
                         if p.get("oauthToken") == token:
-                            logger.info(f"[Claude OAuth] Profile {profile_id} already has this token, skipping")
+                            logger.info(
+                                f"[Claude OAuth] Profile {profile_id} already has this token, skipping"
+                            )
                             return
                         p["oauthToken"] = token
                         p.pop("token", None)  # remove legacy field if present
@@ -1433,7 +1438,10 @@ async def set_claude_profile_token(profile_id: str, request: SetTokenRequest):
 
         # Validate token length (Claude tokens are typically > 20 characters)
         if len(secret) < 20:
-            return {"success": False, "error": "Token appears invalid. Must be at least 20 characters."}
+            return {
+                "success": False,
+                "error": "Token appears invalid. Must be at least 20 characters.",
+            }
 
         # Validate token format (Claude session tokens start with 'sess-' or API keys with 'sk-ant-')
         token = secret.strip()
@@ -1483,7 +1491,8 @@ async def get_best_available_profile(exclude: str | None = None):
     # Filter to usable profiles (has token, not excluded)
     # Check both oauthToken (new field name) and token (old field name)
     usable = [
-        p for p in data.get("profiles", [])
+        p
+        for p in data.get("profiles", [])
         if p.get("id") != exclude and (p.get("oauthToken") or p.get("token"))
     ]
 
@@ -1508,12 +1517,20 @@ class AutoSwitchSettingsUpdate(BaseModel):
     """Model for updating auto-switch settings."""
 
     enabled: bool | None = None
-    threshold: int | None = Field(None, ge=0, le=100, description="Usage threshold percentage (0-100)")
+    threshold: int | None = Field(
+        None, ge=0, le=100, description="Usage threshold percentage (0-100)"
+    )
     proactiveSwapEnabled: bool | None = None  # Proactive monitoring toggle
     autoSwitchOnRateLimit: bool | None = None  # Reactive recovery on rate limit/errors
-    usageCheckInterval: int | None = Field(None, ge=0, description="Usage polling interval in ms (0 disables)")
-    sessionThreshold: int | None = Field(None, ge=0, le=100, description="Percent threshold for session usage")
-    weeklyThreshold: int | None = Field(None, ge=0, le=100, description="Percent threshold for weekly usage")
+    usageCheckInterval: int | None = Field(
+        None, ge=0, description="Usage polling interval in ms (0 disables)"
+    )
+    sessionThreshold: int | None = Field(
+        None, ge=0, le=100, description="Percent threshold for session usage"
+    )
+    weeklyThreshold: int | None = Field(
+        None, ge=0, le=100, description="Percent threshold for weekly usage"
+    )
 
 
 def get_auto_switch_file() -> Path:
@@ -1549,14 +1566,14 @@ async def get_auto_switch_settings():
 @router.patch("/auto-switch")
 async def update_auto_switch_settings(settings_update: AutoSwitchSettingsUpdate):
     """Update auto-switch settings with validation and secure storage.
-    
+
     Updates the auto-switch configuration which controls automatic profile switching
     based on usage thresholds. Settings are stored in auto-switch.json with secure
     file permissions.
-    
+
     Args:
         settings_update: Auto-switch settings update with optional enabled and threshold fields
-        
+
     Returns:
         Success response with updated settings or error details
     """
@@ -1581,21 +1598,21 @@ async def update_auto_switch_settings(settings_update: AutoSwitchSettingsUpdate)
                     "success": False,
                     "error": "Failed to parse existing auto-switch settings file",
                 }
-        
+
         # Update with new values (only non-None values from Pydantic model)
         update_dict = settings_update.model_dump(exclude_none=True)
         current.update(update_dict)
-        
+
         # Ensure parent directory exists
         auto_switch_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Write updated settings with pretty formatting
         auto_switch_file.write_text(json.dumps(current, indent=2))
-        
+
         # Set secure file permissions (owner read/write only)
         # Following security pattern from save_profiles() and other Phase 2/3 endpoints
         auto_switch_file.chmod(0o600)
-        
+
         return {"success": True, "data": current}
 
     except Exception:
@@ -1607,8 +1624,12 @@ class RetryWithProfileRequest(BaseModel):
     """Request model for retrying with a different profile."""
 
     profileId: str = Field(..., min_length=1, description="ID of the profile to switch to")
-    reason: str | None = Field(None, description="Reason for the switch (e.g., 'rate_limit', 'error')")
-    operationContext: dict | None = Field(None, description="Optional context about the failed operation")
+    reason: str | None = Field(
+        None, description="Reason for the switch (e.g., 'rate_limit', 'error')"
+    )
+    operationContext: dict | None = Field(
+        None, description="Optional context about the failed operation"
+    )
 
 
 @router.post("/retry-with-profile")
@@ -1850,8 +1871,12 @@ class ApiProfileModels(BaseModel):
     """Optional model mappings for API profile."""
 
     default: str | None = Field(None, description="Default model (maps to ANTHROPIC_MODEL)")
-    haiku: str | None = Field(None, description="Haiku model (maps to ANTHROPIC_DEFAULT_HAIKU_MODEL)")
-    sonnet: str | None = Field(None, description="Sonnet model (maps to ANTHROPIC_DEFAULT_SONNET_MODEL)")
+    haiku: str | None = Field(
+        None, description="Haiku model (maps to ANTHROPIC_DEFAULT_HAIKU_MODEL)"
+    )
+    sonnet: str | None = Field(
+        None, description="Sonnet model (maps to ANTHROPIC_DEFAULT_SONNET_MODEL)"
+    )
     opus: str | None = Field(None, description="Opus model (maps to ANTHROPIC_DEFAULT_OPUS_MODEL)")
 
 
@@ -1861,9 +1886,14 @@ class ApiProfileUpdate(BaseModel):
     All fields are optional to support partial updates. Only provided fields
     will be updated in the profile.
     """
-    name: str | None = Field(None, min_length=1, max_length=100, description="Profile name (1-100 characters)")
+
+    name: str | None = Field(
+        None, min_length=1, max_length=100, description="Profile name (1-100 characters)"
+    )
     baseUrl: str | None = Field(None, min_length=1, description="API endpoint URL")
-    apiKey: str | None = Field(None, min_length=20, description="API key (minimum 20 characters)", repr=False)
+    apiKey: str | None = Field(
+        None, min_length=20, description="API key (minimum 20 characters)", repr=False
+    )
     models: ApiProfileModels | None = Field(None, description="Optional model mappings")
 
 
@@ -1913,7 +1943,10 @@ async def update_api_profile(profile_id: str, profile_update: ApiProfileUpdate):
             if not name:
                 return {"success": False, "error": "Profile name cannot be empty"}
             if len(name) < 1 or len(name) > 100:
-                return {"success": False, "error": "Profile name must be between 1 and 100 characters"}
+                return {
+                    "success": False,
+                    "error": "Profile name must be between 1 and 100 characters",
+                }
 
             # Check for duplicate names (excluding current profile)
             for p in profiles:
@@ -1961,10 +1994,7 @@ async def update_api_profile(profile_id: str, profile_update: ApiProfileUpdate):
         # Save with secure permissions (0o600 - owner read/write only)
         save_api_profiles(data)
 
-        return {
-            "success": True,
-            "data": updated_profile
-        }
+        return {"success": True, "data": updated_profile}
 
     except Exception:
         logger.exception("Failed to update API profile %s", profile_id)
@@ -2081,7 +2111,7 @@ async def test_api_connection(request: TestConnectionRequest):
     try:
         req = urllib.request.Request(
             f"{request.baseUrl}/models",
-            headers={"Authorization": f"Bearer {request.apiKey.get_secret_value()}"}
+            headers={"Authorization": f"Bearer {request.apiKey.get_secret_value()}"},
         )
         urllib.request.urlopen(req, timeout=10)
         return {"success": True, "data": {"connected": True}}
@@ -2099,7 +2129,7 @@ async def discover_api_models(request: TestConnectionRequest):
     try:
         req = urllib.request.Request(
             f"{request.baseUrl}/models",
-            headers={"Authorization": f"Bearer {request.apiKey.get_secret_value()}"}
+            headers={"Authorization": f"Bearer {request.apiKey.get_secret_value()}"},
         )
         response = urllib.request.urlopen(req, timeout=10)
         data = json_module.loads(response.read().decode())
@@ -2117,11 +2147,22 @@ async def discover_api_models(request: TestConnectionRequest):
 
 class SourceEnvUpdate(BaseModel):
     """Model for updating PFactory source environment configuration."""
-    claudeToken: str | None = Field(None, description="Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN)", repr=False)
-    anthropicBaseUrl: str | None = Field(None, description="Custom Anthropic API endpoint (ANTHROPIC_BASE_URL)")
-    graphitiEnabled: bool | None = Field(None, description="Enable Graphiti memory system (GRAPHITI_ENABLED)")
-    githubToken: str | None = Field(None, description="GitHub personal access token (GITHUB_TOKEN)", repr=False)
-    openaiApiKey: str | None = Field(None, description="OpenAI API key for Graphiti (OPENAI_API_KEY)", repr=False)
+
+    claudeToken: str | None = Field(
+        None, description="Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN)", repr=False
+    )
+    anthropicBaseUrl: str | None = Field(
+        None, description="Custom Anthropic API endpoint (ANTHROPIC_BASE_URL)"
+    )
+    graphitiEnabled: bool | None = Field(
+        None, description="Enable Graphiti memory system (GRAPHITI_ENABLED)"
+    )
+    githubToken: str | None = Field(
+        None, description="GitHub personal access token (GITHUB_TOKEN)", repr=False
+    )
+    openaiApiKey: str | None = Field(
+        None, description="OpenAI API key for Graphiti (OPENAI_API_KEY)", repr=False
+    )
     debug: bool | None = Field(None, description="Enable debug mode (DEBUG)")
 
 
@@ -2188,15 +2229,11 @@ async def update_source_env(config: SourceEnvUpdate):
                     # Strip whitespace and validate token is not empty
                     value = value.strip()
                     if not value:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"{config_key} cannot be empty"
-                        )
+                        raise HTTPException(status_code=400, detail=f"{config_key} cannot be empty")
                     # Validate minimum token length for security
                     if len(value) < 10:
                         raise HTTPException(
-                            status_code=400,
-                            detail=f"{config_key} must be at least 10 characters"
+                            status_code=400, detail=f"{config_key} must be at least 10 characters"
                         )
                     existing[env_key] = value
                 else:
@@ -2258,14 +2295,10 @@ async def update_source_env(config: SourceEnvUpdate):
     except HTTPException:
         raise
     except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to parse existing .env file: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to parse existing .env file: {str(e)}")
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update source environment: {str(e)}"
+            status_code=500, detail=f"Failed to update source environment: {str(e)}"
         )
 
 
@@ -2314,7 +2347,9 @@ async def get_auth_status():
         try:
             result = subprocess.run(
                 ["bash", "-l", "-c", "which claude"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             claude_installed = result.returncode == 0
         except Exception:
@@ -2359,7 +2394,9 @@ async def import_claude_credentials():
         data = json.loads(cred_path.read_text())
         token = data.get("claudeAiOauth", {}).get("accessToken")
         if not token or not token.startswith("sk-ant-oat01-"):
-            raise HTTPException(status_code=400, detail="No valid OAuth token found in credentials file")
+            raise HTTPException(
+                status_code=400, detail="No valid OAuth token found in credentials file"
+            )
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid credentials file format")
 

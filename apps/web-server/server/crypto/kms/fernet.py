@@ -32,13 +32,12 @@ class FernetBackend:
     """
 
     NONCE_BYTES = 12  # AESGCM standard
-    KEY_BYTES = 32    # AES-256
+    KEY_BYTES = 32  # AES-256
 
     def __init__(self, root_key: bytes) -> None:
         if len(root_key) != self.KEY_BYTES:
             raise ValueError(
-                f"FernetBackend requires a {self.KEY_BYTES}-byte key "
-                f"(got {len(root_key)} bytes)"
+                f"FernetBackend requires a {self.KEY_BYTES}-byte key (got {len(root_key)} bytes)"
             )
         self._aead = AESGCM(root_key)
 
@@ -66,8 +65,7 @@ class FernetBackend:
     def decrypt(self, blob: bytes) -> bytes:
         if len(blob) < self.NONCE_BYTES + 16:  # +16 for GCM tag
             raise ValueError(
-                f"ciphertext too short: {len(blob)} bytes "
-                f"(min {self.NONCE_BYTES + 16})"
+                f"ciphertext too short: {len(blob)} bytes (min {self.NONCE_BYTES + 16})"
             )
         nonce, ciphertext = blob[: self.NONCE_BYTES], blob[self.NONCE_BYTES :]
         return self._aead.decrypt(nonce, ciphertext, associated_data=None)

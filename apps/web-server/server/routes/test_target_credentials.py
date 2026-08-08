@@ -49,9 +49,14 @@ class CreateTestCredentialRequest(BaseModel):
     username: str | None = Field(
         default=None, description="Plaintext username/identifier (not a secret on its own)."
     )
-    secret: SecretStr = Field(..., min_length=1, description="The secret material (password / API token / TOTP seed). Never logged, encrypted at rest, cannot be retrieved after creation.")
+    secret: SecretStr = Field(
+        ...,
+        min_length=1,
+        description="The secret material (password / API token / TOTP seed). Never logged, encrypted at rest, cannot be retrieved after creation.",
+    )
     extra: dict | None = Field(
-        default=None, description="Optional kind-specific fields, e.g. {'otp_period': 30}. Encrypted."
+        default=None,
+        description="Optional kind-specific fields, e.g. {'otp_period': 30}. Encrypted.",
     )
 
 
@@ -75,9 +80,7 @@ class TestCredentialResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-async def _verify_org_membership(
-    db: AsyncSession, user: User, org_id: str
-) -> OrgMember:
+async def _verify_org_membership(db: AsyncSession, user: User, org_id: str) -> OrgMember:
     """Raise 403 unless the user belongs to the org."""
     result = await db.execute(
         select(OrgMember).where(
@@ -182,9 +185,7 @@ async def delete_test_credential(
     # Creator or any org member can delete (permissive in v1, matches
     # git-credentials; tighter ACL is a follow-up).
     await _verify_org_membership(db, current_user, cred.org_id)
-    await db.execute(
-        sql_delete(TestTargetCredential).where(TestTargetCredential.id == cred_id)
-    )
+    await db.execute(sql_delete(TestTargetCredential).where(TestTargetCredential.id == cred_id))
     await db.commit()
     logger.info(
         "test credential deleted: id=%s name=%s by=%s",

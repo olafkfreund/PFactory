@@ -97,12 +97,9 @@ class TerminalWorktreeService:
         # Create the worktree
         if create_git_branch:
             # Create worktree with new branch
-            self._run_git_command([
-                "git", "worktree", "add",
-                "-b", branch_name,
-                str(worktree_path),
-                base_branch
-            ])
+            self._run_git_command(
+                ["git", "worktree", "add", "-b", branch_name, str(worktree_path), base_branch]
+            )
         else:
             # Create worktree directory without git branch (just a regular directory)
             worktree_path.mkdir(parents=True, exist_ok=True)
@@ -180,6 +177,7 @@ class TerminalWorktreeService:
                 # If git worktree remove fails, force remove the directory
                 if worktree_path.exists():
                     import shutil
+
                     shutil.rmtree(worktree_path)
 
             # Delete branch if requested
@@ -198,6 +196,7 @@ class TerminalWorktreeService:
             # Just remove the directory if it's not a git worktree
             if worktree_path.exists():
                 import shutil
+
                 shutil.rmtree(worktree_path)
 
         # Remove from config
@@ -311,18 +310,13 @@ class TerminalWorktreeService:
         """
         try:
             result = self._run_git_command(
-                ["git", "rev-parse", "--verify", f"refs/heads/{branch_name}"],
-                check=False
+                ["git", "rev-parse", "--verify", f"refs/heads/{branch_name}"], check=False
             )
             return result.returncode == 0
         except subprocess.CalledProcessError:
             return False
 
-    def _run_git_command(
-        self,
-        cmd: List[str],
-        check: bool = True
-    ) -> subprocess.CompletedProcess:
+    def _run_git_command(self, cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
         """Run a git command in the project directory.
 
         Args:
@@ -336,9 +330,5 @@ class TerminalWorktreeService:
             subprocess.CalledProcessError: If check=True and command fails
         """
         return subprocess.run(
-            cmd,
-            cwd=self.project_path,
-            capture_output=True,
-            check=check,
-            text=True
+            cmd, cwd=self.project_path, capture_output=True, check=check, text=True
         )

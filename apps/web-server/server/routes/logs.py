@@ -4,7 +4,6 @@ Log viewing and management routes.
 Provides API endpoints to view, search, and manage application logs.
 """
 
-
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
@@ -94,14 +93,13 @@ async def list_log_files():
             "path": str(path) if path else "",
             "exists": path.exists() if path else False,
             "size": path.stat().st_size if path and path.exists() else 0,
-            "size_human": _human_readable_size(path.stat().st_size) if path and path.exists() else "0 B",
+            "size_human": _human_readable_size(path.stat().st_size)
+            if path and path.exists()
+            else "0 B",
         }
         files.append(file_info)
 
-    return LogFilesResponse(
-        files=files,
-        log_dir=str(LOG_DIR)
-    )
+    return LogFilesResponse(files=files, log_dir=str(LOG_DIR))
 
 
 @router.post("/frontend", response_model=FrontendLogsResponse)
@@ -117,7 +115,7 @@ async def receive_frontend_logs(request: FrontendLogsRequest):
     if not frontend_log:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Frontend log file not configured"
+            detail="Frontend log file not configured",
         )
 
     # Ensure log directory exists
@@ -130,6 +128,7 @@ async def receive_frontend_logs(request: FrontendLogsRequest):
                 data_str = ""
                 if entry.data:
                     import json
+
                     data_str = f" | {json.dumps(entry.data)}"
 
                 stack_str = ""
@@ -140,14 +139,11 @@ async def receive_frontend_logs(request: FrontendLogsRequest):
                 log_line = f"{entry.timestamp} | {entry.level.upper():<5} | {entry.category} | {entry.message}{data_str}{stack_str}\n"
                 f.write(log_line)
 
-        return FrontendLogsResponse(
-            success=True,
-            received=len(request.entries)
-        )
+        return FrontendLogsResponse(success=True, received=len(request.entries))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to write frontend logs: {e}"
+            detail=f"Failed to write frontend logs: {e}",
         )
 
 
@@ -155,7 +151,9 @@ async def receive_frontend_logs(request: FrontendLogsRequest):
 async def get_logs(
     log_type: str,
     lines: int = Query(100, ge=1, le=10000, description="Number of lines to return"),
-    level: str | None = Query(None, description="Filter by log level (DEBUG, INFO, WARNING, ERROR)"),
+    level: str | None = Query(
+        None, description="Filter by log level (DEBUG, INFO, WARNING, ERROR)"
+    ),
 ):
     """
     Get recent log entries from a specific log file.
@@ -170,7 +168,7 @@ async def get_logs(
     if log_type not in log_files:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown log type: {log_type}. Available: {list(log_files.keys())}"
+            detail=f"Unknown log type: {log_type}. Available: {list(log_files.keys())}",
         )
 
     entries = get_recent_logs(log_type, lines, level)
@@ -179,7 +177,7 @@ async def get_logs(
         entries=[LogEntry(**e) for e in entries],
         total=len(entries),
         log_type=log_type,
-        log_file=str(log_files[log_type])
+        log_file=str(log_files[log_type]),
     )
 
 
@@ -194,7 +192,7 @@ async def get_raw_logs(
     if log_type not in log_files:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown log type: {log_type}. Available: {list(log_files.keys())}"
+            detail=f"Unknown log type: {log_type}. Available: {list(log_files.keys())}",
         )
 
     log_file = log_files[log_type]
@@ -209,7 +207,7 @@ async def get_raw_logs(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read log file: {e}"
+            detail=f"Failed to read log file: {e}",
         )
 
 
@@ -221,15 +219,12 @@ async def download_logs(log_type: str):
     if log_type not in log_files:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown log type: {log_type}. Available: {list(log_files.keys())}"
+            detail=f"Unknown log type: {log_type}. Available: {list(log_files.keys())}",
         )
 
     log_file = log_files[log_type]
     if not log_file.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Log file does not exist"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Log file does not exist")
 
     def iter_file():
         with open(log_file, "rb") as f:
@@ -239,9 +234,7 @@ async def download_logs(log_type: str):
     return StreamingResponse(
         iter_file(),
         media_type="text/plain",
-        headers={
-            "Content-Disposition": f'attachment; filename="{log_file.name}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{log_file.name}"'},
     )
 
 
@@ -253,20 +246,18 @@ async def clear_log_file(log_type: str):
     if log_type not in log_files:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown log type: {log_type}. Available: {list(log_files.keys())}"
+            detail=f"Unknown log type: {log_type}. Available: {list(log_files.keys())}",
         )
 
     success = clear_logs(log_type)
 
     if success:
         return ClearLogsResponse(
-            success=True,
-            message=f"Log file '{log_type}' cleared successfully"
+            success=True, message=f"Log file '{log_type}' cleared successfully"
         )
     else:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to clear log file"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to clear log file"
         )
 
 
@@ -276,14 +267,10 @@ async def clear_all_logs():
     success = clear_logs()
 
     if success:
-        return ClearLogsResponse(
-            success=True,
-            message="All log files cleared successfully"
-        )
+        return ClearLogsResponse(success=True, message="All log files cleared successfully")
     else:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to clear log files"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to clear log files"
         )
 
 

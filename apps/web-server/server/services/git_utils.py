@@ -158,6 +158,4 @@ def confine_to_workspace(value: object, field: str = "path") -> Path:
     for root in roots:
         if resolved == root or root in resolved.parents:
             return resolved
-    raise ValueError(
-        f"invalid {field}: {str(value)[:120]!r} is outside the allowed workspace"
-    )
+    raise ValueError(f"invalid {field}: {str(value)[:120]!r} is outside the allowed workspace")

@@ -47,7 +47,7 @@ def _parse_clarification_json(raw: str) -> dict:
                 depth -= 1
                 if depth == 0:
                     try:
-                        parsed = json.loads(cleaned[start:i + 1])
+                        parsed = json.loads(cleaned[start : i + 1])
                         if isinstance(parsed, dict):
                             return _validate_response(parsed)
                     except json.JSONDecodeError:
@@ -69,18 +69,24 @@ def _validate_response(parsed: dict) -> dict:
             if isinstance(q, dict) and q.get("question"):
                 # Parse options (2-4 string choices)
                 raw_options = q.get("options", [])
-                options = [str(o).strip() for o in raw_options if isinstance(o, str) and o.strip()][:4]
-                valid_questions.append({
-                    "id": str(q.get("id", f"q{i + 1}")),
-                    "question": str(q["question"]).strip(),
-                    "options": options,
-                })
+                options = [str(o).strip() for o in raw_options if isinstance(o, str) and o.strip()][
+                    :4
+                ]
+                valid_questions.append(
+                    {
+                        "id": str(q.get("id", f"q{i + 1}")),
+                        "question": str(q["question"]).strip(),
+                        "options": options,
+                    }
+                )
             elif isinstance(q, str):
-                valid_questions.append({
-                    "id": f"q{i + 1}",
-                    "question": q.strip(),
-                    "options": [],
-                })
+                valid_questions.append(
+                    {
+                        "id": f"q{i + 1}",
+                        "question": q.strip(),
+                        "options": [],
+                    }
+                )
 
     # If no valid questions and not explicitly skipped, skip anyway
     if not valid_questions and not skip:
@@ -158,6 +164,7 @@ async def generate_clarification_questions(
 
     # Scrub ANTHROPIC_API_KEY (OAuth-only policy — see core/auth.py).
     from ..utils.subprocess_env import make_subprocess_env
+
     env = make_subprocess_env()
     env["PYTHONUNBUFFERED"] = "1"
     env.pop("CLAUDECODE", None)

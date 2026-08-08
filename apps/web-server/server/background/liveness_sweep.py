@@ -41,9 +41,7 @@ def run_one_sweep(deadline_seconds: float | None = None) -> list:
     for spec_dir, verdict in stalled:
         logger.warning("liveness: flagged %s as stalled (%s)", spec_dir, verdict.reason)
     if results:
-        logger.info(
-            "liveness sweep: %d task(s) checked, %d stalled", len(results), len(stalled)
-        )
+        logger.info("liveness sweep: %d task(s) checked, %d stalled", len(results), len(stalled))
     return results
 
 

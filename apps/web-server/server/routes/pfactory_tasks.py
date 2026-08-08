@@ -88,9 +88,7 @@ def _validate_spec_id(spec_id: str) -> None:
     try:
         safe_spec_component(spec_id)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from None
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
 
 
 def _find_spec_dir(root: Path, spec_id: str) -> Path | None:
@@ -234,7 +232,9 @@ def get_task(spec_id: str) -> dict:
 
 
 def _serve_artefact_file(
-    spec_id: str, relpath: str, media_type: str,
+    spec_id: str,
+    relpath: str,
+    media_type: str,
 ) -> Response:
     """Locate ``spec_id`` and serve the file at ``spec_dir/relpath``.
 
@@ -270,7 +270,9 @@ def _serve_artefact_file(
 def get_verdicts(spec_id: str) -> Response:
     """Stream the Evaluator's verdicts.json verbatim."""
     return _serve_artefact_file(
-        spec_id, "findings/verdicts.json", "application/json",
+        spec_id,
+        "findings/verdicts.json",
+        "application/json",
     )
 
 
@@ -278,7 +280,9 @@ def get_verdicts(spec_id: str) -> Response:
 def get_triage_report_json(spec_id: str) -> Response:
     """Stream the Triager's triage_report.json verbatim."""
     return _serve_artefact_file(
-        spec_id, "findings/triage_report.json", "application/json",
+        spec_id,
+        "findings/triage_report.json",
+        "application/json",
     )
 
 
@@ -286,7 +290,9 @@ def get_triage_report_json(spec_id: str) -> Response:
 def get_triage_report_md(spec_id: str) -> Response:
     """Stream the Triager's triage_report.md verbatim."""
     return _serve_artefact_file(
-        spec_id, "findings/triage_report.md", "text/markdown",
+        spec_id,
+        "findings/triage_report.md",
+        "text/markdown",
     )
 
 
@@ -294,7 +300,9 @@ def get_triage_report_md(spec_id: str) -> Response:
 def get_test_plan(spec_id: str) -> Response:
     """Stream the Planner's test_plan.json verbatim."""
     return _serve_artefact_file(
-        spec_id, "test_plan.json", "application/json",
+        spec_id,
+        "test_plan.json",
+        "application/json",
     )
 
 
@@ -303,7 +311,9 @@ def get_pr_comment_body(spec_id: str) -> Response:
     """Stream findings/pr_comment_body.md — present when the Triager
     skipped a real gh pr comment (no PR number in source.json)."""
     return _serve_artefact_file(
-        spec_id, "findings/pr_comment_body.md", "text/markdown",
+        spec_id,
+        "findings/pr_comment_body.md",
+        "text/markdown",
     )
 
 
@@ -390,10 +400,7 @@ def tail_log_payload(spec_id: str, lines_per_file: int = DEFAULT_LOG_TAIL_LINES)
         )
 
     files = _resolve_log_files(spec_dir)
-    payload_files = {
-        name: _tail_lines(path, lines_per_file)
-        for name, path in files.items()
-    }
+    payload_files = {name: _tail_lines(path, lines_per_file) for name, path in files.items()}
     return {
         "spec_id": spec_id,
         "captured_at": datetime.utcnow().isoformat(timespec="seconds") + "+00:00",
@@ -590,7 +597,10 @@ def get_evidence_artifact(spec_id: str, test_id: str, artifact: str) -> Response
     try:
         resolved = artifact_path.resolve()
         evidence_base_resolved = evidence_base.resolve()
-        if not str(resolved).startswith(str(evidence_base_resolved) + "/") and resolved != evidence_base_resolved:
+        if (
+            not str(resolved).startswith(str(evidence_base_resolved) + "/")
+            and resolved != evidence_base_resolved
+        ):
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail=f"path traversal rejected: {artifact!r}",
@@ -660,7 +670,9 @@ def merge_accepted_tests(spec_id: str, body: MergeRequest) -> dict[str, Any]:
     source = _read_json(spec_dir / "context" / "source.json") or {}
     branch = (body.target_branch or source.get("branch") or "").strip()
     if not branch:
-        raise HTTPException(status_code=400, detail="no target branch (set target_branch or context/source.json)")
+        raise HTTPException(
+            status_code=400, detail="no target branch (set target_branch or context/source.json)"
+        )
 
     files: list[tuple[str, str]] = []
     for v in selected:
@@ -683,10 +695,14 @@ def merge_accepted_tests(spec_id: str, body: MergeRequest) -> dict[str, Any]:
         files.append((rel, content))
 
     if not files:
-        raise HTTPException(status_code=400, detail="no readable test files for the selected verdicts")
+        raise HTTPException(
+            status_code=400, detail="no readable test files for the selected verdicts"
+        )
 
     if not body.dry_run and not body.repo_dir:
-        raise HTTPException(status_code=400, detail="repo_dir is required for a real (non-dry-run) merge")
+        raise HTTPException(
+            status_code=400, detail="repo_dir is required for a real (non-dry-run) merge"
+        )
     repo_dir = Path(body.repo_dir) if body.repo_dir else spec_dir
 
     from tools.git_writer import GitWriteRequest, write_tests_to_branch
@@ -768,9 +784,7 @@ def list_visual_baselines(spec_id: str, target: str) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "target": target,
-        "baselines": [
-            {"snapshot": e.snapshot, "sizeBytes": e.size_bytes} for e in entries
-        ],
+        "baselines": [{"snapshot": e.snapshot, "sizeBytes": e.size_bytes} for e in entries],
     }
 
 

@@ -25,12 +25,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # audit_logs: retention_until + prev_hash + index on retention_until.
     with op.batch_alter_table("audit_logs") as batch:
-        batch.add_column(
-            sa.Column("retention_until", sa.DateTime(), nullable=True)
-        )
-        batch.add_column(
-            sa.Column("prev_hash", sa.String(length=64), nullable=True)
-        )
+        batch.add_column(sa.Column("retention_until", sa.DateTime(), nullable=True))
+        batch.add_column(sa.Column("prev_hash", sa.String(length=64), nullable=True))
         batch.create_index(
             "ix_audit_logs_retention_until",
             ["retention_until"],
@@ -38,9 +34,7 @@ def upgrade() -> None:
 
     # users: gdpr_erased_at + relax PII columns to nullable for erasure.
     with op.batch_alter_table("users") as batch:
-        batch.add_column(
-            sa.Column("gdpr_erased_at", sa.DateTime(), nullable=True)
-        )
+        batch.add_column(sa.Column("gdpr_erased_at", sa.DateTime(), nullable=True))
         batch.alter_column(
             "email",
             existing_type=sa.String(length=255),

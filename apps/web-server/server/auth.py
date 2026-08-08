@@ -91,6 +91,7 @@ def _is_legacy_api_token(token: str) -> bool:
         return False
     return hmac.compare_digest(token, configured)
 
+
 logger = logging.getLogger(__name__)
 
 # Bearer token security scheme for OpenAPI docs
@@ -144,9 +145,7 @@ async def _try_authenticate_api_key(token: str) -> dict | None:
     digest = _hash_api_key(token)
     # Stored form is ``<8-char-preview>$<sha256-hex>`` — match the part after $.
     async for session in get_db():
-        result = await session.execute(
-            select(ApiKey).where(ApiKey.key_hash.like(f"%${digest}"))
-        )
+        result = await session.execute(select(ApiKey).where(ApiKey.key_hash.like(f"%${digest}")))
         api_key = result.scalar_one_or_none()
         if api_key is None:
             return None

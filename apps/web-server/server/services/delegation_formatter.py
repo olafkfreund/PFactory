@@ -110,9 +110,7 @@ def _collect_acceptance_criteria(plan: dict) -> list[str]:
     # Per-subtask criteria fall in as fallback if the plan has no top-level set.
     if not out:
         for subtask in _iter_subtasks(plan):
-            sub_crit = subtask.get("acceptance_criteria") or subtask.get(
-                "acceptanceCriteria"
-            )
+            sub_crit = subtask.get("acceptance_criteria") or subtask.get("acceptanceCriteria")
             if isinstance(sub_crit, list):
                 out.extend(str(c) for c in sub_crit if c)
     # Dedupe preserving order.

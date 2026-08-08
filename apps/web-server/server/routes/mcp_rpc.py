@@ -106,7 +106,10 @@ MCP_TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "The plan's correlation key (shared across factories).",
                 },
-                "issue_number": {"type": "integer", "description": "Emitted GitHub epic issue number"},
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Emitted GitHub epic issue number",
+                },
                 "session_id": {"type": "string", "description": "PFactory plan session id"},
             },
         },
@@ -209,9 +212,7 @@ def _tool_get_requirements(args: dict[str, Any]) -> dict[str, Any]:
         "description": plan.description,
         "target_kind": plan.target_kind,
         "plan_type": plan.plan_type,
-        "acceptance_criteria": [
-            {"id": c.id, "text": c.text} for c in plan.criteria
-        ],
+        "acceptance_criteria": [{"id": c.id, "text": c.text} for c in plan.criteria],
     }
 
 
@@ -334,11 +335,14 @@ def _err(req_id: Any, code: int, message: str) -> dict[str, Any]:
 def _dispatch(method: str, params: dict[str, Any], req_id: Any) -> dict[str, Any] | None:
     """Handle a single JSON-RPC request object. Returns None for notifications."""
     if method == "initialize":
-        return _ok(req_id, {
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-        })
+        return _ok(
+            req_id,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+            },
+        )
 
     if method in ("notifications/initialized", "initialized"):
         return None  # notification — no response
