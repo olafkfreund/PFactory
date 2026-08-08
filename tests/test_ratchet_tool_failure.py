@@ -94,6 +94,41 @@ def test_ruff_violations_are_still_counted(monkeypatch: pytest.MonkeyPatch) -> N
     assert rl.ruff_counts("x = 1\n", "apps/backend/pfactory/prod.py")["S101"] == 2
 
 
+def test_ruff_writing_nothing_at_all_exits_rather_than_counting_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Factory#648: empty stdout was never the clean case.
+
+    A clean run prints `[]`. Empty stdout on an exit-0 run is ruff having
+    written no report, and the `return Counter()` that used to sit here counted
+    it as perfection -- the same nothing-reads-as-clean defect Factory#590
+    closed one exit code over, which `require_tool_ran` cannot reach because the
+    process exited 0.
+
+    This is the WIRING proof: that this fork routes its parse through
+    `ratchet_helpers.ruff_findings` rather than restating it. No byte comparison
+    can see a restatement, which is why the rule is also registered in the hub
+    gate's _REQUIRED_RATCHET_RULES.
+    """
+    _stub_ruff(monkeypatch, _Res(0, stdout="   \n"))
+    with pytest.raises(SystemExit) as exc:
+        rl.ruff_counts("x = 1\n", "apps/backend/pfactory/prod.py")
+    assert exc.value.code == 2
+
+
+def test_ruff_output_that_is_not_json_exits_rather_than_counting_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Factory#648: with `fix = true` reachable in a config ruff writes the FIXED
+    # SOURCE to stdout and exits 0, so the parse would read Python as findings.
+    # The canonical now says so; this used to be a bare `except` with no message.
+    _stub_ruff(monkeypatch, _Res(0, stdout="import os\n\nx = 1\n"))
+    with pytest.raises(SystemExit) as exc:
+        rl.ruff_counts("x = 1\n", "apps/backend/pfactory/prod.py")
+    assert exc.value.code == 2
+    assert "not the JSON finding list" in capsys.readouterr().err
+
+
 # --------------------------------------------------------------------------- #
 # mypy                                                                         #
 # --------------------------------------------------------------------------- #
