@@ -6,7 +6,7 @@ FACADE MODULE: This module re-exports all functionality from the
 pfactory/project/ package for backward compatibility.
 
 The implementation has been refactored into focused modules:
-- project/command_registry.py - Command registries
+- project/command_registry/ - Command registries (a package, not a module)
 - project/models.py - Data structures
 - project/config_parser.py - Config file parsing
 - project/stack_detector.py - Stack detection
