@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """
-Workspace Management - Per-Spec Architecture
-=============================================
+Workspace merge operations (intent-aware merge, conflict resolution, AI merge).
 
-Handles workspace isolation through Git worktrees, where each spec
-gets its own isolated worktree in .pfactory/worktrees/tasks/{spec-name}/.
+Part of the ``core.workspace`` package, alongside:
+- Models and enums: ``models.py``
+- Git utilities: ``git_utils.py``
+- Setup functions: ``setup.py``
+- Display functions: ``display.py``
+- Finalization: ``finalization.py``
 
-This module has been refactored for better maintainability:
-- Models and enums: workspace/models.py
-- Git utilities: workspace/git_utils.py
-- Setup functions: workspace/setup.py
-- Display functions: workspace/display.py
-- Finalization: workspace/finalization.py
-- Complex merge operations: remain here (workspace.py)
+Public API is re-exported from ``__init__.py``.
 
-Public API is exported via workspace/__init__.py for backward compatibility.
+This file used to live at ``core/workspace.py``, BESIDE the package rather than
+inside it — where Python could not load it at all, because a package always wins
+over a same-named module. ``__init__.py`` reached around that with
+``importlib.util.spec_from_file_location`` and executed the file under the
+separate name ``workspace_module``, so 55K of merge logic ran under a second
+module identity that no static tool could follow: mypy, ruff's import rules,
+IDE go-to-definition and every dead-code check saw a file nothing imported,
+while a whole-package mypy run aborted on the duplicate name having checked
+nothing. Moving it inside the package makes the import ordinary (PFactory#477).
 """
 
 import subprocess
@@ -70,41 +75,41 @@ except ImportError:
 
 
 # Import merge system
-from core.workspace.display import (
+from .display import (
     print_conflict_info as _print_conflict_info,
 )
-from core.workspace.display import (
+from .display import (
     print_merge_success as _print_merge_success,
 )
-from core.workspace.display import (
+from .display import (
     show_build_summary,
 )
-from core.workspace.git_utils import (
+from .git_utils import (
     MAX_PARALLEL_AI_MERGES,
     _is_magestic_ai_file,
     get_existing_build_worktree,
 )
-from core.workspace.git_utils import (
+from .git_utils import (
     apply_path_mapping as _apply_path_mapping,
 )
-from core.workspace.git_utils import (
+from .git_utils import (
     detect_file_renames as _detect_file_renames,
 )
-from core.workspace.git_utils import (
+from .git_utils import (
     get_changed_files_from_branch as _get_changed_files_from_branch,
 )
-from core.workspace.git_utils import (
+from .git_utils import (
     get_file_content_from_ref as _get_file_content_from_ref,
 )
-from core.workspace.git_utils import (
+from .git_utils import (
     is_lock_file as _is_lock_file,
 )
-from core.workspace.git_utils import (
+from .git_utils import (
     validate_merged_syntax as _validate_merged_syntax,
 )
 
 # Import from refactored modules in core/workspace/
-from core.workspace.models import (
+from .models import (
     MergeLock,
     MergeLockError,
     ParallelMergeResult,

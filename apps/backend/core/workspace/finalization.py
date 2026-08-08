@@ -414,8 +414,8 @@ def check_existing_build(project_dir: Path, spec_name: str) -> bool:
         print_status("Cancelled.", "info")
         sys.exit(0)
 
-    # Import merge function only when needed to avoid circular imports
-    # merge_existing_build is in the parent workspace.py module
+    # Import merge function only when needed to avoid circular imports.
+    # `workspace` here is the top-level re-export module, not this package.
     import workspace as ws
 
     if choice == "continue":
