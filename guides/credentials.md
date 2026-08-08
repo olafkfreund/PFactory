@@ -89,8 +89,8 @@ or `~/.config/sops/age/keys.txt`.
 - **Default: OFF.** With no `egress.enabled`, the broker resolves **no** cloud
   credentials. Local backends (`env`, `localfile`) never egress.
 - **`python -m pfactory_secrets.cli audit`** prints a secret-free manifest:
-  every credential, its backend, its egress class + badge (🔒 local / 🏠
-  self-hosted / ☁️ managed cloud), and the declared destinations.
+  every credential, its backend, its egress class + badge (LOCAL /
+  SELF-HOSTED / MANAGED CLOUD), and the declared destinations.
 - Resolved secret **values are never written to disk unencrypted** (file creds
   are 0600 in a per-task scratch dir, wiped on task end) and are **redacted from
   logs** (`pfactory_secrets.redaction`).

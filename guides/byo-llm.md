@@ -19,7 +19,7 @@ export PFACTORY_MODEL="ollama:qwen3:14b"     # or set per-phase in settings
 # 2. Verify the data-egress posture BEFORE running anything
 cd apps/backend
 python byo_llm.py "$PFACTORY_MODEL"
-#   → "🔒 Local — no data egress"   (exit 0)
+#   → "LOCAL - endpoint is on your network"   (exit 0)
 
 # 3. Run the pipeline as usual — no API key, no egress.
 ```
@@ -61,7 +61,7 @@ export OPENAI_COMPATIBLE_BASE_URL="http://localhost:8000/v1"
 export OPENAI_COMPATIBLE_API_KEY="not-needed-but-some-servers-want-a-token"
 export PFACTORY_MODEL="openai-compatible:Qwen/Qwen2.5-Coder-32B-Instruct"
 
-python apps/backend/byo_llm.py "$PFACTORY_MODEL"   # → 🔒 Local
+python apps/backend/byo_llm.py "$PFACTORY_MODEL"   # → LOCAL
 ```
 
 ## How egress is classified
@@ -84,7 +84,7 @@ Only **LOCAL** sets `keeps_data_local = True`.
 ## Air-gapped checklist
 
 - [ ] Model served locally (Ollama / vLLM / LM Studio / LocalAI).
-- [ ] `python byo_llm.py "$MODEL"` prints **🔒 Local** and exits 0.
+- [ ] `python byo_llm.py "$MODEL"` prints **LOCAL** and exits 0.
 - [ ] No `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / cloud creds in the env.
 - [ ] Pull the runner Docker images ahead of time (the executor sandbox runs
       `--network=none`, so test execution is already offline).
