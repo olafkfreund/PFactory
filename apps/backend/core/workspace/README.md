@@ -77,16 +77,19 @@ Post-build finalization and user interaction:
 - `list_all_worktrees()` - List all spec worktrees
 - `cleanup_all_worktrees()` - Clean up all worktrees
 
-### workspace.py (parent module)
-Complex merge operations that remain in the main file:
+### merge.py
+Complex merge operations:
 - `merge_existing_build()` - Merge existing build with intent-aware logic
 - AI-assisted merge functions (async operations)
 - Parallel merge orchestration
 - Git conflict resolution
 - Heuristic merge strategies
 
-These functions are tightly coupled and reference each other extensively, making them
-difficult to extract without significant refactoring of the merge system itself.
+These functions are tightly coupled and reference each other extensively, so they
+live in one module rather than being split further. Until PFactory#477 that
+module sat OUTSIDE this package as `core/workspace.py`, where Python could not
+load it — a package always wins over a same-named module — and `__init__.py`
+executed it by path via importlib under the name `workspace_module`.
 
 ## Usage
 
@@ -110,11 +113,11 @@ from workspace.display import show_build_summary
 from workspace.finalization import review_existing_build
 ```
 
-### Import merge operations from parent
+### Import merge operations
 ```python
-# merge_existing_build is in the parent workspace.py module
-import workspace
-workspace.merge_existing_build(project_dir, spec_name)
+# Re-exported from the package, like everything else here.
+from workspace import merge_existing_build
+merge_existing_build(project_dir, spec_name)
 ```
 
 ## Backward Compatibility

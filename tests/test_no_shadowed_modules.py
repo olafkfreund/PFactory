@@ -29,12 +29,10 @@ from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parent.parent / "apps" / "backend"
 
-# Shadowed pairs still present, each with the issue tracking its removal.
-# `core/workspace.py` is NOT dead like `command_registry.py` was: the package's
-# __init__ reaches around the shadowing with importlib to load 55K of merge
-# logic under a second module identity. Untangling that is a real refactor with
-# its own test pass, so it is tracked separately rather than rushed.
-_KNOWN_SHADOWED: set[str] = {"core/workspace"}
+# Empty, and it stays empty. `test_the_allowlist_does_not_outlive_its_entries`
+# fails on any entry that is no longer shadowed, so this cannot quietly rot into
+# a permanent exemption list.
+_KNOWN_SHADOWED: set[str] = set()
 
 
 def _shadowed_pairs() -> set[str]:
@@ -96,3 +94,27 @@ def test_the_packages_still_serve_the_imports_the_facades_claimed_to():
 
     assert BASE_COMMANDS and VALIDATED_COMMANDS
     assert callable(bash_security_hook)
+
+
+def test_the_merge_logic_is_reachable_by_its_real_name():
+    """`core/workspace.py` was executed by PATH under the name `workspace_module`.
+
+    That gave 55K of merge logic a second module identity no static tool could
+    follow, and left it importable only through a shim. It now lives inside the
+    package, so `__module__` is a name that actually resolves — which is the
+    difference between "loaded" and "reachable".
+    """
+    import importlib
+    import sys
+
+    if str(_BACKEND) not in sys.path:
+        sys.path.insert(0, str(_BACKEND))
+    workspace = importlib.import_module("core.workspace")
+
+    assert workspace.merge_existing_build.__module__ == "core.workspace.merge"
+    assert importlib.import_module("core.workspace.merge") is sys.modules["core.workspace.merge"]
+    assert "workspace_module" not in sys.modules, (
+        "the importlib shim is back: the merge logic is loaded under a second "
+        "identity, so anything comparing types across the two paths sees "
+        "different objects"
+    )
