@@ -49,17 +49,23 @@ def _read_file(project_path: Path, args: dict) -> str:
     if len(raw) > MAX_FILE_BYTES:
         text = raw[:MAX_FILE_BYTES].decode("utf-8", errors="replace")
         lines = text.splitlines()[:MAX_FILE_LINES]
-        numbered = [f"{i+1}\t{line}" for i, line in enumerate(lines)]
-        return "\n".join(numbered) + f"\n\n[Truncated — showing first {len(lines)} lines / {MAX_FILE_BYTES // 1024}KB of {len(raw)} bytes]"
+        numbered = [f"{i + 1}\t{line}" for i, line in enumerate(lines)]
+        return (
+            "\n".join(numbered)
+            + f"\n\n[Truncated — showing first {len(lines)} lines / {MAX_FILE_BYTES // 1024}KB of {len(raw)} bytes]"
+        )
 
     text = raw.decode("utf-8", errors="replace")
     lines = text.splitlines()
     if len(lines) > MAX_FILE_LINES:
         lines = lines[:MAX_FILE_LINES]
-        numbered = [f"{i+1}\t{line}" for i, line in enumerate(lines)]
-        return "\n".join(numbered) + f"\n\n[Truncated — showing first {MAX_FILE_LINES} of {len(text.splitlines())} lines]"
+        numbered = [f"{i + 1}\t{line}" for i, line in enumerate(lines)]
+        return (
+            "\n".join(numbered)
+            + f"\n\n[Truncated — showing first {MAX_FILE_LINES} of {len(text.splitlines())} lines]"
+        )
 
-    numbered = [f"{i+1}\t{line}" for i, line in enumerate(lines)]
+    numbered = [f"{i + 1}\t{line}" for i, line in enumerate(lines)]
     return "\n".join(numbered)
 
 
@@ -94,8 +100,11 @@ def _search_code(project_path: Path, args: dict) -> str:
     max_results = min(int(args.get("max_results", MAX_SEARCH_RESULTS)), MAX_SEARCH_RESULTS)
 
     cmd = [
-        "grep", "-rn", "--include=*",
-        "-m", str(max_results),
+        "grep",
+        "-rn",
+        "--include=*",
+        "-m",
+        str(max_results),
     ]
 
     if glob_filter:
@@ -106,7 +115,8 @@ def _search_code(project_path: Path, args: dict) -> str:
     try:
         result = subprocess.run(
             cmd,
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             timeout=SEARCH_TIMEOUT,
             cwd=str(project_path.resolve()),
         )

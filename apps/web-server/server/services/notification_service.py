@@ -388,9 +388,7 @@ class NotificationService:
 
         # Prune oldest if over the limit
         if len(self._store[user_id]) > self.MAX_NOTIFICATIONS_PER_USER:
-            self._store[user_id] = self._store[user_id][
-                : self.MAX_NOTIFICATIONS_PER_USER
-            ]
+            self._store[user_id] = self._store[user_id][: self.MAX_NOTIFICATIONS_PER_USER]
 
 
 def _html_escape(s: str) -> str:

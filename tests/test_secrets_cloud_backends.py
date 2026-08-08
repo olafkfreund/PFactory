@@ -86,6 +86,39 @@ def test_vault_missing_path(monkeypatch):
         VaultBackend().resolve(parse_ref("vault:nope#k"))
 
 
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (204, b""),  # truthy Response: reached .get() and raised AttributeError
+        (502, b"<html>502 Bad Gateway</html>"),  # falsy: misreported as not-found
+    ],
+)
+def test_vault_non_json_response_raises_secrets_error(monkeypatch, status, body):
+    """A non-JSON Vault reply must surface as SecretsError, not AttributeError (#480).
+
+    hvac returns the raw ``requests.Response`` when the body is not JSON. On the
+    2xx path that Response is truthy, so it fell through to ``resp.get(...)``
+    OUTSIDE the try/except that converts failures into SecretsError.
+    """
+    import requests
+
+    from pfactory_secrets import SecretsError
+    from pfactory_secrets.backends.vault import VaultBackend
+    from pfactory_secrets.refs import parse_ref
+
+    resp = requests.Response()
+    resp.status_code = status
+    resp._content = body
+
+    hvac = _fake_module("hvac")
+    hvac.Client = lambda url, token: type("C", (), {"read": lambda self, p: resp})()
+    monkeypatch.setitem(sys.modules, "hvac", hvac)
+    monkeypatch.setenv("VAULT_ADDR", "https://vault.internal:8200")
+
+    with pytest.raises(SecretsError, match="non-JSON response"):
+        VaultBackend().resolve(parse_ref("vault:secret/data/app#api_token"))
+
+
 # ── Azure Key Vault (#67) ───────────────────────────────────────────────────
 
 def _install_fake_azure(monkeypatch, secret_value=None, raise_name=None):

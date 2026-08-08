@@ -37,28 +37,34 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
     session = manager.get_session(terminal_id)
 
     if session is None:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"Terminal {terminal_id} not found",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Terminal {terminal_id} not found",
+            }
+        )
         await websocket.close(code=4004)
         return
 
     if not session.is_alive():
-        await websocket.send_json({
-            "type": "error",
-            "message": "Terminal process has exited",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Terminal process has exited",
+            }
+        )
         await websocket.close(code=4004)
         return
 
     # Send connection confirmation
-    await websocket.send_json({
-        "type": "connected",
-        "terminal_id": terminal_id,
-        "cols": session.cols,
-        "rows": session.rows,
-    })
+    await websocket.send_json(
+        {
+            "type": "connected",
+            "terminal_id": terminal_id,
+            "cols": session.cols,
+            "rows": session.rows,
+        }
+    )
 
     async def send_output(data: str):
         """Send PTY output to WebSocket."""
@@ -68,9 +74,7 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
             pass
 
     # Start reader task
-    reader_task = asyncio.create_task(
-        create_pty_reader(session, send_output)
-    )
+    reader_task = asyncio.create_task(create_pty_reader(session, send_output))
 
     try:
         while True:
@@ -93,11 +97,13 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
                                 cols = data.get("cols", 80)
                                 rows = data.get("rows", 24)
                                 session.resize(cols, rows)
-                                await websocket.send_json({
-                                    "type": "resized",
-                                    "cols": cols,
-                                    "rows": rows,
-                                })
+                                await websocket.send_json(
+                                    {
+                                        "type": "resized",
+                                        "cols": cols,
+                                        "rows": rows,
+                                    }
+                                )
                                 continue
 
                             elif msg_type == "ping":
@@ -123,10 +129,12 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
 
     except Exception as e:
         try:
-            await websocket.send_json({
-                "type": "error",
-                "message": str(e),
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": str(e),
+                }
+            )
         except Exception:
             pass
 
@@ -149,10 +157,12 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
                         exit_code = session._pty.exitstatus or 0
                     except Exception:
                         pass
-                await websocket.send_json({
-                    "type": "exit",
-                    "code": exit_code,
-                    "message": "Terminal process exited",
-                })
+                await websocket.send_json(
+                    {
+                        "type": "exit",
+                        "code": exit_code,
+                        "message": "Terminal process exited",
+                    }
+                )
             except Exception:
                 pass

@@ -108,19 +108,23 @@ async def get_project_context(projectId: str = Path(...)):
                         memory_count += 1
                         try:
                             data = json.loads(insight_file.read_text())
-                            memories.append({
-                                "id": f"{spec_dir.name}:{insight_file.stem}",
-                                "specId": spec_dir.name,
-                                "sessionNumber": data.get("session_number", 0),
-                                "timestamp": data.get("timestamp"),
-                                "type": "session_insight",
-                                "content": _extract_memory_summary(data),
-                                "subtasksCompleted": data.get("subtasks_completed", []),
-                                "discoveries": data.get("discoveries", {}),
-                                "whatWorked": data.get("what_worked", []),
-                                "whatFailed": data.get("what_failed", []),
-                                "recommendations": data.get("recommendations_for_next_session", [])
-                            })
+                            memories.append(
+                                {
+                                    "id": f"{spec_dir.name}:{insight_file.stem}",
+                                    "specId": spec_dir.name,
+                                    "sessionNumber": data.get("session_number", 0),
+                                    "timestamp": data.get("timestamp"),
+                                    "type": "session_insight",
+                                    "content": _extract_memory_summary(data),
+                                    "subtasksCompleted": data.get("subtasks_completed", []),
+                                    "discoveries": data.get("discoveries", {}),
+                                    "whatWorked": data.get("what_worked", []),
+                                    "whatFailed": data.get("what_failed", []),
+                                    "recommendations": data.get(
+                                        "recommendations_for_next_session", []
+                                    ),
+                                }
+                            )
                         except Exception:
                             continue
 
@@ -163,11 +167,7 @@ async def refresh_project_index(projectId: str = Path(...)):
     # Run a basic project analysis
     try:
         result = subprocess.run(
-            ["git", "ls-files"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            timeout=30
+            ["git", "ls-files"], cwd=project_path, capture_output=True, text=True, timeout=30
         )
 
         files = result.stdout.strip().split("\n") if result.returncode == 0 else []
@@ -265,21 +265,27 @@ async def search_memories(projectId: str = Path(...), q: str = Query(...)):
                             # Search in patterns, gotchas, what worked/failed
                             content_to_search = json.dumps(data).lower()
                             if query_lower in content_to_search:
-                                results.append({
-                                    "id": f"{spec_dir.name}:{insight_file.stem}",
-                                    "specId": spec_dir.name,
-                                    "sessionNumber": data.get("session_number", 0),
-                                    "timestamp": data.get("timestamp"),
-                                    "type": "session_insight",
-                                    "content": _extract_memory_summary(data),
-                                    "score": float(content_to_search.count(query_lower)),
-                                    "subtasksCompleted": data.get("subtasks_completed", []),
-                                    "discoveries": data.get("discoveries", {}),
-                                    "whatWorked": data.get("what_worked", []),
-                                    "whatFailed": data.get("what_failed", []),
-                                    "recommendations": data.get("recommendations_for_next_session", []),
-                                    "changedFiles": data.get("discoveries", {}).get("changed_files", [])
-                                })
+                                results.append(
+                                    {
+                                        "id": f"{spec_dir.name}:{insight_file.stem}",
+                                        "specId": spec_dir.name,
+                                        "sessionNumber": data.get("session_number", 0),
+                                        "timestamp": data.get("timestamp"),
+                                        "type": "session_insight",
+                                        "content": _extract_memory_summary(data),
+                                        "score": float(content_to_search.count(query_lower)),
+                                        "subtasksCompleted": data.get("subtasks_completed", []),
+                                        "discoveries": data.get("discoveries", {}),
+                                        "whatWorked": data.get("what_worked", []),
+                                        "whatFailed": data.get("what_failed", []),
+                                        "recommendations": data.get(
+                                            "recommendations_for_next_session", []
+                                        ),
+                                        "changedFiles": data.get("discoveries", {}).get(
+                                            "changed_files", []
+                                        ),
+                                    }
+                                )
                         except Exception:
                             continue
 
@@ -312,19 +318,23 @@ async def get_recent_memories(projectId: str = Path(...), limit: int = Query(10)
                     for insight_file in insights_dir.glob("session_*.json"):
                         try:
                             data = json.loads(insight_file.read_text())
-                            memories.append({
-                                "id": f"{spec_dir.name}:{insight_file.stem}",
-                                "specId": spec_dir.name,
-                                "sessionNumber": data.get("session_number", 0),
-                                "timestamp": data.get("timestamp"),
-                                "type": "session_insight",
-                                "content": _extract_memory_summary(data),
-                                "subtasksCompleted": data.get("subtasks_completed", []),
-                                "discoveries": data.get("discoveries", {}),
-                                "whatWorked": data.get("what_worked", []),
-                                "whatFailed": data.get("what_failed", []),
-                                "recommendations": data.get("recommendations_for_next_session", [])
-                            })
+                            memories.append(
+                                {
+                                    "id": f"{spec_dir.name}:{insight_file.stem}",
+                                    "specId": spec_dir.name,
+                                    "sessionNumber": data.get("session_number", 0),
+                                    "timestamp": data.get("timestamp"),
+                                    "type": "session_insight",
+                                    "content": _extract_memory_summary(data),
+                                    "subtasksCompleted": data.get("subtasks_completed", []),
+                                    "discoveries": data.get("discoveries", {}),
+                                    "whatWorked": data.get("what_worked", []),
+                                    "whatFailed": data.get("what_failed", []),
+                                    "recommendations": data.get(
+                                        "recommendations_for_next_session", []
+                                    ),
+                                }
+                            )
                         except Exception:
                             continue
 
@@ -474,12 +484,7 @@ async def get_project_env(projectId: str = Path(...)):
 
     # Also check for Claude auth via keychain
     try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
+        result = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             config["claudeAuthStatus"] = "authenticated"
     except Exception:
@@ -540,10 +545,7 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
                     # Strip whitespace and validate token is not empty
                     value = value.strip()
                     if not value:
-                        return {
-                            "success": False,
-                            "error": f"{config_key} cannot be empty"
-                        }
+                        return {"success": False, "error": f"{config_key} cannot be empty"}
                     # Validate minimum token length for security
                     if len(value) < 10:
                         return {
@@ -652,7 +654,14 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
                 projects[projectId]["settings"] = {}
 
             # Save settings fields to project dictionary
-            for field in ["gitProvider", "gitToken", "gitRepo", "gitBaseUrl", "gitOrg", "gitProject"]:
+            for field in [
+                "gitProvider",
+                "gitToken",
+                "gitRepo",
+                "gitBaseUrl",
+                "gitOrg",
+                "gitProject",
+            ]:
                 if field in config_dict:
                     projects[projectId]["settings"][field] = config_dict[field]
 
@@ -678,10 +687,7 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
         except Exception:
             pass
 
-        return {
-            "success": True,
-            "message": "Environment configuration updated successfully"
-        }
+        return {"success": True, "message": "Environment configuration updated successfully"}
 
     except Exception:
         logger.exception("Failed to update environment config for project %s", projectId)
@@ -691,13 +697,7 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
 @project_router.get("/claude-auth")
 async def check_claude_auth(projectId: str = Path(...)):
     """Check Claude authentication status."""
-    return {
-        "success": True,
-        "data": {
-            "authenticated": False,
-            "method": None
-        }
-    }
+    return {"success": True, "data": {"authenticated": False, "method": None}}
 
 
 @project_router.post("/claude-setup")
@@ -719,18 +719,12 @@ async def invoke_claude_setup(projectId: str = Path(...)):
 
         projects = load_projects()
         if projectId not in projects:
-            return {
-                "success": False,
-                "error": f"Project {projectId} not found"
-            }
+            return {"success": False, "error": f"Project {projectId} not found"}
 
         # Check if Claude CLI is installed
         try:
             version_result = subprocess.run(
-                ["claude", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["claude", "--version"], capture_output=True, text=True, timeout=5
             )
             cli_installed = version_result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -755,10 +749,7 @@ async def invoke_claude_setup(projectId: str = Path(...)):
             # The 'claude' command without arguments will fail if not authenticated
             # We use --version as a proxy for checking if basic auth works
             auth_check = subprocess.run(
-                ["claude", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["claude", "--version"], capture_output=True, text=True, timeout=5
             )
 
             # If we got here and returncode is 0, Claude CLI is working
@@ -837,13 +828,7 @@ async def test_memory_connection(request: TestConnectionRequest):
 async def validate_llm_api_key(request: ValidateApiKeyRequest):
     """Validate an LLM provider API key."""
     # TODO: Actually validate the key
-    return {
-        "success": True,
-        "data": {
-            "valid": True,
-            "message": "API key validated"
-        }
-    }
+    return {"success": True, "data": {"valid": True, "message": "API key validated"}}
 
 
 @router.post("/test-graphiti")

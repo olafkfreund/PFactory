@@ -49,6 +49,11 @@ class RepoMap(BaseModel):
     # snapshot / non-software plan) and the deployment dimension is unknown.
     ci_system: str | None = None
     ci_pipeline_paths: list[str] = Field(default_factory=list)
+    # Stages the discovered pipeline already shows evidence of running, e.g.
+    # ["lint", "test", "build"]. Empty => no pipeline, or none recognised. This
+    # is what lets the synthesized CI/CD child ask for the DELTA rather than
+    # restating a pipeline the repo has had working for months (#462).
+    ci_stages: list[str] = Field(default_factory=list)
     # Deploy mechanism, e.g. "argocd" | "helm" | "terraform" | "kubectl" |
     # "unknown" | "none". None => recon never ran a deploy probe.
     deploy_system: str | None = None

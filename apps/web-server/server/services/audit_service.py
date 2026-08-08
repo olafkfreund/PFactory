@@ -140,9 +140,7 @@ async def log_audit_event(
 
         from .audit_chain import GENESIS, compute_hash, row_as_mapping
 
-        last = await db.execute(
-            _select(AuditLog).order_by(AuditLog.created_at.desc()).limit(1)
-        )
+        last = await db.execute(_select(AuditLog).order_by(AuditLog.created_at.desc()).limit(1))
         last_row = last.scalar_one_or_none()
         prev_hash_value = (
             compute_hash(last_row.prev_hash, row_as_mapping(last_row))

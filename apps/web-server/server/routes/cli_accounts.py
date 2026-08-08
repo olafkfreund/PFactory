@@ -91,7 +91,10 @@ def get_gemini_binary() -> str:
 
 def _validate_cli(cli: str) -> None:
     if cli not in SUPPORTED_CLIS:
-        raise HTTPException(status_code=400, detail=f"Unsupported CLI: {cli}. Must be one of: {', '.join(SUPPORTED_CLIS)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported CLI: {cli}. Must be one of: {', '.join(SUPPORTED_CLIS)}",
+        )
 
 
 def _detect_cli_version(cli: str) -> str | None:
@@ -117,7 +120,9 @@ def _detect_cli_version(cli: str) -> str | None:
             try:
                 result = subprocess.run(
                     ["bash", "-l", "-c", f"which {shlex.quote(binary)}"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     bin_path = result.stdout.strip()
@@ -407,13 +412,18 @@ def _poll_codex_token(mtime_before: float) -> None:
                     if auth_data:
                         tokens = auth_data.get("tokens", {})
                         if tokens.get("access_token") or tokens.get("refresh_token"):
-                            _save_credentials("codex", {
-                                "source": "cli_login",
-                                "access_token": tokens.get("access_token"),
-                                "refresh_token": tokens.get("refresh_token"),
-                                "expires_at": auth_data.get("expires_at"),
-                                "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                            })
+                            _save_credentials(
+                                "codex",
+                                {
+                                    "source": "cli_login",
+                                    "access_token": tokens.get("access_token"),
+                                    "refresh_token": tokens.get("refresh_token"),
+                                    "expires_at": auth_data.get("expires_at"),
+                                    "imported_at": time.strftime(
+                                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                                    ),
+                                },
+                            )
                             logger.info("[Codex] Credentials detected and saved")
                             _broadcast_cli_auth_event("codex", True)
                             return
@@ -450,28 +460,32 @@ def _poll_gemini_token(mtime_before: float) -> None:
                 selected_type = ""
                 if settings:
                     selected_type = (
-                        settings.get("security", {})
-                        .get("auth", {})
-                        .get("selectedType", "")
+                        settings.get("security", {}).get("auth", {}).get("selectedType", "")
                     )
 
                 if selected_type in ("oauth-personal", "LOGIN_WITH_GOOGLE") or oauth_changed:
-                    _save_credentials("gemini", {
-                        "source": "cli_login",
-                        "selectedType": selected_type or "oauth-personal",
-                        "authMethod": "google_login",
-                        "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    })
+                    _save_credentials(
+                        "gemini",
+                        {
+                            "source": "cli_login",
+                            "selectedType": selected_type or "oauth-personal",
+                            "authMethod": "google_login",
+                            "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        },
+                    )
                     logger.info("[Gemini] Credentials detected and saved")
                     _broadcast_cli_auth_event("gemini", True)
                     return
                 elif selected_type == "API_KEY" or (settings and settings.get("apiKey")):
-                    _save_credentials("gemini", {
-                        "source": "cli_login",
-                        "selectedType": selected_type,
-                        "authMethod": "api_key",
-                        "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    })
+                    _save_credentials(
+                        "gemini",
+                        {
+                            "source": "cli_login",
+                            "selectedType": selected_type,
+                            "authMethod": "api_key",
+                            "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        },
+                    )
                     logger.info("[Gemini] API key credentials detected and saved")
                     _broadcast_cli_auth_event("gemini", True)
                     return
@@ -532,13 +546,16 @@ async def import_cli_credentials(cli: str):
         if auth_data:
             tokens = auth_data.get("tokens", {})
             if tokens.get("access_token") or tokens.get("refresh_token"):
-                _save_credentials(cli, {
-                    "source": "import",
-                    "access_token": tokens.get("access_token"),
-                    "refresh_token": tokens.get("refresh_token"),
-                    "expires_at": auth_data.get("expires_at"),
-                    "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                })
+                _save_credentials(
+                    cli,
+                    {
+                        "source": "import",
+                        "access_token": tokens.get("access_token"),
+                        "refresh_token": tokens.get("refresh_token"),
+                        "expires_at": auth_data.get("expires_at"),
+                        "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    },
+                )
                 return {"success": True, "message": "Codex credentials imported successfully"}
         return {"success": False, "error": "No Codex credentials found at ~/.codex/auth.json"}
 
@@ -553,20 +570,26 @@ async def import_cli_credentials(cli: str):
         oauth_creds = _read_json_file(cfg["oauth_credentials_file"])
 
         if selected_type in ("oauth-personal", "LOGIN_WITH_GOOGLE") or oauth_creds:
-            _save_credentials(cli, {
-                "source": "import",
-                "selectedType": selected_type or "oauth-personal",
-                "authMethod": "google_login",
-                "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            })
+            _save_credentials(
+                cli,
+                {
+                    "source": "import",
+                    "selectedType": selected_type or "oauth-personal",
+                    "authMethod": "google_login",
+                    "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+            )
             return {"success": True, "message": "Gemini credentials imported successfully"}
         if settings and (selected_type == "API_KEY" or settings.get("apiKey")):
-            _save_credentials(cli, {
-                "source": "import",
-                "selectedType": selected_type,
-                "authMethod": "api_key",
-                "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            })
+            _save_credentials(
+                cli,
+                {
+                    "source": "import",
+                    "selectedType": selected_type,
+                    "authMethod": "api_key",
+                    "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+            )
             return {"success": True, "message": "Gemini credentials imported successfully"}
         return {"success": False, "error": "No Gemini credentials found at ~/.gemini/settings.json"}
 
@@ -575,11 +598,14 @@ async def import_cli_credentials(cli: str):
 async def set_cli_api_key(cli: str, body: APIKeyRequest):
     """Save a manual API key for a CLI."""
     _validate_cli(cli)
-    _save_credentials(cli, {
-        "source": "api_key",
-        "api_key": body.api_key.get_secret_value(),
-        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    })
+    _save_credentials(
+        cli,
+        {
+            "source": "api_key",
+            "api_key": body.api_key.get_secret_value(),
+            "saved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        },
+    )
     return {"success": True, "message": f"API key saved for {cli}"}
 
 
@@ -666,13 +692,9 @@ async def start_cli_login_terminal(cli: str):
     mtime_before = credentials_path.stat().st_mtime if credentials_path.exists() else 0
 
     if cli == "codex":
-        threading.Thread(
-            target=_poll_codex_token, args=(mtime_before,), daemon=True
-        ).start()
+        threading.Thread(target=_poll_codex_token, args=(mtime_before,), daemon=True).start()
     else:
-        threading.Thread(
-            target=_poll_gemini_token, args=(mtime_before,), daemon=True
-        ).start()
+        threading.Thread(target=_poll_gemini_token, args=(mtime_before,), daemon=True).start()
 
     return {
         "success": True,
@@ -720,7 +742,9 @@ def install_or_update_cli(cli: str):
         # Two commands — use hardcoded shell string (no user input)
         node_check = subprocess.run(
             ["bash", "-l", "-c", "node --version && npm --version"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if node_check.returncode != 0:
             return {
@@ -738,7 +762,17 @@ def install_or_update_cli(cli: str):
     try:
         logger.info(f"[{cli}] Running npm install -g {package}...")
         if cli == "gemini":
-            install_result = _run(["npm", "install", "-g", "--prefix", os.path.expanduser("~/.gemini/antigravity-cli"), package], timeout=120)
+            install_result = _run(
+                [
+                    "npm",
+                    "install",
+                    "-g",
+                    "--prefix",
+                    os.path.expanduser("~/.gemini/antigravity-cli"),
+                    package,
+                ],
+                timeout=120,
+            )
         else:
             install_result = _run(["npm", "install", "-g", package], timeout=120)
 

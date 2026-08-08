@@ -11,8 +11,8 @@ regulated / privacy-conscious buyer actually asks:
 
 This module classifies the configured model + endpoint into an
 :class:`EgressClass` so the portal / CLI can surface an honest
-"🔒 Local — no data egress" badge instead of an unverifiable marketing
-claim. The decision is driven by the resolved endpoint host:
+"LOCAL - endpoint is on your network" badge instead of an unverifiable
+marketing claim. The decision is driven by the resolved endpoint host:
 
   - ``localhost`` / loopback / RFC-1918 private / ``.local`` / ``.internal``
     → **LOCAL** (data stays on your machine or LAN)
@@ -153,10 +153,20 @@ def keeps_data_local(model: str, base_url: str | None = None) -> bool:
     return classify(model, base_url) is EgressClass.LOCAL
 
 
+# Plain text, no glyphs: these strings are surfaced by the CLI and by
+# egress_report(), which feeds the portal badge, so they land in docs assets,
+# screenshots and any UI that renders `badge` verbatim — all of which the fleet
+# standard says are plain text (#400). A consumer that wants an icon keys off
+# the `egress` enum value, which is already in the report payload, rather than
+# parsing a glyph out of a display string.
+#
+# The wording says ENDPOINT, not traffic. classify() never makes a network call
+# (see the module docstring); it classifies the configured endpoint. "no data
+# egress" reads as a measurement this module is not in a position to make.
 _BADGE = {
-    EgressClass.LOCAL: "🔒 Local — no data egress",
-    EgressClass.SELF_HOSTED: "🏠 Self-hosted — your server",
-    EgressClass.MANAGED_CLOUD: "☁️ Managed cloud — data leaves your network",
+    EgressClass.LOCAL: "LOCAL - endpoint is on your network",
+    EgressClass.SELF_HOSTED: "SELF-HOSTED - endpoint is your own server",
+    EgressClass.MANAGED_CLOUD: "MANAGED CLOUD - endpoint is a third-party API",
 }
 
 

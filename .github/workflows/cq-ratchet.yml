@@ -12,16 +12,48 @@ name: code-quality (ratchet)
 #     at the PR base vs HEAD and fails only if HEAD has MORE. Legacy hotspots stay
 #     green until touched; net-new violations block. This job is BLOCKING. The
 #     blocking-mypy half is issue #192 (mypy was previously informational).
-#   - `ruff format --check apps/backend` is BLOCKING (formatting is auto-applied,
-#     never reviewed — section 3.6) and pinned to the same ruff version that the
-#     tree was formatted with, so it is green.
-#   - A config-drift gate keeps the vendored baseline pinned to the hub.
+#   - `ruff format --check apps/backend apps/web-server scripts` is BLOCKING
+#     (formatting is auto-applied, never reviewed — section 3.6) and pinned to
+#     the same ruff version that the tree was formatted with, so it is green.
+#   - A config-drift gate keeps the vendored baseline pinned to the hub, and
+#     (#470) keeps the repo-ROOT ruff.toml / mypy.ini / .editorconfig from
+#     loosening that baseline — the tighten-only rule of section 0 / 1.2, which
+#     until now was asserted in a comment and enforced by nothing.
 #
 # A whole-repo blocking `ruff check` / `mypy --strict` strict gate is
 # intentionally NOT used here (and the existing ci.yml ruff step was converted to
 # the same ratchet): the ~6.5k legacy violation count (plus a large untyped
 # backlog) would make it instantly red. Legacy is fixed on touch under the
 # ratchet.
+#
+# SCOPE: apps/backend, apps/web-server and scripts/.
+#
+# scripts/ was added in Factory#597 for one reason: scripts/ratchet_lint.py IS
+# this gate, and it sat outside every ruff and mypy scope this repo has — the
+# file that counts findings on each changed backend file was the one file no run
+# looked at. `ruff check` findings in it, measured on dev at the time: 0 (this
+# repo's fork was already clean under both the root config and the bare shared
+# baseline; #455's rewire removed the last one). `ruff format` drift: 9 files
+# under scripts/, the ratchet among them, swept in the same PR because the
+# format gate is WHOLE-TREE and cannot grandfather anything.
+#
+# apps/web-server was the last piece of the LINT scope still outside the FORMAT
+# scope (#479). The ratchet covered all three trees; `ruff format --check`
+# covered two, so this tree was held to the rule bar and to no formatting bar at
+# all — 122 of its 190 files were unformatted, 64% of the tree. That is the same
+# divergence #363 (Factory#384) fixed for `ruff check`, one gate later. The sweep
+# is the commit before this one, because a WHOLE-TREE format gate cannot
+# grandfather anything.
+#
+# scripts/ratchet_helpers.py stays out, and needed no new config to do so: it is
+# already in ruff.toml's extend-exclude as the byte-exact hub canonical, and this
+# ratchet honours those excludes itself (_ruff_excludes). Reformatting a vendored
+# copy to satisfy a LOCAL rule is what breaks the next re-vendor (Factory#403).
+#
+# .husky/pre-commit is deliberately NOT widened to match. It rewrites staged
+# files with whatever ruff is on PATH, unpinned (#452), so extending its glob to
+# scripts/ would import exactly the drift this change exists to remove. The hook
+# keeps its apps/backend glob; scripts/ is gated by CI, where the pin holds.
 
 on:
   pull_request:
@@ -71,6 +103,10 @@ jobs:
           uv pip install -r ../web-server/requirements.txt
           uv pip install -r ../../tests/requirements-test.txt
           uv pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
+          # Stubs for the mypy half of the ratchet: without them mypy reports
+          # import-untyped and then treats those libraries as Any, so the strict
+          # bar stops applying at the boundary (PFactory#468).
+          uv pip install -r requirements-typestubs.txt
 
       - name: Determine base ref
         id: base
@@ -89,10 +125,10 @@ jobs:
           # model as ruff: a changed file may not GAIN mypy --strict errors vs the
           # PR base; legacy untyped files stay green until touched.
           export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
-          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}" --package apps/web-server
+          apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}" --package apps/web-server --package scripts
 
   format-check:
-    name: ruff format --check (apps/backend, blocking)
+    name: ruff format --check (apps/backend + apps/web-server + scripts, blocking)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,8 +141,8 @@ jobs:
       - name: Install ruff (pinned)
         run: uv tool install "ruff==${RUFF_VERSION}"
 
-      - name: Ruff format check (apps/backend)
-        run: ruff format --check apps/backend
+      - name: Ruff format check (apps/backend + apps/web-server + scripts)
+        run: ruff format --check apps/backend apps/web-server scripts
 
   config-drift:
     name: config drift (vendored baseline pinned to hub)
@@ -157,3 +193,56 @@ jobs:
             fi
           done
           exit $fail
+
+      # ---------------------------------------------------------------------
+      # Tighten-only (#470). The step above pins the VENDORED baseline to the
+      # hub; these three pin the REPO-ROOT configs to that baseline. Both halves
+      # are needed and they check different things: standards/ is what CI reads
+      # (ratchet_lint.MYPY_CONFIG_DEFAULT), the root files are what a bare
+      # `mypy` / `ruff` and every editor read locally -- which is where a type
+      # error is meant to be caught first.
+      #
+      # Until now nothing checked the root copies. A PR could set
+      # `strict = False` in mypy.ini, or drop `disallow_untyped_defs`, and every
+      # gate stayed green: the CI verdict would not move (the ratchet reads
+      # standards/mypy.ini directly) while every developer's local bar silently
+      # dropped. Section 0 / 1.2 says per-service configs may only TIGHTEN and
+      # that "a config-lint CI check enforces tighten-only"; the hub has run
+      # exactly these steps in its own config-drift job for months. Ported
+      # rather than reinvented.
+      # ---------------------------------------------------------------------
+      - name: root ruff.toml must extend the canonical baseline
+        run: grep -q 'extend = "standards/ruff.toml"' ruff.toml
+
+      - name: root mypy.ini must not loosen the strict baseline
+        run: |
+          set -euo pipefail
+          # Every `<key> = True` spelled out in the canonical baseline must also
+          # be True in the root copy. Tighten-only: extra flags are fine, missing
+          # or flipped ones are not.
+          #
+          # `|| true`: grep exits 1 on no match, and under `pipefail` that would
+          # abort here with no diagnostic. Let it produce an empty list and be
+          # rejected explicitly below, so the log says WHY.
+          keys="$(grep -E '^[a-z_]+ = True' standards/mypy.ini | cut -d' ' -f1 || true)"
+          # An empty key list would make the loop below a no-op and the step a
+          # green check of nothing -- the exact failure rule 4.7 names, and the
+          # one this job's fetch step was already fixed for. A renamed or emptied
+          # standards/mypy.ini fails here instead of passing.
+          if [ -z "$keys" ]; then
+            echo "::error::no strict flags found in standards/mypy.ini — this"
+            echo "check would compare nothing, so it fails rather than passing"
+            echo "(rule 4.7)."
+            exit 1
+          fi
+          for key in $keys; do
+            grep -qE "^${key} = True" mypy.ini || {
+              echo "::error::mypy.ini is missing strict flag: ${key}"
+              echo "Root configs may only TIGHTEN the shared baseline (section 0 / 1.2)."
+              exit 1; }
+          done
+          grep -qE '^strict = True' mypy.ini || {
+            echo "::error::mypy.ini does not set strict = True"; exit 1; }
+
+      - name: root .editorconfig matches the fleet baseline
+        run: diff -u standards/.editorconfig .editorconfig

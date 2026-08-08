@@ -110,7 +110,8 @@ flowchart TD
     RC --> C7[no-blocking-findings<br/>never waivable]
     RC --> C8[decompose-trustworthy<br/>flags LLM fallback]
     RC --> C9[ac-testable advisory]
-    C1 & C2 & C3 & C4 & C5 & C6 & C7 & C8 --> H{Any HARD fail?}
+    RC --> C10[criteria-self-consistent<br/>worked example vs stated invariant]
+    C1 & C2 & C3 & C4 & C5 & C6 & C7 & C8 & C10 --> H{Any HARD fail?}
     C9 -. advisory: informs, never blocks .-> RPT[Readiness report]
     H -- yes --> WV{Audited human waiver recorded?}
     WV -- no --> STOP[HALT: do not emit]
@@ -131,6 +132,15 @@ you can read precisely why a plan was or was not considered ready. Examples:
   so you know whether you are trusting the model or the deterministic path.
 - `ac-testable` flags vague criteria (e.g. fewer than three words) as advisory — it warns
   but does not block, because measurability is a quality signal, not a correctness one.
+- `criteria-self-consistent` catches the criteria set that contradicts itself: an
+  invariant ("`total` = `net` + `vat`, to the penny") next to a worked example whose
+  numbers do not add up ("`net` 10.00, `vat` 1.75, `total` 11.76"). No implementation
+  can satisfy both, so the coder must silently break one of them. This one is HARD
+  rather than advisory because when it fires it has *proved* the contradiction
+  arithmetically and quotes the sum, not guessed at prose. It is narrow on purpose:
+  sums and differences of named fields only, only when one criterion binds every field
+  of the relation at the same decimal precision, and never on a conditional invariant.
+  A gate that cries wolf gets waived reflexively and then measures nothing.
 
 A blocking fail is overridden only by a **waiver** (`plan/review/readiness/waiver.py`):
 a deliberate, audited override bound to the plan's hash (so it cannot silently carry over

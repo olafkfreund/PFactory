@@ -153,9 +153,7 @@ class RmuxWrapper:
             RmuxNotInstalledError: binary not found on PATH.
         """
         if shutil.which(self._bin) is None:
-            raise RmuxNotInstalledError(
-                f"rmux binary '{self._bin}' not found on PATH"
-            )
+            raise RmuxNotInstalledError(f"rmux binary '{self._bin}' not found on PATH")
         self._socket_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         # Best-effort reachability probe — list-sessions returns "no
         # server running" when none has been started yet, which is the
@@ -185,9 +183,7 @@ class RmuxWrapper:
             shell_cmd = " ".join(shlex.quote(arg) for arg in cmd)
         else:
             shell_cmd = cmd
-        await self._run(
-            "new-session", "-d", "-s", name, "-c", str(cwd), shell_cmd
-        )
+        await self._run("new-session", "-d", "-s", name, "-c", str(cwd), shell_cmd)
 
     async def kill_session(self, name: str, *, ignore_missing: bool = False) -> None:
         """Kill the session named ``name``.
@@ -201,7 +197,9 @@ class RmuxWrapper:
                 caller to write a try/except around it.
         """
         await self._run(
-            "kill-session", "-t", name,
+            "kill-session",
+            "-t",
+            name,
             swallow_missing_session=ignore_missing,
             swallow_no_server=ignore_missing,
         )
@@ -232,7 +230,9 @@ class RmuxWrapper:
         — the common "task service just started, no sessions yet" case.
         """
         out = await self._run(
-            "list-sessions", "-F", "#{session_name}",
+            "list-sessions",
+            "-F",
+            "#{session_name}",
             swallow_no_server=True,
             capture=True,
         )
@@ -266,7 +266,10 @@ class RmuxWrapper:
         for postmortem-on-failure inspection.
         """
         return await self._run(
-            "capture-pane", "-t", f"{name}:0.0", "-p",
+            "capture-pane",
+            "-t",
+            f"{name}:0.0",
+            "-p",
             capture=True,
         )
 
@@ -292,9 +295,7 @@ class RmuxWrapper:
                 stderr=asyncio.subprocess.PIPE,
             )
         except FileNotFoundError as e:
-            raise RmuxNotInstalledError(
-                f"rmux binary '{self._bin}' not found on PATH"
-            ) from e
+            raise RmuxNotInstalledError(f"rmux binary '{self._bin}' not found on PATH") from e
 
         stdout_bytes, stderr_bytes = await proc.communicate()
         stdout = stdout_bytes.decode("utf-8", errors="replace")
@@ -316,9 +317,8 @@ class RmuxWrapper:
         #     (the socket file itself is missing — same outcome from
         #     the caller's perspective; the daemon isn't there)
         lower = stderr.lower()
-        no_daemon = (
-            "no server" in lower
-            or ("error connecting to" in lower and "no such file" in lower)
+        no_daemon = "no server" in lower or (
+            "error connecting to" in lower and "no such file" in lower
         )
         if no_daemon:
             if swallow_no_server:

@@ -72,6 +72,7 @@ to the plan hash):
 |---|---|---|---|
 | `children-present` | yes | no | The epic produced no work units. |
 | `criteria-present` | yes | yes | No explicit acceptance criteria. |
+| `criteria-self-consistent` | yes | yes | A worked example whose arithmetic contradicts an invariant stated in the same criteria set (`total` = `net` + `vat` alongside an example summing to a different total) — no implementation can satisfy both. |
 | `ac-child-coverage` | yes | yes | A criterion maps to no child issue. |
 | `deps-sound` | yes | cycles: no | Dependency cycles or dangling edges. |
 | `access-granted` | yes | yes | A required IAM action is denied. |

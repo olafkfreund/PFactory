@@ -26,10 +26,7 @@ def test_git_repo_setting():
 
 
 def test_org_plus_project():
-    assert (
-        project_repo({"settings": {"gitOrg": "acme", "gitProject": "widget"}})
-        == "acme/widget"
-    )
+    assert project_repo({"settings": {"gitOrg": "acme", "gitProject": "widget"}}) == "acme/widget"
 
 
 def test_parses_https_git_url():

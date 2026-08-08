@@ -96,10 +96,7 @@ async def list_notifications(
     unread_count = notification_service.get_unread_count(current_user.id)
 
     return NotificationListResponse(
-        items=[
-            NotificationResponse(**n.to_dict())
-            for n in notifications
-        ],
+        items=[NotificationResponse(**n.to_dict()) for n in notifications],
         unread_count=unread_count,
     )
 

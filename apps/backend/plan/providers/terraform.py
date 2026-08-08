@@ -48,7 +48,7 @@ class TerraformProvider(ProviderMCP):
         if self.client is not None:
             return self.client
         try:  # pragma: no cover - exercised only with a real scanner install
-            from plan.providers._mcp import TerraformScanClient  # type: ignore
+            from plan.providers._mcp import TerraformScanClient
 
             return TerraformScanClient(**self.config)
         except Exception:

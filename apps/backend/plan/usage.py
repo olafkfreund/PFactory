@@ -15,6 +15,8 @@ schema break.
 
 from __future__ import annotations
 
+from typing import SupportsInt
+
 from pydantic import BaseModel
 
 # Per-million-token USD pricing for known models, used to derive ``cost_usd``
@@ -86,10 +88,19 @@ class PlanUsage(BaseModel):
 
 
 def _as_int(value: object) -> int:
-    try:
-        return int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return 0
+    # `int(value)` on a bare `object` matches no `int` overload, so mypy could
+    # only type the result as Any -- this "-> int" was unchecked, in the one
+    # helper every token count on the completion envelope flows through. The
+    # isinstance narrowing is the same set `int()` actually accepts (SupportsInt
+    # covers anything defining __int__, plus str/bytes which do not), so no
+    # input that previously converted stops converting; the except clause still
+    # catches a malformed str/bytes.
+    if isinstance(value, SupportsInt | str | bytes):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+    return 0
 
 
 def usage_from_obj(obj: object) -> PlanUsage | None:

@@ -5,6 +5,7 @@ Provides real-time log streaming from agent execution.
 """
 
 import asyncio
+from collections.abc import Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -45,25 +46,29 @@ async def task_logs_websocket(websocket: WebSocket, task_id: str):
 
     try:
         # Send initial connection message
-        await websocket.send_json({
-            "type": "connected",
-            "task_id": task_id,
-            "message": "Connected to log stream",
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "task_id": task_id,
+                "message": "Connected to log stream",
+            }
+        )
 
         while True:
             try:
                 # Wait for log with timeout to allow checking for disconnection
                 log = await asyncio.wait_for(message_queue.get(), timeout=30.0)
 
-                await websocket.send_json({
-                    "type": "log",
-                    "task_id": log.task_id,
-                    "content": log.content,
-                    "timestamp": log.timestamp,
-                    "level": log.level,
-                    "source": log.source,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "log",
+                        "task_id": log.task_id,
+                        "content": log.content,
+                        "timestamp": log.timestamp,
+                        "level": log.level,
+                        "source": log.source,
+                    }
+                )
 
             except asyncio.TimeoutError:
                 # Send heartbeat to keep connection alive
@@ -89,7 +94,8 @@ async def all_logs_websocket(websocket: WebSocket):
 
     agent_service = get_agent_service()
     message_queue: asyncio.Queue[TaskLog] = asyncio.Queue()
-    unregister_callbacks: list[callable] = []
+    # See progress.py: `callable` is the builtin function, not a type.
+    unregister_callbacks: list[Callable[[], None]] = []
 
     async def log_callback(log: TaskLog):
         await message_queue.put(log)
@@ -107,10 +113,12 @@ async def all_logs_websocket(websocket: WebSocket):
             unregister_callbacks.append(unregister)
 
     try:
-        await websocket.send_json({
-            "type": "connected",
-            "message": "Connected to unified log stream",
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "message": "Connected to unified log stream",
+            }
+        )
 
         last_task_check = asyncio.get_event_loop().time()
 
@@ -118,14 +126,16 @@ async def all_logs_websocket(websocket: WebSocket):
             try:
                 log = await asyncio.wait_for(message_queue.get(), timeout=5.0)
 
-                await websocket.send_json({
-                    "type": "log",
-                    "task_id": log.task_id,
-                    "content": log.content,
-                    "timestamp": log.timestamp,
-                    "level": log.level,
-                    "source": log.source,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "log",
+                        "task_id": log.task_id,
+                        "content": log.content,
+                        "timestamp": log.timestamp,
+                        "level": log.level,
+                        "source": log.source,
+                    }
+                )
 
             except asyncio.TimeoutError:
                 # Periodically update subscriptions

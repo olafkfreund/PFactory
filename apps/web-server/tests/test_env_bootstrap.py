@@ -16,11 +16,11 @@ from server.env_bootstrap import _load  # noqa: E402
 def test_load_populates_and_respects_existing(tmp_path, monkeypatch):
     env = tmp_path / ".env"
     env.write_text(
-        '# a comment\n'
-        'PFACTORY_COMPLETION_WEBHOOK=http://localhost:3111/api/events\n'
+        "# a comment\n"
+        "PFACTORY_COMPLETION_WEBHOOK=http://localhost:3111/api/events\n"
         'QUOTED="value with spaces"\n'
-        'ALREADY_SET=from_file\n'
-        'malformed line without equals\n'
+        "ALREADY_SET=from_file\n"
+        "malformed line without equals\n"
     )
     monkeypatch.delenv("PFACTORY_COMPLETION_WEBHOOK", raising=False)
     monkeypatch.setenv("ALREADY_SET", "from_env")  # real env must win

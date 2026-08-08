@@ -37,7 +37,7 @@ from .pfactory_init import init_command
 from .pfactory_migrate import migrate_command
 
 
-def _get_legacy_main():  # type: ignore[return]
+def _get_legacy_main():
     """Lazy-import the legacy build CLI main to avoid import errors
     when qa_loop / deleted modules are not installed.
     """
@@ -55,7 +55,7 @@ pfactory_main.add_command(init_command, name="init")
 pfactory_main.add_command(migrate_command, name="migrate")
 
 
-def main():  # type: ignore[return]
+def main():
     """Legacy build CLI — thin shim that defers the import."""
     return _get_legacy_main()()
 

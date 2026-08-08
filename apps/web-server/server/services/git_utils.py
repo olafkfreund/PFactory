@@ -32,8 +32,15 @@ def assert_safe_git_ref(value: object, field: str = "ref") -> str:
     return text
 
 
-def run_git_command(args: list[str], cwd: str) -> dict:
-    """Run a git command and return result."""
+def run_git_command(args: list[str], cwd: str | Path) -> dict:
+    """Run a git command and return result.
+
+    ``cwd`` accepts ``Path`` because ``subprocess.run`` does (it takes any
+    ``os.PathLike``) and because 43 of the call sites in ``routes/tasks.py``
+    already pass one. Annotating it ``str`` did not make them wrong -- they work
+    -- it just made mypy report 43 arg-type errors against the callers for a
+    narrowness the implementation never had (PFactory#468).
+    """
     try:
         result = subprocess.run(
             ["git"] + args, check=False, capture_output=True, text=True, cwd=cwd, timeout=30
@@ -151,6 +158,4 @@ def confine_to_workspace(value: object, field: str = "path") -> Path:
     for root in roots:
         if resolved == root or root in resolved.parents:
             return resolved
-    raise ValueError(
-        f"invalid {field}: {str(value)[:120]!r} is outside the allowed workspace"
-    )
+    raise ValueError(f"invalid {field}: {str(value)[:120]!r} is outside the allowed workspace")

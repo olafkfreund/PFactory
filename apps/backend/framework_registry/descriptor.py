@@ -37,7 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from packaging.specifiers import SpecifierSet  # type: ignore[import-untyped]
+from packaging.specifiers import SpecifierSet
 from test_plan.enums import Lane
 
 

@@ -52,11 +52,7 @@ def _status_dict(s: pr.RuntimeStatus) -> dict:
 def list_provider_runtimes(check_latest: bool = True) -> dict:
     # check_latest=false skips the network calls (npm view / PyPI) for a fast
     # detect-only response.
-    return {
-        "runtimes": [
-            _status_dict(s) for s in pr.get_all_status(check_latest=check_latest)
-        ]
-    }
+    return {"runtimes": [_status_dict(s) for s in pr.get_all_status(check_latest=check_latest)]}
 
 
 @router.post("/{name}/pin", summary="Pin (or clear) a provider runtime version")
@@ -64,9 +60,7 @@ def pin_provider_runtime(name: str, body: _VersionBody) -> dict:
     try:
         pr.set_pin(name, body.version)
     except KeyError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return _status_dict(pr.get_status(name, check_latest=False))
 
 
@@ -75,13 +69,9 @@ def update_provider_runtime(name: str, body: _VersionBody) -> dict:
     try:
         result = pr.run_install(name, body.version)
     except KeyError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {
         "name": result.name,
         "command": result.command,

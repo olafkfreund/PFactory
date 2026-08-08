@@ -114,7 +114,7 @@ class AgentProcessMonitorMixin:
         exec_phase_prefix = "__EXEC_PHASE__:"
         if line.startswith(exec_phase_prefix):
             try:
-                json_str = line[len(exec_phase_prefix):]
+                json_str = line[len(exec_phase_prefix) :]
                 event = cast(dict[str, Any], json.loads(json_str))
                 # Map 'progress' to 'percentage' for consistency
                 if "progress" in event:
@@ -152,6 +152,7 @@ class AgentProcessMonitorMixin:
         Returns the final phase detected.
         """
         import logging  # noqa: PLC0415
+
         logger = logging.getLogger(__name__)
         # Use the tracked phase if available (e.g., PLANNING when started via start_task_execution),
         # otherwise default to SPEC_CREATION for spec creation processes
@@ -186,7 +187,9 @@ class AgentProcessMonitorMixin:
             # Detect rate limit messages to trigger failover after exit
             if self._is_rate_limit_line(line):
                 self._task_rate_limits[task_id] = True
-                logger.warning(f"[AgentService] Rate limit detected for task {task_id} (will attempt failover if enabled)")  # noqa: E501
+                logger.warning(
+                    f"[AgentService] Rate limit detected for task {task_id} (will attempt failover if enabled)"  # noqa: E501
+                )
 
             # Write to task_logs.json for detailed phase logs
             if log_writer and spec_id and not is_stderr:
@@ -221,7 +224,10 @@ class AgentProcessMonitorMixin:
                         if current_phase not in (TaskPhase.COMPLETED, TaskPhase.FAILED):
                             log_writer.set_phase_status(spec_id, current_phase, "active")
                         # Ensure validation phase is properly marked completed when task completes
-                        if current_phase == TaskPhase.COMPLETED and old_phase in (TaskPhase.QA_REVIEW, TaskPhase.QA_FIXING):  # noqa: E501
+                        if current_phase == TaskPhase.COMPLETED and old_phase in (
+                            TaskPhase.QA_REVIEW,
+                            TaskPhase.QA_FIXING,
+                        ):
                             log_writer.set_phase_status(spec_id, old_phase, "completed")
 
                 # Always emit progress for phase events (even if phase didn't change)
@@ -236,7 +242,9 @@ class AgentProcessMonitorMixin:
                     data=event,
                 )
                 # Pass previous phase if it changed, so status event can be emitted
-                await self._emit_progress(progress, previous_phase=old_phase if old_phase != current_phase else None)  # noqa: E501
+                await self._emit_progress(
+                    progress, previous_phase=old_phase if old_phase != current_phase else None
+                )
 
             # Check for JSON progress data
             if line.startswith("{"):
@@ -268,27 +276,32 @@ class AgentProcessMonitorMixin:
                             data=data,
                         )
                         # Pass previous phase if it changed, so status event can be emitted
-                        await self._emit_progress(progress, previous_phase=old_phase if old_phase != current_phase else None)  # noqa: E501
+                        await self._emit_progress(
+                            progress,
+                            previous_phase=old_phase if old_phase != current_phase else None,
+                        )
                 except json.JSONDecodeError:
                     pass
 
         return current_phase
 
-    async def _monitor_process(  # noqa: PLR0911, PLR0912, PLR0913, PLR0915
+    async def _monitor_process(  # noqa: PLR0913, PLR0911, PLR0912, PLR0915
         self,
         task_id: str,
         proc: asyncio.subprocess.Process,
         project_path: Path | None = None,
         spec_id: str | None = None,
         cmd: list[str] | None = None,
-        env: dict[str, str] | None = None
+        env: dict[str, str] | None = None,
     ) -> None:
         """Monitor subprocess and clean up when it finishes.
 
-        Also periodically syncs files from worktree to main spec dir if project_path and spec_id are provided.
+        Also periodically syncs files from worktree to main spec dir if
+        project_path and spec_id are provided.
         Supports profile failover on early failures when cmd and env are provided.
-        """  # noqa: E501
+        """
         import logging  # noqa: PLC0415
+
         logger = logging.getLogger(__name__)
 
         try:
@@ -319,7 +332,9 @@ class AgentProcessMonitorMixin:
                             detected_spec_id = safe_spec_component(detected_spec_id)  # #335
 
                         if detected_spec_id:
-                            detected_spec_dir = project_path / ".pfactory" / "specs" / detected_spec_id  # noqa: E501
+                            detected_spec_dir = (
+                                project_path / ".pfactory" / "specs" / detected_spec_id
+                            )
                             plan_review_file = detected_spec_dir / "plan_review.html"
 
                             # Check if plan_review.html exists (indicates review checkpoint reached)
@@ -327,10 +342,14 @@ class AgentProcessMonitorMixin:
                                 # Check if we've already emitted PLAN_REVIEW for this task
                                 current_phase = self._task_current_phases.get(task_id)
                                 if current_phase != TaskPhase.PLAN_REVIEW:
-                                    logger.info(f"[AgentService] Detected review checkpoint for {detected_spec_id} (plan_review.html exists)")  # noqa: E501
+                                    logger.info(
+                                        f"[AgentService] Detected review checkpoint for {detected_spec_id} (plan_review.html exists)"  # noqa: E501
+                                    )
 
                                     # Update plan status to human_review
-                                    await self._update_plan_status(project_path, detected_spec_id, "human_review", task_id)  # noqa: E501
+                                    await self._update_plan_status(
+                                        project_path, detected_spec_id, "human_review", task_id
+                                    )
 
                                     # Emit PLAN_REVIEW phase (maps to "human_review" status) — plan_review always scales to 20%  # noqa: E501
                                     await self._emit_progress(
@@ -345,7 +364,9 @@ class AgentProcessMonitorMixin:
 
                                     # Mark phase as emitted
                                     self._task_current_phases[task_id] = TaskPhase.PLAN_REVIEW
-                                    logger.info(f"[AgentService] Emitted PLAN_REVIEW status for {task_id}")  # noqa: E501
+                                    logger.info(
+                                        f"[AgentService] Emitted PLAN_REVIEW status for {task_id}"
+                                    )
 
                     # If we detect a rate limit and failover is enabled, don't wait for the process to exit.  # noqa: E501
                     if cmd and env:
@@ -364,7 +385,7 @@ class AgentProcessMonitorMixin:
                             rate_limit_forced_restart = True
                             try:  # noqa: SIM105
                                 proc.terminate()
-                            except Exception:  # noqa: BLE001, S110
+                            except Exception:  # noqa: S110, BLE001
                                 pass
                             try:
                                 return_code = await proc.wait()
@@ -383,7 +404,9 @@ class AgentProcessMonitorMixin:
                 await self._sync_worktree_files(project_path, spec_id, task_id)
 
             exit_model = self._task_profiles.get(task_id, {}).get("model", "unknown")
-            logger.info(f"[AgentService] [Model: {exit_model}] Task {task_id} process exited with code {return_code}")  # noqa: E501
+            logger.info(
+                f"[AgentService] [Model: {exit_model}] Task {task_id} process exited with code {return_code}"  # noqa: E501
+            )
 
             # Early model fallback: if a non-Claude model failed, retry with Sonnet
             # before any other processing (spec detection, plan status, etc.)
@@ -396,10 +419,16 @@ class AgentProcessMonitorMixin:
                     and not _fb_model.startswith("claude-")
                     and _fb_model not in ("haiku", "sonnet", "opus", "opus-1m")
                 )
-                logger.info(f"[AgentService] Fallback check: model={_fb_model!r}, attempt={_fb_attempt}, is_non_claude={_fb_is_non_claude}, cmd={'yes' if cmd else 'no'}, env={'yes' if env else 'no'}")  # noqa: E501
+                logger.info(
+                    f"[AgentService] Fallback check: model={_fb_model!r}, attempt={_fb_attempt}, is_non_claude={_fb_is_non_claude}, cmd={'yes' if cmd else 'no'}, env={'yes' if env else 'no'}"  # noqa: E501
+                )
                 if _fb_is_non_claude and _fb_attempt <= 1:
                     new_proc = await self._retry_task_with_fallback_model(
-                        task_id, project_path, spec_id, cmd, env  # type: ignore[arg-type]
+                        task_id,
+                        project_path,  # type: ignore[arg-type]
+                        spec_id,  # type: ignore[arg-type]
+                        cmd,
+                        env,
                     )
                     if new_proc:
                         self._task_rate_limits.pop(task_id, None)
@@ -412,23 +441,30 @@ class AgentProcessMonitorMixin:
 
                         asyncio.create_task(  # noqa: RUF006
                             self._process_output(
-                                task_id, new_proc.stdout, is_stderr=False,  # type: ignore[arg-type]
-                                log_writer=log_writer, spec_id=spec_id,
+                                task_id,
+                                new_proc.stdout,  # type: ignore[arg-type]
+                                is_stderr=False,
+                                log_writer=log_writer,
+                                spec_id=spec_id,
                             )
                         )
                         asyncio.create_task(  # noqa: RUF006
                             self._process_output(
-                                task_id, new_proc.stderr, is_stderr=True,  # type: ignore[arg-type]
-                                log_writer=log_writer, spec_id=spec_id,
+                                task_id,
+                                new_proc.stderr,  # type: ignore[arg-type]
+                                is_stderr=True,
+                                log_writer=log_writer,
+                                spec_id=spec_id,
                             )
                         )
                         asyncio.create_task(  # noqa: RUF006
                             self._monitor_process(
-                                task_id, new_proc, project_path, spec_id,
-                                cmd=None, env=None
+                                task_id, new_proc, project_path, spec_id, cmd=None, env=None
                             )
                         )
-                        logger.info(f"[AgentService] Task {task_id} restarted with fallback model (sonnet)")  # noqa: E501
+                        logger.info(
+                            f"[AgentService] Task {task_id} restarted with fallback model (sonnet)"
+                        )
                         return
 
             # Special case: Spec creation (project_path provided, spec_id is None)
@@ -442,7 +478,7 @@ class AgentProcessMonitorMixin:
                         spec_dirs = sorted(
                             [d for d in specs_dir.iterdir() if d.is_dir()],
                             key=lambda d: d.stat().st_mtime,
-                            reverse=True
+                            reverse=True,
                         )
                         if spec_dirs:
                             detected_spec_dir = spec_dirs[0]
@@ -455,10 +491,14 @@ class AgentProcessMonitorMixin:
                                 review_data = json.loads(review_state_file.read_text())
                                 if not review_data.get("approved", False):
                                     # Spec creation completed, now waiting for review
-                                    logger.info(f"[AgentService] Spec {detected_spec_id} requires human review")  # noqa: E501
+                                    logger.info(
+                                        f"[AgentService] Spec {detected_spec_id} requires human review"  # noqa: E501
+                                    )
 
                                     # Update plan status to human_review
-                                    await self._update_plan_status(project_path, detected_spec_id, "human_review", task_id)  # noqa: E501
+                                    await self._update_plan_status(
+                                        project_path, detected_spec_id, "human_review", task_id
+                                    )
 
                                     # Clean up tracking data
                                     if task_id in self.running_tasks:
@@ -481,12 +521,16 @@ class AgentProcessMonitorMixin:
                                         previous_phase=TaskPhase.SPEC_CREATION,  # Enable status event emission  # noqa: E501
                                     )
 
-                                    logger.info(f"[AgentService] Spec {detected_spec_id} transitioned to PLAN_REVIEW phase")  # noqa: E501
+                                    logger.info(
+                                        f"[AgentService] Spec {detected_spec_id} transitioned to PLAN_REVIEW phase"  # noqa: E501
+                                    )
                                     return  # Exit early - not a failure
 
                             # If we reach here, spec was created but doesn't need review
                             # Auto-start task execution immediately
-                            logger.info(f"[AgentService] Spec {detected_spec_id} created successfully (no review required) — auto-starting execution")  # noqa: E501
+                            logger.info(
+                                f"[AgentService] Spec {detected_spec_id} created successfully (no review required) — auto-starting execution"  # noqa: E501
+                            )
 
                             # Clean up tracking data from spec creation
                             if task_id in self.running_tasks:
@@ -507,11 +551,17 @@ class AgentProcessMonitorMixin:
                                     spec_id=detected_spec_id,
                                     auto_continue=True,
                                 )
-                                logger.info(f"[AgentService] Task execution auto-started for {detected_spec_id}")  # noqa: E501
+                                logger.info(
+                                    f"[AgentService] Task execution auto-started for {detected_spec_id}"  # noqa: E501
+                                )
                             except Exception as exec_err:  # noqa: BLE001
-                                logger.error(f"[AgentService] Failed to auto-start execution for {detected_spec_id}: {exec_err}")  # noqa: E501
+                                logger.error(
+                                    f"[AgentService] Failed to auto-start execution for {detected_spec_id}: {exec_err}"  # noqa: E501
+                                )
                                 # Fall back to human_review status so user can start manually
-                                await self._update_plan_status(project_path, detected_spec_id, "completed", task_id)  # noqa: E501
+                                await self._update_plan_status(
+                                    project_path, detected_spec_id, "completed", task_id
+                                )
                             return  # Exit early
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"[AgentService] Failed to detect created spec: {e}")
@@ -530,7 +580,9 @@ class AgentProcessMonitorMixin:
                         review_data = json.loads(review_state_file.read_text())
                         if not review_data.get("approved", False):
                             # This is NOT a failure - it's waiting for human review!
-                            logger.info(f"[AgentService] Task {task_id} awaiting human review (not a failure)")  # noqa: E501
+                            logger.info(
+                                f"[AgentService] Task {task_id} awaiting human review (not a failure)"  # noqa: E501
+                            )
 
                             # Get actual phase BEFORE cleanup
                             actual_phase = self._get_current_phase(task_id)
@@ -542,11 +594,15 @@ class AgentProcessMonitorMixin:
                                     log_writer.finalize(spec_id, actual_phase)
                                     log_writer.set_phase_status(spec_id, actual_phase, "completed")
                                     main_log_writer.finalize(spec_id, actual_phase)
-                                    main_log_writer.set_phase_status(spec_id, actual_phase, "completed")  # noqa: E501
+                                    main_log_writer.set_phase_status(
+                                        spec_id, actual_phase, "completed"
+                                    )
                                 del self._task_log_writers[task_id]
 
                             # Update plan status to human_review
-                            await self._update_plan_status(project_path, spec_id, "human_review", task_id)  # noqa: E501
+                            await self._update_plan_status(
+                                project_path, spec_id, "human_review", task_id
+                            )
 
                             # Clean up tracking data
                             if task_id in self.running_tasks:
@@ -562,7 +618,12 @@ class AgentProcessMonitorMixin:
                             # Determine emit phase based on what phase the task was actually in
                             # If task was coding/QA, it finished implementation → show 100% progress
                             # If task was still planning, it just finished planning → show 20% progress  # noqa: E501
-                            if actual_phase in (TaskPhase.CODING, TaskPhase.QA_REVIEW, TaskPhase.QA_FIXING, TaskPhase.COMPLETED):  # noqa: E501
+                            if actual_phase in (
+                                TaskPhase.CODING,
+                                TaskPhase.QA_REVIEW,
+                                TaskPhase.QA_FIXING,
+                                TaskPhase.COMPLETED,
+                            ):
                                 emit_phase = TaskPhase.COMPLETED
                                 emit_message = "Task completed - waiting for human review"
                                 emit_overall = 100
@@ -582,7 +643,9 @@ class AgentProcessMonitorMixin:
                                 previous_phase=actual_phase,  # Enable status event emission
                             )
 
-                            logger.info(f"[AgentService] Task {task_id} transitioned to {emit_phase.value} phase (was {actual_phase.value})")  # noqa: E501
+                            logger.info(
+                                f"[AgentService] Task {task_id} transitioned to {emit_phase.value} phase (was {actual_phase.value})"  # noqa: E501
+                            )
                             return  # Exit early - not a failure
 
                     except (json.JSONDecodeError, OSError) as e:
@@ -609,11 +672,15 @@ class AgentProcessMonitorMixin:
                 if should_retry:
                     failed_profile_id = profile_info.get("profileId")
                     reason = "rate_limit" if rate_limit_detected else "early_failure"
-                    logger.info(f"[AgentService] {reason.replace('_', ' ')} detected for {task_id}, attempting profile failover")  # noqa: E501
+                    logger.info(
+                        f"[AgentService] {reason.replace('_', ' ')} detected for {task_id}, attempting profile failover"  # noqa: E501
+                    )
 
                     # Attempt retry with different profile
                     if not failed_profile_id:
-                        logger.warning(f"[AgentService] No failed profile recorded for {task_id}; cannot failover")  # noqa: E501
+                        logger.warning(
+                            f"[AgentService] No failed profile recorded for {task_id}; cannot failover"  # noqa: E501
+                        )
                         new_proc = None
                     else:
                         new_proc = await self._retry_task_with_profile(
@@ -661,20 +728,25 @@ class AgentProcessMonitorMixin:
                                 project_path,
                                 spec_id,
                                 cmd=None,  # Prevent second retry
-                                env=None   # Prevent second retry
+                                env=None,  # Prevent second retry
                             )
                         )
 
-                        logger.info(f"[AgentService] Task {task_id} restarted with alternate profile")  # noqa: E501
+                        logger.info(
+                            f"[AgentService] Task {task_id} restarted with alternate profile"
+                        )
                         return  # Exit this monitor instance
                     else:
-                        logger.warning(f"[AgentService] No alternate profile available for task {task_id}, trying model fallback")  # noqa: E501
-
+                        logger.warning(
+                            f"[AgentService] No alternate profile available for task {task_id}, trying model fallback"  # noqa: E501
+                        )
 
             # If stop_task() already handled cleanup, skip duplicate processing
             if task_id in self._task_stopped:
                 self._task_stopped.discard(task_id)
-                logger.info(f"[AgentService] Task {task_id} was stopped by user, skipping _monitor_process cleanup")  # noqa: E501
+                logger.info(
+                    f"[AgentService] Task {task_id} was stopped by user, skipping _monitor_process cleanup"  # noqa: E501
+                )
                 return
 
             # Get actual phase BEFORE cleanup (needed for proper status emission)
@@ -752,10 +824,14 @@ class AgentProcessMonitorMixin:
                                     spec_id=spec_id,
                                     auto_continue=True,
                                 )
-                                logger.info(f"[AgentService] Auto-continuation started for {spec_id} (round {round_num})")  # noqa: E501
+                                logger.info(
+                                    f"[AgentService] Auto-continuation started for {spec_id} (round {round_num})"  # noqa: E501
+                                )
                                 return  # Exit this monitor — new monitor will take over
                             except Exception as e:  # noqa: BLE001
-                                logger.error(f"[AgentService] Auto-continuation failed for {spec_id}: {e}")  # noqa: E501
+                                logger.error(
+                                    f"[AgentService] Auto-continuation failed for {spec_id}: {e}"
+                                )
                                 # Fall through to normal completion
                         elif pending_count > 0 and round_num > 10:  # noqa: PLR2004
                             logger.warning(
@@ -766,9 +842,13 @@ class AgentProcessMonitorMixin:
                             # All subtasks done — clean up continuation tracker
                             if hasattr(self, continuation_key):
                                 delattr(self, continuation_key)
-                            logger.info(f"[AgentService] All {total_count} subtasks completed for {spec_id}")  # noqa: E501
+                            logger.info(
+                                f"[AgentService] All {total_count} subtasks completed for {spec_id}"
+                            )
                     except (json.JSONDecodeError, OSError) as e:
-                        logger.warning(f"[AgentService] Could not check subtask status for auto-continuation: {e}")  # noqa: E501
+                        logger.warning(
+                            f"[AgentService] Could not check subtask status for auto-continuation: {e}"  # noqa: E501
+                        )
 
             # Update test_plan.json status for frontend display.
             # emit_events=False (Issue #14): the subsequent _emit_progress
@@ -778,7 +858,9 @@ class AgentProcessMonitorMixin:
             # moved the WebSocket events to the explicit _emit_progress.
             if spec_id and project_path:
                 status = "completed" if return_code == 0 else "failed"
-                logger.info(f"[AgentService._monitor_process] About to call _update_plan_status: spec_id={spec_id}, status={status}, task_id={task_id}, project_path={project_path}")  # noqa: E501
+                logger.info(
+                    f"[AgentService._monitor_process] About to call _update_plan_status: spec_id={spec_id}, status={status}, task_id={task_id}, project_path={project_path}"  # noqa: E501
+                )
                 await self._update_plan_status(
                     project_path, spec_id, status, task_id, emit_events=False
                 )
@@ -804,6 +886,7 @@ class AgentProcessMonitorMixin:
                 if _notif_user_id:
                     try:
                         from .notification_service import notification_service  # noqa: PLC0415
+
                         _proj_name = project_path.name if project_path else ""
                         _proj_id = task_id.split(":")[0] if ":" in task_id else ""  # noqa: PLC0207
                         await notification_service.notify(
@@ -828,6 +911,7 @@ class AgentProcessMonitorMixin:
                 if _notif_user_id:
                     try:
                         from .notification_service import notification_service  # noqa: PLC0415
+
                         _proj_name = project_path.name if project_path else ""
                         _proj_id = task_id.split(":")[0] if ":" in task_id else ""  # noqa: PLC0207
                         await notification_service.notify(
@@ -843,11 +927,14 @@ class AgentProcessMonitorMixin:
             # Epic #44 R1 — reap the rmux session if the feature was on.
             # Idempotent + no-op when flag is unset, so safe on every path.
             from ..rmux.integration import reap_if_enabled as _rmux_reap  # noqa: PLC0415, TID252
+
             _reap_spec_id = task_id.split(":", 1)[1] if ":" in task_id else task_id
             try:
                 await _rmux_reap(_reap_spec_id)
             except Exception:  # noqa: BLE001
-                logger.warning(f"[AgentService] rmux reap hook raised (ignored); spec_id={_reap_spec_id}")  # noqa: E501
+                logger.warning(
+                    f"[AgentService] rmux reap hook raised (ignored); spec_id={_reap_spec_id}"
+                )
 
             # Clean up tracking data AFTER all emissions are complete
             # This must happen after _emit_progress so it can still read
@@ -878,8 +965,10 @@ class AgentProcessMonitorMixin:
             self._task_rate_limits.pop(task_id, None)
             self._task_subtask_states.pop(task_id, None)
             self._spec_dirs.pop(task_id, None)
-            await self._emit_progress(TaskProgress(
-                task_id=task_id,
-                phase=TaskPhase.FAILED,
-                message=f"Task monitoring error: {e}",
-            ))
+            await self._emit_progress(
+                TaskProgress(
+                    task_id=task_id,
+                    phase=TaskPhase.FAILED,
+                    message=f"Task monitoring error: {e}",
+                )
+            )
