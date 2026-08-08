@@ -41,16 +41,17 @@ class AgentWorktreeSyncMixin:
             self, task_id: str, payload: dict[str, Any], *, force: bool = False
         ) -> None: ...
 
-    async def _sync_worktree_files(
+    async def _sync_worktree_files(  # noqa: PLR0912, PLR0915
         self, project_path: Path, spec_id: str, task_id: str | None = None
-    ) -> None:  # noqa: E501, PLR0912, PLR0915
+    ) -> None:
         """Sync files from worktree spec dir to main spec dir for frontend visibility.
 
         Args:
             project_path: Path to the project
             spec_id: Spec directory name (e.g., "001-fix-bug")
-            task_id: Full task ID (project_id:spec_id) for consistent tracking. Falls back to spec_id if not provided.
-        """  # noqa: E501
+            task_id: Full task ID (project_id:spec_id) for consistent tracking.
+                Falls back to spec_id if not provided.
+        """
         # Use task_id for tracking if provided, otherwise fall back to spec_id for backwards compatibility  # noqa: E501
         # The component is joined onto the project root below and then read
         # from / written to, so it is validated here at the entry point rather
@@ -71,7 +72,7 @@ class AgentWorktreeSyncMixin:
             / ".pfactory"
             / "specs"
             / spec_id
-        )  # noqa: E501
+        )
         main_spec = project_path / ".pfactory" / "specs" / spec_id
 
         # Ensure main spec dir exists
@@ -112,12 +113,12 @@ class AgentWorktreeSyncMixin:
                             preserved_reason = main_plan.get("reviewReason")
 
                             # Build map of main spec subtask statuses
-                            STATUS_ORDER = {
+                            STATUS_ORDER = {  # noqa: N806
                                 "pending": 0,
                                 "in_progress": 1,
                                 "completed": 2,
                                 "failed": 2,
-                            }  # noqa: E501, N806
+                            }
                             main_subtask_statuses = {}
                             for phase in main_plan.get("phases", []):
                                 for subtask in phase.get("subtasks", []):
@@ -125,7 +126,7 @@ class AgentWorktreeSyncMixin:
                                     if sid:
                                         main_subtask_statuses[sid] = subtask.get(
                                             "status", "pending"
-                                        )  # noqa: E501
+                                        )
 
                             # Start from worktree plan (has latest structure)
                             merged_plan = worktree_plan
@@ -144,15 +145,15 @@ class AgentWorktreeSyncMixin:
                                         main_rank = STATUS_ORDER.get(main_subtask_statuses[sid], 0)
                                         wt_rank = STATUS_ORDER.get(
                                             subtask.get("status", "pending"), 0
-                                        )  # noqa: E501
+                                        )
                                         if main_rank > wt_rank:
                                             subtask["status"] = main_subtask_statuses[sid]
 
                             dst.write_text(json.dumps(merged_plan, indent=2))
                         except (json.JSONDecodeError, OSError) as merge_err:
                             logger.warning(
-                                f"[AgentService] Failed to merge test_plan.json, falling back to copy: {merge_err}"
-                            )  # noqa: E501
+                                f"[AgentService] Failed to merge test_plan.json, falling back to copy: {merge_err}"  # noqa: E501
+                            )
                             shutil.copy2(src, dst)
                     else:
                         shutil.copy2(src, dst)
@@ -172,7 +173,7 @@ class AgentWorktreeSyncMixin:
                     except Exception as e:  # noqa: BLE001
                         logger.warning(
                             f"[AgentService] Failed to sync extra file {src_file.name}: {e}"
-                        )  # noqa: E501
+                        )
         except OSError as e:
             logger.warning(f"[AgentService] Failed to scan worktree spec dir for extra files: {e}")
 
@@ -193,7 +194,7 @@ class AgentWorktreeSyncMixin:
         if synced_count > 0:
             logger.debug(
                 f"[AgentService] Synced {synced_count} files from worktree to main spec dir"
-            )  # noqa: E501
+            )
 
         # Tier B auto-reload — stream new build-progress.txt lines as task:log
         # events.  The agent appends a human-readable narrative ("Starting
@@ -295,7 +296,7 @@ class AgentWorktreeSyncMixin:
                         self._task_current_phases.get(task_id, TaskPhase.PLANNING).value
                         if task_id
                         else "coding"
-                    )  # noqa: E501
+                    )
                     await self._safe_emit_task_update(
                         task_id or spec_id,
                         {

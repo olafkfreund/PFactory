@@ -31,22 +31,22 @@ class TaskLogWriter:
         (
             r"[⏺🔧📖✏️📝🔍💻]\s*(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\b",
             "tool_start",
-        ),  # noqa: E501
+        ),
         # Pattern: "Tool: ToolName" format
         (
             r"^Tool:\s*(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\b",
             "tool_start",
-        ),  # noqa: E501
+        ),
         # Pattern: Claude Code verbose format "Using Read tool"
         (
             r"Using\s+(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\s+tool",
             "tool_start",
-        ),  # noqa: E501
+        ),
         # Pattern: Tool invocation with parameters like "Read(file_path=...)"
         (
             r"^(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch|LSP|NotebookEdit)\s*\(",
             "tool_start",
-        ),  # noqa: E501
+        ),
     ]
 
     # Phase mapping from TaskPhase to task_logs.json phases
@@ -158,11 +158,11 @@ class TaskLogWriter:
             self._pending_text_lines = []
             self._last_text_emit_time = time.time()
 
-    def add_entry(
+    def add_entry(  # noqa: PLR0913
         self,
         spec_id: str,
         phase: TaskPhase,
-        entry_type: str,  # noqa: PLR0913
+        entry_type: str,
         content: str,
         tool_name: str | None = None,
         tool_input: str | None = None,
@@ -244,7 +244,7 @@ class TaskLogWriter:
                     tool_name=self._current_tool,
                     detail="\n".join(self._pending_tool_output[-50:])
                     if self._pending_tool_output
-                    else None,  # noqa: E501
+                    else None,
                 )
 
             # Start new tool
@@ -300,7 +300,7 @@ class TaskLogWriter:
                     tool_name=self._current_tool,
                     detail="\n".join(self._pending_tool_output[-50:])
                     if self._pending_tool_output
-                    else None,  # noqa: E501
+                    else None,
                 )
                 self._current_tool = None
                 self._pending_tool_output = []
@@ -321,7 +321,7 @@ class TaskLogWriter:
                 tool_name=self._current_tool,
                 detail="\n".join(self._pending_tool_output[-50:])
                 if self._pending_tool_output
-                else None,  # noqa: E501
+                else None,
             )
             self._current_tool = None
             self._pending_tool_output = []
