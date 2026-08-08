@@ -16,7 +16,7 @@ test file or writes a ``context/replan_request.json`` for the Planner.
     Python-specific v0.1 prompt for polyglot subtasks).
   - ``_resolve_runner_fn`` now reads the image from
     ``framework_descriptor.runtime.image`` instead of the hardcoded
-    ``pfactory-runner-python:latest`` constant.
+    ``pfactory-runner-pytest:latest`` constant.
   - v0.1-style subtasks (``subtask.framework is None``) degrade
     gracefully with a ``DeprecationWarning`` on both the prompt helper
     and the runner-image paths.
@@ -190,7 +190,7 @@ def _resolve_runner_fn(framework_descriptor=None):
     In v0.2 the runner image is taken from
     ``framework_descriptor.runtime.image``.  For v0.1-style subtasks
     (``framework_descriptor=None``) the legacy default image
-    ``pfactory-runner-python:latest`` is used and a ``DeprecationWarning``
+    ``pfactory-runner-pytest:latest`` is used and a ``DeprecationWarning``
     is emitted.
 
     The returned callable has the signature::
@@ -213,7 +213,17 @@ def _resolve_runner_fn(framework_descriptor=None):
     """
     import warnings
 
-    _DEFAULT_IMAGE = "pfactory-runner-python:latest"
+    # The canonical constant, not a second spelling of it (#493). This carried
+    # its own `"pfactory-runner-python:latest"` literal, so the deprecated path
+    # had to be found and fixed separately from the one #493 names -- which is
+    # exactly how it stayed on the v0.1 name after the rename. Imported as the
+    # MODULE constant, not `DockerRunner.DEFAULT_IMAGE`: the tests below replace
+    # the class wholesale, and a default read off the replacement is not the
+    # default.
+    from tools.runners.docker_runner import (
+        DEFAULT_RUNNER_IMAGE as _DEFAULT_IMAGE,
+        DockerRunner,
+    )
 
     if framework_descriptor is None:
         warnings.warn(
@@ -229,8 +239,6 @@ def _resolve_runner_fn(framework_descriptor=None):
         image = (
             getattr(getattr(framework_descriptor, "runtime", None), "image", None) or _DEFAULT_IMAGE
         )
-
-    from tools.runners.docker_runner import DockerRunner
 
     runner = DockerRunner(image=image)
 

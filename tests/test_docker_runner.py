@@ -20,6 +20,7 @@ Covers:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,6 +28,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from tools.runners.docker_runner import (
+    DEFAULT_RUNNER_IMAGE,
     DEFAULT_RUNNER_REGISTRY,
     RUNNER_REGISTRY_ENV,
     DockerRunner,
@@ -156,6 +158,57 @@ def test_custom_image_honoured():
     argv = _basic_argv(image="myreg/custom:dev")
     assert "myreg/custom:dev" in argv
     assert resolve_runner_image(DockerRunner.DEFAULT_IMAGE) not in argv
+
+
+# ── the default image must be one something builds (#493) ────────────────
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_RUNNER_IMAGES_WORKFLOW = _REPO_ROOT / ".github/workflows/runner-images.yml"
+
+
+def _built_runners() -> set[str]:
+    """The frameworks `runner-images.yml` actually builds, read from its matrix.
+
+    Read rather than hand-listed: a second copy of the matrix in a test is the
+    thing that drifts, and drift is the whole of #493.
+    """
+    matrix = re.search(
+        r"^\s*runner:\s*\[([^\]]+)\]", _RUNNER_IMAGES_WORKFLOW.read_text(), re.M
+    )
+    assert matrix, "runner-images.yml no longer declares a `runner:` matrix list"
+    return {name.strip() for name in matrix.group(1).split(",")}
+
+
+def test_default_image_is_built_by_the_runner_images_workflow():
+    """#493: `DEFAULT_IMAGE` named `pfactory-runner-python`, which nothing built.
+
+    Not in `runner-images.yml`'s matrix, no `docker/pfactory-runner-python/`,
+    no compose service, no script -- only a hand-typed `docker build` in a
+    Dockerfile's own header comment. Every caller landing on the default asked
+    for an image no pipeline produces: `pull access denied` before #449, a 404
+    against ghcr.io after it.
+
+    Asserted against the workflow rather than against a literal, so the default
+    cannot drift off the matrix again without this going red.
+    """
+    framework = DockerRunner.DEFAULT_IMAGE.removeprefix("pfactory-runner-").split(":")[0]
+    assert framework in _built_runners(), (
+        f"DEFAULT_IMAGE={DockerRunner.DEFAULT_IMAGE!r} names a runner "
+        f"runner-images.yml does not build (it builds {sorted(_built_runners())})"
+    )
+    dockerfile = _REPO_ROOT / f"docker/pfactory-runner-{framework}/Dockerfile"
+    assert dockerfile.exists(), f"no Dockerfile at {dockerfile}"
+
+
+def test_class_default_is_the_module_constant():
+    """One definition, two names (#493).
+
+    `gen_functional._resolve_runner_fn` is deprecated, not dead, and it carried
+    its own `pfactory-runner-python:latest` literal. Two spellings of one
+    default is how one of them stayed on the v0.1 name after the rename, and it
+    is why #493 had to name two files.
+    """
+    assert DockerRunner.DEFAULT_IMAGE is DEFAULT_RUNNER_IMAGE
 
 
 # ── runner image resolution (#449) ───────────────────────────────────────
@@ -468,7 +521,7 @@ def test_docker_image_runs_echo(tmp_path):
     """Smoke: the runner can fire a docker invocation and capture stdout.
 
     Uses busybox (3MB, ships everywhere) — does NOT require the
-    pfactory-runner-python image to be built. Validates the wiring
+    pfactory-runner-pytest image to be built. Validates the wiring
     end-to-end without the build artifact.
     """
     r = DockerRunner(image="busybox:latest")

@@ -79,7 +79,7 @@ def test_v01_alias_dispatch_emits_deprecation_warning(
         return cp
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
-    r = DockerRunner(image="pfactory-runner-python:latest")
+    r = DockerRunner(image="pfactory-runner-pytest:latest")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         result = dispatch_lane(
