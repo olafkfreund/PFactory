@@ -13,6 +13,7 @@ Read-only: the connector only reads/searches the catalog; it never writes back.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Protocol, cast
 
 from plan.enrich.knowledge.base import (
@@ -24,6 +25,72 @@ from plan.enrich.knowledge.base import (
 )
 
 _DEFAULT_LIMIT = 10
+
+# The search query is the WHOLE plan text, so the terms it splits into decide
+# what counts as a catalog match. Words this common carry no signal — an entity
+# whose description contains "the" is not a golden path for this plan (#386).
+_STOPWORDS = frozenset(
+    {
+        "an",
+        "and",
+        "any",
+        "are",
+        "as",
+        "at",
+        "be",
+        "but",
+        "by",
+        "can",
+        "for",
+        "from",
+        "has",
+        "have",
+        "how",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "may",
+        "must",
+        "not",
+        "of",
+        "on",
+        "or",
+        "should",
+        "so",
+        "than",
+        "that",
+        "the",
+        "their",
+        "then",
+        "there",
+        "these",
+        "this",
+        "to",
+        "use",
+        "used",
+        "uses",
+        "using",
+        "was",
+        "were",
+        "what",
+        "when",
+        "which",
+        "who",
+        "will",
+        "with",
+        "would",
+        "your",
+    }
+)
+# Below this length a token is punctuation or an article, not a topic.
+_MIN_TERM_LEN = 2
+# ponytail: two significant shared terms, not a tuned float. The score here is
+# hits/len(terms), which shrinks as the plan gets longer, so any fixed float
+# threshold would silently admit more on short plans and less on long ones. Move
+# to a score floor only if a real catalogue shows two-term coincidences.
+_MIN_HITS = 2
 
 
 class _HttpClient(Protocol):
@@ -85,6 +152,28 @@ class BackstageConnector(KnowledgeConnector):
         return "template" if str(entity.get("kind", "")).lower() == "template" else "catalog"
 
     @staticmethod
+    def _significant(query: str) -> set[str]:
+        """Query terms that can carry a match.
+
+        The query is the whole plan text, so splitting it raw makes "a", "the",
+        "and" and "to" query terms — and an entity whose description contains
+        ANY of them scored a hit under the old ``hits == 0`` filter. That is how
+        `nixos-module` and `component/tfactory` came to be cited on a
+        pure-Python slug service (#386): not because they matched it, but
+        because English did.
+        """
+        # `.` and `-` are kept INSIDE a token (`url-safe`, `go.mod`) but stripped
+        # from its edges — otherwise "service." and "service" are two terms, and
+        # an entity mentioning "service" once scores two hits against them.
+        return {
+            stripped
+            for w in re.split(r"[^a-z0-9_.-]+", query.lower())
+            if (stripped := w.strip("._-"))
+            and len(stripped) > _MIN_TERM_LEN
+            and stripped not in _STOPWORDS
+        }
+
+    @staticmethod
     def _matches(entity: dict[str, Any], terms: set[str]) -> int:
         """Count query-term hits across an entity's text fields."""
         meta = entity.get("metadata", {}) or {}
@@ -132,7 +221,7 @@ class BackstageConnector(KnowledgeConnector):
         """Query the catalog and map matching entities to knowledge refs."""
         if not self.base_url:
             return []
-        terms = {w for w in query.lower().split() if w}
+        terms = self._significant(query)
         data = self._get_json(f"{self.base_url}/api/catalog/entities")
 
         # Backstage may return a bare list or {"items": [...]}.
@@ -148,7 +237,16 @@ class BackstageConnector(KnowledgeConnector):
             if not isinstance(entity, dict):
                 continue
             hits = self._matches(entity, terms) if terms else 1
-            if terms and hits == 0:
+            # One shared word out of a whole plan is a coincidence, not a match.
+            # The connector already COMPUTES a relevance score here and then
+            # admitted every entity regardless of it; a citation that says "the
+            # plan should follow it" has to clear some bar, and this is the bar
+            # the code was already in a position to apply (#386).
+            #
+            # Capped at the number of terms so a deliberately narrow query still
+            # works: `search("payments")` has one term to match and needs one
+            # hit, while a 60-term plan needs two.
+            if terms and hits < min(_MIN_HITS, len(terms)):
                 continue
             score = min(1.0, hits / len(terms)) if terms else 0.0
             scored.append((hits, self._to_ref(entity, score)))
