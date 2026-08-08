@@ -49,6 +49,11 @@ def _runner_dirs() -> set[str]:
 
 pytestmark = pytest.mark.skipif(not _WORKFLOW.is_file(), reason="runner-images.yml not present")
 
+# What the push step must publish, exactly. The owner and the runner come from
+# workflow expressions so the same two lines cover all six matrix entries.
+_IMAGE = "ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}"
+_EXPECTED_PUSH_TAGS = [f"{_IMAGE}:${{{{ github.sha }}}}", f"{_IMAGE}:latest"]
+
 
 def test_the_matrix_covers_every_runner_directory() -> None:
     """A directory outside the matrix is a Dockerfile nobody ever builds."""
@@ -69,12 +74,19 @@ def test_images_are_published_on_main() -> None:
         "hand (#449)."
     )
     for step in pushes:
-        tags = step["with"]["tags"]
-        assert "ghcr.io/" in tags, f"push step does not target a registry: {tags!r}"
-        # Both a commit-pinned tag and :latest, so a lane's image can be traced
-        # back to the commit it was built from.
-        assert "github.sha" in tags, (
-            f"no commit-pinned tag, so nothing ties the image to a commit: {tags!r}"
+        tags = [t.strip() for t in step["with"]["tags"].splitlines() if t.strip()]
+        # Exact set equality, not a substring or prefix check on each tag.
+        # Stronger (a bare tag alongside a qualified one cannot slip through, and
+        # neither can a missing commit pin), and it does not read as URL host
+        # validation, which is what CodeQL's py/incomplete-url-substring-
+        # sanitization exists to catch and correctly flagged the first version of
+        # this assertion.
+        assert tags == _EXPECTED_PUSH_TAGS, (
+            f"push tags are not exactly the registry-qualified commit-pinned pair.\n"
+            f"  expected: {_EXPECTED_PUSH_TAGS}\n"
+            f"  found:    {tags}\n"
+            "Both are load-bearing: the :<sha> tag is what ties a lane's image to "
+            "a commit, and :latest is what the consumers resolve."
         )
         assert "refs/heads/main" in step.get("if", ""), (
             "publishing must be gated on push-to-main; a PR (including from a "
