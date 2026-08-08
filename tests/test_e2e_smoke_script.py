@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -45,11 +46,32 @@ def _run(
     NO_COLOR=1 keeps stdout assertable; PATH inherited so bash + python
     on the shebang resolve. PFACTORY_E2E_STATE_DIR is set per-call by
     the caller via env_extra.
+
+    PFACTORY_PYTHON_BIN is the interpreter running these tests (#504). The
+    script's default is ``apps/backend/.venv/bin/python``, which a ``git
+    worktree`` never has -- ``.venv`` is gitignored, so a worktree starts
+    without one, and that is how every agent in this fleet runs. Twelve of
+    these cases then failed on pre-flight, as assertions rather than as a skip
+    that says why, in the one environment the fleet uses most. CI creates the
+    venv at that path, so CI never saw it.
+
+    The override is the script's own, not a new seam. Nothing here needs the
+    project's dependencies: every case is ``--list``, ``--help``, an argument
+    error or ``--dry-run``, and ``run_or_say`` returns before executing
+    anything in dry-run. The only real use of the interpreter is the state
+    file's stdlib ``json`` writes, which any Python satisfies.
+
+    Skipping instead would have been the smaller change and the worse one: the
+    twelve cases would then verify nothing in a worktree, which is where they
+    are most often run. Naming an interpreter makes CI and a bare worktree
+    agree. The pre-flight check itself keeps its teeth -- see
+    ``test_preflight_still_fails_when_the_interpreter_is_missing``.
     """
     env = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": os.environ.get("HOME", "/tmp"),
         "NO_COLOR": "1",
+        "PFACTORY_PYTHON_BIN": sys.executable,
     }
     if env_extra:
         env.update(env_extra)
@@ -240,6 +262,32 @@ def test_dry_run_skips_env_var_checks(state_dir: Path) -> None:
     assert proc.returncode == 0
     # Confirm the "skipping env / project checks" message appears
     assert "skipping env" in proc.stdout
+
+
+def test_preflight_still_fails_when_the_interpreter_is_missing(
+    state_dir: Path, tmp_path: Path
+) -> None:
+    """The guard #504 routed around must still have teeth.
+
+    `_run` names an interpreter so these cases stop failing in a worktree; that
+    must not become "the pre-flight venv check is untested". Nothing asserted
+    this before -- the check was only ever exercised by accident, by whether
+    the machine happened to have `apps/backend/.venv`, which is why the same
+    code path read as 12 green tests on CI and 12 red ones everywhere else.
+    """
+    proc = _run(
+        "--dry-run",
+        "--scenario",
+        "1",
+        env_extra={
+            "PFACTORY_E2E_STATE_DIR": str(state_dir),
+            "PFACTORY_PYTHON_BIN": str(tmp_path / "no-such-python"),
+        },
+    )
+    assert proc.returncode == 2
+    # log_fail writes to stderr; the ✓ lines above it go to stdout.
+    assert "python venv not found" in proc.stderr
+    assert "pre-flight failed" in proc.stderr
 
 
 def test_no_color_disables_ansi(state_dir: Path) -> None:
