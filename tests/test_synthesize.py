@@ -275,3 +275,110 @@ def test_testing_child_names_no_files_for_an_unmapped_language():
 
     assert fp == {}
     assert "docs/plans/" not in child.body
+
+
+# ── PFactory#462: the CI/CD child must be scoped to the delta ────────────────
+
+
+_WIRED_WORKFLOW = """\
+name: CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ruff check .
+      - run: pytest -q
+      - run: docker build -t app .
+      - run: ./deploy.sh
+"""
+
+
+def _repo_with_pipeline(tmp_path, body=_WIRED_WORKFLOW):
+    """A RepoMap built the way reconnaissance builds one, from a real file."""
+    from plan.recon.ci_probe import pipeline_stages, probe_ci
+
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "ci.yml").write_text(body)
+    ci = probe_ci(tmp_path)
+    return RepoMap(
+        available=True,
+        languages=["python"],
+        ci_system=ci["system"],
+        ci_pipeline_paths=ci["paths"],
+        ci_stages=pipeline_stages(tmp_path, ci["paths"]),
+        layout={"files": ["pyproject.toml"], "dirs": ["src"]},
+    )
+
+
+def test_pipeline_stages_reads_tools_not_stage_labels(tmp_path):
+    """`ruff check .` IS a lint stage even though the file never says "lint".
+
+    Matching on stage labels would report a gap in every pipeline that names its
+    jobs after tools, which is most of them.
+    """
+    repo_map = _repo_with_pipeline(tmp_path)
+    assert set(repo_map.ci_stages) >= {"lint", "test", "build", "deploy"}
+    assert "security scan" not in repo_map.ci_stages
+
+
+def test_cicd_child_asks_only_for_the_stages_the_pipeline_lacks(tmp_path):
+    """The defect: a repo with a working ci.yml got the whole pipeline restated.
+
+    aifactory-demo has had lint+test+build wired throughout, and every feature
+    still bought a full CI/CD child. Now it asks for the security scans and
+    nothing else.
+    """
+    plan = _software_plan()
+    plan.repo_map = _repo_with_pipeline(tmp_path)
+    cicd = generate_cicd(plan)
+    assert cicd is not None
+
+    criteria = " ".join(cicd.child.acceptance_criteria).lower()
+    assert "security scan" in criteria
+    # The stages the repo already runs must not be asked for again.
+    assert "coverage report" not in criteria       # tied to the test stage
+    assert "manual approval" not in criteria       # tied to the deploy stage
+    assert len(cicd.child.acceptance_criteria) == 1
+
+
+def test_cicd_child_body_names_what_is_already_wired(tmp_path):
+    """The coder needs to be told to EXTEND the pipeline, not rewrite it."""
+    plan = _software_plan()
+    plan.repo_map = _repo_with_pipeline(tmp_path)
+    cicd = generate_cicd(plan)
+    assert cicd is not None
+
+    assert "do NOT re-specify" in cicd.child.body
+    for wired in ("lint", "test", "build"):
+        assert wired in cicd.child.body
+    assert "already wired" in cicd.document
+
+
+def test_no_cicd_child_when_the_pipeline_already_runs_everything(tmp_path):
+    """Nothing missing means no child at all — not a child with no asks."""
+    complete = _WIRED_WORKFLOW + "      - run: trivy fs .\n"
+    plan = _software_plan()
+    plan.repo_map = _repo_with_pipeline(tmp_path, complete)
+
+    assert generate_cicd(plan) is None
+
+
+def test_cicd_child_is_unchanged_when_recon_found_no_pipeline():
+    """Greenfield, and every older RepoMap, must behave exactly as before.
+
+    The scoping is driven by positive evidence only: no evidence means no
+    narrowing, so a plan that genuinely needs a whole pipeline still gets one.
+    This is the direction that would fail silently — an over-eager filter drops
+    real work and nothing reports it.
+    """
+    cicd = generate_cicd(_software_plan())
+    assert cicd is not None
+
+    criteria = " ".join(cicd.child.acceptance_criteria).lower()
+    for stage in ("lint", "test", "build", "security scan"):
+        assert stage in criteria
+    assert "coverage report" in criteria
+    assert "manual approval" in criteria
+    assert "already wired" not in cicd.document
