@@ -41,6 +41,7 @@ def _get_oauth_redirect_uri(request: Request, provider: str = "outlook") -> str:
             return override.rstrip("/")
     return str(request.base_url).rstrip("/") + f"/api/email/auth/{provider}/callback"
 
+
 router = APIRouter(prefix="/api/email", tags=["Email"])
 
 # In-memory OAuth state store: state_token -> {user_id, provider, created_at}
@@ -86,9 +87,7 @@ async def list_email_accounts(request: Request):
     user_id = _get_user_id(request)
 
     async with async_session_factory() as session:
-        result = await session.execute(
-            select(EmailAccount).where(EmailAccount.user_id == user_id)
-        )
+        result = await session.execute(select(EmailAccount).where(EmailAccount.user_id == user_id))
         accounts = result.scalars().all()
 
     return [
@@ -120,9 +119,7 @@ async def disconnect_email_account(account_id: str, request: Request):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Email account not found",
             )
-        await session.execute(
-            delete(EmailAccount).where(EmailAccount.id == account_id)
-        )
+        await session.execute(delete(EmailAccount).where(EmailAccount.id == account_id))
         await session.commit()
 
     return {"success": True, "message": "Email account disconnected"}
@@ -397,9 +394,7 @@ async def outlook_oauth_callback(
             message="Failed to save email account to database",
         )
 
-    logger.info(
-        "Outlook account connected for user %s: %s", user_id, email_address
-    )
+    logger.info("Outlook account connected for user %s: %s", user_id, email_address)
 
     return _oauth_result_html(
         success=True,
@@ -619,9 +614,7 @@ async def gmail_oauth_callback(
             provider="gmail",
         )
 
-    logger.info(
-        "Gmail account connected for user %s: %s", user_id, email_address
-    )
+    logger.info("Gmail account connected for user %s: %s", user_id, email_address)
 
     return _oauth_result_html(
         success=True,

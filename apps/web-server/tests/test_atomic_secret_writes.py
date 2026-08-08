@@ -42,8 +42,7 @@ def test_concurrent_readers_never_see_a_torn_file(tmp_path: Path):
     payload = {
         "activeProfileId": "p1",
         "profiles": [
-            {"id": f"p{i}", "name": f"Account {i}", "token": f"tok-{i}" * 40}
-            for i in range(1, 6)
+            {"id": f"p{i}", "name": f"Account {i}", "token": f"tok-{i}" * 40} for i in range(1, 6)
         ],
     }
     atomic_write_secret_json(p, payload)

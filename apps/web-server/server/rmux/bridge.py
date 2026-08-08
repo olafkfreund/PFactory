@@ -66,6 +66,7 @@ async def _read_fifo_chunks(fifo_path: Path, chunk: int = 4096):
     loop never stalls on a slow pane.  Opening in binary mode preserves
     ANSI escape bytes intact for xterm.js.
     """
+
     def _open_blocking():
         return open(fifo_path, "rb", buffering=0)
 
@@ -121,7 +122,9 @@ class AttachRequest(BaseModel):
     """
 
     connection_id: str = Field(
-        ..., min_length=1, max_length=64,
+        ...,
+        min_length=1,
+        max_length=64,
         description="UUID v4 from the WS handshake's `connected` frame",
     )
 
@@ -292,7 +295,8 @@ async def agent_console_ws(websocket: WebSocket, spec_id: str):
         except Exception:
             logger.warning(
                 "agent-console reader crashed for %s",
-                state.spec_id, exc_info=True,
+                state.spec_id,
+                exc_info=True,
             )
 
     async def _writer_listener():
@@ -308,18 +312,23 @@ async def agent_console_ws(websocket: WebSocket, spec_id: str):
                 if state.attached_connection_id != cid:
                     logger.debug(
                         "dropping read-only WS input for %s (attached=%s, this=%s)",
-                        state.spec_id, state.attached_connection_id, cid,
+                        state.spec_id,
+                        state.attached_connection_id,
+                        cid,
                     )
                     continue
                 # Forward.  Convert bytes→str if necessary; rmux
                 # send-keys accepts ESC sequences as raw text on stdin.
-                payload = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
+                payload = (
+                    data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
+                )
                 try:
                     await wrapper.send_keys(state.session_name, payload)
                 except RmuxError:
                     logger.warning(
                         "send-keys failed for %s (session gone?)",
-                        state.spec_id, exc_info=True,
+                        state.spec_id,
+                        exc_info=True,
                     )
         except WebSocketDisconnect:
             return

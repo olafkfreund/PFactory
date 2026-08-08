@@ -56,9 +56,7 @@ class EmailService:
                 )
                 accounts = result.scalars().all()
         except Exception:
-            logger.warning(
-                "Failed to load email accounts for user %s", user_id, exc_info=True
-            )
+            logger.warning("Failed to load email accounts for user %s", user_id, exc_info=True)
             return False
 
         if not accounts:
@@ -93,9 +91,7 @@ class EmailService:
 
         return False
 
-    async def _send_via_outlook(
-        self, account: EmailAccount, subject: str, body_html: str
-    ) -> bool:
+    async def _send_via_outlook(self, account: EmailAccount, subject: str, body_html: str) -> bool:
         """Send email via Microsoft Graph API (POST /me/sendMail)."""
         access_token = await self._refresh_token_if_needed(account)
         if not access_token:
@@ -204,7 +200,9 @@ class EmailService:
         new_refresh_token = token_data.get("refresh_token", account.refresh_token)
         expires_in = token_data.get("expires_in", 3600)
 
-        new_expiry = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=expires_in)
+        new_expiry = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(
+            seconds=expires_in
+        )
 
         # Update DB
         try:
@@ -221,16 +219,15 @@ class EmailService:
                 await session.commit()
         except Exception:
             logger.warning(
-                "Failed to persist refreshed token for %s", account.email_address,
+                "Failed to persist refreshed token for %s",
+                account.email_address,
                 exc_info=True,
             )
 
         logger.info("Refreshed Outlook token for %s", account.email_address)
         return new_access_token
 
-    async def _send_via_gmail(
-        self, account: EmailAccount, subject: str, body_html: str
-    ) -> bool:
+    async def _send_via_gmail(self, account: EmailAccount, subject: str, body_html: str) -> bool:
         """Send email via Gmail API (POST /gmail/v1/users/me/messages/send)."""
         access_token = await self._refresh_token_if_needed(account)
         if not access_token:
@@ -302,7 +299,9 @@ class EmailService:
         new_refresh_token = token_data.get("refresh_token", account.refresh_token)
         expires_in = token_data.get("expires_in", 3600)
 
-        new_expiry = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=expires_in)
+        new_expiry = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(
+            seconds=expires_in
+        )
 
         # Update DB
         try:
@@ -319,7 +318,8 @@ class EmailService:
                 await session.commit()
         except Exception:
             logger.warning(
-                "Failed to persist refreshed token for %s", account.email_address,
+                "Failed to persist refreshed token for %s",
+                account.email_address,
                 exc_info=True,
             )
 

@@ -227,17 +227,13 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
         raise GitOperationError(f"git executable not found on PATH: {e}") from e
 
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError as e:
         try:
             proc.kill()
         except ProcessLookupError:
             pass
-        raise GitOperationError(
-            f"git {' '.join(args)} timed out after {timeout}s"
-        ) from e
+        raise GitOperationError(f"git {' '.join(args)} timed out after {timeout}s") from e
 
     if proc.returncode != 0:
         raise GitOperationError(

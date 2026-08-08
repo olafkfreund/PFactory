@@ -62,6 +62,7 @@ class OllamaProvider(ProviderStrategy):
         # Check if server is running by fetching model list
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=1.5) as client:
                 resp = await client.get(f"{self.base_url}/api/tags")
                 resp.raise_for_status()
@@ -83,7 +84,10 @@ class OllamaProvider(ProviderStrategy):
             # Fallback: check if ollama is installed but server may be down
             try:
                 result = subprocess.run(
-                    ["ollama", "list"], capture_output=True, text=True, timeout=2,
+                    ["ollama", "list"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     lines = result.stdout.strip().splitlines()
@@ -133,11 +137,14 @@ class OllamaProvider(ProviderStrategy):
                     content = msg.get("content", "")
                     if content:
                         accumulated += content
-                        await broadcast_event("insights:chunk", {
-                            "projectId": project_id,
-                            "type": "text",
-                            "content": content,
-                        })
+                        await broadcast_event(
+                            "insights:chunk",
+                            {
+                                "projectId": project_id,
+                                "type": "text",
+                                "content": content,
+                            },
+                        )
 
                     # Collect tool calls from the message
                     msg_tool_calls = msg.get("tool_calls", [])
@@ -180,10 +187,12 @@ class OllamaProvider(ProviderStrategy):
         messages = [{"role": "system", "content": system_prompt}]
         if conversation_history:
             for msg in conversation_history[-10:]:  # Last 10 messages
-                messages.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                })
+                messages.append(
+                    {
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", ""),
+                    }
+                )
         messages.append({"role": "user", "content": message})
 
         tools = get_tool_definitions()
@@ -193,11 +202,14 @@ class OllamaProvider(ProviderStrategy):
         try:
             import httpx
 
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "text",
-                "content": "",
-            })
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "text",
+                    "content": "",
+                },
+            )
 
             final_text = ""
             stream_start = time.monotonic()
@@ -218,7 +230,9 @@ class OllamaProvider(ProviderStrategy):
 
                     try:
                         text, tool_calls, ollama_metrics = await self._stream_response(
-                            client, payload, project_id,
+                            client,
+                            payload,
+                            project_id,
                         )
                     except httpx.HTTPStatusError as e:
                         if e.response.status_code == 400 and use_tools:
@@ -230,7 +244,9 @@ class OllamaProvider(ProviderStrategy):
                             use_tools = False
                             payload.pop("tools", None)
                             text, tool_calls, ollama_metrics = await self._stream_response(
-                                client, payload, project_id,
+                                client,
+                                payload,
+                                project_id,
                             )
                         else:
                             raise
@@ -246,11 +262,13 @@ class OllamaProvider(ProviderStrategy):
                         break
 
                     # Append the assistant message with tool calls
-                    messages.append({
-                        "role": "assistant",
-                        "content": text,
-                        "tool_calls": tool_calls,
-                    })
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": text,
+                            "tool_calls": tool_calls,
+                        }
+                    )
 
                     # Execute each tool call and append results
                     for tc in tool_calls:
@@ -275,25 +293,35 @@ class OllamaProvider(ProviderStrategy):
                             or str(tool_args)[:200]
                         )
 
-                        await broadcast_event("insights:chunk", {
-                            "projectId": project_id,
-                            "type": "tool_start",
-                            "tool": {"name": tool_name, "input": str(display_input)[:200]},
-                        })
+                        await broadcast_event(
+                            "insights:chunk",
+                            {
+                                "projectId": project_id,
+                                "type": "tool_start",
+                                "tool": {"name": tool_name, "input": str(display_input)[:200]},
+                            },
+                        )
 
                         result = execute_tool(tool_name, tool_args, project_path)
 
-                        await broadcast_event("insights:chunk", {
-                            "projectId": project_id,
-                            "type": "tool_end",
-                        })
+                        await broadcast_event(
+                            "insights:chunk",
+                            {
+                                "projectId": project_id,
+                                "type": "tool_end",
+                            },
+                        )
 
-                        messages.append({
-                            "role": "tool",
-                            "content": result,
-                        })
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "content": result,
+                            }
+                        )
 
-                    logger.debug(f"[OllamaProvider] Tool iteration {iteration + 1}: {len(tool_calls)} tool(s) called")
+                    logger.debug(
+                        f"[OllamaProvider] Tool iteration {iteration + 1}: {len(tool_calls)} tool(s) called"
+                    )
 
             elapsed = time.monotonic() - stream_start
             eval_ns = last_metrics.get("eval_duration", 0)
@@ -304,25 +332,31 @@ class OllamaProvider(ProviderStrategy):
             else:
                 tokens_per_sec = 0
 
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "done",
-                "metrics": {
-                    "inputTokens": total_input_tokens,
-                    "outputTokens": total_output_tokens,
-                    "tokensPerSecond": tokens_per_sec,
-                    "elapsedSeconds": round(elapsed, 1),
-                    "estimated": False,
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "done",
+                    "metrics": {
+                        "inputTokens": total_input_tokens,
+                        "outputTokens": total_output_tokens,
+                        "tokensPerSecond": tokens_per_sec,
+                        "elapsedSeconds": round(elapsed, 1),
+                        "estimated": False,
+                    },
                 },
-            })
+            )
 
             return final_text
 
         except Exception as e:
             logger.error(f"[OllamaProvider] Error: {e}", exc_info=True)
-            await broadcast_event("insights:chunk", {
-                "projectId": project_id,
-                "type": "error",
-                "error": str(e),
-            })
+            await broadcast_event(
+                "insights:chunk",
+                {
+                    "projectId": project_id,
+                    "type": "error",
+                    "error": str(e),
+                },
+            )
             return ""

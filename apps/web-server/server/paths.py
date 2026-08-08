@@ -1,4 +1,5 @@
 """Centralized path helpers for PFactory data directory."""
+
 import json
 import os
 import shutil
@@ -52,7 +53,9 @@ def migrate_legacy_data():
     if legacy_dir.exists() and not AI_FACTORY_DIR.exists():
         try:
             shutil.copytree(legacy_dir, AI_FACTORY_DIR, dirs_exist_ok=True)
-            print(f"PFactory - Successfully migrated legacy data from {legacy_dir} to {AI_FACTORY_DIR}")
+            print(
+                f"PFactory - Successfully migrated legacy data from {legacy_dir} to {AI_FACTORY_DIR}"
+            )
         except Exception as e:
             print(f"PFactory - Warning: failed to migrate legacy data: {e}")
 

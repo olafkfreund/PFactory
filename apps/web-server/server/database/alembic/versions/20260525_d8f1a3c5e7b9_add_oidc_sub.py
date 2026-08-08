@@ -31,9 +31,7 @@ def upgrade() -> None:
     # the table with the new column + constraint atomically. On
     # Postgres the batch reduces to a regular ALTER TABLE.
     with op.batch_alter_table("users") as batch:
-        batch.add_column(
-            sa.Column("oidc_sub", sa.String(length=255), nullable=True)
-        )
+        batch.add_column(sa.Column("oidc_sub", sa.String(length=255), nullable=True))
         batch.create_unique_constraint("uq_users_oidc_sub", ["oidc_sub"])
 
 

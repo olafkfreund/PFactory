@@ -61,9 +61,7 @@ PRESETS: dict[str, OidcPreset] = {
         default_scope="openid profile email groups",
         groups_claim="groups",
         groups_as_list=True,
-        docs_url=(
-            "https://developer.okta.com/docs/guides/customize-tokens-returned-from-okta/"
-        ),
+        docs_url=("https://developer.okta.com/docs/guides/customize-tokens-returned-from-okta/"),
     ),
     "azure_ad": OidcPreset(
         name="azure_ad",
@@ -73,8 +71,7 @@ PRESETS: dict[str, OidcPreset] = {
         groups_claim="groups",
         groups_as_list=True,
         docs_url=(
-            "https://learn.microsoft.com/en-us/entra/identity-platform/"
-            "id-token-claims-reference"
+            "https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference"
         ),
     ),
 }
@@ -83,5 +80,6 @@ PRESETS: dict[str, OidcPreset] = {
 def current_preset() -> OidcPreset:
     """Return the active preset based on ``APP_OIDC_PROVIDER`` env."""
     import os
+
     name = (os.environ.get("APP_OIDC_PROVIDER") or "keycloak").lower()
     return PRESETS.get(name, PRESETS["keycloak"])

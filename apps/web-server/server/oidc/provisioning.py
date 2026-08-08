@@ -46,9 +46,7 @@ def _role_for_userinfo(userinfo: dict) -> str:
     try:
         mapping: dict[str, str] = json.loads(mapping_json)
     except json.JSONDecodeError:
-        logger.warning(
-            "APP_OIDC_GROUP_TO_ROLE is not valid JSON; falling back to default role"
-        )
+        logger.warning("APP_OIDC_GROUP_TO_ROLE is not valid JSON; falling back to default role")
         return default_role
     groups = userinfo.get("groups") or []
     if isinstance(groups, str):
@@ -59,9 +57,7 @@ def _role_for_userinfo(userinfo: dict) -> str:
     return default_role
 
 
-async def _get_or_create_default_org(
-    db: AsyncSession, owner: User
-) -> Organization:
+async def _get_or_create_default_org(db: AsyncSession, owner: User) -> Organization:
     """Return the Organization JIT users join. Creates it on first call."""
     slug = os.environ.get("APP_OIDC_DEFAULT_ORG_SLUG", "default")
     result = await db.execute(select(Organization).where(Organization.slug == slug))
@@ -114,9 +110,7 @@ async def jit_provision_user(
         user = result.scalar_one_or_none()
         if user is not None:
             user.oidc_sub = sub  # bind for future logins
-            logger.info(
-                "OIDC bound existing local user %s to sub=%s", email, sub
-            )
+            logger.info("OIDC bound existing local user %s to sub=%s", email, sub)
 
     if user is None:
         # Genuine new user — JIT-provision.
@@ -141,18 +135,14 @@ async def jit_provision_user(
     # Ensure OrganizationMember row exists with the current role.
     org = await _get_or_create_default_org(db, user)
     result = await db.execute(
-        select(OrgMember).where(
-            OrgMember.org_id == org.id, OrgMember.user_id == user.id
-        )
+        select(OrgMember).where(OrgMember.org_id == org.id, OrgMember.user_id == user.id)
     )
     membership = result.scalar_one_or_none()
     if membership is None:
         membership = OrgMember(org_id=org.id, user_id=user.id, role=role)
         db.add(membership)
         await db.commit()
-        logger.info(
-            "OIDC added user %s to org %s with role %s", email, org.slug, role
-        )
+        logger.info("OIDC added user %s to org %s with role %s", email, org.slug, role)
     elif membership.role != role:
         # IdP-side role changed; sync.
         membership.role = role

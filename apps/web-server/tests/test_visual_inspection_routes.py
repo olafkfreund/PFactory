@@ -35,7 +35,11 @@ def client(tmp_path, monkeypatch):
     # produce a real run through the chain
     meta = build_meta(
         run_id="snow-20260603130500",
-        target={"name": "snow", "platform": "servicenow", "base_url": "https://acme.service-now.com"},
+        target={
+            "name": "snow",
+            "platform": "servicenow",
+            "base_url": "https://acme.service-now.com",
+        },
         steps=[StepResult(1, "login", "pass"), StepResult(2, "submit", "fail", error="boom")],
         created_at="2026-06-03T13:05:00Z",
     )

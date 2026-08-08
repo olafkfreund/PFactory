@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # SSL configuration
     SSL_ENABLED: bool = False
     SSL_CERTFILE: str = ""  # Path to SSL certificate
-    SSL_KEYFILE: str = ""   # Path to SSL private key
+    SSL_KEYFILE: str = ""  # Path to SSL private key
 
     # Authentication
     API_TOKEN: str = Field(default="", repr=False)  # Will generate default if not set
@@ -118,18 +118,14 @@ class Settings(BaseSettings):
         # Set default paths
         if not self.BACKEND_PATH:
             # Assume we're in apps/web-server, backend is at ../backend
-            self.BACKEND_PATH = str(
-                Path(__file__).parent.parent.parent / "backend"
-            )
+            self.BACKEND_PATH = str(Path(__file__).parent.parent.parent / "backend")
 
         if not self.PROJECTS_DATA_DIR:
             self.PROJECTS_DATA_DIR = str(get_data_dir())
 
         # Set default database URL
         if not self.DATABASE_URL:
-            self.DATABASE_URL = (
-                f"sqlite+aiosqlite:///{self.PROJECTS_DATA_DIR}/data.db"
-            )
+            self.DATABASE_URL = f"sqlite+aiosqlite:///{self.PROJECTS_DATA_DIR}/data.db"
 
         # Set up SSL paths if enabled
         if self.SSL_ENABLED:
@@ -143,9 +139,7 @@ class Settings(BaseSettings):
         self._validate_disable_auth_host()
 
     # Hostnames/addresses that are safe to bind when auth is disabled.
-    _LOOPBACK_HOSTS = frozenset(
-        {"127.0.0.1", "localhost", "::1", "[::1]", "0:0:0:0:0:0:0:1"}
-    )
+    _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]", "0:0:0:0:0:0:0:1"})
 
     def _validate_disable_auth_host(self) -> None:
         """Block startup when auth is disabled on a non-loopback host."""
@@ -163,9 +157,9 @@ class Settings(BaseSettings):
         # when PYTEST_CURRENT_TEST is not yet set — several test modules build
         # Settings() at import time.
         _truthy = {"1", "true", "yes", "on"}
-        allow_insecure = str(
-            os.environ.get("APP_ALLOW_INSECURE_AUTH", "")
-        ).strip().lower() in _truthy
+        allow_insecure = (
+            str(os.environ.get("APP_ALLOW_INSECURE_AUTH", "")).strip().lower() in _truthy
+        )
         under_pytest = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
         if allow_insecure or under_pytest:
             return
@@ -194,14 +188,14 @@ class Settings(BaseSettings):
         token_file.write_text(token)
         token_file.chmod(0o600)  # Owner read/write only
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("PFactory - First Run Setup")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Generated API token: {token}")
         print(f"Token saved to: {token_file}")
         print("\nUse this token to authenticate API requests:")
         print(f"  Authorization: Bearer {token}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         return token
 
@@ -247,30 +241,38 @@ class Settings(BaseSettings):
 
         # Generate self-signed certificate if not exists
         if not cert_file.exists() or not key_file.exists():
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print("PFactory - SSL Setup")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
             print("Generating self-signed SSL certificate...")
 
             try:
                 subprocess.run(
                     [
-                        "openssl", "req", "-x509", "-newkey", "rsa:4096",
-                        "-keyout", str(key_file),
-                        "-out", str(cert_file),
-                        "-days", "365",
+                        "openssl",
+                        "req",
+                        "-x509",
+                        "-newkey",
+                        "rsa:4096",
+                        "-keyout",
+                        str(key_file),
+                        "-out",
+                        str(cert_file),
+                        "-days",
+                        "365",
                         "-nodes",
-                        "-subj", "/CN=localhost/O=PFactory/C=US"
+                        "-subj",
+                        "/CN=localhost/O=PFactory/C=US",
                     ],
                     check=True,
-                    capture_output=True
+                    capture_output=True,
                 )
                 key_file.chmod(0o600)
                 print(f"Certificate generated: {cert_file}")
                 print(f"Private key generated: {key_file}")
                 print("\nNOTE: This is a self-signed certificate.")
                 print("Your browser will show a security warning.")
-                print(f"{'='*60}\n")
+                print(f"{'=' * 60}\n")
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"Failed to generate SSL certificate: {e.stderr.decode()}")
             except FileNotFoundError:

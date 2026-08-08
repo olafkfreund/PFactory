@@ -29,6 +29,7 @@ Revises: a4c2e9f8b1d3
 Create Date: 2026-05-25
 
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -58,9 +59,9 @@ depends_on: Union[str, Sequence[str], None] = None
 # column allows NULL, False means it doesn't and we re-apply NOT NULL after
 # the backfill.
 _CRED_COLUMNS: tuple[tuple[str, str, bool], ...] = (
-    ("email_accounts", "access_token",  False),  # NOT NULL in model
-    ("email_accounts", "refresh_token", True),   # nullable in model
-    ("llm_endpoints",  "api_key",       True),   # nullable in model
+    ("email_accounts", "access_token", False),  # NOT NULL in model
+    ("email_accounts", "refresh_token", True),  # nullable in model
+    ("llm_endpoints", "api_key", True),  # nullable in model
 )
 
 
@@ -68,6 +69,7 @@ def _backend():
     """Resolve the active KMS backend lazily so import doesn't fail when
     KMS env vars aren't set (e.g. during downgrade or test collection)."""
     from server.crypto.kms import get_backend
+
     return get_backend()
 
 
@@ -121,7 +123,7 @@ def upgrade() -> None:
         # quirk where it emits an unintended ``SET NOT NULL`` even when
         # ``existing_nullable=True`` is passed. Raw ``RENAME COLUMN`` is
         # both simpler and guaranteed not to change nullability.
-        op.execute(f'ALTER TABLE {table} RENAME COLUMN {temp_col} TO {col}')
+        op.execute(f"ALTER TABLE {table} RENAME COLUMN {temp_col} TO {col}")
 
         # Step 5: re-apply NOT NULL where the schema requires it. Safe because
         # Step 2 backfilled every row that wasn't already NULL — and if a row
@@ -151,6 +153,5 @@ def downgrade() -> None:
     restore from a pre-migration backup.
     """
     raise NotImplementedError(
-        "Downgrading past P2.3 (c6e3b2d4a8f0) is forward-only. "
-        "Restore from a pre-migration backup."
+        "Downgrading past P2.3 (c6e3b2d4a8f0) is forward-only. Restore from a pre-migration backup."
     )

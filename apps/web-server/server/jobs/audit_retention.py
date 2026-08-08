@@ -40,9 +40,7 @@ from ..database.models import AuditLog
 logger = logging.getLogger(__name__)
 
 
-async def run_retention(
-    db: AsyncSession, *, as_of: datetime | None = None
-) -> dict:
+async def run_retention(db: AsyncSession, *, as_of: datetime | None = None) -> dict:
     """Delete rows where retention_until <= ``as_of``. Returns a summary."""
     now = as_of or datetime.utcnow()
     # Count first so the summary can report a clean before/after.
@@ -66,7 +64,9 @@ async def run_retention(
 
     logger.info(
         "audit retention: as_of=%s deleted=%d remaining=%d",
-        now.isoformat(), expired_count, remaining,
+        now.isoformat(),
+        expired_count,
+        remaining,
     )
     return {
         "as_of": now.isoformat(),

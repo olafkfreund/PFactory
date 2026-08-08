@@ -214,6 +214,7 @@ def _provider_for(project_id: str):
     if not repo_name:
         try:
             from ..routes.github import _get_repo_full_name
+
             repo_name = _get_repo_full_name(project_path) or ""
         except Exception:
             repo_name = ""
@@ -344,6 +345,7 @@ async def check_new_issues(project_id: str) -> list[dict[str, Any]]:
 
     # Fetch open issues from the provider
     from runners.github.providers.protocol import IssueFilters
+
     provider = _provider_for(project_id)
     cfg = get_config(project_id) or {}
     label_filter = cfg.get("labels") or []
@@ -354,19 +356,24 @@ async def check_new_issues(project_id: str) -> list[dict[str, Any]]:
     for iss in issues:
         if iss.number in existing:
             continue
-        new.append({
-            "number": iss.number,
-            "title": iss.title,
-            "body": iss.body,
-            "state": iss.state,
-            "labels": list(iss.labels or []),
-            "url": iss.url,
-            "provider": provider_type,
-        })
+        new.append(
+            {
+                "number": iss.number,
+                "title": iss.title,
+                "body": iss.body,
+                "state": iss.state,
+                "labels": list(iss.labels or []),
+                "url": iss.url,
+                "provider": provider_type,
+            }
+        )
 
     logger.info(
         "[auto_fix] check_new_issues project=%s provider=%s existing=%d new=%d",
-        project_id, provider_type, len(existing), len(new),
+        project_id,
+        provider_type,
+        len(existing),
+        len(new),
     )
     return new
 
@@ -448,9 +455,7 @@ async def start_auto_fix(project_id: str, issue_number: int) -> dict[str, Any]:
         }
         # Gap #2 (#144): honour the project-level delegateByDefault toggle
         # by injecting enableDelegation into the new spec's metadata.
-        delegate_default = (
-            bool(settings.get("delegateByDefault")) and provider_type == "github"
-        )
+        delegate_default = bool(settings.get("delegateByDefault")) and provider_type == "github"
         spec_id = _write_spec_dir(
             project_path,
             issue_dict,
@@ -551,6 +556,7 @@ async def _pull_clone_if_any(project_id: str) -> None:
     errors — a stale clone is better than a poll cycle that aborts.
     """
     from ..routes.projects import load_projects
+
     projects = load_projects()
     proj = projects.get(project_id) or {}
     git_url = proj.get("clonedFrom")
@@ -564,6 +570,7 @@ async def _pull_clone_if_any(project_id: str) -> None:
             GitOperationError,
             clone_or_update,
         )
+
         await clone_or_update(
             git_url=git_url,
             branch=proj.get("clonedBranch"),
@@ -610,7 +617,9 @@ async def check_new_and_start_all(project_id: str) -> dict[str, Any]:
         except Exception as e:  # pragma: no cover — bubble for visibility
             logger.warning(
                 "[auto_fix] start failed project=%s issue=%d err=%s",
-                project_id, iss["number"], e,
+                project_id,
+                iss["number"],
+                e,
             )
             errors.append({"issueNumber": iss["number"], "error": str(e)})
 
@@ -618,11 +627,10 @@ async def check_new_and_start_all(project_id: str) -> dict[str, Any]:
     delegation_summary: dict[str, Any] = {}
     try:
         from .delegation_tracker import scan_delegated_tasks
+
         delegation_summary = await scan_delegated_tasks(project_id)
     except Exception as e:  # pragma: no cover
-        logger.warning(
-            "[auto_fix] delegation tracker failed project=%s err=%s", project_id, e
-        )
+        logger.warning("[auto_fix] delegation tracker failed project=%s err=%s", project_id, e)
 
     return {
         "checked": len(new_issues),

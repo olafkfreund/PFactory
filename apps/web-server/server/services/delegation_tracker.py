@@ -80,9 +80,7 @@ async def scan_delegated_tasks(project_id: str) -> dict[str, Any]:
     # GitHub Copilot (V1) and GitLab Duo Workflow (V1.5) are both wired.
     # Azure DevOps has no autonomous agent equivalent — skip with a notice.
     provider_type_str = str(getattr(provider, "provider_type", "")).lower()
-    is_supported = (
-        provider_type_str.endswith("github") or provider_type_str.endswith("gitlab")
-    )
+    is_supported = provider_type_str.endswith("github") or provider_type_str.endswith("gitlab")
     if not is_supported:
         return {
             "checked": len(delegated),
@@ -96,6 +94,7 @@ async def scan_delegated_tasks(project_id: str) -> dict[str, Any]:
 
     try:
         from runners.github.providers.protocol import PRFilters
+
         open_prs = await provider.fetch_prs(PRFilters(state="open", limit=200))
     except Exception as e:
         logger.warning(
@@ -132,9 +131,7 @@ async def scan_delegated_tasks(project_id: str) -> dict[str, Any]:
 
         # No match yet — check the decline window.
         delegated_at = _parse_iso(item.get("delegatedAt") or item.get("updatedAt"))
-        if delegated_at is not None and now - delegated_at >= timedelta(
-            hours=DECLINE_AFTER_HOURS
-        ):
+        if delegated_at is not None and now - delegated_at >= timedelta(hours=DECLINE_AFTER_HOURS):
             updated = dict(item)
             updated["status"] = "declined"
             updated["declinedAt"] = now.isoformat()
@@ -153,9 +150,7 @@ async def scan_delegated_tasks(project_id: str) -> dict[str, Any]:
     return {"checked": len(delegated), "promoted": promoted, "declined": declined}
 
 
-def _find_copilot_pr_for_issue(
-    open_prs: list[Any], issue_number: int
-) -> dict[str, Any] | None:
+def _find_copilot_pr_for_issue(open_prs: list[Any], issue_number: int) -> dict[str, Any] | None:
     """Return the first open PR/MR that (a) was authored by an AI bot
     we delegated to (Copilot OR GitLab Duo) and (b) references
     ``#{issue_number}`` in its title or body.

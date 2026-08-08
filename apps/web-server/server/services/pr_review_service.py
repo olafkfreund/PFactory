@@ -29,6 +29,7 @@ from ..websockets.events import broadcast_event
 
 class PRReviewPhase(str, Enum):
     """PR review execution phases."""
+
     STARTING = "starting"
     FETCHING = "fetching"
     ANALYZING = "analyzing"
@@ -55,6 +56,7 @@ PROGRESS_PATTERN = re.compile(r"\[PR\s*#\d+\]\s*\[\s*(\d+)%\]\s*(.*)")
 @dataclass
 class PRReviewProgress:
     """PR review progress information."""
+
     project_id: str
     pr_number: int
     phase: PRReviewPhase
@@ -118,11 +120,13 @@ class PRReviewLogWriter:
         if phase_key not in self._data["phases"]:
             self.start_phase(phase)
 
-        self._data["phases"][phase_key]["entries"].append({
-            "timestamp": datetime.now().isoformat(),
-            "message": message,
-            "progress": progress,
-        })
+        self._data["phases"][phase_key]["entries"].append(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "message": message,
+                "progress": progress,
+            }
+        )
         self._save()
 
     def complete_phase(self, phase: PRReviewPhase, status: str = "completed") -> None:
@@ -231,14 +235,17 @@ class PRReviewService:
         cmd = [
             sys.executable,
             str(runner_script),
-            "--project", str(project_path),
-            command, str(pr_number),
+            "--project",
+            str(project_path),
+            command,
+            str(pr_number),
         ]
 
         logger.info(f"Starting PR review for {key}: {' '.join(cmd)}")
 
         # Set up environment — scrub ANTHROPIC_API_KEY (OAuth-only policy).
         from ..utils.subprocess_env import make_subprocess_env
+
         env = make_subprocess_env()
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
@@ -286,14 +293,14 @@ class PRReviewService:
 
             # Emit initial progress
             await self._emit_progress(
-                project_id, pr_number, PRReviewPhase.STARTING,
+                project_id,
+                pr_number,
+                PRReviewPhase.STARTING,
                 "Starting PR review...",
             )
 
             # Process output in background
-            asyncio.create_task(
-                self._process_output(project_id, pr_number, project_path, proc)
-            )
+            asyncio.create_task(self._process_output(project_id, pr_number, project_path, proc))
 
             return True
 
@@ -351,6 +358,7 @@ class PRReviewService:
         previous_phase: PRReviewPhase | None = None
 
         try:
+
             async def read_stderr():
                 """Collect stderr for error reporting."""
                 async for line_bytes in proc.stderr:
@@ -386,7 +394,11 @@ class PRReviewService:
                         log_writer.add_entry(phase, message, progress)
 
                     await self._emit_progress(
-                        project_id, pr_number, phase, message, progress,
+                        project_id,
+                        pr_number,
+                        phase,
+                        message,
+                        progress,
                     )
 
             # Wait for stderr reader to finish
@@ -475,13 +487,16 @@ class PRReviewService:
 
         logger.info(f"[{project_id}:PR#{pr_number}] Phase: {phase.value} ({progress}%) - {message}")
 
-        await broadcast_event("pr:review-progress", {
-            "projectId": project_id,
-            "phase": phase.value,
-            "prNumber": pr_number,
-            "progress": progress,
-            "message": message,
-        })
+        await broadcast_event(
+            "pr:review-progress",
+            {
+                "projectId": project_id,
+                "phase": phase.value,
+                "prNumber": pr_number,
+                "progress": progress,
+                "message": message,
+            },
+        )
 
     async def _emit_complete(
         self,
@@ -498,9 +513,7 @@ class PRReviewService:
         # Try to read stored review result JSON from the project's .pfactory directory
         # Runner saves to: .pfactory/github/pr/review_{pr_number}.json
         result_data = None
-        review_file = (
-            project_path / ".pfactory" / "github" / "pr" / f"review_{pr_number}.json"
-        )
+        review_file = project_path / ".pfactory" / "github" / "pr" / f"review_{pr_number}.json"
         if review_file.exists():
             try:
                 result_data = json.loads(review_file.read_text())
@@ -509,11 +522,14 @@ class PRReviewService:
 
         from .pr_data_service import _convert_keys
 
-        await broadcast_event("pr:review-complete", {
-            "projectId": project_id,
-            "prNumber": pr_number,
-            "result": _convert_keys(result_data) if result_data else None,
-        })
+        await broadcast_event(
+            "pr:review-complete",
+            {
+                "projectId": project_id,
+                "prNumber": pr_number,
+                "result": _convert_keys(result_data) if result_data else None,
+            },
+        )
 
     async def _emit_error(
         self,
@@ -524,11 +540,14 @@ class PRReviewService:
         """Emit error event via WebSocket."""
         logger.error(f"[{project_id}:PR#{pr_number}] Review error: {error}")
 
-        await broadcast_event("pr:review-error", {
-            "projectId": project_id,
-            "prNumber": pr_number,
-            "error": error,
-        })
+        await broadcast_event(
+            "pr:review-error",
+            {
+                "projectId": project_id,
+                "prNumber": pr_number,
+                "error": error,
+            },
+        )
 
     def _cleanup(self, key: str):
         """Clean up tracking state for a review."""

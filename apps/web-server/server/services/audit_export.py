@@ -48,12 +48,14 @@ CSV_COLUMNS = [
 
 def _row_for_csv(row: AuditLog) -> list[str]:
     """Flatten an AuditLog row into the CSV column order."""
+
     def _str(v):
         if v is None:
             return ""
         if isinstance(v, datetime):
             return v.isoformat()
         return str(v)
+
     return [
         _str(row.id),
         _str(row.created_at),

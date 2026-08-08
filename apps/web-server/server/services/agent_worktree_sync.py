@@ -41,14 +41,17 @@ class AgentWorktreeSyncMixin:
             self, task_id: str, payload: dict[str, Any], *, force: bool = False
         ) -> None: ...
 
-    async def _sync_worktree_files(self, project_path: Path, spec_id: str, task_id: str | None = None) -> None:  # noqa: E501, PLR0912, PLR0915
+    async def _sync_worktree_files(  # noqa: PLR0912, PLR0915
+        self, project_path: Path, spec_id: str, task_id: str | None = None
+    ) -> None:
         """Sync files from worktree spec dir to main spec dir for frontend visibility.
 
         Args:
             project_path: Path to the project
             spec_id: Spec directory name (e.g., "001-fix-bug")
-            task_id: Full task ID (project_id:spec_id) for consistent tracking. Falls back to spec_id if not provided.
-        """  # noqa: E501
+            task_id: Full task ID (project_id:spec_id) for consistent tracking.
+                Falls back to spec_id if not provided.
+        """
         # Use task_id for tracking if provided, otherwise fall back to spec_id for backwards compatibility  # noqa: E501
         # The component is joined onto the project root below and then read
         # from / written to, so it is validated here at the entry point rather
@@ -56,10 +59,20 @@ class AgentWorktreeSyncMixin:
         spec_id = safe_spec_component(spec_id)
         tracking_key = task_id or spec_id
         import logging  # noqa: PLC0415
+
         logger = logging.getLogger(__name__)
 
         # Paths
-        worktree_spec = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id / ".pfactory" / "specs" / spec_id  # noqa: E501
+        worktree_spec = (
+            project_path
+            / ".pfactory"
+            / "worktrees"
+            / "tasks"
+            / spec_id
+            / ".pfactory"
+            / "specs"
+            / spec_id
+        )
         main_spec = project_path / ".pfactory" / "specs" / spec_id
 
         # Ensure main spec dir exists
@@ -100,13 +113,20 @@ class AgentWorktreeSyncMixin:
                             preserved_reason = main_plan.get("reviewReason")
 
                             # Build map of main spec subtask statuses
-                            STATUS_ORDER = {"pending": 0, "in_progress": 1, "completed": 2, "failed": 2}  # noqa: E501, N806
+                            STATUS_ORDER = {  # noqa: N806
+                                "pending": 0,
+                                "in_progress": 1,
+                                "completed": 2,
+                                "failed": 2,
+                            }
                             main_subtask_statuses = {}
                             for phase in main_plan.get("phases", []):
                                 for subtask in phase.get("subtasks", []):
                                     sid = subtask.get("id")
                                     if sid:
-                                        main_subtask_statuses[sid] = subtask.get("status", "pending")  # noqa: E501
+                                        main_subtask_statuses[sid] = subtask.get(
+                                            "status", "pending"
+                                        )
 
                             # Start from worktree plan (has latest structure)
                             merged_plan = worktree_plan
@@ -123,13 +143,17 @@ class AgentWorktreeSyncMixin:
                                     sid = subtask.get("id")
                                     if sid and sid in main_subtask_statuses:
                                         main_rank = STATUS_ORDER.get(main_subtask_statuses[sid], 0)
-                                        wt_rank = STATUS_ORDER.get(subtask.get("status", "pending"), 0)  # noqa: E501
+                                        wt_rank = STATUS_ORDER.get(
+                                            subtask.get("status", "pending"), 0
+                                        )
                                         if main_rank > wt_rank:
                                             subtask["status"] = main_subtask_statuses[sid]
 
                             dst.write_text(json.dumps(merged_plan, indent=2))
                         except (json.JSONDecodeError, OSError) as merge_err:
-                            logger.warning(f"[AgentService] Failed to merge test_plan.json, falling back to copy: {merge_err}")  # noqa: E501
+                            logger.warning(
+                                f"[AgentService] Failed to merge test_plan.json, falling back to copy: {merge_err}"  # noqa: E501
+                            )
                             shutil.copy2(src, dst)
                     else:
                         shutil.copy2(src, dst)
@@ -147,7 +171,9 @@ class AgentWorktreeSyncMixin:
                         shutil.copy2(src_file, main_spec / src_file.name)
                         synced_count += 1
                     except Exception as e:  # noqa: BLE001
-                        logger.warning(f"[AgentService] Failed to sync extra file {src_file.name}: {e}")  # noqa: E501
+                        logger.warning(
+                            f"[AgentService] Failed to sync extra file {src_file.name}: {e}"
+                        )
         except OSError as e:
             logger.warning(f"[AgentService] Failed to scan worktree spec dir for extra files: {e}")
 
@@ -166,7 +192,9 @@ class AgentWorktreeSyncMixin:
                     logger.warning(f"[AgentService] Failed to sync directory {dirname}: {e}")
 
         if synced_count > 0:
-            logger.debug(f"[AgentService] Synced {synced_count} files from worktree to main spec dir")  # noqa: E501
+            logger.debug(
+                f"[AgentService] Synced {synced_count} files from worktree to main spec dir"
+            )
 
         # Tier B auto-reload — stream new build-progress.txt lines as task:log
         # events.  The agent appends a human-readable narrative ("Starting
@@ -192,6 +220,7 @@ class AgentWorktreeSyncMixin:
                         # Emit one task:log per non-empty line so the frontend
                         # batches them at its 16-ms tick (useIpc.ts:191).
                         from ..websockets.events import emit_task_log  # noqa: PLC0415, TID252
+
                         for line in new_text.splitlines():
                             stripped = line.rstrip()
                             if stripped:
@@ -228,8 +257,7 @@ class AgentWorktreeSyncMixin:
 
                 # Build subtasks array for real-time frontend updates
                 subtasks_data = [
-                    {"id": s.get("id"), "status": s.get("status")}
-                    for s in all_subtasks
+                    {"id": s.get("id"), "status": s.get("status")} for s in all_subtasks
                 ]
 
                 # Detect individual subtask status changes and emit granular events
@@ -249,7 +277,7 @@ class AgentWorktreeSyncMixin:
                             task_id=task_id or spec_id,
                             subtask_id=subtask_id,
                             status=current_status,
-                            previous_status=previous_status
+                            previous_status=previous_status,
                         )
 
                 # Update tracking for next comparison
@@ -264,7 +292,11 @@ class AgentWorktreeSyncMixin:
                 # is idempotent for identical payloads, so the cost is minimal.
                 if has_changes or synced_count > 0:
                     # Use the actual current execution phase from phase event tracking
-                    actual_phase = self._task_current_phases.get(task_id, TaskPhase.PLANNING).value if task_id else "coding"  # noqa: E501
+                    actual_phase = (
+                        self._task_current_phases.get(task_id, TaskPhase.PLANNING).value
+                        if task_id
+                        else "coding"
+                    )
                     await self._safe_emit_task_update(
                         task_id or spec_id,
                         {
@@ -297,6 +329,7 @@ class AgentWorktreeSyncMixin:
         If no skills are selected, removes any existing skill_context.md.
         """
         import logging  # noqa: PLC0415
+
         logger = logging.getLogger(__name__)
 
         skill_context_file = spec_dir / "skill_context.md"
@@ -332,6 +365,7 @@ class AgentWorktreeSyncMixin:
 
         # Load skill contents (max 5 skills to stay within token budget)
         from .skills_service import get_skills_service  # noqa: PLC0415
+
         skills_service = get_skills_service()
 
         sections: list[str] = []
@@ -357,11 +391,7 @@ class AgentWorktreeSyncMixin:
                 skill_content_truncated += "\n\n*[Content truncated for token budget]*"
 
             display_name = skill_summary.name if skill_summary else name
-            sections.append(
-                f"## {display_name} ({category})\n\n"
-                f"{skill_content_truncated}\n\n"
-                "---"
-            )
+            sections.append(f"## {display_name} ({category})\n\n{skill_content_truncated}\n\n---")
             loaded_count += 1
 
         if not sections:
