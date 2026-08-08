@@ -33,9 +33,7 @@ GhRunner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 def _default_gh_runner(args: list[str]) -> "subprocess.CompletedProcess[str]":
     """Run ``gh <args>`` capturing text output (30s timeout)."""
-    return subprocess.run(
-        ["gh", *args], capture_output=True, text=True, timeout=30
-    )
+    return subprocess.run(["gh", *args], capture_output=True, text=True, timeout=30)
 
 
 def _utcnow_iso() -> str:
@@ -59,7 +57,10 @@ class CopilotDispatchService:
     def is_enabled(cls) -> bool:
         """True when dispatch is opted-in via env (default off)."""
         return os.environ.get(cls.ENV_FLAG, "").strip().lower() in {
-            "1", "true", "yes", "on",
+            "1",
+            "true",
+            "yes",
+            "on",
         }
 
     @staticmethod
@@ -75,11 +76,16 @@ class CopilotDispatchService:
         session/task. Raises RuntimeError if the gh call fails so the caller
         can fall back to the normal flow and surface the warning.
         """
-        result = self._run([
-            "api", "--method", "PATCH",
-            f"/repos/{repo_full_name}/issues/{issue_number}",
-            "-f", f"assignees[]={self.AGENT_HANDLE}",
-        ])
+        result = self._run(
+            [
+                "api",
+                "--method",
+                "PATCH",
+                f"/repos/{repo_full_name}/issues/{issue_number}",
+                "-f",
+                f"assignees[]={self.AGENT_HANDLE}",
+            ]
+        )
         if result.returncode != 0:
             raise RuntimeError(
                 f"Copilot dispatch failed for {repo_full_name}#{issue_number}: "
@@ -87,7 +93,9 @@ class CopilotDispatchService:
             )
         logger.info(
             "[copilot-dispatch] assigned %s#%s to %s",
-            repo_full_name, issue_number, self.AGENT_HANDLE,
+            repo_full_name,
+            issue_number,
+            self.AGENT_HANDLE,
         )
         return {
             "enabled": True,
@@ -107,18 +115,23 @@ class CopilotDispatchService:
         with ``user.type == "Bot"``; the ``[bot]`` suffix only appears in the
         display name. The filter therefore matches the login prefix + Bot type.
         """
-        result = self._run([
-            "api", f"/repos/{repo_full_name}/pulls",
-            "--jq",
-            '[.[] | select(.user.type == "Bot" '
-            'and (.user.login | startswith("copilot-swe-agent")) '
-            f'and ((.body // "") | contains("#{issue_number}")))] '
-            "| first | .number",
-        ])
+        result = self._run(
+            [
+                "api",
+                f"/repos/{repo_full_name}/pulls",
+                "--jq",
+                '[.[] | select(.user.type == "Bot" '
+                'and (.user.login | startswith("copilot-swe-agent")) '
+                f'and ((.body // "") | contains("#{issue_number}")))] '
+                "| first | .number",
+            ]
+        )
         if result.returncode != 0:
             logger.warning(
                 "[copilot-dispatch] PR poll failed for %s#%s: %s",
-                repo_full_name, issue_number, (result.stderr or "").strip(),
+                repo_full_name,
+                issue_number,
+                (result.stderr or "").strip(),
             )
             return None
         number = (result.stdout or "").strip()

@@ -66,7 +66,9 @@ async def run_cloud_check(req: CloudRunRequest) -> dict:
     """Run the read-only access/discovery **gate**; if we get in, background the
     assessment and return immediately. The report appears under Cloud Reports."""
     if req.provider not in ("aws", "azure", "gcp"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"unsupported provider {req.provider!r}")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=f"unsupported provider {req.provider!r}"
+        )
     gate = await asyncio.to_thread(
         portal_run.preflight,
         req.provider,
@@ -87,6 +89,7 @@ async def run_cloud_check(req: CloudRunRequest) -> dict:
         "inventory": gate["inventory"],
         "status": "running",
     }
+
 
 _DOWNLOAD_MEDIA = {
     "report.md": "text/markdown",

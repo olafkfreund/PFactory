@@ -119,6 +119,7 @@ def is_binary_file(path: Path) -> bool:
 
 class DiscoveredProject(BaseModel):
     """A discovered project folder."""
+
     name: str
     path: str
     has_git: bool = False
@@ -160,33 +161,43 @@ async def discover_projects(
                     continue
 
                 # Skip hidden directories and common non-project dirs
-                if entry.name.startswith('.') or entry.name in (
-                    'node_modules', '__pycache__', 'venv', '.venv',
-                    'dist', 'build', 'target', '.git'
+                if entry.name.startswith(".") or entry.name in (
+                    "node_modules",
+                    "__pycache__",
+                    "venv",
+                    ".venv",
+                    "dist",
+                    "build",
+                    "target",
+                    ".git",
                 ):
                     continue
 
                 # Check for project indicators
-                has_git = (entry / '.git').exists()
-                has_package = (entry / 'package.json').exists()
-                has_requirements = (entry / 'requirements.txt').exists() or (entry / 'pyproject.toml').exists()
-                has_magestic_ai = (entry / '.pfactory').exists()
-                has_claude_md = (entry / 'CLAUDE.md').exists()
+                has_git = (entry / ".git").exists()
+                has_package = (entry / "package.json").exists()
+                has_requirements = (entry / "requirements.txt").exists() or (
+                    entry / "pyproject.toml"
+                ).exists()
+                has_magestic_ai = (entry / ".pfactory").exists()
+                has_claude_md = (entry / "CLAUDE.md").exists()
 
                 # If it looks like a project, add it
                 if has_git or has_package or has_requirements:
                     # Skip the PFactory app itself
                     if _is_app_internal_path(entry):
                         continue
-                    projects.append(DiscoveredProject(
-                        name=entry.name,
-                        path=str(entry),
-                        has_git=has_git,
-                        has_package_json=has_package,
-                        has_requirements=has_requirements,
-                        has_magestic_ai=has_magestic_ai,
-                        has_claude_md=has_claude_md,
-                    ))
+                    projects.append(
+                        DiscoveredProject(
+                            name=entry.name,
+                            path=str(entry),
+                            has_git=has_git,
+                            has_package_json=has_package,
+                            has_requirements=has_requirements,
+                            has_magestic_ai=has_magestic_ai,
+                            has_claude_md=has_claude_md,
+                        )
+                    )
                 elif current_depth < max_depth:
                     # Not a project, but scan deeper
                     scan_directory(entry, current_depth + 1)
@@ -382,9 +393,9 @@ async def serve_project_file(
     html_dir = file_path.parent
 
     def _rewrite_url(match: re.Match) -> str:
-        attr = match.group(1)   # e.g. src= or href=
+        attr = match.group(1)  # e.g. src= or href=
         quote = match.group(2)  # quote character (" or ')
-        url = match.group(3)    # the URL value
+        url = match.group(3)  # the URL value
 
         # Skip external / special URLs
         if url.startswith(("http://", "https://", "//", "data:", "#", "mailto:", "javascript:")):
@@ -404,16 +415,18 @@ async def serve_project_file(
         except ValueError:
             return match.group(0)  # leave unchanged
 
-        params = urllib.parse.urlencode({
-            "path": str(resolved),
-            "root": str(root_path),
-            "token": token,
-        })
-        return f'{attr}={quote}/api/files/serve?{params}{quote}'
+        params = urllib.parse.urlencode(
+            {
+                "path": str(resolved),
+                "root": str(root_path),
+                "token": token,
+            }
+        )
+        return f"{attr}={quote}/api/files/serve?{params}{quote}"
 
     # Rewrite src="..." and href="..." (both quote styles)
     rewritten = re.sub(
-        r'''(src|href)\s*=\s*(["'])(.*?)\2''',
+        r"""(src|href)\s*=\s*(["'])(.*?)\2""",
         _rewrite_url,
         html_content,
     )

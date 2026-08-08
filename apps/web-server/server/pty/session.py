@@ -42,7 +42,9 @@ class PTYSession:
 
     def __post_init__(self):
         if PtyProcess is None:
-            raise RuntimeError("ptyprocess package is required. Install with: pip install ptyprocess")
+            raise RuntimeError(
+                "ptyprocess package is required. Install with: pip install ptyprocess"
+            )
 
     def start(self) -> None:
         """Start the PTY process."""
@@ -85,6 +87,7 @@ class PTYSession:
         try:
             # Non-blocking read
             import select
+
             if select.select([self._pty.fd], [], [], 0)[0]:
                 return self._pty.read(size)
             return ""

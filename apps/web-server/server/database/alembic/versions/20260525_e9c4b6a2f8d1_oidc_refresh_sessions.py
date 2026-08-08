@@ -54,7 +54,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_oidc_refresh_sessions_user_id", table_name="oidc_refresh_sessions"
-    )
+    op.drop_index("ix_oidc_refresh_sessions_user_id", table_name="oidc_refresh_sessions")
     op.drop_table("oidc_refresh_sessions")

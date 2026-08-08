@@ -170,9 +170,7 @@ def _probe(
         return DocsTargetTestResponse(ok=False, error=f"Unexpected error: {exc}")
 
 
-async def _get_owned(
-    target_id: str, user: User, db: AsyncSession
-) -> DocsTargetConnection:
+async def _get_owned(target_id: str, user: User, db: AsyncSession) -> DocsTargetConnection:
     result = await db.execute(
         select(DocsTargetConnection).where(
             DocsTargetConnection.id == target_id,
@@ -181,9 +179,7 @@ async def _get_owned(
     )
     conn = result.scalar_one_or_none()
     if not conn:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Docs target not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docs target not found")
     return conn
 
 
@@ -317,6 +313,4 @@ async def test_stored(
     import asyncio
 
     conn = await _get_owned(target_id, user, db)
-    return await asyncio.to_thread(
-        _probe, conn.kind, conn.base_url, conn.api_token, conn.space
-    )
+    return await asyncio.to_thread(_probe, conn.kind, conn.base_url, conn.api_token, conn.space)

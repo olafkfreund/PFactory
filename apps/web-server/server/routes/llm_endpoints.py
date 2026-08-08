@@ -194,19 +194,13 @@ def _probe_models(
     return EndpointTestResponse(ok=True, status_code=status_code, models=model_ids)
 
 
-async def _get_owned_endpoint(
-    endpoint_id: str, user: User, db: AsyncSession
-) -> LLMEndpoint:
+async def _get_owned_endpoint(endpoint_id: str, user: User, db: AsyncSession) -> LLMEndpoint:
     result = await db.execute(
-        select(LLMEndpoint).where(
-            LLMEndpoint.id == endpoint_id, LLMEndpoint.user_id == user.id
-        )
+        select(LLMEndpoint).where(LLMEndpoint.id == endpoint_id, LLMEndpoint.user_id == user.id)
     )
     endpoint = result.scalar_one_or_none()
     if not endpoint:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found")
     return endpoint
 
 
@@ -348,6 +342,4 @@ async def test_stored(
             headers = json.loads(endpoint.headers_json)
         except json.JSONDecodeError:
             headers = None
-    return await asyncio.to_thread(
-        _probe_models, endpoint.base_url, endpoint.api_key, headers
-    )
+    return await asyncio.to_thread(_probe_models, endpoint.base_url, endpoint.api_key, headers)

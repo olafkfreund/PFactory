@@ -13,10 +13,10 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Any
 
 
-def run_pytest_tests() -> Dict[str, any]:
+def run_pytest_tests() -> dict[str, Any]:
     """Run pytest tests and capture results."""
     print("=" * 80)
     print("RUNNING PERFORMANCE TESTS")
@@ -27,19 +27,13 @@ def run_pytest_tests() -> Dict[str, any]:
 
     # Run pytest with detailed output
     result = subprocess.run(
-        ["pytest", str(test_file), "-v", "-s", "--tb=short"],
-        capture_output=True,
-        text=True
+        ["pytest", str(test_file), "-v", "-s", "--tb=short"], capture_output=True, text=True
     )
 
-    return {
-        "returncode": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr
-    }
+    return {"returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
 
 
-def analyze_test_output(output: str) -> Dict[str, any]:
+def analyze_test_output(output: str) -> dict[str, Any]:
     """Analyze pytest output to extract test results."""
     lines = output.split("\n")
 
@@ -52,7 +46,7 @@ def analyze_test_output(output: str) -> Dict[str, any]:
         "concurrent_access_tests": 0,
         "rate_limit_tests": 0,
         "benchmark_tests": 0,
-        "test_details": []
+        "test_details": [],
     }
 
     for line in lines:
@@ -61,11 +55,24 @@ def analyze_test_output(output: str) -> Dict[str, any]:
             results["total"] += 1
 
             # Categorize by test type
-            if "test_concurrent_profile" in line or "test_concurrent_api" in line or "test_concurrent_ideation" in line:
+            if (
+                "test_concurrent_profile" in line
+                or "test_concurrent_api" in line
+                or "test_concurrent_ideation" in line
+            ):
                 results["file_locking_tests"] += 1
-            elif "test_concurrent_read" in line or "test_concurrent_mixed" in line or "test_concurrent_different" in line:
+            elif (
+                "test_concurrent_read" in line
+                or "test_concurrent_mixed" in line
+                or "test_concurrent_different" in line
+            ):
                 results["concurrent_access_tests"] += 1
-            elif "test_profile_switch" in line or "test_cascade" in line or "test_concurrent_rate" in line or "test_rate_limit_with_retry" in line:
+            elif (
+                "test_profile_switch" in line
+                or "test_cascade" in line
+                or "test_concurrent_rate" in line
+                or "test_rate_limit_with_retry" in line
+            ):
                 results["rate_limit_tests"] += 1
             elif "test_throughput" in line or "test_latency" in line:
                 results["benchmark_tests"] += 1
@@ -85,7 +92,7 @@ def analyze_test_output(output: str) -> Dict[str, any]:
     return results
 
 
-def print_summary(results: Dict[str, any]):
+def print_summary(results: dict[str, Any]) -> None:
     """Print test summary."""
     print()
     print("=" * 80)
@@ -144,24 +151,24 @@ def check_test_coverage():
         "File Locking": [
             "test_concurrent_profile_updates",
             "test_concurrent_api_profile_creation",
-            "test_concurrent_ideation_updates"
+            "test_concurrent_ideation_updates",
         ],
         "Concurrent Access": [
             "test_concurrent_read_operations",
             "test_concurrent_mixed_operations",
-            "test_concurrent_different_endpoints"
+            "test_concurrent_different_endpoints",
         ],
         "Rate Limits": [
             "test_profile_switch_on_rate_limit",
             "test_cascade_profile_switches",
             "test_concurrent_rate_limit_handling",
-            "test_rate_limit_with_retry_logic"
+            "test_rate_limit_with_retry_logic",
         ],
         "Performance": [
             "test_throughput_profile_reads",
             "test_throughput_profile_writes",
-            "test_latency_under_load"
-        ]
+            "test_latency_under_load",
+        ],
     }
 
     all_covered = True

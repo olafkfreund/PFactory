@@ -34,9 +34,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("name", sa.String(length=255), nullable=False),
-        sa.Column(
-            "kind", sa.String(length=50), nullable=False, server_default="form"
-        ),
+        sa.Column("kind", sa.String(length=50), nullable=False, server_default="form"),
         sa.Column("username", sa.String(length=255), nullable=True),
         sa.Column("secret", sa.LargeBinary(), nullable=False),
         sa.Column("extra", sa.LargeBinary(), nullable=True),

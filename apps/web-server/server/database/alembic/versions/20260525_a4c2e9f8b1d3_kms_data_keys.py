@@ -9,6 +9,7 @@ Revises: 1b386c99e615
 Create Date: 2026-05-25
 
 """
+
 from __future__ import annotations
 
 from typing import Sequence, Union
@@ -61,9 +62,7 @@ def upgrade() -> None:
             ),
         ),
     )
-    op.create_index(
-        "ix_kms_data_keys_org_id", "kms_data_keys", ["org_id"], unique=False
-    )
+    op.create_index("ix_kms_data_keys_org_id", "kms_data_keys", ["org_id"], unique=False)
 
 
 def downgrade() -> None:

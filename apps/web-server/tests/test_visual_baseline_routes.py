@@ -40,8 +40,9 @@ _BASE = "/api/pfactory/tasks/001-feat/visual-baselines"
 def test_list_empty_then_accept_then_relist(client) -> None:
     assert client.get(_BASE, params={"target": "web"}).json()["baselines"] == []
 
-    r = client.post(f"{_BASE}/web/homepage.png/accept",
-                    json={"source": "findings/evidence/homepage-actual.png"})
+    r = client.post(
+        f"{_BASE}/web/homepage.png/accept", json={"source": "findings/evidence/homepage-actual.png"}
+    )
     assert r.status_code == 200 and r.json()["accepted"] is True
 
     snaps = [b["snapshot"] for b in client.get(_BASE, params={"target": "web"}).json()["baselines"]]
@@ -49,8 +50,9 @@ def test_list_empty_then_accept_then_relist(client) -> None:
 
 
 def test_get_baseline_image_bytes(client) -> None:
-    client.post(f"{_BASE}/web/homepage.png/accept",
-                json={"source": "findings/evidence/homepage-actual.png"})
+    client.post(
+        f"{_BASE}/web/homepage.png/accept", json={"source": "findings/evidence/homepage-actual.png"}
+    )
     r = client.get(f"{_BASE}/web/homepage.png")
     assert r.status_code == 200 and r.content.endswith(b"CAPTURED")
 

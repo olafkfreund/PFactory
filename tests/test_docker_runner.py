@@ -27,9 +27,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from tools.runners.docker_runner import (
+    DEFAULT_RUNNER_REGISTRY,
+    RUNNER_REGISTRY_ENV,
     DockerRunner,
     DockerRunnerError,
     DockerTimeoutError,
+    resolve_runner_image,
 )
 
 # ── argv construction ────────────────────────────────────────────────────
@@ -67,14 +70,21 @@ def test_argv_workdir_is_scratch():
 
 def test_argv_default_image_appears_before_command():
     argv = _basic_argv()
-    image_idx = argv.index("pfactory-runner-python:latest")
+    image_idx = argv.index(resolve_runner_image(DockerRunner.DEFAULT_IMAGE))
     cmd_idx = argv.index("pytest")
     assert image_idx < cmd_idx
 
 
 def test_argv_uses_default_image_constant():
+    """The argv carries the RESOLVED default, i.e. the image CI publishes (#449).
+
+    It used to carry the bare tag, which resolves against whatever sits in the
+    local daemon under that name -- so the lane ran whatever was last built by
+    hand rather than what CI built from a commit.
+    """
     argv = _basic_argv()
-    assert DockerRunner.DEFAULT_IMAGE in argv
+    assert resolve_runner_image(DockerRunner.DEFAULT_IMAGE) in argv
+    assert f"{DEFAULT_RUNNER_REGISTRY}/{DockerRunner.DEFAULT_IMAGE}" in argv
 
 
 def test_tmpfs_tmp_added_when_read_only_rootfs():
@@ -137,7 +147,7 @@ def test_extra_args_appended_before_image():
         command=["cmd"],
         extra_args=["--user", "1000"],
     )
-    image_idx = argv.index("pfactory-runner-python:latest")
+    image_idx = argv.index(resolve_runner_image(DockerRunner.DEFAULT_IMAGE))
     user_idx = argv.index("--user")
     assert user_idx < image_idx
 
@@ -145,7 +155,49 @@ def test_extra_args_appended_before_image():
 def test_custom_image_honoured():
     argv = _basic_argv(image="myreg/custom:dev")
     assert "myreg/custom:dev" in argv
-    assert "pfactory-runner-python:latest" not in argv
+    assert resolve_runner_image(DockerRunner.DEFAULT_IMAGE) not in argv
+
+
+# ── runner image resolution (#449) ───────────────────────────────────────
+
+
+def test_bare_runner_tag_is_qualified_with_the_publishing_registry():
+    assert (
+        resolve_runner_image("pfactory-runner-pytest:latest")
+        == f"{DEFAULT_RUNNER_REGISTRY}/pfactory-runner-pytest:latest"
+    )
+
+
+def test_already_qualified_image_is_untouched():
+    """An explicitly requested image always wins over the default registry."""
+    for image in (
+        "ghcr.io/acme/pfactory-runner-pytest:latest",
+        "docker.io/library/python:3.12-slim",
+        "localhost:5000/pfactory-runner-jest:dev",
+    ):
+        assert resolve_runner_image(image) == image
+
+
+def test_non_runner_image_is_untouched():
+    assert resolve_runner_image("python:3.12-slim") == "python:3.12-slim"
+
+
+def test_registry_env_override(monkeypatch):
+    monkeypatch.setenv(RUNNER_REGISTRY_ENV, "registry.example.com/mirror")
+    assert (
+        resolve_runner_image("pfactory-runner-cloud:latest")
+        == "registry.example.com/mirror/pfactory-runner-cloud:latest"
+    )
+
+
+def test_empty_registry_env_restores_bare_local_tags(monkeypatch):
+    """The escape hatch for iterating on a Dockerfile, where running YOUR build
+    is the point. Setting it empty must not fall back to the default."""
+    monkeypatch.setenv(RUNNER_REGISTRY_ENV, "")
+    assert resolve_runner_image("pfactory-runner-pytest:latest") == "pfactory-runner-pytest:latest"
+    assert DockerRunner(image="pfactory-runner-pytest:latest").image == (
+        "pfactory-runner-pytest:latest"
+    )
 
 
 def test_custom_binary_honoured():

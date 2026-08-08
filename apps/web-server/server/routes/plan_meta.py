@@ -31,14 +31,16 @@ async def templates() -> dict:
 
     out = []
     for name, tmpl in load_templates().items():
-        out.append({
-            "name": name,
-            "title": tmpl.metadata.title,
-            "category": getattr(tmpl.metadata, "category", ""),
-            "description": tmpl.metadata.description,
-            "tags": tmpl.metadata.tags,
-            "policy": tmpl.policy.model_dump(),
-        })
+        out.append(
+            {
+                "name": name,
+                "title": tmpl.metadata.title,
+                "category": getattr(tmpl.metadata, "category", ""),
+                "description": tmpl.metadata.description,
+                "tags": tmpl.metadata.tags,
+                "policy": tmpl.policy.model_dump(),
+            }
+        )
     return {"templates": out}
 
 

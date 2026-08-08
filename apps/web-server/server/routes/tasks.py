@@ -88,9 +88,9 @@ class TaskCreate(TaskBase):
 class SelectedSkill(BaseModel):
     """A skill selected to be applied to a task."""
 
-    id: str           # '{category}/{skill_name}'
-    name: str         # human-readable display name
-    category: str     # parent category
+    id: str  # '{category}/{skill_name}'
+    name: str  # human-readable display name
+    category: str  # parent category
     source: str | None = None  # optional source URL from skill metadata
 
 
@@ -138,7 +138,9 @@ class Task(TaskBase):
     worktree_path: str | None = Field(None, description="Path to git worktree if active")
     branch_name: str | None = Field(None, description="Git branch name")
     metadata: TaskMetadata | None = Field(None, description="Task metadata")
-    review_reason: str | None = Field(None, description="Reason for human review (e.g., 'plan_review')")
+    review_reason: str | None = Field(
+        None, description="Reason for human review (e.g., 'plan_review')"
+    )
     repo: str | None = Field(
         None,
         description="Target repo (owner/name) this task runs against, for "
@@ -504,8 +506,7 @@ def load_spec_metadata(spec_dir: Path) -> dict:
             if not has_active_phase:
                 # Check if any phase failed → task needs human intervention
                 has_failed_phase = any(
-                    phase_data.get("status") == "failed"
-                    for phase_data in phases.values()
+                    phase_data.get("status") == "failed" for phase_data in phases.values()
                 )
                 if has_failed_phase:
                     metadata["status"] = "human_review"
@@ -513,14 +514,18 @@ def load_spec_metadata(spec_dir: Path) -> dict:
                 else:
                     # Check validation phase completed (strongest completion signal)
                     validation_phase = phases.get("validation", {})
-                    if validation_phase.get("status") == "completed" and validation_phase.get("entries"):
+                    if validation_phase.get("status") == "completed" and validation_phase.get(
+                        "entries"
+                    ):
                         metadata["phase"] = "validation"
                         metadata["status"] = "human_review"
                         metadata["reviewReason"] = "completed"
                     else:
                         # Fall back to coding phase completed
                         coding_phase = phases.get("coding", {})
-                        if coding_phase.get("status") == "completed" and coding_phase.get("entries"):
+                        if coding_phase.get("status") == "completed" and coding_phase.get(
+                            "entries"
+                        ):
                             metadata["phase"] = "coding"
                             metadata["status"] = "human_review"
                             metadata["reviewReason"] = "completed"
@@ -648,16 +653,20 @@ def load_spec_metadata(spec_dir: Path) -> dict:
                             # Simple string verification becomes a command
                             verification = SubtaskVerification(type="command", run=v)
                     elif st.get("verification_method"):
-                        verification = SubtaskVerification(type="command", run=st["verification_method"])
+                        verification = SubtaskVerification(
+                            type="command", run=st["verification_method"]
+                        )
 
-                    metadata["subtasks"].append(Subtask(
-                        id=st.get("id", str(i)),
-                        title=st.get("title") or st.get("description", f"Subtask {i+1}")[:80],
-                        description=st.get("description") or st.get("notes"),
-                        status=st.get("status", "pending"),
-                        files=files,
-                        verification=verification,
-                    ))
+                    metadata["subtasks"].append(
+                        Subtask(
+                            id=st.get("id", str(i)),
+                            title=st.get("title") or st.get("description", f"Subtask {i + 1}")[:80],
+                            description=st.get("description") or st.get("notes"),
+                            status=st.get("status", "pending"),
+                            files=files,
+                            verification=verification,
+                        )
+                    )
         except (json.JSONDecodeError, KeyError):
             pass
 
@@ -986,7 +995,9 @@ def task_to_dict(task: Task) -> dict:
                     "type": s.verification.type,
                     "run": s.verification.run,
                     "scenario": s.verification.scenario,
-                } if s.verification else None,
+                }
+                if s.verification
+                else None,
             }
             for s in task.subtasks
         ],
@@ -1146,8 +1157,18 @@ Created via PFactory Web UI
 
             # Sync task_metadata.json for phase_config.py to read model/thinking settings
             # Also include selectedSkills so agent_service.py can inject skill context
-            model_fields = ["model", "thinkingLevel", "isAutoProfile", "phaseModels", "phaseThinking", "mode", "selectedSkills"]
-            task_metadata = {field: metadata_dict[field] for field in model_fields if field in metadata_dict}
+            model_fields = [
+                "model",
+                "thinkingLevel",
+                "isAutoProfile",
+                "phaseModels",
+                "phaseThinking",
+                "mode",
+                "selectedSkills",
+            ]
+            task_metadata = {
+                field: metadata_dict[field] for field in model_fields if field in metadata_dict
+            }
             if task_metadata:
                 (spec_dir / "task_metadata.json").write_text(json.dumps(task_metadata, indent=2))
 
@@ -1167,7 +1188,9 @@ def _resolve_task(task_id: str) -> tuple[str, str, Path, Path]:
     Raises HTTPException on invalid input or missing resources.
     """
     if ":" not in task_id:
-        raise HTTPException(status_code=400, detail="Invalid task_id format (expected projectId:specId)")
+        raise HTTPException(
+            status_code=400, detail="Invalid task_id format (expected projectId:specId)"
+        )
 
     project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
@@ -1381,10 +1404,10 @@ async def update_task(task_id: str, update: TaskUpdate):
         if update.description:
             # Replace description paragraph (second section after title)
             # Split by double newline: [title, description, rest...]
-            sections = current_content.split('\n\n', 2)
+            sections = current_content.split("\n\n", 2)
             if len(sections) >= 2:
                 sections[1] = update.description
-                current_content = '\n\n'.join(sections)
+                current_content = "\n\n".join(sections)
 
         spec_file.write_text(current_content)
 
@@ -1448,7 +1471,16 @@ async def update_task(task_id: str, update: TaskUpdate):
 
             # Update model-related fields that phase_config.py expects
             # Also include selectedSkills so agent_service.py can inject skill context
-            model_fields = ["model", "thinkingLevel", "isAutoProfile", "phaseModels", "phaseThinking", "mode", "requireReviewBeforeCoding", "selectedSkills"]
+            model_fields = [
+                "model",
+                "thinkingLevel",
+                "isAutoProfile",
+                "phaseModels",
+                "phaseThinking",
+                "mode",
+                "requireReviewBeforeCoding",
+                "selectedSkills",
+            ]
             for field in model_fields:
                 if field in metadata_dict:
                     if metadata_dict[field] is None:
@@ -1571,7 +1603,9 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
         try:
             logger.info(f"[ApprovePlan] Reading plan file: {plan_file}")
             plan = json.loads(plan_file.read_text())
-            logger.info(f"[ApprovePlan] Current status: {plan.get('status')}, planStatus: {plan.get('planStatus')}, reviewReason: {plan.get('reviewReason')}")
+            logger.info(
+                f"[ApprovePlan] Current status: {plan.get('status')}, planStatus: {plan.get('planStatus')}, reviewReason: {plan.get('reviewReason')}"
+            )
 
             # Update BOTH status and planStatus fields
             plan["status"] = "in_progress"
@@ -1580,7 +1614,9 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
 
             plan_file.write_text(json.dumps(plan, indent=2))
             plan_updated = True
-            logger.info("[ApprovePlan] Updated plan file - status: in_progress, planStatus: in_progress")
+            logger.info(
+                "[ApprovePlan] Updated plan file - status: in_progress, planStatus: in_progress"
+            )
         except (json.JSONDecodeError, OSError) as e:
             logger.error(f"[ApprovePlan] Failed to update plan file: {e}")
     else:
@@ -1659,16 +1695,12 @@ async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanReque
     project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
     if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     project_path = Path(projects[project_id]["path"])
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
     if not spec_dir.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
     # Import ReviewState the same way approve_plan does (sys.path shim
     # because the web-server doesn't have ``backend`` on its PYTHONPATH
@@ -1702,9 +1734,7 @@ async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanReque
             # the reject took effect even if the bookkeeping fails. Log
             # and continue.
 
-            logger.warning(
-                f"[RejectPlan] couldn't update test_plan.json: {exc}"
-            )
+            logger.warning(f"[RejectPlan] couldn't update test_plan.json: {exc}")
 
     return {
         "success": True,
@@ -1730,9 +1760,7 @@ async def get_qa_report(task_id: str):
     project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
     if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     project_path = Path(projects[project_id]["path"])
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
@@ -1789,16 +1817,12 @@ async def stream_agent_console(task_id: str):
     project_id, spec_id = split_task_id(task_id)
     projects = load_projects()
     if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     project_path = Path(projects[project_id]["path"])
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
     if not spec_dir.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
     progress_file = spec_dir / "build-progress.txt"
 
@@ -1986,7 +2010,9 @@ async def get_task_logs(task_id: str):
     if task_logs_file:
         try:
             task_logs = json.loads(task_logs_file.read_text())
-            logger.info(f"[GetTaskLogs] Successfully loaded task_logs.json, has phases: {'phases' in task_logs}")
+            logger.info(
+                f"[GetTaskLogs] Successfully loaded task_logs.json, has phases: {'phases' in task_logs}"
+            )
             result = {
                 "specId": task_logs.get("spec_id", spec_id),
                 "createdAt": task_logs.get("created_at"),
@@ -2001,7 +2027,9 @@ async def get_task_logs(task_id: str):
                     result["buildProgress"] = build_progress.read_text()
                     break
 
-            logger.info(f"[GetTaskLogs] Returning phase-based logs with {len(result.get('phases', {}))} phases")
+            logger.info(
+                f"[GetTaskLogs] Returning phase-based logs with {len(result.get('phases', {}))} phases"
+            )
             return result
         except json.JSONDecodeError as e:
             logger.error(f"[GetTaskLogs] JSON decode error: {e}")
@@ -2025,11 +2053,13 @@ async def get_task_logs(task_id: str):
     # QA report
     qa_report = spec_dir / "qa_report.md"
     if qa_report.exists():
-        logs.append({
-            "type": "qa_report",
-            "content": qa_report.read_text(),
-            "timestamp": datetime.fromtimestamp(qa_report.stat().st_mtime).isoformat(),
-        })
+        logs.append(
+            {
+                "type": "qa_report",
+                "content": qa_report.read_text(),
+                "timestamp": datetime.fromtimestamp(qa_report.stat().st_mtime).isoformat(),
+            }
+        )
 
     result = {"logs": logs, "total": len(logs)}
 
@@ -2157,7 +2187,9 @@ async def get_worktree_merge_preview(task_id: str):
 
     # Get list of changed files
     changed_files = []
-    diff_result = run_git_command(["diff", "--name-status", f"{base_branch}...{worktree_branch}"], cwd=project_path)
+    diff_result = run_git_command(
+        ["diff", "--name-status", f"{base_branch}...{worktree_branch}"], cwd=project_path
+    )
     if diff_result["success"]:
         for line in diff_result["output"].split("\n"):
             if line:
@@ -2165,10 +2197,18 @@ async def get_worktree_merge_preview(task_id: str):
                 if len(parts) >= 2:
                     status = parts[0]
                     filename = parts[1]
-                    changed_files.append({
-                        "path": filename,
-                        "status": "added" if status == "A" else "modified" if status == "M" else "deleted" if status == "D" else status
-                    })
+                    changed_files.append(
+                        {
+                            "path": filename,
+                            "status": "added"
+                            if status == "A"
+                            else "modified"
+                            if status == "M"
+                            else "deleted"
+                            if status == "D"
+                            else status,
+                        }
+                    )
 
     # Check for potential conflicts using merge-tree (dry run)
     # Git 2.38+ uses new merge-tree format with --write-tree mode by default
@@ -2187,20 +2227,20 @@ async def get_worktree_merge_preview(task_id: str):
         if result.returncode == 1:
             has_conflicts = True
             # Parse CONFLICT lines to get conflicting files
-            for line in result.stdout.split('\n'):
-                if line.startswith('CONFLICT'):
+            for line in result.stdout.split("\n"):
+                if line.startswith("CONFLICT"):
                     # Extract filename from "CONFLICT (content): Merge conflict in path/file"
-                    if ' in ' in line:
-                        file_path = line.split(' in ')[-1].strip()
+                    if " in " in line:
+                        file_path = line.split(" in ")[-1].strip()
                         if file_path:
                             conflicting_files.append(file_path)
         # Fallback: Check for CONFLICT keyword even on return code 0
         # (some edge cases may not set return code correctly)
         elif "CONFLICT" in result.stdout or "CONFLICT" in result.stderr:
             has_conflicts = True
-            for line in (result.stdout + result.stderr).split('\n'):
-                if line.startswith('CONFLICT') and ' in ' in line:
-                    file_path = line.split(' in ')[-1].strip()
+            for line in (result.stdout + result.stderr).split("\n"):
+                if line.startswith("CONFLICT") and " in " in line:
+                    file_path = line.split(" in ")[-1].strip()
                     if file_path:
                         conflicting_files.append(file_path)
         # Legacy fallback: Check for conflict markers (older git versions < 2.38)
@@ -2208,12 +2248,12 @@ async def get_worktree_merge_preview(task_id: str):
             has_conflicts = True
     except subprocess.CalledProcessError as e:
         # Command failed - check output for conflict indicators
-        output = (e.stdout or '') + (e.stderr or '')
+        output = (e.stdout or "") + (e.stderr or "")
         if "CONFLICT" in output or "<<<<<<" in output:
             has_conflicts = True
-            for line in output.split('\n'):
-                if line.startswith('CONFLICT') and ' in ' in line:
-                    file_path = line.split(' in ')[-1].strip()
+            for line in output.split("\n"):
+                if line.startswith("CONFLICT") and " in " in line:
+                    file_path = line.split(" in ")[-1].strip()
                     if file_path:
                         conflicting_files.append(file_path)
 
@@ -2243,7 +2283,9 @@ async def get_worktree_merge_preview(task_id: str):
 
     # Get commit counts
     commits_ahead = 0
-    ahead_result = run_git_command(["rev-list", "--count", f"{base_branch}..{worktree_branch}"], cwd=project_path)
+    ahead_result = run_git_command(
+        ["rev-list", "--count", f"{base_branch}..{worktree_branch}"], cwd=project_path
+    )
     if ahead_result["success"]:
         try:
             commits_ahead = int(ahead_result["output"])
@@ -2251,7 +2293,9 @@ async def get_worktree_merge_preview(task_id: str):
             commits_ahead = 0
 
     commits_behind = 0
-    behind_result = run_git_command(["rev-list", "--count", f"{worktree_branch}..{base_branch}"], cwd=project_path)
+    behind_result = run_git_command(
+        ["rev-list", "--count", f"{worktree_branch}..{base_branch}"], cwd=project_path
+    )
     if behind_result["success"]:
         try:
             commits_behind = int(behind_result["output"])
@@ -2279,7 +2323,7 @@ async def get_worktree_merge_preview(task_id: str):
                 cwd=project_path,
             )
             if task_files_result["success"]:
-                task_files = set(task_files_result["output"].split('\n'))
+                task_files = set(task_files_result["output"].split("\n"))
                 # Find files that overlap (uncommitted in main AND modified in task)
                 uncommitted_conflicting_files = list(set(uncommitted_files) & task_files)
 
@@ -2295,7 +2339,9 @@ async def get_worktree_merge_preview(task_id: str):
                             text=True,
                         )
                         ignored = set(ignored_result.stdout.strip().splitlines())
-                        uncommitted_conflicting_files = [f for f in uncommitted_conflicting_files if f not in ignored]
+                        uncommitted_conflicting_files = [
+                            f for f in uncommitted_conflicting_files if f not in ignored
+                        ]
                     except Exception:
                         pass
 
@@ -2365,7 +2411,9 @@ async def get_worktree_merge_preview(task_id: str):
             "count": len(uncommitted_files),
             "conflictingFiles": uncommitted_conflicting_files,
             "hasConflicts": len(uncommitted_conflicting_files) > 0,
-        } if uncommitted_files else None,
+        }
+        if uncommitted_files
+        else None,
     }
 
     return {
@@ -2428,7 +2476,10 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
                 return {"success": False, "error": f"Project not found: {project_id}"}
             project_path = Path(project["path"])
     else:
-        return {"success": False, "error": "Task ID must include project ID (format: project_id:spec_id)"}
+        return {
+            "success": False,
+            "error": "Task ID must include project ID (format: project_id:spec_id)",
+        }
 
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
     worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id
@@ -2451,7 +2502,9 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
         logger.info(f"Merge already in progress for {task_id}, resolving existing conflicts")
     else:
         # Start the git merge (allow conflicts)
-        logger.info(f"Starting git merge of {worktree_branch} into current branch for task {task_id}")
+        logger.info(
+            f"Starting git merge of {worktree_branch} into current branch for task {task_id}"
+        )
         merge_result = subprocess.run(
             ["git", "merge", worktree_branch, "--no-commit", "--no-ff"],
             cwd=project_path,
@@ -2499,14 +2552,14 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
     conflicted_files = []
     diff_u_result = run_git_command(["diff", "--name-only", "--diff-filter=U"], cwd=project_path)
     if diff_u_result["success"] and diff_u_result["output"]:
-        conflicted_files = [f for f in diff_u_result["output"].split('\n') if f]
+        conflicted_files = [f for f in diff_u_result["output"].split("\n") if f]
 
     # Fallback: check git status for unmerged files
     if not conflicted_files:
         status_result = run_git_command(["status", "--porcelain"], cwd=project_path)
         if status_result["success"]:
-            for line in status_result["output"].split('\n'):
-                if line and line[:2] in ('UU', 'AA', 'DD', 'AU', 'UA', 'DU', 'UD'):
+            for line in status_result["output"].split("\n"):
+                if line and line[:2] in ("UU", "AA", "DD", "AU", "UA", "DU", "UD"):
                     file_path = line[3:].strip()
                     if file_path:
                         conflicted_files.append(file_path)
@@ -2596,7 +2649,9 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
                 "resolved": resolved_files,
                 "failed": failed_files,
                 "remaining": [f["file"] for f in failed_files],
-                "stats": {"message": f"Resolved {len(resolved_files)} files, {len(failed_files)} failed"},
+                "stats": {
+                    "message": f"Resolved {len(resolved_files)} files, {len(failed_files)} failed"
+                },
             },
             "error": f"{len(failed_files)} files could not be resolved",
         }
@@ -2625,7 +2680,9 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
         "data": {
             "resolved": resolved_files,
             "remaining": [],
-            "stats": {"message": f"Successfully resolved and merged {len(resolved_files)} conflicting files"},
+            "stats": {
+                "message": f"Successfully resolved and merged {len(resolved_files)} conflicting files"
+            },
         },
     }
 
@@ -2715,7 +2772,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
             capture_output=True,
             text=True,
         )
-        task_files = set(result.stdout.strip().split('\n'))
+        task_files = set(result.stdout.strip().split("\n"))
     except subprocess.CalledProcessError:
         task_files = set()
 
@@ -2750,8 +2807,13 @@ async def resolve_uncommitted_conflicts(task_id: str):
             if result.returncode == 0 and "No local changes to save" not in result.stdout:
                 stash_created = True
                 logger.info(f"Stashed changes (fallback): {result.stdout.strip()}")
-            elif result.returncode != 0 and "No local changes to save" not in (result.stderr + result.stdout):
-                return {"success": False, "error": f"Failed to stash changes: {result.stderr or result.stdout}"}
+            elif result.returncode != 0 and "No local changes to save" not in (
+                result.stderr + result.stdout
+            ):
+                return {
+                    "success": False,
+                    "error": f"Failed to stash changes: {result.stderr or result.stdout}",
+                }
     except subprocess.CalledProcessError as e:
         return {"success": False, "error": f"Failed to stash changes: {e.stderr}"}
 
@@ -2830,7 +2892,9 @@ async def resolve_uncommitted_conflicts(task_id: str):
                     full_path.write_text(merge_result.get("content", ""))
                     resolved_files.append(file_path)
                 else:
-                    failed_files.append({"file": file_path, "error": merge_result.get("error", "Unknown error")})
+                    failed_files.append(
+                        {"file": file_path, "error": merge_result.get("error", "Unknown error")}
+                    )
 
             except Exception as e:
                 logger.error(f"Failed to resolve {file_path}: {e}")
@@ -2949,7 +3013,7 @@ async def resolve_git_merge_conflicts(task_id: str):
     conflicted_files = []
     diff_u_result = run_git_command(["diff", "--name-only", "--diff-filter=U"], cwd=work_path)
     if diff_u_result["success"] and diff_u_result["output"]:
-        conflicted_files = [f for f in diff_u_result["output"].split('\n') if f]
+        conflicted_files = [f for f in diff_u_result["output"].split("\n") if f]
         logger.info(f"Found {len(conflicted_files)} conflicted files: {conflicted_files}")
 
     # If no conflicted files from git, scan for files with conflict markers
@@ -2957,11 +3021,16 @@ async def resolve_git_merge_conflicts(task_id: str):
         logger.info("No files from git diff --diff-filter=U, scanning for conflict markers...")
         status_result = run_git_command(["status", "--porcelain"], cwd=work_path)
         if status_result["success"]:
-            for line in status_result["output"].split('\n'):
-                if line and (line.startswith('UU') or line.startswith('AA') or
-                             line.startswith('DD') or line.startswith('AU') or
-                             line.startswith('UA') or line.startswith('DU') or
-                             line.startswith('UD')):
+            for line in status_result["output"].split("\n"):
+                if line and (
+                    line.startswith("UU")
+                    or line.startswith("AA")
+                    or line.startswith("DD")
+                    or line.startswith("AU")
+                    or line.startswith("UA")
+                    or line.startswith("DU")
+                    or line.startswith("UD")
+                ):
                     # Status codes indicate conflicts
                     file_path = line[3:].strip()
                     if file_path:
@@ -3062,7 +3131,9 @@ async def resolve_git_merge_conflicts(task_id: str):
         if merge_head_file.exists():
             merge_commit = merge_head_file.read_text().strip()[:8]
             # Try to get branch name from the merge
-            name_rev_result = run_git_command(["name-rev", "--name-only", merge_commit], cwd=work_path)
+            name_rev_result = run_git_command(
+                ["name-rev", "--name-only", merge_commit], cwd=work_path
+            )
             if name_rev_result["success"] and name_rev_result["output"]:
                 merge_branch = name_rev_result["output"]
 
@@ -3099,7 +3170,7 @@ def _clean_conflict_markers(content: str) -> str:
 
     # Pattern to match conflict blocks
     # <<<<<<< ... ======= ... >>>>>>>
-    pattern = r'<<<<<<<[^\n]*\n(.*?)=======\n(.*?)>>>>>>>[^\n]*\n?'
+    pattern = r"<<<<<<<[^\n]*\n(.*?)=======\n(.*?)>>>>>>>[^\n]*\n?"
 
     def replace_conflict(match):
         # Prefer the second version (usually "theirs"/incoming changes)
@@ -3155,7 +3226,10 @@ async def abort_worktree_merge(task_id: str):
                 return {"success": False, "error": f"Project not found: {project_id}"}
             project_path = Path(project["path"])
     else:
-        return {"success": False, "error": "Task ID must include project ID (format: project_id:spec_id)"}
+        return {
+            "success": False,
+            "error": "Task ID must include project ID (format: project_id:spec_id)",
+        }
 
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
     if not spec_dir.exists():
@@ -3228,10 +3302,7 @@ async def abort_worktree_merge(task_id: str):
             },
         }
     elif errors:
-        return {
-            "success": False,
-            "error": "; ".join(errors)
-        }
+        return {"success": False, "error": "; ".join(errors)}
     else:
         return {
             "success": True,
@@ -3278,7 +3349,10 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
                 return {"success": False, "error": f"Project not found: {project_id}"}
             project_path = Path(project["path"])
     else:
-        return {"success": False, "error": "Task ID must include project ID (format: project_id:spec_id)"}
+        return {
+            "success": False,
+            "error": "Task ID must include project ID (format: project_id:spec_id)",
+        }
 
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
     if not spec_dir.exists():
@@ -3358,9 +3432,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     # Restore stashed changes
     if stashed:
         subprocess.run(
-            ["git", "stash", "pop"],
-            cwd=worktree_path,
-            capture_output=True, text=True, timeout=10
+            ["git", "stash", "pop"], cwd=worktree_path, capture_output=True, text=True, timeout=10
         )
 
     # Push the branch to remote
@@ -3370,11 +3442,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
         push_cmd = ["git", "push", "--force-with-lease", "-u", "origin", worktree_branch]
     try:
         result = subprocess.run(
-            push_cmd,
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            timeout=60
+            push_cmd, cwd=worktree_path, capture_output=True, text=True, timeout=60
         )
         if result.returncode != 0:
             return {"success": False, "error": f"Failed to push branch: {result.stderr.strip()}"}
@@ -3420,7 +3488,9 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     if _use_provider_api(project_id):
         try:
             provider = _get_project_provider(project_id)
-            provider_type_value = getattr(provider.provider_type, "value", str(provider.provider_type))
+            provider_type_value = getattr(
+                provider.provider_type, "value", str(provider.provider_type)
+            )
             if provider_type_value == "github":
                 # The provider abstraction picks GitHub when a custom token is
                 # configured; the gh CLI path below already handles GitHub, so
@@ -3459,11 +3529,16 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     # Create the PR using gh CLI (GitHub-only path)
     head_ref = worktree_branch
     gh_args = [
-        "pr", "create",
-        "--head", head_ref,
-        "--base", base_branch,
-        "--title", pr_title,
-        "--body", pr_body or "",
+        "pr",
+        "create",
+        "--head",
+        head_ref,
+        "--base",
+        base_branch,
+        "--title",
+        pr_title,
+        "--body",
+        pr_body or "",
     ]
 
     if options.targetRepo:
@@ -3478,7 +3553,8 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
             )
             if origin_url_result.returncode == 0:
                 import re as _re
-                m = _re.search(r'[:/]([^/]+)/[^/]+?(?:\.git)?$', origin_url_result.stdout.strip())
+
+                m = _re.search(r"[:/]([^/]+)/[^/]+?(?:\.git)?$", origin_url_result.stdout.strip())
                 if m:
                     fork_owner = m.group(1)
                     # Update --head to owner:branch format required by gh for cross-repo PRs
@@ -3503,7 +3579,8 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     if pr_url:
         # gh pr create outputs the PR URL, extract number from it
         import re as _re
-        match = _re.search(r'/pull/(\d+)', pr_url)
+
+        match = _re.search(r"/pull/(\d+)", pr_url)
         if match:
             pr_number = int(match.group(1))
 
@@ -3556,7 +3633,10 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
                 return {"success": False, "error": f"Project not found: {project_id}"}
             project_path = Path(project["path"])
     else:
-        return {"success": False, "error": "Task ID must include project ID (format: project_id:spec_id)"}
+        return {
+            "success": False,
+            "error": "Task ID must include project ID (format: project_id:spec_id)",
+        }
 
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
     if not spec_dir.exists():
@@ -3604,11 +3684,7 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
             merge_cmd.append("--no-commit")
 
         result = subprocess.run(
-            merge_cmd,
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            check=True
+            merge_cmd, cwd=project_path, capture_output=True, text=True, check=True
         )
 
         # Clean up worktree after successful merge
@@ -3741,7 +3817,9 @@ async def get_worktree_status(task_id: str):
 
     # Count commits ahead
     commit_count = 0
-    count_result = run_git_command(["rev-list", "--count", f"{base_branch}..{worktree_branch}"], cwd=project_path)
+    count_result = run_git_command(
+        ["rev-list", "--count", f"{base_branch}..{worktree_branch}"], cwd=project_path
+    )
     if count_result["success"]:
         try:
             commit_count = int(count_result["output"])
@@ -3753,20 +3831,23 @@ async def get_worktree_status(task_id: str):
     additions = 0
     deletions = 0
 
-    stat_result = run_git_command(["diff", "--stat", f"{base_branch}...{worktree_branch}"], cwd=project_path)
+    stat_result = run_git_command(
+        ["diff", "--stat", f"{base_branch}...{worktree_branch}"], cwd=project_path
+    )
     if stat_result["success"]:
         # Parse the last line for summary (e.g., "5 files changed, 100 insertions(+), 20 deletions(-)")
-        lines = stat_result["output"].split('\n')
+        lines = stat_result["output"].split("\n")
         if lines:
             summary_line = lines[-1]
             import re
-            files_match = re.search(r'(\d+) files? changed', summary_line)
+
+            files_match = re.search(r"(\d+) files? changed", summary_line)
             if files_match:
                 files_changed = int(files_match.group(1))
-            insert_match = re.search(r'(\d+) insertions?\(\+\)', summary_line)
+            insert_match = re.search(r"(\d+) insertions?\(\+\)", summary_line)
             if insert_match:
                 additions = int(insert_match.group(1))
-            del_match = re.search(r'(\d+) deletions?\(-\)', summary_line)
+            del_match = re.search(r"(\d+) deletions?\(-\)", summary_line)
             if del_match:
                 deletions = int(del_match.group(1))
 
@@ -3809,10 +3890,7 @@ async def get_worktree_diff(task_id: str):
     projects_file = projects_data_dir / "projects.json"
 
     if not projects_file.exists():
-        return {
-            "success": False,
-            "error": "No projects configured"
-        }
+        return {"success": False, "error": "No projects configured"}
 
     projects_data = json.loads(projects_file.read_text())
 
@@ -3838,19 +3916,13 @@ async def get_worktree_diff(task_id: str):
                 break
 
     if not project_path:
-        return {
-            "success": False,
-            "error": f"Project not found for task {task_id}"
-        }
+        return {"success": False, "error": f"Project not found for task {task_id}"}
 
     # Check for worktree
     worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id
 
     if not worktree_path.exists():
-        return {
-            "success": False,
-            "error": "No worktree found for this task"
-        }
+        return {"success": False, "error": "No worktree found for this task"}
 
     # Get worktree branch
     branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
@@ -3862,43 +3934,49 @@ async def get_worktree_diff(task_id: str):
 
     # Get detailed diff with numstat
     files = []
-    numstat_result = run_git_command(["diff", "--numstat", f"{base_branch}...{worktree_branch}"], cwd=project_path)
+    numstat_result = run_git_command(
+        ["diff", "--numstat", f"{base_branch}...{worktree_branch}"], cwd=project_path
+    )
     if numstat_result["success"]:
-        for line in numstat_result["output"].split('\n'):
+        for line in numstat_result["output"].split("\n"):
             if line:
-                parts = line.split('\t')
+                parts = line.split("\t")
                 if len(parts) >= 3:
                     added = parts[0]
                     deleted = parts[1]
                     path = parts[2]
                     # Handle binary files (show as -)
-                    additions = int(added) if added != '-' else 0
-                    deletions = int(deleted) if deleted != '-' else 0
-                    files.append({
-                        "path": path,
-                        "status": "modified",  # Will be refined below
-                        "additions": additions,
-                        "deletions": deletions,
-                    })
+                    additions = int(added) if added != "-" else 0
+                    deletions = int(deleted) if deleted != "-" else 0
+                    files.append(
+                        {
+                            "path": path,
+                            "status": "modified",  # Will be refined below
+                            "additions": additions,
+                            "deletions": deletions,
+                        }
+                    )
 
     # Get file statuses (A/M/D/R)
-    name_status_result = run_git_command(["diff", "--name-status", f"{base_branch}...{worktree_branch}"], cwd=project_path)
+    name_status_result = run_git_command(
+        ["diff", "--name-status", f"{base_branch}...{worktree_branch}"], cwd=project_path
+    )
     if name_status_result["success"]:
         status_map = {}
-        for line in name_status_result["output"].split('\n'):
+        for line in name_status_result["output"].split("\n"):
             if line:
-                parts = line.split('\t')
+                parts = line.split("\t")
                 if len(parts) >= 2:
                     status_code = parts[0][0]  # First char (R100 -> R)
                     filename = parts[-1]  # Last part is the filename
                     status = "modified"
-                    if status_code == 'A':
+                    if status_code == "A":
                         status = "added"
-                    elif status_code == 'D':
+                    elif status_code == "D":
                         status = "deleted"
-                    elif status_code == 'R':
+                    elif status_code == "R":
                         status = "renamed"
-                    elif status_code == 'M':
+                    elif status_code == "M":
                         status = "modified"
                     status_map[filename] = status
 
@@ -3911,7 +3989,8 @@ async def get_worktree_diff(task_id: str):
     INTERNAL_FILES = {".pfactory-security.json", ".pfactory-status"}
     INTERNAL_PREFIXES = (".pfactory/", "VERIFICATION_REPORT", "LANGUAGE_CHOICE")
     files = [
-        f for f in files
+        f
+        for f in files
         if f["path"] not in INTERNAL_FILES
         and not any(f["path"].startswith(p) for p in INTERNAL_PREFIXES)
     ]
@@ -3921,7 +4000,7 @@ async def get_worktree_diff(task_id: str):
     if not files and worktree_path.exists():
         for f in worktree_path.iterdir():
             # Skip internal files, directories, and dotfiles
-            if f.name.startswith('.') or f.name.startswith('__') or f.is_dir():
+            if f.name.startswith(".") or f.name.startswith("__") or f.is_dir():
                 continue
             if f.name in INTERNAL_FILES or any(f.name.startswith(p) for p in INTERNAL_PREFIXES):
                 continue
@@ -3930,8 +4009,10 @@ async def get_worktree_diff(task_id: str):
             if not main_file.exists():
                 # New file created by the agent
                 try:
-                    content = f.read_text(errors='replace')
-                    line_count = content.count('\n') + (1 if content and not content.endswith('\n') else 0)
+                    content = f.read_text(errors="replace")
+                    line_count = content.count("\n") + (
+                        1 if content and not content.endswith("\n") else 0
+                    )
                     # Generate a unified diff for display
                     diff_lines = ["--- /dev/null", f"+++ b/{f.name}"]
                     diff_lines.append(f"@@ -0,0 +1,{line_count} @@")
@@ -3941,13 +4022,15 @@ async def get_worktree_diff(task_id: str):
                 except OSError:
                     line_count = 0
                     synthetic_diff = ""
-                files.append({
-                    "path": f.name,
-                    "status": "added",
-                    "additions": line_count,
-                    "deletions": 0,
-                    "diff": synthetic_diff,
-                })
+                files.append(
+                    {
+                        "path": f.name,
+                        "status": "added",
+                        "additions": line_count,
+                        "deletions": 0,
+                        "diff": synthetic_diff,
+                    }
+                )
 
     # Get actual diff content for each file
     for f in files:
@@ -4015,7 +4098,10 @@ async def discard_worktree(task_id: str):
             project_path = Path(project["path"])
     else:
         # task_id is just the spec_id, need to find project from context
-        return {"success": False, "error": "Task ID must include project ID (format: project_id:spec_id)"}
+        return {
+            "success": False,
+            "error": "Task ID must include project ID (format: project_id:spec_id)",
+        }
 
     # Find the worktree
     worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id
@@ -4028,7 +4114,9 @@ async def discard_worktree(task_id: str):
         branch_name = f"pfactory/{spec_id}"
 
         # Remove worktree using git command
-        remove_result = run_git_command(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
+        remove_result = run_git_command(
+            ["worktree", "remove", "--force", str(worktree_path)], cwd=project_path
+        )
 
         if not remove_result["success"]:
             # Fallback: force delete directory
@@ -4269,18 +4357,10 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
 
         # Launch the IDE (don't wait for it to finish)
         subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
         )
 
-        return {
-            "success": True,
-            "data": {
-                "opened": True
-            }
-        }
+        return {"success": True, "data": {"opened": True}}
     except FileNotFoundError:
         return {
             "success": False,
@@ -4324,18 +4404,10 @@ async def open_worktree_in_terminal(request: OpenInTerminalRequest):
 
         # Launch the terminal (don't wait for it to finish)
         subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
         )
 
-        return {
-            "success": True,
-            "data": {
-                "opened": True
-            }
-        }
+        return {"success": True, "data": {"opened": True}}
     except FileNotFoundError:
         return {
             "success": False,
@@ -4364,8 +4436,16 @@ async def detect_worktree_tools():
         {"id": "vscodium", "name": "VSCodium", "command": "codium"},
         {"id": "vscode-insiders", "name": "VS Code Insiders", "command": "code-insiders"},
         {"id": "sublime", "name": "Sublime Text", "command": "subl"},
-        {"id": "webstorm", "name": "WebStorm", "command": "webstorm" if system != "Darwin" else None},
-        {"id": "intellij", "name": "IntelliJ IDEA", "command": "idea" if system != "Darwin" else None},
+        {
+            "id": "webstorm",
+            "name": "WebStorm",
+            "command": "webstorm" if system != "Darwin" else None,
+        },
+        {
+            "id": "intellij",
+            "name": "IntelliJ IDEA",
+            "command": "idea" if system != "Darwin" else None,
+        },
         {"id": "pycharm", "name": "PyCharm", "command": "pycharm" if system != "Darwin" else None},
         {"id": "zed", "name": "Zed", "command": "zed"},
         {"id": "atom", "name": "Atom", "command": "atom"},
@@ -4379,15 +4459,19 @@ async def detect_worktree_tools():
     ]
 
     if system == "Windows":
-        ide_definitions.extend([
-            {"id": "notepadpp", "name": "Notepad++", "command": "notepad++"},
-            {"id": "visualstudio", "name": "Visual Studio", "command": "devenv"},
-        ])
+        ide_definitions.extend(
+            [
+                {"id": "notepadpp", "name": "Notepad++", "command": "notepad++"},
+                {"id": "visualstudio", "name": "Visual Studio", "command": "devenv"},
+            ]
+        )
     elif system == "Linux":
-        ide_definitions.extend([
-            {"id": "kate", "name": "Kate", "command": "kate"},
-            {"id": "geany", "name": "Geany", "command": "geany"},
-        ])
+        ide_definitions.extend(
+            [
+                {"id": "kate", "name": "Kate", "command": "kate"},
+                {"id": "geany", "name": "Geany", "command": "geany"},
+            ]
+        )
 
     # Terminal detection
     terminal_definitions = []
@@ -4437,12 +4521,9 @@ async def detect_worktree_tools():
             if found:
                 installed = True
                 path = found
-        ides.append({
-            "id": ide_def["id"],
-            "name": ide_def["name"],
-            "path": path,
-            "installed": installed
-        })
+        ides.append(
+            {"id": ide_def["id"], "name": ide_def["name"], "path": path, "installed": installed}
+        )
 
     terminals = []
     for term_def in terminal_definitions:
@@ -4459,17 +4540,8 @@ async def detect_worktree_tools():
             if Path(app_path).exists():
                 installed = True
                 path = app_path
-        terminals.append({
-            "id": term_def["id"],
-            "name": term_def["name"],
-            "path": path,
-            "installed": installed
-        })
+        terminals.append(
+            {"id": term_def["id"], "name": term_def["name"], "path": path, "installed": installed}
+        )
 
-    return {
-        "success": True,
-        "data": {
-            "ides": ides,
-            "terminals": terminals
-        }
-    }
+    return {"success": True, "data": {"ides": ides, "terminals": terminals}}

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Key conversion helpers
 # ============================================================================
 
+
 def _snake_to_camel(key: str) -> str:
     """Convert a snake_case string to camelCase."""
     parts = key.split("_")
@@ -41,6 +42,7 @@ def _convert_keys(obj: Any) -> Any:
 # ============================================================================
 # gh CLI helper (shared with routes/github.py)
 # ============================================================================
+
 
 def _run_gh(args: list[str], cwd: str | None = None, timeout: int = 30) -> dict:
     """Run a gh CLI command and return the result.
@@ -124,6 +126,7 @@ def _map_gh_pr(pr: dict) -> dict:
 # Review file helpers
 # ============================================================================
 
+
 def _review_file_path(project_path: Path, pr_number: int) -> Path:
     """Canonical path for a stored PR review result."""
     return project_path / ".pfactory" / "github" / "pr" / f"review_{pr_number}.json"
@@ -142,6 +145,7 @@ def _review_logs_path(project_path: Path, pr_number: int) -> Path:
 # ============================================================================
 # Service class
 # ============================================================================
+
 
 class PRDataService:
     """Service class wrapping gh CLI commands for PR operations.
@@ -180,9 +184,12 @@ class PRDataService:
             ``{"success": False, "error": "..."}`` on failure.
         """
         args = [
-            "pr", "list",
-            "--json", _PR_JSON_FIELDS,
-            "--limit", "100",
+            "pr",
+            "list",
+            "--json",
+            _PR_JSON_FIELDS,
+            "--limit",
+            "100",
         ]
         if state and state in ("open", "closed", "merged", "all"):
             args.extend(["--state", state])
@@ -248,7 +255,9 @@ class PRDataService:
 
         # Build formatted markdown body
         review_body = self._build_review_comment_body(
-            pr_number, review_data, findings,
+            pr_number,
+            review_data,
+            findings,
         )
 
         # Post via gh CLI
@@ -454,9 +463,13 @@ class PRDataService:
         # SHA for PRs with more than 100 commits.
         result = _run_gh(
             [
-                "pr", "view", str(pr_number),
-                "--json", "headRefOid",
-                "--jq", ".headRefOid",
+                "pr",
+                "view",
+                str(pr_number),
+                "--json",
+                "headRefOid",
+                "--jq",
+                ".headRefOid",
             ],
             cwd=str(project_path),
         )
@@ -477,8 +490,7 @@ class PRDataService:
 
         # Compare SHAs
         has_new_commits = (
-            current_head_commit is not None
-            and current_head_commit != last_reviewed_commit
+            current_head_commit is not None and current_head_commit != last_reviewed_commit
         )
 
         new_commit_count = 0
@@ -487,7 +499,8 @@ class PRDataService:
                 [
                     "api",
                     f"repos/{{owner}}/{{repo}}/compare/{last_reviewed_commit}...{current_head_commit}",
-                    "--jq", ".total_commits",
+                    "--jq",
+                    ".total_commits",
                 ],
                 cwd=str(project_path),
             )
@@ -562,9 +575,7 @@ class PRDataService:
             try:
                 index_data = json.loads(index_file.read_text())
                 reviews = index_data.get("reviews", [])
-                index_data["reviews"] = [
-                    r for r in reviews if r.get("pr_number") != pr_number
-                ]
+                index_data["reviews"] = [r for r in reviews if r.get("pr_number") != pr_number]
                 index_file.write_text(json.dumps(index_data, indent=2))
             except (json.JSONDecodeError, OSError):
                 pass  # Non-fatal: review was deleted, index update failed

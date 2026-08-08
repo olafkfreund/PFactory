@@ -10,6 +10,7 @@ from pathlib import Path
 @dataclass
 class ProviderModel:
     """A model available from a provider."""
+
     id: str
     label: str
 
@@ -17,6 +18,7 @@ class ProviderModel:
 @dataclass
 class ProviderInfo:
     """Detection result for a single provider."""
+
     provider: str
     available: bool
     display_name: str

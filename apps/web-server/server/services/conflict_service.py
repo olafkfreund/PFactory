@@ -55,14 +55,15 @@ class ConflictService:
 
         # Load backend .env for OAuth token and other settings
         import os
+
         backend_env = backend_path / ".env"
         if backend_env.exists():
             logger.debug(f"Loading backend .env from {backend_env}")
             with open(backend_env) as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
                         key = key.strip()
                         value = value.strip()
                         # Only set if not already in environment
@@ -165,16 +166,18 @@ class ConflictService:
             # Convert conflict regions to frontend format
             conflicts = []
             for conflict_data in preview.get("conflicts", []):
-                conflicts.append({
-                    "file": conflict_data.get("file", ""),
-                    "location": conflict_data.get("location", ""),
-                    "tasks": conflict_data.get("tasks", []),
-                    "severity": conflict_data.get("severity", "medium"),
-                    "canAutoMerge": conflict_data.get("can_auto_merge", False),
-                    "strategy": conflict_data.get("strategy"),
-                    "reason": conflict_data.get("reason", ""),
-                    "type": "semantic",  # Mark as semantic conflict
-                })
+                conflicts.append(
+                    {
+                        "file": conflict_data.get("file", ""),
+                        "location": conflict_data.get("location", ""),
+                        "tasks": conflict_data.get("tasks", []),
+                        "severity": conflict_data.get("severity", "medium"),
+                        "canAutoMerge": conflict_data.get("can_auto_merge", False),
+                        "strategy": conflict_data.get("strategy"),
+                        "reason": conflict_data.get("reason", ""),
+                        "type": "semantic",  # Mark as semantic conflict
+                    }
+                )
 
             # Build statistics
             summary = preview.get("summary", {})
@@ -199,7 +202,9 @@ class ConflictService:
             }
 
         except Exception as e:
-            logger.warning(f"Semantic conflict detection failed (may be expected for simple merges): {e}")
+            logger.warning(
+                f"Semantic conflict detection failed (may be expected for simple merges): {e}"
+            )
             # Return empty result - semantic detection is optional
             return {
                 "success": True,
@@ -296,22 +301,32 @@ class ConflictService:
             remaining = []
 
             for file_path, result in report.file_results.items():
-                for conflict in getattr(result, 'conflicts_resolved', []):
-                    resolved.append({
-                        "file": getattr(conflict, 'file_path', file_path),
-                        "location": getattr(conflict, 'location', ''),
-                        "severity": getattr(conflict.severity, 'value', 'medium') if hasattr(conflict, 'severity') else 'medium',
-                        "strategy": conflict.merge_strategy.value if hasattr(conflict, 'merge_strategy') and conflict.merge_strategy else None,
-                        "reason": getattr(conflict, 'reason', ''),
-                    })
+                for conflict in getattr(result, "conflicts_resolved", []):
+                    resolved.append(
+                        {
+                            "file": getattr(conflict, "file_path", file_path),
+                            "location": getattr(conflict, "location", ""),
+                            "severity": getattr(conflict.severity, "value", "medium")
+                            if hasattr(conflict, "severity")
+                            else "medium",
+                            "strategy": conflict.merge_strategy.value
+                            if hasattr(conflict, "merge_strategy") and conflict.merge_strategy
+                            else None,
+                            "reason": getattr(conflict, "reason", ""),
+                        }
+                    )
 
-                for conflict in getattr(result, 'conflicts_remaining', []):
-                    remaining.append({
-                        "file": getattr(conflict, 'file_path', file_path),
-                        "location": getattr(conflict, 'location', ''),
-                        "severity": getattr(conflict.severity, 'value', 'medium') if hasattr(conflict, 'severity') else 'medium',
-                        "reason": getattr(conflict, 'reason', ''),
-                    })
+                for conflict in getattr(result, "conflicts_remaining", []):
+                    remaining.append(
+                        {
+                            "file": getattr(conflict, "file_path", file_path),
+                            "location": getattr(conflict, "location", ""),
+                            "severity": getattr(conflict.severity, "value", "medium")
+                            if hasattr(conflict, "severity")
+                            else "medium",
+                            "reason": getattr(conflict, "reason", ""),
+                        }
+                    )
 
             return {
                 "success": report.success,
@@ -323,7 +338,8 @@ class ConflictService:
                     "filesAIMerged": report.stats.files_ai_merged,
                     "filesNeedReview": report.stats.files_need_review,
                     "filesFailed": report.stats.files_failed,
-                    "conflictsResolved": report.stats.conflicts_auto_resolved + report.stats.conflicts_ai_resolved,
+                    "conflictsResolved": report.stats.conflicts_auto_resolved
+                    + report.stats.conflicts_ai_resolved,
                     "aiCallsMade": report.stats.ai_calls_made,
                     "tokensUsed": report.stats.estimated_tokens_used,
                 },
@@ -603,9 +619,9 @@ Return ONLY the raw file content."""
 
                 # Verify conflict markers are removed
                 markers_remaining = (
-                    "<<<<<<< " in resolved_content or
-                    "=======" in resolved_content or
-                    ">>>>>>> " in resolved_content
+                    "<<<<<<< " in resolved_content
+                    or "=======" in resolved_content
+                    or ">>>>>>> " in resolved_content
                 )
 
                 if markers_remaining:

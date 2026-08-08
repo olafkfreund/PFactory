@@ -123,12 +123,13 @@ def rotate_root(
     offset = 0
     while True:
         with Session(sync_engine) as session:
-            batch = session.execute(
-                select(KmsDataKey)
-                .order_by(KmsDataKey.id)
-                .offset(offset)
-                .limit(batch_size)
-            ).scalars().all()
+            batch = (
+                session.execute(
+                    select(KmsDataKey).order_by(KmsDataKey.id).offset(offset).limit(batch_size)
+                )
+                .scalars()
+                .all()
+            )
 
             if not batch:
                 break
@@ -152,9 +153,7 @@ def rotate_root(
                     # Capture and continue — one bad row mustn't abort
                     # the entire rotation. Operators address the failed
                     # rows in a follow-up run.
-                    logger.exception(
-                        "rotation failed for org_id=%s", row.org_id
-                    )
+                    logger.exception("rotation failed for org_id=%s", row.org_id)
                     report.error_count += 1
                     report.errors.append((row.org_id, repr(exc)))
 

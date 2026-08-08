@@ -47,10 +47,12 @@ router = APIRouter(prefix="/api/git-credentials", tags=["Git Credentials"])
 
 class CreateGitCredentialRequest(BaseModel):
     org_id: str = Field(..., description="Organization that owns this credential")
-    name: str = Field(
-        ..., min_length=1, max_length=255, description="Human-readable label"
+    name: str = Field(..., min_length=1, max_length=255, description="Human-readable label")
+    token: SecretStr = Field(
+        ...,
+        min_length=1,
+        description="The Personal Access Token. Never logged, encrypted at rest, cannot be retrieved after creation.",
     )
-    token: SecretStr = Field(..., min_length=1, description="The Personal Access Token. Never logged, encrypted at rest, cannot be retrieved after creation.")
     kind: str = Field(
         default="pat",
         description="Credential kind. V1 supports 'pat' only.",
@@ -89,9 +91,7 @@ class GitCredentialResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-async def _verify_org_membership(
-    db: AsyncSession, user: User, org_id: str
-) -> OrgMember:
+async def _verify_org_membership(db: AsyncSession, user: User, org_id: str) -> OrgMember:
     """Raise 403 unless the user belongs to the org."""
     result = await db.execute(
         select(OrgMember).where(
@@ -187,9 +187,7 @@ async def delete_git_credential(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(GitCredential).where(GitCredential.id == cred_id)
-    )
+    result = await db.execute(select(GitCredential).where(GitCredential.id == cred_id))
     cred = result.scalar_one_or_none()
     if cred is None:
         raise HTTPException(

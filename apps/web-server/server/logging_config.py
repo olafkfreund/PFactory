@@ -47,12 +47,10 @@ def setup_logging(
     # Formatters
     detailed_format = logging.Formatter(
         "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    simple_format = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    simple_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     # Get root logger
     root_logger = logging.getLogger()
@@ -69,10 +67,7 @@ def setup_logging(
 
     # Server log handler (all logs)
     server_handler = RotatingFileHandler(
-        server_log,
-        maxBytes=MAX_LOG_SIZE,
-        backupCount=BACKUP_COUNT,
-        encoding="utf-8"
+        server_log, maxBytes=MAX_LOG_SIZE, backupCount=BACKUP_COUNT, encoding="utf-8"
     )
     server_handler.setLevel(logging.DEBUG)
     server_handler.setFormatter(detailed_format)
@@ -80,10 +75,7 @@ def setup_logging(
 
     # Error log handler (errors and warnings only)
     error_handler = RotatingFileHandler(
-        error_log,
-        maxBytes=MAX_LOG_SIZE,
-        backupCount=BACKUP_COUNT,
-        encoding="utf-8"
+        error_log, maxBytes=MAX_LOG_SIZE, backupCount=BACKUP_COUNT, encoding="utf-8"
     )
     error_handler.setLevel(logging.WARNING)
     error_handler.setFormatter(detailed_format)
@@ -92,10 +84,7 @@ def setup_logging(
     # Agent-specific logger
     agent_logger = logging.getLogger("server.services.agent_service")
     agent_handler = RotatingFileHandler(
-        agent_log,
-        maxBytes=MAX_LOG_SIZE,
-        backupCount=BACKUP_COUNT,
-        encoding="utf-8"
+        agent_log, maxBytes=MAX_LOG_SIZE, backupCount=BACKUP_COUNT, encoding="utf-8"
     )
     agent_handler.setLevel(logging.DEBUG)
     agent_handler.setFormatter(detailed_format)
@@ -123,9 +112,7 @@ def get_log_files() -> dict[str, Path]:
 
 
 def get_recent_logs(
-    log_type: str = "server",
-    lines: int = 100,
-    level_filter: str | None = None
+    log_type: str = "server", lines: int = 100, level_filter: str | None = None
 ) -> list[dict]:
     """
     Get recent log entries from a log file.
@@ -163,13 +150,15 @@ def get_recent_logs(
                         continue
                     entries.append(entry)
     except Exception as e:
-        entries.append({
-            "timestamp": datetime.now().isoformat(),
-            "level": "ERROR",
-            "logger": "logging_config",
-            "message": f"Failed to read log file: {e}",
-            "raw": str(e)
-        })
+        entries.append(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": "ERROR",
+                "logger": "logging_config",
+                "message": f"Failed to read log file: {e}",
+                "raw": str(e),
+            }
+        )
 
     return entries
 
@@ -190,25 +179,13 @@ def parse_log_line(line: str) -> dict | None:
                 "level": level,
                 "logger": logger_info,
                 "message": message,
-                "raw": line
+                "raw": line,
             }
         else:
             # Fallback for lines that don't match the format
-            return {
-                "timestamp": "",
-                "level": "INFO",
-                "logger": "",
-                "message": line,
-                "raw": line
-            }
+            return {"timestamp": "", "level": "INFO", "logger": "", "message": line, "raw": line}
     except Exception:
-        return {
-            "timestamp": "",
-            "level": "INFO",
-            "logger": "",
-            "message": line,
-            "raw": line
-        }
+        return {"timestamp": "", "level": "INFO", "logger": "", "message": line, "raw": line}
 
 
 def clear_logs(log_type: str | None = None) -> bool:

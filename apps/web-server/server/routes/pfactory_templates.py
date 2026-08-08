@@ -66,6 +66,7 @@ def _load_templates_for_framework(framework_name: str) -> dict:
     """Call templates_pkg.load_templates_for_framework and return result."""
     _ensure_backend_on_path()
     import templates_pkg  # noqa: PLC0415
+
     return templates_pkg.load_templates_for_framework(framework_name)
 
 

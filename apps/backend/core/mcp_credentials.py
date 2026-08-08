@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -282,7 +283,10 @@ def _probe_gcp() -> CredentialStatus:
     return CredentialStatus(False, "none")
 
 
-_PROBES: dict[str, callable] = {
+# `dict[str, callable]` named the BUILTIN `callable()`, which is not a type --
+# mypy rejected it and the annotation guaranteed nothing. Every probe below has
+# the same real signature.
+_PROBES: dict[str, Callable[[], CredentialStatus]] = {
     "github": _probe_github,
     "gitlab": _probe_gitlab,
     "azure_devops": _probe_azure_devops,

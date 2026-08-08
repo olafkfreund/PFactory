@@ -1,4 +1,5 @@
 """#335: the path-traversal barrier used across the route/service layer."""
+
 from __future__ import annotations
 
 import sys

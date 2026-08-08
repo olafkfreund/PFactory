@@ -35,9 +35,7 @@ def parse_store_ref(ref: str) -> str | None:
     return None
 
 
-async def resolve_store_credential(
-    db: AsyncSession, cred_id: str
-) -> tuple[str | None, str]:
+async def resolve_store_credential(db: AsyncSession, cred_id: str) -> tuple[str | None, str]:
     """Decrypt a stored credential → ``(username, secret)``; bump ``last_used_at``.
 
     Raises :class:`StoreCredentialNotFound` when no credential has that id.
