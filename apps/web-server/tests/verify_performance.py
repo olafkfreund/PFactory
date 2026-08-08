@@ -13,10 +13,10 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Any
 
 
-def run_pytest_tests() -> Dict[str, any]:
+def run_pytest_tests() -> dict[str, Any]:
     """Run pytest tests and capture results."""
     print("=" * 80)
     print("RUNNING PERFORMANCE TESTS")
@@ -39,7 +39,7 @@ def run_pytest_tests() -> Dict[str, any]:
     }
 
 
-def analyze_test_output(output: str) -> Dict[str, any]:
+def analyze_test_output(output: str) -> dict[str, Any]:
     """Analyze pytest output to extract test results."""
     lines = output.split("\n")
 
@@ -85,7 +85,7 @@ def analyze_test_output(output: str) -> Dict[str, any]:
     return results
 
 
-def print_summary(results: Dict[str, any]):
+def print_summary(results: dict[str, Any]) -> None:
     """Print test summary."""
     print()
     print("=" * 80)
