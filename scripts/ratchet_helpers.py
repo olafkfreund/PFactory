@@ -32,6 +32,18 @@ itself shipped a half-fix, because ``mypy_errors()`` sat directly below the
 function it corrected with the identical defect. That rule now lives here once,
 as :func:`require_tool_ran`.
 
+A fourth rule joined on 2026-08-08 (Factory#648), and it is the other half of
+the third. ``require_tool_ran`` answers "did the linter exit for its own
+reasons"; it cannot answer "is what the linter WROTE a finding list". That
+second question was guarded separately in each fork, and the forks did not
+agree: four restated a bare ``except json.JSONDecodeError -> sys.exit(2)`` with
+no message, AIFactory had no guard at all until AIFactory#1174, and ALL FIVE
+returned an empty ``Counter()`` for empty stdout. On the pinned ruff a clean run
+under ``--output-format json`` prints ``[]``, never nothing — including for
+empty stdin — so empty stdout was never the clean case, it was ruff writing no
+report, counted as perfection. Both halves now live here once, as
+:func:`ruff_findings`.
+
 Note what this module deliberately does NOT hold: the invocation. The five
 ratchets run mypy five genuinely different ways (in place with MYPYPATH, from
 inside the package with ``--explicit-package-bases``, from a temp copy next to
@@ -51,11 +63,13 @@ never a service copy.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 # Every mypy diagnostic names the file it is about: `path/to/file.py:12: error:`.
@@ -187,6 +201,59 @@ def require_tool_ran(
         )
     sys.stderr.write(output)
     raise SystemExit(2)
+
+
+def ruff_findings(res: subprocess.CompletedProcess[str]) -> Counter[str]:
+    """Rule codes ruff reported, or ``SystemExit(2)`` if it reported nothing legible.
+
+    The companion verdict to :func:`require_tool_ran`, which it calls first.
+    That one asks whether ruff exited for its own reasons; this one asks whether
+    what ruff WROTE is a measurement at all. A run can exit 0 and still have
+    measured nothing, two ways, and the honest verdict for both is "could not
+    measure" — not zero violations, which a ratchet reads as clean:
+
+    * **Empty stdout.** Measured on the pinned ruff: a clean run under
+      ``--output-format json`` prints ``[]``, never nothing, including for empty
+      stdin. Nothing therefore means ruff wrote no report. The
+      ``if not res.stdout.strip(): return Counter()`` that used to sit in all
+      five forks is the same nothing-reads-as-clean defect Factory#590 closed
+      one exit code over, and ``require_tool_ran`` cannot catch it because the
+      process exited 0 (Factory#648).
+    * **Unparseable stdout.** With ``fix = true`` reachable in a ruff config,
+      ruff writes the FIXED SOURCE to stdout and exits 0; parsing that as JSON
+      is reading Python as findings. Callers pass ``--no-fix`` for exactly this
+      case, and this guard is what makes a config change that defeats it loud.
+
+    Takes the ``CompletedProcess``, not the invocation: the five ratchets run
+    ruff five ways (pinned venv binary, bare ``ruff``, differing configs) and
+    those differences are real. The verdict on whether a run produced a
+    measurement is not, which is the seam this module exists on.
+
+    ``SystemExit(2)`` is the ratchet's "could not measure" code, distinct from
+    exit 1, which means "measured, and it regressed".
+    """
+    require_tool_ran("ruff", res)
+    if not (res.stdout or "").strip():
+        sys.stderr.write(
+            "ratchet: ruff exited "
+            f"{res.returncode} having written no report — a clean run prints `[]`, "
+            "so this is not a measurement. A gate cannot report clean on a count "
+            "it never obtained.\n"
+        )
+        sys.stderr.write(res.stderr or "")
+        raise SystemExit(2)
+    try:
+        items = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        sys.stderr.write(
+            "ratchet: ruff wrote output that is not the JSON finding list "
+            "`--output-format json` promises; refusing to read it as zero "
+            "violations. Check that --no-fix is passed and the config does not "
+            "set `fix = true`.\n"
+        )
+        sys.stderr.write((res.stdout or "") + (res.stderr or ""))
+        raise SystemExit(2) from None
+    return Counter(item["code"] for item in items)
 
 
 def ruff_stdin_argv(config: str, filename: str) -> list[str]:
