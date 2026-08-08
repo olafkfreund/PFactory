@@ -19,7 +19,12 @@ import re
 from pathlib import Path
 
 from plan.recon._walk import is_excluded_dir
-from plan.recon.ci_probe import infer_environments, probe_ci, probe_deploy
+from plan.recon.ci_probe import (
+    infer_environments,
+    pipeline_stages,
+    probe_ci,
+    probe_deploy,
+)
 from plan.recon.clone import clone_for_recon
 from plan.recon.iac_probe import iac_tools, probe_iac
 from plan.recon.models import RepoMap
@@ -153,6 +158,7 @@ def build_repo_map(root: Path, *, repo: str, base_ref: str | None, commit: str |
         iac_resources=inventory,
         ci_system=ci["system"],
         ci_pipeline_paths=ci["paths"],
+        ci_stages=pipeline_stages(root, ci["paths"]),
         deploy_system=deploy["system"],
         deploy_manifests=deploy["manifests"],
         deploy_environments=environments,
