@@ -124,10 +124,49 @@ def test_egress_report_local(monkeypatch):
     assert rep["egress"] == "local"
     assert rep["keeps_data_local"] is True
     assert rep["host"] == "localhost"
-    assert "no data egress" in rep["badge"]
+    assert rep["badge"] == "LOCAL - endpoint is on your network"
 
 
 def test_egress_report_managed():
     rep = egress_report("claude-sonnet-4-5-20250929")
     assert rep["egress"] == "managed_cloud"
     assert rep["keeps_data_local"] is False
+
+
+# ── plain text, no glyphs (#400) ───────────────────────────────────────
+
+def test_badges_carry_no_icon_glyphs():
+    """Egress badges are plain text on every surface that renders them.
+
+    These strings reach the CLI, `egress_report()` (which feeds the portal
+    badge), docs assets and screenshots, so a glyph baked into one leaks into
+    all of them. A consumer that wants an icon keys off the `egress` enum
+    value, which is already in the report payload.
+
+    Checked by Unicode category rather than by listing the three glyphs that
+    happened to be there: the rule is "no icon characters", not "not those
+    three".
+    """
+    import unicodedata
+
+    from byo_llm import _BADGE
+
+    for cls, badge in _BADGE.items():
+        icons = [
+            c for c in badge
+            if unicodedata.category(c) == "So" or 0x1F300 <= ord(c) <= 0x1FAFF
+        ]
+        assert not icons, f"{cls.value} badge carries icon glyph(s) {icons}: {badge!r}"
+
+
+def test_badges_describe_the_endpoint_not_measured_traffic():
+    """`classify()` never makes a network call, so a badge must not claim one.
+
+    "no data egress" reads as a measurement. What this module actually knows is
+    where the CONFIGURED endpoint is, which is what the wording now says.
+    """
+    from byo_llm import _BADGE
+
+    for badge in _BADGE.values():
+        assert "endpoint" in badge.lower(), badge
+        assert "no data egress" not in badge.lower(), badge
