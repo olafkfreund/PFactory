@@ -212,6 +212,34 @@ def pytest_runtest_setup(item):
 
 
 # =============================================================================
+# A TEST'S FAKE CI SIGNAL MUST NEVER REACH THE REAL CI JOB
+# =============================================================================
+# `$GITHUB_STEP_SUMMARY` is set on every Actions runner and names a file the
+# runner renders as the job's own summary. Anything a test appends to it is
+# indistinguishable, to a human reading the run, from something the build
+# actually reported.
+#
+# That is not hypothetical: `tests/test_schema_drift.py::test_soft_skip_is_loud`
+# calls `_warn_skipped()` to check a skip is loud, and `_warn_skipped()`'s third
+# signal is a file append that `capsys` does not intercept. Measured on this
+# suite: 254 bytes and one "SCHEMA DRIFT CHECK SKIPPED — NOT VERIFIED" block
+# written into the summary of a run whose drift gate ran and PASSED (issue
+# #457). A false skip notice is worse than no notice — it is exactly the signal
+# #440 added the warning to carry, so if it also appears when nothing was
+# skipped it stops meaning anything.
+#
+# Unset for every test, not just that one: the property is "no test writes to
+# the real job summary", which belongs to the suite rather than to whichever
+# module happens to trip it today. A test that wants to ASSERT summary-writing
+# points the variable at its own tmp_path — a `monkeypatch.setenv` in the test
+# body runs after this fixture and wins.
+@pytest.fixture(autouse=True)
+def _no_real_step_summary(monkeypatch):
+    """Detach $GITHUB_STEP_SUMMARY so no test can write to the real CI job."""
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+
+# =============================================================================
 # DIRECTORY FIXTURES
 # =============================================================================
 
