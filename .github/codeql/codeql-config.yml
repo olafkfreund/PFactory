@@ -21,3 +21,10 @@ query-filters:
   # identical query with that validator (and its wrappers) as a barrier.
   - exclude:
       id: py/command-line-injection
+  # And for SSRF (#517). `assert_safe_probe_url` resolves the host and checks
+  # every returned address, but it establishes safety by RAISING, which stock
+  # CodeQL does not model — returning the checked value does not help either,
+  # since the function returns its argument and the taint flows through. That
+  # was measured, not assumed: the alert survived that change.
+  - exclude:
+      id: py/full-ssrf
