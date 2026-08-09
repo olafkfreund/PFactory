@@ -23,6 +23,7 @@ syntax error rather than counting it.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -48,8 +49,23 @@ def _stub_mypy(monkeypatch: pytest.MonkeyPatch, res: _Res) -> None:
     monkeypatch.setattr(rl.subprocess, "run", lambda *_a, **_k: res)
 
 
+# Repo root, resolved from this file rather than the CWD (#512). mypy_errors()
+# does `Path(package).resolve()` and then iterates the package's parent, so a
+# relative "apps/backend" is only correct when pytest happens to run from the
+# repo root. The pre-commit hook runs it from apps/backend, where that resolves
+# to apps/backend/apps/backend and the test died with FileNotFoundError —
+# failing every local commit for a reason unrelated to the change being made.
+# CI never saw it because CI runs from the root. Same shape as conftest.py's
+# own sys.path setup, which already locates the tree this way.
+_REPO = Path(__file__).resolve().parent.parent
+
+
 def _mypy_errors() -> int:
-    return rl.mypy_errors("apps/backend/pfactory/prod.py", "apps/backend", "mypy.ini")
+    return rl.mypy_errors(
+        str(_REPO / "apps" / "backend" / "pfactory" / "prod.py"),
+        str(_REPO / "apps" / "backend"),
+        str(_REPO / "mypy.ini"),
+    )
 
 
 # mypy is invoked from INSIDE the package (issue #466), so the paths it prints
@@ -279,3 +295,21 @@ def test_mypy_targets_the_interpreter_it_runs_under_not_the_baseline_floor(
     # dropping --config-file loses the strict bar, dropping the version override
     # puts the 3.11 floor back and the numpy stubs stop parsing.
     assert "--config-file" in argv
+
+
+def test_the_mypy_helper_does_not_depend_on_the_working_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """#512: this suite must pass wherever pytest is invoked from.
+
+    It used to pass from the repo root and die with FileNotFoundError from
+    apps/backend — which is exactly where the pre-commit hook runs it, so every
+    local commit was rejected for a reason unrelated to the change. CI never
+    caught it because CI runs from the root.
+
+    Driving the helper from an unrelated directory pins the property rather than
+    the symptom: asserting it passes "in CI" is what let the original land.
+    """
+    _stub_mypy(monkeypatch, _Res(0, stdout="Success: no issues found in 1 source file"))
+    monkeypatch.chdir(tmp_path)
+    assert _mypy_errors() == 0
