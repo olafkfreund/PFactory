@@ -28,6 +28,25 @@ from .._get_email_oauth_credentials import get_email_oauth_credentials, get_goog
 logger = logging.getLogger(__name__)
 
 
+def _mask_email(address: str | None) -> str:
+    """Return an address safe to write to a log line (PFactory#517).
+
+    The OAuth connect paths logged the full address at INFO alongside the
+    user_id. The user_id is the correlator worth having; the address adds a
+    piece of personal data to every log sink that ever sees these lines, for no
+    operational gain. The domain is kept because "which provider did they
+    connect" is the question the line exists to answer.
+
+    Not reusing ``mask_secret``: that keeps the first and last characters of a
+    credential, which for an address would leave the local part largely
+    readable on short names.
+    """
+    if not address or "@" not in address:
+        return "<redacted>"
+    local, _, domain = address.partition("@")
+    return f"{local[0]}***@{domain}" if local else f"***@{domain}"
+
+
 def _get_oauth_redirect_uri(request: Request, provider: str = "outlook") -> str:
     """Build the OAuth redirect URI for the given provider.
 
@@ -394,7 +413,7 @@ async def outlook_oauth_callback(
             message="Failed to save email account to database",
         )
 
-    logger.info("Outlook account connected for user %s: %s", user_id, email_address)
+    logger.info("Outlook account connected for user %s: %s", user_id, _mask_email(email_address))
 
     return _oauth_result_html(
         success=True,
@@ -614,7 +633,7 @@ async def gmail_oauth_callback(
             provider="gmail",
         )
 
-    logger.info("Gmail account connected for user %s: %s", user_id, email_address)
+    logger.info("Gmail account connected for user %s: %s", user_id, _mask_email(email_address))
 
     return _oauth_result_html(
         success=True,

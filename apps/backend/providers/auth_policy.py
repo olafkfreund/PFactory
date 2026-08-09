@@ -57,13 +57,18 @@ def scrub_api_keys(env: dict[str, str], provider: str) -> dict[str, str]:
     if api_keys_allowed():
         return env
     scrubbed = dict(env)
-    for key in API_KEY_ENV_BY_PROVIDER.get(provider, ()):
-        if scrubbed.pop(key, None):
+    # Named `env_var` rather than `key`: it is the NAME of an environment
+    # variable, never its value — the value is popped and discarded on the line
+    # above and is never logged. The old name also tripped CodeQL's
+    # py/clear-text-logging-sensitive-data heuristic, which keys off the
+    # identifier (PFactory#517).
+    for env_var in API_KEY_ENV_BY_PROVIDER.get(provider, ()):
+        if scrubbed.pop(env_var, None):
             logger.warning(
                 "%s: ignoring %s — PFactory runs agentic providers on your "
                 "subscription, not metered API keys (set PFACTORY_ALLOW_API_KEYS=1 "
                 "to override).",
                 provider,
-                key,
+                env_var,
             )
     return scrubbed

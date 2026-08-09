@@ -712,8 +712,8 @@ class UnsafeProbeURLError(ValueError):
     """Raised when a health-probe URL points somewhere we refuse to fetch."""
 
 
-def assert_safe_probe_url(url: str) -> None:
-    """Reject probe URLs that could turn the health check into an SSRF tool.
+def assert_safe_probe_url(url: str) -> str:
+    """Return ``url`` if probing it cannot be turned into an SSRF tool.
 
     ``check_mcp_health`` fetches a URL supplied in the request body, so without
     a guard any authenticated caller can make the server issue requests on their
@@ -753,6 +753,12 @@ def assert_safe_probe_url(url: str) -> None:
             continue
         if ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
             raise UnsafeProbeURLError(f"probe URL resolves to a blocked address range: {ip}")
+    # Return the checked value so callers request the URL they validated rather
+    # than re-reading the original expression. The two are the same string
+    # today, but validating one expression and using another is how a guard
+    # ends up decorative, and it is also what makes this a barrier the dataflow
+    # analysis can see (PFactory#517).
+    return url
 
 
 @mcp_router.post("/health")
@@ -762,7 +768,7 @@ async def check_mcp_health(server: McpServerConfig):
         import urllib.request
 
         try:
-            assert_safe_probe_url(server.url)
+            probe_url = assert_safe_probe_url(server.url)
         except UnsafeProbeURLError as exc:
             # The specific reason goes to the log, not the response: it is a
             # curated message today, but a health probe is exactly the kind of
@@ -780,7 +786,7 @@ async def check_mcp_health(server: McpServerConfig):
                 },
             }
         try:
-            req = urllib.request.Request(server.url, method="HEAD")
+            req = urllib.request.Request(probe_url, method="HEAD")
             if server.headers:
                 for key, value in server.headers.items():
                     req.add_header(key, value)
