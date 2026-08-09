@@ -182,10 +182,26 @@ class TerminalWorktreeService:
 
             # Delete branch if requested
             if delete_branch and branch:
+                # #505: `branch` is read back out of the worktree config file,
+                # not derived here, so its safety is not established by anything
+                # in this call path. Every other ref that reaches a git argv in
+                # this module is safe by construction — `branch_name` is
+                # `f"terminal/{name}"` over a `safe_spec_component` name, and
+                # `base_branch` is asserted above — which makes this the one
+                # value whose validity rests on a file staying trustworthy.
+                # Assert it at the argv boundary, exactly as the comment above
+                # `base_branch` argues: relying on an incidental property of
+                # some other method is how these holes reopen.
                 try:
-                    self._run_git_command(["git", "branch", "-D", branch])
+                    self._run_git_command(
+                        ["git", "branch", "-D", assert_safe_git_ref(branch, "branch")]
+                    )
                 except subprocess.CalledProcessError:
                     pass  # Ignore if branch deletion fails
+                except ValueError:
+                    # A config carrying an unusable ref must not take the whole
+                    # removal down — the worktree itself is already gone.
+                    pass
 
             # Prune worktrees
             try:
