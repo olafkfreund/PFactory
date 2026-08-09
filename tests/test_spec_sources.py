@@ -25,6 +25,7 @@ from spec_sources import (  # noqa: E402
 
 # ── format detection ───────────────────────────────────────────────────
 
+
 def test_detect_gherkin_by_filename():
     assert detect_format("anything", filename="login.feature") is SpecFormat.GHERKIN
 
@@ -48,6 +49,7 @@ def test_detect_markdown_default():
 
 
 # ── markdown ───────────────────────────────────────────────────────────
+
 
 def test_parse_markdown_acceptance_section():
     text = (
@@ -144,6 +146,7 @@ def test_parse_ears_no_shall_raises():
 
 
 # ── ingest + render + write ────────────────────────────────────────────
+
 
 def test_ingest_autodetects_and_normalises():
     spec = ingest(GHERKIN, filename="x.feature")
@@ -260,3 +263,79 @@ def test_parse_ears_keeps_the_prose_body():
 
     assert len(spec.criteria) == 2
     assert "Tokens are opaque and rotate weekly." in spec.description
+
+
+def test_a_wrapped_bullet_keeps_its_continuation():
+    """#510: a criterion cut at the line wrap loses its testable half.
+
+    Live example from a real run: AC#2 was stored as "the gateway generates a
+    UUID4 and" — the assertion, "returns it in the response header", was gone.
+    A builder can satisfy what remains by generating a UUID and discarding it.
+    """
+    spec = parse_markdown(
+        "# T\n"
+        "\n"
+        "## Acceptance Criteria\n"
+        "\n"
+        "- When a client sends no `X-Request-ID`, the gateway generates a UUID4 and\n"
+        "  returns it in the response header.\n"
+    )
+    assert [c.text for c in spec.criteria] == [
+        "When a client sends no `X-Request-ID`, the gateway generates a UUID4 and "
+        "returns it in the response header."
+    ]
+
+
+def test_the_unwrapped_bullet_is_unchanged():
+    """The natural control: single-line bullets were always correct.
+
+    In the live run AC#1 fitted on one line and survived intact while all three
+    wrapped ones were cut — that contrast is what identified the defect.
+    """
+    spec = parse_markdown(
+        "# T\n\n## Acceptance Criteria\n\n- The response echoes that exact value.\n"
+    )
+    assert [c.text for c in spec.criteria] == ["The response echoes that exact value."]
+
+
+def test_a_continuation_never_swallows_the_next_bullet():
+    """Each bullet must stay its own criterion."""
+    spec = parse_markdown(
+        "# T\n"
+        "\n"
+        "## Acceptance Criteria\n"
+        "\n"
+        "- first one wraps\n"
+        "  onto a second line\n"
+        "- second is separate\n"
+    )
+    assert [c.text for c in spec.criteria] == [
+        "first one wraps onto a second line",
+        "second is separate",
+    ]
+
+
+def test_a_blank_line_closes_the_item():
+    """Prose under the list must not be glued onto the last criterion."""
+    spec = parse_markdown(
+        "# T\n\n## Acceptance Criteria\n\n- only criterion\n\nSome prose that follows the list.\n"
+    )
+    assert [c.text for c in spec.criteria] == ["only criterion"]
+
+
+def test_a_heading_ends_the_section_mid_wrap():
+    """A following heading must not be absorbed as continuation text."""
+    spec = parse_markdown(
+        "# T\n"
+        "\n"
+        "## Acceptance Criteria\n"
+        "\n"
+        "- wraps here\n"
+        "  and continues\n"
+        "\n"
+        "## Notes\n"
+        "\n"
+        "Design notes.\n"
+    )
+    assert [c.text for c in spec.criteria] == ["wraps here and continues"]
+    assert "Design notes." in spec.description
