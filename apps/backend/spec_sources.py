@@ -150,6 +150,7 @@ def parse_markdown(text: str, *, title: str | None = None) -> NormalizedSpec:
     prose: list[str] = []
     in_section = False
     title_seen = False
+    continuing = False  # inside a bullet whose text may wrap onto later lines
     for ln in lines:
         h = _HEADING.match(ln)
         if h:
@@ -163,6 +164,19 @@ def parse_markdown(text: str, *, title: str | None = None) -> NormalizedSpec:
             b = _BULLET.match(ln)
             if b:
                 criteria.append(b.group(1))
+                continuing = True
+            elif not ln.strip():
+                # A blank line closes the item. Without this, prose sitting
+                # under the AC bullets would be glued onto the last criterion.
+                continuing = False
+            elif continuing and criteria:
+                # A wrapped bullet (PFactory#510). This branch did not exist, so
+                # the continuation was silently dropped and the criterion kept
+                # only its first line — losing the half that carries the
+                # assertion. Live example: "the gateway generates a UUID4 and"
+                # was the whole stored criterion; "returns it in the response
+                # header" was gone, so the AC asserted nothing testable.
+                criteria[-1] = f"{criteria[-1]} {ln.strip()}"
             continue
         prose.append(ln)
 
