@@ -14,3 +14,10 @@ queries:
 query-filters:
   - exclude:
       id: py/path-injection
+  # Same swap for command injection (#505). The two critical alerts were on
+  # `git` argv assembled entirely from values validated by
+  # `assert_safe_git_ref`, which lives in services/git_utils.py — imported, so
+  # stock CodeQL does not follow it. py/command-line-injection-sanitized is the
+  # identical query with that validator (and its wrappers) as a barrier.
+  - exclude:
+      id: py/command-line-injection
