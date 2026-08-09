@@ -80,11 +80,15 @@ jobs:
           # `|| true`: grep exits 1 on no match, which under pipefail would fail
           # the whole job instead of reaching the graceful "nothing to close"
           # path below (bug found on the first live firing, CFactory run 29583942399).
+          # Matching lives in scripts/closing_keywords.py so it can be
+          # unit-tested; inline shell here cannot be, and a test that restated
+          # the regex would test a copy of it (#520). That script also drops
+          # NEGATED mentions: this step used to read "It does not close #468"
+          # as an instruction to close #468, and did.
           nums=$(for p in ${prs}; do
                    gh pr view "${p}" --repo "${REPO}" --json body -q '.body' 2>/dev/null || true
                  done \
-                 | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[[:space:]]*#[0-9]+' \
-                 | grep -oE '[0-9]+' | sort -u || true)
+                 | python3 scripts/closing_keywords.py | sort -u || true)
 
           if [ -z "${nums}" ]; then
             echo "No closing keywords in those PR bodies."
