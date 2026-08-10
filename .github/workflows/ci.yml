@@ -646,10 +646,45 @@ jobs:
         # building happens in release.yml at tag push time only.
         uses: docker/setup-buildx-action@v3
 
+      # Trivy is PINNED, not `latest` (Factory#664). `latest` means the scanner
+      # changes without a commit, so a scan verdict is not attributable to
+      # anything in git and a Trivy release can turn the fleet red at once with
+      # no change from us. Bump deliberately, like image digests and CLI pins.
+      #
+      # The retry covers a download that failed after the version resolved
+      # (observed once in 37 runs, 2026-08-10). A plain loop rather than a retry
+      # action: five lines against third-party surface in the CVE-scan path.
+      #
+      # Do NOT add `continue-on-error` - a scan that passes without scanning is
+      # a control that would look identical having done nothing (rule 4.10). The
+      # closing `--version` asserts the binary is runnable, not assumed.
       - name: Install Trivy (for P0.8 CVE scan)
-        uses: aquasecurity/setup-trivy@v0.2.6
-        with:
-          version: latest
+        env:
+          TRIVY_VERSION: "0.73.0"
+          # The installer is fetched by COMMIT, not by the vX.Y.Z tag: a tag is
+          # mutable and can be moved, so a tag-pinned script can change with no
+          # change on our side - which would defeat the point of pinning at all.
+          # This is the commit v0.73.0 points at; the fetched script is byte-identical
+          # to the tag copy, verified before pinning.
+          TRIVY_INSTALLER_SHA: "40c73e5d6166dcc0346a1ab4e94499d1572854e4"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if curl -sSfL --retry 3 --retry-delay 5 \
+                 "https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_INSTALLER_SHA}/contrib/install.sh" \
+                 -o /tmp/install-trivy.sh \
+               && sh /tmp/install-trivy.sh -b "${HOME}/.local/bin" "v${TRIVY_VERSION}"; then
+              break
+            fi
+            if [ "$attempt" = "3" ]; then
+              echo "::error::Trivy v${TRIVY_VERSION} could not be installed after 3 attempts."
+              exit 1
+            fi
+            echo "install attempt ${attempt} failed; retrying in 15s"
+            sleep 15
+          done
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+          "${HOME}/.local/bin/trivy" --version
 
       - name: Install Syft (for P0.9 SBOM generation)
         uses: anchore/sbom-action/download-syft@v0.17.8
