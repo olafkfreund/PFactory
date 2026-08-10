@@ -99,7 +99,7 @@ condition we held ourselves to: only claim it when a span lands. The first
 attempt instrumented an application that was not the one actually serving
 requests, which produced a clean configuration and no telemetry. The startup
 probe also blocked startup for twenty seconds while waiting on the collector,
-which is a availability problem introduced by an observability feature.
+which is an availability problem introduced by an observability feature.
 
 Both are fixed, and both are the same lesson the whole fleet learned this month:
 configuration is not evidence.
