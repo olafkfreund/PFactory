@@ -2,7 +2,7 @@
 layout: post
 title: "A plan that argues with itself should not reach the coder"
 subtitle: "Three weeks on the planner: a gate that catches a worked example contradicting its own invariant, per-lens review verdicts instead of a single pass or fail, planning that reads five more languages, and two security criticals closed with a query that survives its own barriers."
-date: 2026-08-10 09:00:00
+date: 2026-08-10 09:00:00 +0000
 author: DataSeek Team
 ---
 
