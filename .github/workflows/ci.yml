@@ -661,11 +661,17 @@ jobs:
       - name: Install Trivy (for P0.8 CVE scan)
         env:
           TRIVY_VERSION: "0.73.0"
+          # The installer is fetched by COMMIT, not by the vX.Y.Z tag: a tag is
+          # mutable and can be moved, so a tag-pinned script can change with no
+          # change on our side - which would defeat the point of pinning at all.
+          # This is the commit v0.73.0 points at; the fetched script is byte-identical
+          # to the tag copy, verified before pinning.
+          TRIVY_INSTALLER_SHA: "40c73e5d6166dcc0346a1ab4e94499d1572854e4"
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
             if curl -sSfL --retry 3 --retry-delay 5 \
-                 "https://raw.githubusercontent.com/aquasecurity/trivy/v${TRIVY_VERSION}/contrib/install.sh" \
+                 "https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_INSTALLER_SHA}/contrib/install.sh" \
                  -o /tmp/install-trivy.sh \
                && sh /tmp/install-trivy.sh -b "${HOME}/.local/bin" "v${TRIVY_VERSION}"; then
               break
