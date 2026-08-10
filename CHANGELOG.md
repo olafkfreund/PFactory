@@ -37,7 +37,7 @@
 - **A pull-request body that says it does NOT close an issue must not close it
   (#520).** GitHub's own parser fires on a closing keyword even inside a negation,
   and the default branch here is `dev`, so the phrasing closed a live issue twice.
-  Write "does not resolve the backlog for" - one intervening word defeats both
+  Write "does not resolve the backlog for" — one intervening word defeats both
   parsers.
 - **Runner images are published, signed, and actually used (#493).** The default
   runner image pointed at an image the pipeline did not build, so CI was green
