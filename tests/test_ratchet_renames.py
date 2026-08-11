@@ -239,3 +239,32 @@ def test_renames_are_detected_even_when_diff_renames_is_disabled() -> None:
         )
     finally:
         tmp.cleanup()
+
+
+def test_an_unreadable_rename_lookup_says_so_instead_of_degrading_quietly(
+    capsys,
+) -> None:
+    """A gate that gets quietly less accurate is the failure mode being fixed.
+
+    On a git error the map falls back to empty — which silently measures a moved
+    file against no baseline. It must at least SAY so on stderr.
+    """
+    repo, tmp = _repo_with_a_move()
+    try:
+        cwd = Path.cwd()
+        os.chdir(repo)
+        try:
+            ratchet_lint.rename_sources.cache_clear()
+            pairs = ratchet_lint.rename_sources("no-such-ref-anywhere")
+        finally:
+            os.chdir(cwd)
+        assert dict(pairs) == {}
+        err = capsys.readouterr().err
+        assert "rename information" in err
+        # git's OWN message must be forwarded too. Without this the
+        # `sys.stderr.write(res.stderr)` line can be deleted and the test still
+        # passes — asserting on the ref name rather than git's phrasing keeps it
+        # stable across git versions and locales.
+        assert "no-such-ref-anywhere" in err
+    finally:
+        tmp.cleanup()
