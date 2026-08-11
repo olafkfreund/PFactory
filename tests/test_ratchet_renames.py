@@ -18,9 +18,11 @@ NOTE: this fork takes ``packages: list[str]`` where the hub takes a comma
 string, AND is the only one with a staged mode. Ported by hand for both
 reasons — these files are forks, not copies.
 
-Stdlib only and no parametrize, matching the sibling ratchet suites: the
-code-quality job installs ruff and mypy and nothing else, so a pytest decorator
-would be an untyped import under ``mypy --strict``.
+Stdlib only and no parametrize, matching the sibling ratchet suites: these tests
+gate the linter, so they should stay runnable wherever the ratchet itself runs
+rather than assuming any particular test dependency is present. (An earlier
+version of this note asserted what the code-quality job installs — true of the
+hub, not of every repo it was ported into.)
 """
 
 from __future__ import annotations
