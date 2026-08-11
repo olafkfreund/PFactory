@@ -66,6 +66,7 @@ import subprocess
 import sys
 import tomllib
 from collections import Counter
+from functools import cache
 from pathlib import Path
 
 # Canonical shared ratchet rules, vendored byte-exact from the Factory hub
@@ -165,9 +166,9 @@ def changed_python_files(base: str, packages: list[str], *, staged: bool = False
     progress would actually record), not a committed range.
     """
     if staged:
-        cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=AM"]
+        cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"]
     else:
-        cmd = ["git", "diff", "--name-only", "--diff-filter=AM", f"{base}...HEAD"]
+        cmd = ["git", "diff", "--name-only", "--diff-filter=ACMR", f"{base}...HEAD"]
     res = _run(cmd)
     if res.returncode != 0:
         sys.stderr.write(res.stderr)
@@ -217,8 +218,51 @@ def ruff_counts(source: str, filename: str) -> Counter[str]:
     return ruff_findings(res)
 
 
-def file_at_base(base: str, path: str) -> str | None:
-    res = _run(["git", "show", f"{base}:{path}"])
+@cache
+def rename_sources(base: str, staged: bool = False) -> tuple[tuple[str, str], ...]:
+    """``(head_path, base_path)`` pairs for files this diff MOVED.
+
+    The other half of the ``ACMR`` change above (TFactory#1005). Once renames
+    are visible, looking a moved file up on base by its HEAD path finds nothing
+    and reads the baseline as **0**, so every pre-existing violation in it
+    reports as net-new. AIFactory's fork had exactly that and made a pure
+    ``git mv`` of a legacy file report ``0 -> 167`` — a gate punishing the
+    cleanup it exists to encourage (AIFactory#1218).
+
+    ``staged`` MUST match the scope ``changed_python_files`` used. This fork is
+    the only one with a staged mode, and a committed-range lookup there would
+    leave the pre-commit lane blind to exactly the renames CI now sees — the
+    half-fix that is worse than none, because the two lanes would disagree.
+
+    Cached per (base, staged) — one subprocess, not one per file. Returns a
+    tuple rather than a dict because the value is CACHED and therefore shared:
+    a mutable one could be modified by one caller and observed by the next.
+    """
+    scope = ["--cached"] if staged else [f"{base}...HEAD"]
+    res = _run(["git", "diff", *scope, "--name-status", "-M", "--diff-filter=R"])
+    if res.returncode != 0:
+        # No rename information available: fall back to identity mapping rather
+        # than failing. Worst case is the pre-fix behaviour for moved files.
+        return ()
+    pairs: list[tuple[str, str]] = []
+    for line in res.stdout.splitlines():
+        # `R<similarity>\told\tnew`
+        status, _, paths = line.partition("\t")
+        old, _, new = paths.partition("\t")
+        if status.startswith("R") and old and new:
+            pairs.append((new, old))
+    return tuple(pairs)
+
+
+def file_at_base(base: str, path: str, *, staged: bool = False) -> str | None:
+    """The file's content on *base*, following a rename to its old path.
+
+    Identity (the ``path`` the counter judges by) deliberately stays the HEAD
+    path in the callers — only the CONTENT comes from the old location. Judging
+    the two sides under different per-file-ignores is Factory#510.
+    """
+    src = dict(rename_sources(base, staged)).get(path, path)
+    res = _run(["git", "show", f"{base}:{src}"])
     return res.stdout if res.returncode == 0 else None
 
 
@@ -233,7 +277,7 @@ def regressions(base: str, path: str, *, staged: bool = False) -> list[str]:
     if head_src is None:
         return []
     head_counts = ruff_counts(head_src, path)
-    base_src = file_at_base(base, path)
+    base_src = file_at_base(base, path, staged=staged)
     base_counts = ruff_counts(base_src, path) if base_src is not None else Counter()
     out: list[str] = []
     for code, head_n in head_counts.items():
