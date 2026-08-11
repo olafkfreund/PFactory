@@ -239,3 +239,26 @@ def test_renames_are_detected_even_when_diff_renames_is_disabled() -> None:
         )
     finally:
         tmp.cleanup()
+
+
+def test_an_unreadable_rename_lookup_says_so_instead_of_degrading_quietly(
+    capsys,
+) -> None:
+    """A gate that gets quietly less accurate is the failure mode being fixed.
+
+    On a git error the map falls back to empty — which silently measures a moved
+    file against no baseline. It must at least SAY so on stderr.
+    """
+    repo, tmp = _repo_with_a_move()
+    try:
+        cwd = Path.cwd()
+        os.chdir(repo)
+        try:
+            ratchet_lint.rename_sources.cache_clear()
+            pairs = ratchet_lint.rename_sources("no-such-ref-anywhere")
+        finally:
+            os.chdir(cwd)
+        assert dict(pairs) == {}
+        assert "rename information" in capsys.readouterr().err
+    finally:
+        tmp.cleanup()
