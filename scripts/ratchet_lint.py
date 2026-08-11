@@ -164,17 +164,31 @@ def owning_package(path: str, packages: list[str]) -> str:
 def changed_python_files(base: str, packages: list[str], *, staged: bool = False) -> list[str]:
     """Python files under any of *packages* changed vs *base*.
 
-    ``ACMR`` — added, copied, modified, RENAMED. ``diff.renames`` has defaulted
-    to true since git 2.9, so a moved file has status R; the previous ``AM``
-    excluded it and a rename was gated by nothing at all (TFactory#1005).
+    ``ACMR`` — added, copied, modified, RENAMED. The previous ``AM`` excluded a
+    moved file, so a rename was gated by nothing at all (TFactory#1005).
+
+    ``-M`` is passed EXPLICITLY rather than relying on ``diff.renames``
+    defaulting to true since git 2.9. Selecting the R status does not make git
+    DETECT renames: with ``diff.renames=false`` in a developer's config a
+    ``git mv`` still reports delete+add, the added path has no baseline, and the
+    move reads as entirely net-new — the exact false regression this fixes,
+    reappearing only on some machines. A gate whose verdict depends on local git
+    config is not a gate.
 
     In staged mode the change set is the git index vs HEAD (what a commit in
     progress would actually record), not a committed range.
     """
     if staged:
-        cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"]
+        cmd = ["git", "diff", "--cached", "-M", "--name-only", "--diff-filter=ACMR"]
     else:
-        cmd = ["git", "diff", "--name-only", "--diff-filter=ACMR", f"{base}...HEAD"]
+        cmd = [
+            "git",
+            "diff",
+            "-M",
+            "--name-only",
+            "--diff-filter=ACMR",
+            f"{base}...HEAD",
+        ]
     res = _run(cmd)
     if res.returncode != 0:
         sys.stderr.write(res.stderr)

@@ -27,11 +27,8 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import ratchet_lint
 
@@ -215,5 +212,30 @@ def test_the_cached_rename_map_cannot_be_mutated_by_a_caller() -> None:
             pass
         else:
             raise AssertionError("the cached rename map is mutable")
+    finally:
+        tmp.cleanup()
+
+
+def test_renames_are_detected_even_when_diff_renames_is_disabled() -> None:
+    """``-M`` is passed explicitly, so the verdict does not depend on git config.
+
+    Selecting the ``R`` status does not make git DETECT renames. With
+    ``diff.renames=false`` a ``git mv`` reports delete+add, the added path has no
+    baseline, and the move reads as entirely net-new — the exact false
+    regression this fixes, reappearing only on machines that set it.
+    """
+    repo, tmp = _repo_with_a_move()
+    try:
+        _git(repo, "config", "diff.renames", "false")
+        cwd = Path.cwd()
+        os.chdir(repo)
+        try:
+            ratchet_lint.rename_sources.cache_clear()
+            base_src = ratchet_lint.file_at_base("HEAD~1", "scripts/new.py")
+        finally:
+            os.chdir(cwd)
+        assert base_src == LEGACY, (
+            f"with diff.renames=false the rename must still be found via -M; got {base_src!r}"
+        )
     finally:
         tmp.cleanup()
