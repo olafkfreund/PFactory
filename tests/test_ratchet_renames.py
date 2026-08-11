@@ -155,7 +155,7 @@ def test_rename_sources_is_empty_when_nothing_moved() -> None:
             pairs = ratchet_lint.rename_sources("HEAD~1")
         finally:
             os.chdir(cwd)
-        assert pairs == (), pairs
+        assert dict(pairs) == {}, pairs
     finally:
         tmp.cleanup()
 
@@ -188,5 +188,32 @@ def test_the_STAGED_lane_follows_a_rename_too() -> None:
         assert base_src == LEGACY, (
             f"the staged lane must resolve the baseline through the INDEX rename; got {base_src!r}"
         )
+    finally:
+        tmp.cleanup()
+
+
+def test_the_cached_rename_map_cannot_be_mutated_by_a_caller() -> None:
+    """The map is cached, so every caller gets the SAME object back.
+
+    A plain dict there could be modified by one caller and silently observed by
+    the next — a cache poisoned in-process. MappingProxyType makes that a
+    TypeError instead of a subtle wrong baseline.
+    """
+    repo, tmp = _repo_with_a_move()
+    try:
+        cwd = Path.cwd()
+        os.chdir(repo)
+        try:
+            ratchet_lint.rename_sources.cache_clear()
+            pairs = ratchet_lint.rename_sources("HEAD~1")
+        finally:
+            os.chdir(cwd)
+        assert pairs["scripts/new.py"] == "scripts/old.py"
+        try:
+            pairs["scripts/new.py"] = "hijacked"  # type: ignore[index]
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("the cached rename map is mutable")
     finally:
         tmp.cleanup()

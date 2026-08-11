@@ -66,8 +66,10 @@ import subprocess
 import sys
 import tomllib
 from collections import Counter
+from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
+from types import MappingProxyType
 
 # Canonical shared ratchet rules, vendored byte-exact from the Factory hub
 # and byte-exact drift-gated (Factory#403). scripts/ is sys.path[0] when this
@@ -160,7 +162,11 @@ def owning_package(path: str, packages: list[str]) -> str:
 
 
 def changed_python_files(base: str, packages: list[str], *, staged: bool = False) -> list[str]:
-    """Python files under any of *packages* changed (added/modified) vs *base*.
+    """Python files under any of *packages* changed vs *base*.
+
+    ``ACMR`` — added, copied, modified, RENAMED. ``diff.renames`` has defaulted
+    to true since git 2.9, so a moved file has status R; the previous ``AM``
+    excluded it and a rename was gated by nothing at all (TFactory#1005).
 
     In staged mode the change set is the git index vs HEAD (what a commit in
     progress would actually record), not a committed range.
@@ -219,7 +225,7 @@ def ruff_counts(source: str, filename: str) -> Counter[str]:
 
 
 @cache
-def rename_sources(base: str, staged: bool = False) -> tuple[tuple[str, str], ...]:
+def rename_sources(base: str, staged: bool = False) -> Mapping[str, str]:
     """``(head_path, base_path)`` pairs for files this diff MOVED.
 
     The other half of the ``ACMR`` change above (TFactory#1005). Once renames
@@ -234,24 +240,27 @@ def rename_sources(base: str, staged: bool = False) -> tuple[tuple[str, str], ..
     leave the pre-commit lane blind to exactly the renames CI now sees — the
     half-fix that is worse than none, because the two lanes would disagree.
 
-    Cached per (base, staged) — one subprocess, not one per file. Returns a
-    tuple rather than a dict because the value is CACHED and therefore shared:
-    a mutable one could be modified by one caller and observed by the next.
+    Cached per (base, staged) — one subprocess, not one per file, and returned
+    as a read-only ``MappingProxyType``. The value is CACHED and therefore
+    shared, so a plain dict could be mutated by one caller and silently observed
+    by the next; a tuple of pairs would instead make every caller rebuild a dict
+    per file, for the ruff leg and again for the mypy leg. The proxy is
+    immutable AND directly subscriptable.
     """
     scope = ["--cached"] if staged else [f"{base}...HEAD"]
     res = _run(["git", "diff", *scope, "--name-status", "-M", "--diff-filter=R"])
     if res.returncode != 0:
         # No rename information available: fall back to identity mapping rather
         # than failing. Worst case is the pre-fix behaviour for moved files.
-        return ()
-    pairs: list[tuple[str, str]] = []
+        return MappingProxyType({})
+    pairs: dict[str, str] = {}
     for line in res.stdout.splitlines():
         # `R<similarity>\told\tnew`
         status, _, paths = line.partition("\t")
         old, _, new = paths.partition("\t")
         if status.startswith("R") and old and new:
-            pairs.append((new, old))
-    return tuple(pairs)
+            pairs[new] = old
+    return MappingProxyType(pairs)
 
 
 def file_at_base(base: str, path: str, *, staged: bool = False) -> str | None:
@@ -261,7 +270,7 @@ def file_at_base(base: str, path: str, *, staged: bool = False) -> str | None:
     path in the callers — only the CONTENT comes from the old location. Judging
     the two sides under different per-file-ignores is Factory#510.
     """
-    src = dict(rename_sources(base, staged)).get(path, path)
+    src = rename_sources(base, staged).get(path, path)
     res = _run(["git", "show", f"{base}:{src}"])
     return res.stdout if res.returncode == 0 else None
 
