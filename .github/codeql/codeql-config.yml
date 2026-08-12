@@ -8,8 +8,18 @@
 # clean -- but does not follow one imported from services/. Every fix in #335
 # routes through the shared safe_spec_component, so without this the alert
 # count cannot move no matter how much of the traversal is closed.
+# security-and-quality added (Factory#711). The fleet survey found PFactory,
+# TFactory, CFactory and Factory all reporting far fewer alerts than AIFactory
+# purely because they ask narrower questions -- this repo has only ever run
+# CodeQL's DEFAULT suite, and the rules behind most of AIFactory's volume
+# (py/log-injection, py/empty-except, py/unused-import) live in the broader
+# suite only. Both barrier-aware swaps below are untouched, so the sanitized
+# path- and command-injection work still clears organically.
+#
+# Expect the count to rise sharply on the first scan after this lands.
 name: "PFactory CodeQL config"
 queries:
+  - uses: security-and-quality
   - uses: ./.github/codeql/custom-queries
 query-filters:
   - exclude:
