@@ -72,12 +72,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out this service
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: service
 
       - name: Check out the Factory hub canonical at the pinned SHA
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: olafkfreund/Factory
           ref: ${{ env.HUB_PIN_SHA }}
@@ -88,13 +88,13 @@ jobs:
         # Not at HUB_PIN_SHA: a gate fetched from its own pin cannot ship its
         # own fix. The CANONICAL above stays pinned, so comparisons remain
         # reproducible; only the gate's own logic floats (Factory#405).
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: olafkfreund/Factory
           ref: main
           path: factory-hub-main
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
