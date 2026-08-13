@@ -67,6 +67,14 @@ LEGACY_TOKEN = _SESS + "legacy" + "A" * 42
 NEW_TOKEN = _OAT + "B" * 40
 API_KEY = _PROJ + "C" * 40
 
+# A second, distinct token. Every other fixture in this file holds exactly ONE
+# profile, and a one-profile store cannot tell "seals every entry" from "seals
+# the first entry" -- _map_profiles loops, but nothing proved the loop. The
+# multi-profile store is not a hypothetical: it is the whole point of the token
+# pool (RFC-0016 #670), which hands DISTINCT credentials to concurrent builds.
+# So the untested case was the one the feature exists for.
+SECOND_TOKEN = _OAT + "D" * 40
+
 # Any run of this many characters of a secret appearing in the file is a leak.
 # 12 is the width a previous fleet fix leaked through while a whole-string
 # assertion stayed green.
@@ -237,13 +245,29 @@ def test_api_profiles_and_app_settings_are_sealed(store: tuple[Any, Path]) -> No
     assert_absent((data_dir / "api-profiles.json").read_bytes(), API_KEY)
     assert settings_routes.load_api_profiles()["profiles"][0]["apiKey"] == API_KEY
 
-    app = settings_routes.AppSettings(globalClaudeOAuthToken=NEW_TOKEN)
+    # THREE of the five APP_SETTINGS_SECRET_KEYS, not one. _map_fields loops over
+    # the key tuple, and a one-secret fixture cannot tell "seals every key" from
+    # "seals the first key" -- truncating that loop would leak the other four and
+    # leave this test green. settings.json is the store that shipped with no chmod
+    # at all, so a silent partial seal here is the worst case in the file.
+    app = settings_routes.AppSettings(
+        globalClaudeOAuthToken=NEW_TOKEN,
+        globalOpenAIApiKey=SECOND_TOKEN,
+        emailGoogleClientSecret=API_KEY,
+    )
     settings_routes.save_app_settings(app)
     stored = data_dir / "settings.json"
-    assert_absent(stored.read_bytes(), NEW_TOKEN)
+    raw_settings = stored.read_bytes()
+    assert_absent(raw_settings, NEW_TOKEN)
+    assert_absent(raw_settings, SECOND_TOKEN)
+    assert_absent(raw_settings, API_KEY)
+    assert raw_settings.count(b"enc.v1:") == 3
     # settings.json used to be written at the default umask, with no chmod at all.
     assert oct(stored.stat().st_mode & 0o777) == "0o600"
-    assert settings_routes.load_app_settings().globalClaudeOAuthToken == NEW_TOKEN
+    reloaded = settings_routes.load_app_settings()
+    assert reloaded.globalClaudeOAuthToken == NEW_TOKEN
+    assert reloaded.globalOpenAIApiKey == SECOND_TOKEN
+    assert reloaded.emailGoogleClientSecret == API_KEY
 
 
 def test_mutation_sabotaging_seal_turns_the_at_rest_check_red(
@@ -257,14 +281,53 @@ def test_mutation_sabotaging_seal_turns_the_at_rest_check_red(
     monkeypatch.setattr(secret_field, "seal", lambda value: value)
 
     settings_routes.save_profiles({"profiles": [{"id": "p1", "oauthToken": NEW_TOKEN}]})
-    with pytest.raises(AssertionError):
+
+    # Assert WHY it goes red, not just THAT it does. A bare `raises(AssertionError)`
+    # is a boolean, and a boolean cannot be wrong in an informative way: an
+    # unrelated bug in assert_absent would satisfy it just as well as a real leak.
+    # The pattern is built from the same constants assert_absent uses, so it
+    # cannot drift out of sync with the check it is describing.
+    with pytest.raises(
+        AssertionError,
+        match=rf"{WINDOW}-char window .*secret length {len(NEW_TOKEN)}",
+    ):
         assert_absent((data_dir / "claude-profiles.json").read_bytes(), NEW_TOKEN)
+
+
+def test_every_profile_is_sealed_not_just_the_first(store: tuple[Any, Path]) -> None:
+    """A store with two tokens must have BOTH sealed, and both must round-trip.
+
+    Truncating the seal loop to its first entry leaves every other test in this
+    file green: they all use a single-profile store, where "first" and "every"
+    are the same thing.
+    """
+    settings_routes, data_dir = store
+    settings_routes.save_profiles(
+        {
+            "profiles": [
+                {"id": "p1", "name": "Work", "oauthToken": NEW_TOKEN},
+                {"id": "p2", "name": "Personal", "oauthToken": SECOND_TOKEN},
+            ],
+            "activeProfileId": "p1",
+        }
+    )
+
+    raw = (data_dir / "claude-profiles.json").read_bytes()
+    assert_absent(raw, NEW_TOKEN)
+    assert_absent(raw, SECOND_TOKEN)
+    assert raw.count(b"enc.v1:") == 2
+
+    loaded = settings_routes.load_profiles()
+    assert [p["oauthToken"] for p in loaded["profiles"]] == [NEW_TOKEN, SECOND_TOKEN]
 
 
 def test_window_check_catches_a_partial_leak() -> None:
     """A whole-string assertion would pass here; the window check must not."""
     partial = NEW_TOKEN[:20].encode()
-    with pytest.raises(AssertionError):
+    with pytest.raises(
+        AssertionError,
+        match=rf"{WINDOW}-char window .*secret length {len(NEW_TOKEN)}",
+    ):
         assert_absent(partial, NEW_TOKEN)
     assert NEW_TOKEN.encode() not in partial  # the naive check stays green
 
