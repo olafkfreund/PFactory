@@ -1,0 +1,56 @@
+# Grandfathered security-sink findings for THIS repo.
+#
+# Read by `security-lint/security_lint.py`, which is vendored byte-exact from
+# the Factory hub. See that file's header for the full design.
+#
+# THIS FILE IS NOT AN IGNORE LIST. Four rules make that stick, all enforced by
+# the gate itself, not by convention:
+#
+#   * `issue` is REQUIRED and must look like `Repo#123`. An entry without one
+#     fails the gate. A grandfathered security finding with nobody's name on it
+#     is a permanent exception wearing a temporary hat.
+#   * An entry that matches NOTHING fails the gate. Fix the finding and you must
+#     delete the entry — so this list can only ratchet down.
+#   * `count` (default 1) is a ceiling, not a per-file waiver. A SECOND
+#     `pickle.load` in an already-listed file is a new finding and turns the
+#     gate red.
+#   * `expires` is optional and enforced when present.
+#
+# NOT ON THIS LIST, DELIBERATELY: the md5 in apps/backend/plan/models.py. It was
+# a real S324 finding and it is FIXED in the same PR with
+# `usedforsecurity=False`, which leaves the digest byte-identical.
+
+[[allow]]
+path = "apps/backend/agents/coverage_delta.py"
+rule = "S314"
+count = 1
+reason = "Parses a Cobertura report emitted by the system under test. Entity-expansion DoS is real but availability-only and contained to one sandboxed job; the fix adds a defusedxml dependency, which does not belong in a gate-introduction PR."
+issue = "Factory#722"
+
+[[allow]]
+path = "apps/backend/prompts_pkg/prompt_generator.py"
+rule = "S608"
+count = 1
+reason = "Not SQL. The f-string is the coder-agent PROMPT; ruff's heuristic matches SQL keywords in a formatted string. Nothing in this function touches a database."
+issue = "Factory#723"
+
+[[allow]]
+path = "apps/backend/runners/github/providers/azure_devops_provider.py"
+rule = "S608"
+count = 1
+reason = "WIQL query interpolates the tenant-configured Azure DevOps project name. Real, low-severity injection. The file is the hub CANONICAL vendored under a byte-exact drift gate, so the fix is a coordinated five-repo re-vendor, not a line edit here."
+issue = "Factory#721"
+
+[[allow]]
+path = "apps/web-server/server/database/alembic/versions/20260525_c6e3b2d4a8f0_encrypt_credentials.py"
+rule = "S608"
+count = 2
+reason = "Table and column names come from _CRED_COLUMNS, a module-level literal tuple in the same file; a migration takes no arguments. SQL cannot parameterise identifiers, so interpolation is unavoidable."
+issue = "Factory#723"
+
+[[allow]]
+path = "tests/postgres/test_p1_alembic.py"
+rule = "S608"
+count = 1
+reason = "APP_ROLE is a local string literal three lines above the query. CREATE/REVOKE cannot bind a role name."
+issue = "Factory#723"
