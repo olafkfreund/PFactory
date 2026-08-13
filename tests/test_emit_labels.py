@@ -103,7 +103,9 @@ def test_meta_block_is_machine_readable():
     assert "autonomy: " in block
     assert "access_verified: true" in block
     assert "taxonomy: v1" in block
-    assert "citations:" in block and "owasp.org" in block
+    # The rendered uri: line, not "owasp.org" loose in the block — the loose
+    # check also passes when the URI is only echoed inside the why: text.
+    assert "citations:" in block and "\n    uri: https://owasp.org" in block
 
 
 def test_labels_deduped():
