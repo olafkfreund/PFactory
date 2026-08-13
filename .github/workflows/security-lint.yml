@@ -47,11 +47,12 @@ env:
   # ruff than the ratchet is a gate whose findings nobody can reproduce locally.
   RUFF_VERSION: "0.15.17"
 
-  # The hub commit this repo's vendored copy is pinned to.
-  #
-  # >>> DRAFT: replace with the SQUASH-MERGE SHA of Factory#726 before this
-  # >>> leaves draft. A pin to a branch head is not a pin; it moves under you.
-  HUB_PIN_SHA: "a6e5289f1a31b5b568402b9c616cb4fb828431bf"
+  # The hub commit this repo's vendored copy is pinned to: the SQUASH-MERGE SHA
+  # of Factory#726, not that PR's branch head. A branch head is not a pin -- it
+  # moves under you, and a drift gate reading one cannot tell a hub change from
+  # a force-push. Bump this deliberately, re-vendor in the same commit, never
+  # edit the vendored copy to satisfy a local lint.
+  HUB_PIN_SHA: "5a2dc4795baf08f48488999ead75748e97a3604d"
 
 jobs:
   security-sinks:
