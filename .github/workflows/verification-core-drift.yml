@@ -59,7 +59,12 @@ permissions:
 env:
   # Pinned Factory hub commit carrying the canonical modules. Bump deliberately
   # when re-vendoring (see header).
-  HUB_PIN_SHA: "de50e3fe06af17631cc374c4dbdbd4d34e1ac058"
+  #
+  # Bumped for olafkfreund/Factory#714 (py/tarslip): artifact_store.py now always
+  # extracts with the stdlib `data` filter instead of falling back to an
+  # unfiltered extractall on pre-3.12 runtimes. This is the SQUASH-MERGE commit
+  # on hub `main`, never a PR-branch head (Factory#638).
+  HUB_PIN_SHA: "11834afc75523324d95448ae6ce07eeca907c63b"
 
 jobs:
   drift:
