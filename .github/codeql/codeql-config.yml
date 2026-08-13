@@ -55,3 +55,22 @@ query-filters:
   # So the swap narrows nothing: unguarded code still reports.
   - exclude:
       id: py/partial-ssrf
+paths-ignore:
+  # apps/backend/agents/evidence/*.tmpl.ts (js/syntax-error, 12 alerts closed
+  # here, #574-#585). These are NOT TypeScript source: they are string
+  # templates that agents.evidence.layout.render_playwright_config() renders
+  # into a generated test workspace. Several `@@MARKER@@` placeholders sit in
+  # bare code position (e.g. `outputDir: "@@OUTPUT_DIR@@",@@SNAPSHOT_...@@`,
+  # `use: { ...devices["Desktop Chrome"]@@CHROMIUM_STORAGE_STATE@@ }`) so they
+  # can expand into extra object properties or array elements at render time
+  # -- which makes the file, as committed, invalid TypeScript by design. The
+  # extractor cannot parse it, so it was never contributing coverage; this
+  # exclusion documents that rather than leaving an unexplained parse failure.
+  # The `.tmpl.ts` suffix already signals this convention.
+  #
+  # Nothing lints, typechecks or builds these files today: root package.json's
+  # `lint`/`build` scripts only touch apps/frontend-web, and
+  # tests/test_evidence_capture.py only asserts on substituted substrings, never
+  # parses the rendered output. That gap is unrelated to CodeQL and is not
+  # fixed by this exclusion.
+  - "apps/backend/agents/evidence/*.tmpl.ts"
