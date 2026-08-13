@@ -400,20 +400,26 @@ class TestEdgeCases:
         assert isinstance(result, SecurityScanResult)
 
     def test_redact_secret_short(self, scanner):
-        """Test secret redaction for short strings."""
+        """Short matches must not come back verbatim."""
         redacted = scanner._redact_secret("abc123")
         assert "abc123" not in redacted
-        assert "*" in redacted
+        assert "redacted" in redacted
 
     def test_redact_secret_long(self, scanner):
-        """Test secret redaction for long strings."""
+        """No span of the match may survive redaction.
+
+        This value is not only logged: ``_save_results`` writes it into
+        ``security_scan_results.json`` in the spec directory, so the previous
+        ``startswith("sk-t") and endswith("ghij")`` behaviour persisted eight
+        characters of every discovered credential to disk. Those two assertions
+        have been inverted rather than deleted.
+        """
         secret = "sk-test1234567890abcdefghij"
         redacted = scanner._redact_secret(secret)
 
-        # Should show first 4 and last 4 chars
-        assert redacted.startswith("sk-t")
-        assert redacted.endswith("ghij")
-        assert "*" in redacted
+        for i in range(len(secret) - 3):
+            window = secret[i : i + 4]
+            assert window not in redacted, f"leaked {window!r}"
 
     def test_is_python_project_detection(self, scanner, temp_dir):
         """Test Python project detection."""

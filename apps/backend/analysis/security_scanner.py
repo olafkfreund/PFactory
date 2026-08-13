@@ -31,7 +31,12 @@ from typing import Any
 
 # Import the existing secrets scanner
 try:
-    from security.scan_secrets import SecretMatch, get_all_tracked_files, scan_files
+    from security.scan_secrets import (
+        SecretMatch,
+        get_all_tracked_files,
+        redacted_fingerprint,
+        scan_files,
+    )
 
     HAS_SECRETS_SCANNER = True
 except ImportError:
@@ -414,10 +419,18 @@ class SecurityScanner:
         return self._bandit_available
 
     def _redact_secret(self, text: str) -> str:
-        """Redact a secret for safe logging."""
-        if len(text) <= 8:
-            return "*" * len(text)
-        return text[:4] + "*" * (len(text) - 8) + text[-4:]
+        """Return a non-reversible fingerprint of a detected match.
+
+        Delegates to the scanner's canonical helper instead of keeping a second
+        redaction here. The old local version returned ``text[:4] + ... +
+        text[-4:]`` plus the exact length, and ``_save_results`` writes this
+        value into ``security_scan_results.json`` -- so those eight characters
+        of every discovered credential were not merely logged, they persisted
+        to disk in the spec directory. One implementation, one place to get it
+        right (only reachable when the scanner imported; see HAS_SECRETS_SCANNER).
+        """
+        # str() because the import above is guarded, so mypy sees Any here.
+        return str(redacted_fingerprint(text))
 
     def _save_results(self, spec_dir: Path, result: SecurityScanResult) -> None:
         """Save scan results to spec directory."""
