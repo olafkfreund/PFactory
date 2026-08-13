@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, AliasChoices
+from server.services.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 
 # --------------------------------------------------------------------------
 # Type Definitions for Validation
@@ -803,8 +804,13 @@ async def list_openai_compat_models(
         if apiKey:
             headers["Authorization"] = f"Bearer {apiKey}"
 
+        # `baseUrl` is a query parameter: guard it before it becomes an outbound
+        # request (CodeQL py/partial-ssrf). Permissive posture — the default is
+        # localhost:8080 and a LAN-hosted OpenAI-compatible server is the point.
+        models_url = assert_safe_outbound_url(f"{baseUrl}/v1/models", allow_private=True)
+
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{baseUrl}/v1/models", headers=headers)
+            response = await client.get(models_url, headers=headers)
             response.raise_for_status()
             data = response.json()
 
@@ -849,8 +855,10 @@ async def test_openai_compat_connection(request: OpenAICompatTestRequest):
         if request.apiKey:
             headers["Authorization"] = f"Bearer {request.apiKey.get_secret_value()}"
 
+        models_url = assert_safe_outbound_url(f"{request.baseUrl}/v1/models", allow_private=True)
+
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{request.baseUrl}/v1/models", headers=headers)
+            response = await client.get(models_url, headers=headers)
             response.raise_for_status()
             data = response.json()
 
@@ -882,11 +890,11 @@ async def pull_ollama_model(
         import httpx
         import json
 
+        pull_url = assert_safe_outbound_url(f"{ollamaBaseUrl}/api/pull", allow_private=True)
+
         # Stream the pull progress
         async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST", f"{ollamaBaseUrl}/api/pull", json={"name": modelName}
-            ) as response:
+            async with client.stream("POST", pull_url, json={"name": modelName}) as response:
                 response.raise_for_status()
 
                 # Stream progress updates
@@ -910,9 +918,14 @@ async def test_ollama_connection(
     try:
         import httpx
 
+        tags_url = assert_safe_outbound_url(f"{ollamaBaseUrl}/api/tags", allow_private=True)
+        chat_url = assert_safe_outbound_url(
+            f"{ollamaBaseUrl}/v1/chat/completions", allow_private=True
+        )
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Check if server is reachable
-            response = await client.get(f"{ollamaBaseUrl}/api/tags")
+            response = await client.get(tags_url)
             response.raise_for_status()
 
             # Check if model exists
@@ -927,7 +940,7 @@ async def test_ollama_connection(
 
             # Test model with simple query
             test_response = await client.post(
-                f"{ollamaBaseUrl}/v1/chat/completions",
+                chat_url,
                 json={
                     "model": modelName,
                     "messages": [{"role": "user", "content": "Test"}],
@@ -2109,11 +2122,17 @@ async def test_api_connection(request: TestConnectionRequest):
     import urllib.request
 
     try:
+        # `baseUrl` is caller-supplied. Permissive posture, because the profile
+        # editor's own placeholder offers "https://api.anthropic.com or
+        # http://localhost:8080" — a local proxy is a supported configuration,
+        # so the strict posture would break it. What stays refused in both:
+        # non-http(s) schemes, the cloud metadata addresses, and redirects.
+        models_url = assert_safe_outbound_url(f"{request.baseUrl}/models", allow_private=True)
         req = urllib.request.Request(
-            f"{request.baseUrl}/models",
+            models_url,
             headers={"Authorization": f"Bearer {request.apiKey.get_secret_value()}"},
         )
-        urllib.request.urlopen(req, timeout=10)
+        build_no_redirect_opener().open(req, timeout=10)
         return {"success": True, "data": {"connected": True}}
     except Exception:
         logger.exception("API connection test failed for %s", request.baseUrl)
@@ -2127,11 +2146,15 @@ async def discover_api_models(request: TestConnectionRequest):
     import urllib.request
 
     try:
+        # Same posture as /api-profiles/test above. Refusing redirects matters
+        # doubly here: urllib replays the Authorization header on the hop, so a
+        # 302 to an attacker's host would hand over the API key.
+        models_url = assert_safe_outbound_url(f"{request.baseUrl}/models", allow_private=True)
         req = urllib.request.Request(
-            f"{request.baseUrl}/models",
+            models_url,
             headers={"Authorization": f"Bearer {request.apiKey.get_secret_value()}"},
         )
-        response = urllib.request.urlopen(req, timeout=10)
+        response = build_no_redirect_opener().open(req, timeout=10)
         data = json_module.loads(response.read().decode())
         models = [m.get("id") for m in data.get("data", [])]
         return {"success": True, "data": models}

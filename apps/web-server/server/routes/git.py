@@ -2,18 +2,17 @@
 Git, Ollama, MCP, and utility routes.
 """
 
-import ipaddress
 import json
 import logging
 import shlex
 import shutil
-import socket
 import subprocess
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
+
+from server.services.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 
 from ..services.git_utils import (  # #335
     confine_to_workspace,
@@ -166,12 +165,21 @@ ollama_router = APIRouter()
 
 
 def check_ollama_running(base_url: str | None = None) -> bool:
-    """Check if Ollama server is running."""
-    import urllib.request
+    """Check if Ollama server is running.
 
-    url = base_url or "http://localhost:11434"
+    ``base_url`` arrives from a query parameter, so it is guarded: a self-hosted
+    Ollama is the point (``allow_private=True``), but ``file://`` and the cloud
+    metadata address are not Ollama and are refused (CodeQL py/partial-ssrf).
+    """
     try:
-        urllib.request.urlopen(f"{url}/api/tags", timeout=5)
+        probe_url = assert_safe_outbound_url(
+            f"{base_url or 'http://localhost:11434'}/api/tags", allow_private=True
+        )
+    except ValueError as exc:
+        logger.warning("refusing to probe Ollama at %r: %s", base_url, exc)
+        return False
+    try:
+        build_no_redirect_opener().open(probe_url, timeout=5)
         return True
     except Exception:
         return False
@@ -259,16 +267,25 @@ async def pull_ollama_model(request: PullModelRequest):
     model_name = request.modelName
 
     try:
+        # `url` comes from the request body: guard it before it becomes an
+        # outbound request (CodeQL py/partial-ssrf). Permissive posture — a
+        # self-hosted Ollama on a private address is the normal case.
+        pull_url = assert_safe_outbound_url(f"{url}/api/pull", allow_private=True)
+    except ValueError as exc:
+        logger.warning("refusing to pull from Ollama at %r: %s", url, exc)
+        return {"success": False, "error": "Refusing to contact that Ollama URL"}
+
+    try:
         # Use Ollama's pull API
         req_data = json.dumps({"name": model_name, "stream": False}).encode()
         req = urllib.request.Request(
-            f"{url}/api/pull",
+            pull_url,
             data=req_data,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         # This is a blocking call - for large models consider background task
-        response = urllib.request.urlopen(req, timeout=600)  # 10 min timeout
+        response = build_no_redirect_opener().open(req, timeout=600)  # 10 min timeout
         result = json.loads(response.read().decode())
 
         # Check if pull was successful
@@ -715,50 +732,21 @@ class UnsafeProbeURLError(ValueError):
 def assert_safe_probe_url(url: str) -> str:
     """Return ``url`` if probing it cannot be turned into an SSRF tool.
 
-    ``check_mcp_health`` fetches a URL supplied in the request body, so without
-    a guard any authenticated caller can make the server issue requests on their
-    behalf (CodeQL py/full-ssrf). Two things are blocked outright:
+    Thin adapter over the shared guard so the MCP health probe and every LLM
+    provider probe enforce one rule. It keeps this name and
+    ``UnsafeProbeURLError`` because ``check_mcp_health`` distinguishes "refused"
+    from "unreachable" in its response, and callers/tests already import both.
 
-    * **Non-HTTP schemes.** ``urllib`` happily opens ``file://``, which turns a
-      "health check" into an arbitrary local-file read.
-    * **Link-local, metadata, reserved and multicast addresses.** 169.254.169.254
-      is the cloud-metadata endpoint; nothing legitimate health-checks it.
-
-    Private and loopback addresses are deliberately ALLOWED: MCP servers in this
-    fleet normally run in-cluster or on the operator's own machine, so blocking
-    RFC-1918 would break the feature's main use. The host is resolved first and
-    every returned address is checked, so a public hostname that resolves to a
-    blocked range cannot slip past.
+    Permissive posture: MCP servers in this fleet normally run in-cluster or on
+    the operator's own machine, so blocking RFC-1918 would break the feature's
+    main use. What the shared guard adds over the copy this replaced is the
+    IPv6 metadata address ``fd00:ec2::254``, which is neither link-local nor
+    reserved and so used to be allowed through.
     """
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https"):
-        raise UnsafeProbeURLError(
-            f"only http/https probe URLs are allowed (got {parts.scheme or 'no'} scheme)"
-        )
-    host = parts.hostname
-    if not host:
-        raise UnsafeProbeURLError("probe URL has no host")
-
     try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-    except OSError as exc:  # fail closed — an unresolvable host is not probed
-        raise UnsafeProbeURLError(f"could not resolve probe host: {host}") from exc
-
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if ip.is_loopback:
-            # Explicitly allowed, and checked first: IPv6 ::1 also satisfies
-            # is_reserved, so without this localhost would be blocked or allowed
-            # depending on whether it resolved to ::1 or 127.0.0.1.
-            continue
-        if ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-            raise UnsafeProbeURLError(f"probe URL resolves to a blocked address range: {ip}")
-    # Return the checked value so callers request the URL they validated rather
-    # than re-reading the original expression. The two are the same string
-    # today, but validating one expression and using another is how a guard
-    # ends up decorative, and it is also what makes this a barrier the dataflow
-    # analysis can see (PFactory#517).
-    return url
+        return assert_safe_outbound_url(url, allow_private=True)
+    except ValueError as exc:
+        raise UnsafeProbeURLError(str(exc)) from exc
 
 
 @mcp_router.post("/health")
