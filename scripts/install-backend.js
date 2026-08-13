@@ -4,7 +4,8 @@
  * Handles Python venv creation and dependency installation on Windows/Mac/Linux
  */
 
-const { execSync, spawnSync } = require('child_process');
+const { execFileSync, execSync, spawnSync } = require('child_process');
+const { assertNotOption } = require('./argv-safety.cjs');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -15,11 +16,16 @@ const venvDir = path.join(backendDir, '.venv');
 
 console.log('Installing Magestic AI backend dependencies...\n');
 
-// Helper to run commands
-function run(cmd, options = {}) {
-  console.log(`> ${cmd}`);
+// Helper to run commands.
+//
+// argv array, never a shell string: the interpreter and pip paths below are
+// discovered from the environment (PATH lookup, os.homedir()), and in a shell
+// string a discovered path is a command rather than an argument. assertNotOption
+// covers what an argv array cannot -- a path starting with '-' read as a flag.
+function run(file, args, options = {}) {
+  console.log(`> ${file} ${args.join(' ')}`);
   try {
-    execSync(cmd, { stdio: 'inherit', cwd: backendDir, ...options });
+    execFileSync(assertNotOption(file, 'program'), args, { stdio: 'inherit', cwd: backendDir, ...options });
     return true;
   } catch (error) {
     return false;
@@ -90,7 +96,7 @@ async function main() {
 
   // Create virtual environment
   console.log('\nCreating virtual environment...');
-  if (!run(`${python} -m venv .venv`)) {
+  if (!run(python, ['-m', 'venv', '.venv'])) {
     console.error('Failed to create virtual environment');
     process.exit(1);
   }
@@ -98,7 +104,7 @@ async function main() {
   // Install dependencies
   console.log('\nInstalling dependencies...');
   const pip = getPipPath();
-  if (!run(`"${pip}" install -r requirements.txt`)) {
+  if (!run(pip, ['install', '-r', 'requirements.txt'])) {
     console.error('Failed to install dependencies');
     process.exit(1);
   }
@@ -113,7 +119,7 @@ async function main() {
     try {
       execSync('npm --version', { stdio: 'ignore' });
       console.log(`Installing @google/gemini-cli to ${installDir}...`);
-      execSync(`npm install -g --prefix "${installDir}" @google/gemini-cli`, { stdio: 'inherit' });
+      execFileSync('npm', ['install', '-g', '--prefix', assertNotOption(installDir, 'install dir'), '@google/gemini-cli'], { stdio: 'inherit' });
       
       // Create symlink from antigravity -> gemini
       const binDir = path.join(installDir, 'bin');

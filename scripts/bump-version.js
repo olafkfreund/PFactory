@@ -29,7 +29,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
+const { assertNotOption } = require('./argv-safety.cjs');
 
 // Colors for terminal output
 const colors = {
@@ -92,18 +93,26 @@ function bumpVersion(currentVersion, bumpType) {
   }
 }
 
-// Execute shell command
-function exec(command, options = {}) {
+// Run a command as an argv array -- never as a shell string.
+//
+// The old `exec(command)` built one string and handed it to execSync, i.e. to
+// `sh -c`. Two of its arguments came from outside the script: the requested
+// version (process.argv[2]) and __dirname, which is derived from the
+// interpreter's own path and so from the environment. That is
+// js/indirect-command-line-injection and
+// js/shell-command-injection-from-environment respectively. With execFileSync
+// there is no shell, so no argument is word-split or expanded.
+function run(file, args, options = {}) {
   try {
-    return execSync(command, { encoding: 'utf8', stdio: 'pipe', ...options }).trim();
+    return execFileSync(file, args, { encoding: 'utf8', stdio: 'pipe', ...options }).trim();
   } catch (err) {
-    error(`Command failed: ${command}\n${err.message}`);
+    error(`Command failed: ${file} ${args.join(' ')}\n${err.message}`);
   }
 }
 
 // Check if git working directory is clean
 function checkGitStatus() {
-  const status = exec('git status --porcelain');
+  const status = run('git', ['status', '--porcelain']);
   if (status) {
     error('Git working directory is not clean. Please commit or stash changes first.');
   }
@@ -227,7 +236,12 @@ function main() {
 
   // 4. Validate release (check for branch/tag conflicts)
   info('Validating release...');
-  exec(`node ${path.join(__dirname, 'validate-release.js')} v${newVersion}`);
+  // No `--` here: node does not strip it after the script path, so it would
+  // arrive as validate-release.js's process.argv[2] instead of the version.
+  // assertNotOption is what keeps the script path (derived from __dirname, i.e.
+  // from where the interpreter was invoked) from being read as a node flag.
+  const validateScript = assertNotOption(path.join(__dirname, 'validate-release.js'), 'script path');
+  run(process.execPath, [validateScript, `v${newVersion}`]);
   success('Release validation passed');
 
   // 5. Update all version files
@@ -274,8 +288,8 @@ function main() {
 
   // 7. Create git commit
   info('Creating git commit...');
-  exec('git add apps/frontend-web/package.json package.json apps/backend/__init__.py');
-  exec(`git commit -m "chore: bump version to ${newVersion}"`);
+  run('git', ['add', '--', 'apps/frontend-web/package.json', 'package.json', 'apps/backend/__init__.py']);
+  run('git', ['commit', '-m', `chore: bump version to ${newVersion}`]);
   success(`Created commit: "chore: bump version to ${newVersion}"`);
 
   // Note: Tags are NOT created here anymore. GitHub Actions will create the tag

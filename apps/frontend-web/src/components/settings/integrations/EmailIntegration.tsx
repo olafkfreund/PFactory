@@ -26,6 +26,35 @@ interface EmailIntegrationProps {
 }
 
 /**
+ * Origins allowed to drive the OAuth popup callback.
+ *
+ * The popup finishes on the backend's OAuth result page
+ * (`apps/web-server/server/routes/email.py::_oauth_result_html`), which posts
+ * the outcome back to this window. With the default relative API base that page
+ * is same-origin; when VITE_API_BASE_URL points at a separate host, that host is
+ * the second legitimate sender. Nothing else is accepted.
+ *
+ * This matters because the callback page posts with a `'*'` targetOrigin, so the
+ * message is broadcast: any page holding a handle on this window -- an embedder,
+ * or a window this page opened -- can forge the same payload. Without the check
+ * it could clear the connecting spinner and plant arbitrary attacker text in the
+ * status banner ("Connection failed, re-enter your password at ...").
+ */
+function allowedOAuthOrigins(): string[] {
+  // Explicit about '' as well as undefined: an unset Vite env var arrives as the
+  // empty string, and `new URL('', origin)` resolves to the current document
+  // rather than to the API. Same '/api' fallback api-client.ts uses.
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  const base = configured === undefined || configured === '' ? '/api' : configured;
+  // An array, not a Set: two entries never need a hash, and `.includes()` is the
+  // shape CodeQL's js/missing-origin-check recognises as an allowlist test
+  // (InclusionTests.qll models includes/indexOf, not Set.has) -- so the guard
+  // reads as a guard to the scanner as well as to a human. With a relative base
+  // both entries are the same origin, which is harmless.
+  return [window.location.origin, new URL(base, window.location.origin).origin];
+}
+
+/**
  * Email integration component for connecting OAuth email accounts.
  * Displayed within the Notifications section when email is enabled.
  */
@@ -54,12 +83,17 @@ export function EmailIntegration({ settings: _settings, onSettingsChange: _onSet
   }, []);
 
   useEffect(() => {
-    Promise.all([loadAccounts(), loadCredentialsStatus()]).finally(() => setIsLoading(false));
+    Promise.all([loadAccounts(), loadCredentialsStatus()]).finally(() => { setIsLoading(false); });
   }, [loadAccounts, loadCredentialsStatus]);
 
   // Listen for OAuth callback messages from popup
   useEffect(() => {
+    const allowedOrigins = allowedOAuthOrigins();
     const handleMessage = (event: MessageEvent) => {
+      // Origin first: everything below trusts event.data. No event.source check
+      // is added on top -- any window at an allowed origin is running our own
+      // code, so it adds no boundary the origin check has not already drawn.
+      if (!allowedOrigins.includes(event.origin)) return;
       if (event.data?.type === 'email-oauth-callback') {
         setIsConnecting(false);
         setConnectingProvider(null);
@@ -70,12 +104,12 @@ export function EmailIntegration({ settings: _settings, onSettingsChange: _onSet
           setStatusMessage({ type: 'error', text: event.data.message || t('email.connectionFailed') });
         }
         // Clear status after 5 seconds
-        setTimeout(() => setStatusMessage(null), 5000);
+        setTimeout(() => { setStatusMessage(null); }, 5000);
       }
     };
 
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => { window.removeEventListener('message', handleMessage); };
   }, [loadAccounts, t]);
 
   const openOAuthPopup = (authUrl: string) => {
@@ -102,7 +136,7 @@ export function EmailIntegration({ settings: _settings, onSettingsChange: _onSet
       setIsConnecting(false);
       setConnectingProvider(null);
       setStatusMessage({ type: 'error', text: result.error || t('email.connectionFailed') });
-      setTimeout(() => setStatusMessage(null), 5000);
+      setTimeout(() => { setStatusMessage(null); }, 5000);
     }
   };
 
@@ -118,7 +152,7 @@ export function EmailIntegration({ settings: _settings, onSettingsChange: _onSet
       setIsConnecting(false);
       setConnectingProvider(null);
       setStatusMessage({ type: 'error', text: result.error || t('email.connectionFailed') });
-      setTimeout(() => setStatusMessage(null), 5000);
+      setTimeout(() => { setStatusMessage(null); }, 5000);
     }
   };
 
@@ -138,7 +172,7 @@ export function EmailIntegration({ settings: _settings, onSettingsChange: _onSet
     } else {
       setStatusMessage({ type: 'error', text: result.error || t('email.connectionFailed') });
     }
-    setTimeout(() => setStatusMessage(null), 5000);
+    setTimeout(() => { setStatusMessage(null); }, 5000);
   };
 
   if (isLoading) {
