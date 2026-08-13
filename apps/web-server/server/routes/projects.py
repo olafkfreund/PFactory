@@ -25,7 +25,7 @@ from server.services.git_utils import confine_to_workspace, safe_spec_component
 MemoryBackendType = Literal["graphiti", "file"]
 
 from ..config import get_settings
-from . import changelog, context, files, git, github, insights
+from . import changelog, context, git, github, insights
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -270,7 +270,7 @@ def ensure_tracked_project(repo: str) -> str | None:
             }
             save_projects(projects)
         return project_id
-    except Exception:  # noqa: BLE001 - visibility convenience must never break ingest
+    except Exception:
         logger.exception("[projects] ensure_tracked_project failed for repo=%s", sanitize_log(repo))
         return None
 
@@ -542,7 +542,7 @@ async def scan_for_projects(request: ScanProjectsRequest):
         # Handle unexpected errors
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to scan for projects: {str(e)}",
+            detail=f"Failed to scan for projects: {e!s}",
         )
 
 
@@ -586,6 +586,17 @@ async def add_project(project: ProjectCreate):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Clone failed: {e}",
             )
+        except ValueError:
+            # The workspace-slug barrier refuses a gitUrl whose path component
+            # would escape the workspace root (e.g. one ending in "/.."). That
+            # is a bad request, not a server fault -- without this it surfaced
+            # as an unhandled ValueError and a 500.
+            # `from None`: the barrier's message quotes the rejected slug, and
+            # the client already knows what it sent -- no need to echo it back.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="gitUrl does not yield a valid workspace name",
+            ) from None
         project_path = cloned_path.resolve()
         created_directory = True
     else:
@@ -886,9 +897,9 @@ async def update_project_settings(project_id: str, settings: ProjectSettingsUpda
                 existing[env_key] = str(settings_dict[settings_key])
 
         # Mirror for backwards compatibility
-        if "gitToken" in settings_dict and settings_dict["gitToken"]:
+        if settings_dict.get("gitToken"):
             existing["GITHUB_TOKEN"] = str(settings_dict["gitToken"])
-        if "gitRepo" in settings_dict and settings_dict["gitRepo"]:
+        if settings_dict.get("gitRepo"):
             existing["GITHUB_REPO"] = str(settings_dict["gitRepo"])
 
         # Update boolean settings
@@ -935,7 +946,7 @@ async def update_project_settings(project_id: str, settings: ProjectSettingsUpda
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update project settings: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update project settings: {e!s}")
 
 
 @router.get("/{project_id}/worktrees")
