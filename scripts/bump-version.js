@@ -109,24 +109,41 @@ function checkGitStatus() {
   }
 }
 
+// Read a file, or return null when it genuinely does not exist.
+//
+// Deliberately NOT `existsSync(p) && readFileSync(p)`: that is a TOCTOU race
+// (CodeQL js/file-system-race) and, worse, it collapses "absent" and
+// "unreadable" into the same answer, so a permission error reads as a missing
+// file and the bump silently skips it. readFileSync already reports absence —
+// only ENOENT is treated as absent, everything else propagates.
+function readIfPresent(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
 // Update package.json version
 function updatePackageJson(newVersion) {
   const frontendPath = path.join(__dirname, '..', 'apps', 'frontend-web', 'package.json');
   const rootPath = path.join(__dirname, '..', 'package.json');
 
-  if (!fs.existsSync(frontendPath)) {
+  // Update frontend package.json
+  const frontendRaw = readIfPresent(frontendPath);
+  if (frontendRaw === null) {
     error(`package.json not found at ${frontendPath}`);
   }
-
-  // Update frontend package.json
-  const frontendJson = JSON.parse(fs.readFileSync(frontendPath, 'utf8'));
+  const frontendJson = JSON.parse(frontendRaw);
   const oldVersion = frontendJson.version;
   frontendJson.version = newVersion;
   fs.writeFileSync(frontendPath, JSON.stringify(frontendJson, null, 2) + '\n');
 
   // Update root package.json if it exists
-  if (fs.existsSync(rootPath)) {
-    const rootJson = JSON.parse(fs.readFileSync(rootPath, 'utf8'));
+  const rootRaw = readIfPresent(rootPath);
+  if (rootRaw !== null) {
+    const rootJson = JSON.parse(rootRaw);
     rootJson.version = newVersion;
     fs.writeFileSync(rootPath, JSON.stringify(rootJson, null, 2) + '\n');
   }
@@ -138,12 +155,12 @@ function updatePackageJson(newVersion) {
 function updateBackendInit(newVersion) {
   const initPath = path.join(__dirname, '..', 'apps', 'backend', '__init__.py');
 
-  if (!fs.existsSync(initPath)) {
+  let content = readIfPresent(initPath);
+  if (content === null) {
     warning(`Backend __init__.py not found at ${initPath}, skipping`);
     return false;
   }
 
-  let content = fs.readFileSync(initPath, 'utf8');
   content = content.replace(/__version__\s*=\s*"[^"]*"/, `__version__ = "${newVersion}"`);
   fs.writeFileSync(initPath, content);
   return true;
@@ -153,21 +170,29 @@ function updateBackendInit(newVersion) {
 function checkChangelogEntry(version) {
   const changelogPath = path.join(__dirname, '..', 'CHANGELOG.md');
 
-  if (!fs.existsSync(changelogPath)) {
+  const content = readIfPresent(changelogPath);
+  if (content === null) {
     warning('CHANGELOG.md not found - you will need to create it before releasing');
     return false;
   }
 
-  const content = fs.readFileSync(changelogPath, 'utf8');
+  return changelogHasVersion(content, version);
+}
 
-  // Look for "## X.Y.Z" or "## X.Y.Z -" header
-  const versionPattern = new RegExp(`^## ${version.replace(/\./g, '\\.')}(\\s|-)`, 'm');
-
-  if (versionPattern.test(content)) {
-    return true;
-  }
-
-  return false;
+// Does the changelog carry a "## X.Y.Z" or "## X.Y.Z - date" header?
+//
+// This used to build a RegExp from argv with `version.replace(/\./g, '\\.')`,
+// which escaped dots and nothing else — every other metacharacter stayed live,
+// so `bump-version.js '.*'` matched any header at all (CodeQL js/regex-injection
+// + js/incomplete-sanitization). The match is literal anyway, so compare strings.
+function changelogHasVersion(content, version) {
+  const prefix = `## ${version}`;
+  return content.split('\n').some((line) => {
+    if (!line.startsWith(prefix)) return false;
+    const next = line.charAt(prefix.length);
+    // End of line, whitespace, or the "## X.Y.Z - date" form.
+    return next === '' || next === '-' || /\s/.test(next);
+  });
 }
 
 // Main function
@@ -284,5 +309,9 @@ function main() {
   log('\n✨ Version bump complete!\n', colors.green);
 }
 
-// Run
-main();
+// Run — unless imported by scripts/bump-version.test.mjs.
+if (require.main === module) {
+  main();
+}
+
+module.exports = { readIfPresent, changelogHasVersion };
