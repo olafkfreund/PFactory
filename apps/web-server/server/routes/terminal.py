@@ -10,20 +10,18 @@ import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 
 from ..config import get_settings
 from ..pty.manager import get_pty_manager
 from ..services.git_utils import confine_to_workspace, safe_spec_component  # #335
 from ..services.terminal_worktree_service import TerminalWorktreeService
 from .projects import load_projects
-
-from server.error_ref import error_message
 
 logger = logging.getLogger(__name__)
 
@@ -440,10 +438,23 @@ async def remove_terminal_worktree(
         success = service.remove_worktree(name, deleteBranch)
         return {"success": success}
     except ValueError as e:
-        # Hand-authored validation message from TerminalWorktreeService (e.g.
-        # "Worktree 'x' not found") - safe to surface to the caller as-is.
-        logger.warning("Terminal worktree removal validation failed: %s", sanitize_log(e))
-        return {"success": False, "error": str(e)}
+        # Not all of these are the hand-authored "Worktree 'x' not found" this
+        # arm was written for. `TerminalWorktreeService(project)` runs
+        # `confine_to_workspace`, whose ValueError quotes the rejected path and
+        # names the allowed roots, and anything under `remove_worktree` can
+        # raise a stdlib ValueError carrying library internals. One handler
+        # cannot tell the curated ones from the rest at the point it has to
+        # produce a body, so the detail goes to the log under a correlation id
+        # (CWE-209, py/stack-trace-exposure).
+        return {
+            "success": False,
+            "error": error_message(
+                logger,
+                f"remove terminal worktree {name}",
+                e,
+                "the worktree could not be removed",
+            ),
+        }
     except subprocess.CalledProcessError:
         logger.exception("Git error while removing terminal worktree %s", sanitize_log(name))
         return {"success": False, "error": "Failed to remove terminal worktree"}
