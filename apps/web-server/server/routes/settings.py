@@ -34,6 +34,7 @@ MemoryEmbeddingProviderType = Literal[
 ]
 
 from ..config import get_settings
+from ..crypto.secret_field import seal_fields, unseal_fields, unseal_profiles  # noqa: TID252, E402
 from ..paths import atomic_write_secret_json
 
 router = APIRouter()
@@ -353,22 +354,29 @@ def get_settings_file() -> Path:
 
 
 def load_app_settings() -> AppSettings:
-    """Load application settings from disk."""
+    """Load application settings from disk (credential fields unsealed, #537)."""
     settings_file = get_settings_file()
     if settings_file.exists():
         try:
             data = json.loads(settings_file.read_text())
-            return AppSettings(**data)
+            return AppSettings(**unseal_fields(data))
         except (json.JSONDecodeError, TypeError):
             pass
     return AppSettings()
 
 
 def save_app_settings(settings: AppSettings) -> None:
-    """Save application settings to disk."""
-    settings_file = get_settings_file()
-    settings_file.parent.mkdir(parents=True, exist_ok=True)
-    settings_file.write_text(settings.model_dump_json(indent=2))
+    """Save application settings to disk.
+
+    settings.json carries globalClaudeOAuthToken / provider API keys / email
+    OAuth client secrets. Before #537 it was the one credential store here that
+    wrote plaintext with NO chmod at all (umask default, typically 0644) — the
+    #298 atomic-0600 pass never reached it. It now seals those fields and goes
+    through the same atomic writer as the profile stores.
+    """
+    atomic_write_secret_json(
+        get_settings_file(), seal_fields(json.loads(settings.model_dump_json()))
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1038,7 +1046,9 @@ def load_profiles() -> dict:
             # Normalize field names for backward compatibility
             if "profiles" in data:
                 data["profiles"] = [normalize_profile_fields(p) for p in data["profiles"]]
-            return data
+            # Unseal after normalization so the legacy "token" field has already
+            # been renamed to "oauthToken" (#537).
+            return unseal_profiles(data)
         except json.JSONDecodeError:
             pass
     return {"profiles": [], "activeProfileId": None}
@@ -1837,11 +1847,11 @@ def get_api_profiles_file() -> Path:
 
 
 def load_api_profiles() -> dict:
-    """Load API profiles."""
+    """Load API profiles (apiKey unsealed on the way out, #537)."""
     profiles_file = get_api_profiles_file()
     if profiles_file.exists():
         try:
-            return json.loads(profiles_file.read_text())
+            return unseal_profiles(json.loads(profiles_file.read_text()))
         except json.JSONDecodeError:
             pass
     return {"profiles": [], "activeProfileId": None}

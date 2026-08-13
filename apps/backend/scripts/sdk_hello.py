@@ -23,6 +23,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.append(str(BACKEND_DIR))
 
 from agents.session import LogPhase, run_agent_session  # noqa: E402
+from core.auth import unseal_profiles  # noqa: E402
 from core.client import create_client  # noqa: E402
 
 
@@ -33,7 +34,7 @@ def load_token_from_profiles() -> str | None:
         return None
 
     try:
-        data = json.loads(profiles_path.read_text())
+        data = unseal_profiles(json.loads(profiles_path.read_text()))
     except json.JSONDecodeError:
         return None
 

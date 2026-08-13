@@ -14,6 +14,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from ...crypto.secret_field import unseal_profiles  # noqa: TID252
 from ...websockets.events import broadcast_event
 from .base import ProviderInfo, ProviderModel, ProviderStrategy
 
@@ -88,7 +89,9 @@ class ClaudeProvider(ProviderStrategy):
 
         if profiles_file.exists():
             try:
-                data = json.loads(profiles_file.read_text())
+                # Unsealed on read (#537); a legacy plaintext store passes
+                # through unchanged.
+                data = unseal_profiles(json.loads(profiles_file.read_text()))
                 profiles = data.get("profiles", [])
                 active_id = data.get("activeProfileId")
                 usable = [p for p in profiles if p.get("oauthToken") or p.get("token")]

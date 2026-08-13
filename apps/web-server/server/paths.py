@@ -33,7 +33,18 @@ def atomic_write_secret_json(path: Path, data: Any) -> None:
     NOTE: this makes each write atomic; it does NOT serialise read-modify-write.
     Two concurrent handlers can still lose an update (last writer wins) — but the
     file is always valid, so a lost update costs one field, not every token.
+
+    #537: the mode fixed WHO could read the file; the contents were still a
+    usable token to anyone who got past it. Credential fields are now sealed on
+    the way through — a no-op for payloads with no ``profiles`` key. This is the
+    single write chokepoint for claude-profiles.json, api-profiles.json and the
+    credential-import route, so there is no second place to keep in step.
     """
+    # Imported here, not at module scope: server.crypto pulls in sqlalchemy
+    # and this module is imported by config.py during start-up.
+    from .crypto.secret_field import seal_profiles  # noqa: PLC0415
+
+    data = seal_profiles(data)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
