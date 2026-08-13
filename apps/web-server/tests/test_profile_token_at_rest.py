@@ -245,13 +245,29 @@ def test_api_profiles_and_app_settings_are_sealed(store: tuple[Any, Path]) -> No
     assert_absent((data_dir / "api-profiles.json").read_bytes(), API_KEY)
     assert settings_routes.load_api_profiles()["profiles"][0]["apiKey"] == API_KEY
 
-    app = settings_routes.AppSettings(globalClaudeOAuthToken=NEW_TOKEN)
+    # THREE of the five APP_SETTINGS_SECRET_KEYS, not one. _map_fields loops over
+    # the key tuple, and a one-secret fixture cannot tell "seals every key" from
+    # "seals the first key" -- truncating that loop would leak the other four and
+    # leave this test green. settings.json is the store that shipped with no chmod
+    # at all, so a silent partial seal here is the worst case in the file.
+    app = settings_routes.AppSettings(
+        globalClaudeOAuthToken=NEW_TOKEN,
+        globalOpenAIApiKey=SECOND_TOKEN,
+        emailGoogleClientSecret=API_KEY,
+    )
     settings_routes.save_app_settings(app)
     stored = data_dir / "settings.json"
-    assert_absent(stored.read_bytes(), NEW_TOKEN)
+    raw_settings = stored.read_bytes()
+    assert_absent(raw_settings, NEW_TOKEN)
+    assert_absent(raw_settings, SECOND_TOKEN)
+    assert_absent(raw_settings, API_KEY)
+    assert raw_settings.count(b"enc.v1:") == 3
     # settings.json used to be written at the default umask, with no chmod at all.
     assert oct(stored.stat().st_mode & 0o777) == "0o600"
-    assert settings_routes.load_app_settings().globalClaudeOAuthToken == NEW_TOKEN
+    reloaded = settings_routes.load_app_settings()
+    assert reloaded.globalClaudeOAuthToken == NEW_TOKEN
+    assert reloaded.globalOpenAIApiKey == SECOND_TOKEN
+    assert reloaded.emailGoogleClientSecret == API_KEY
 
 
 def test_mutation_sabotaging_seal_turns_the_at_rest_check_red(
