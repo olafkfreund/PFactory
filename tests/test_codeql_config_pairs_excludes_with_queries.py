@@ -71,12 +71,14 @@ def test_the_excludes_are_the_ones_we_expect():
     assert sorted(_excluded_rule_ids()) == [
         "py/command-line-injection",
         "py/full-ssrf",
+        "py/partial-ssrf",
         "py/path-injection",
     ]
 
 
 @pytest.mark.parametrize(
-    "rule_id", ["py/path-injection", "py/command-line-injection", "py/full-ssrf"]
+    "rule_id",
+    ["py/path-injection", "py/command-line-injection", "py/full-ssrf", "py/partial-ssrf"],
 )
 def test_each_replacement_query_documents_why(rule_id: str):
     """A barrier is a security claim, so it has to say what it relies on.
