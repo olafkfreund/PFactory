@@ -26,7 +26,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [python, javascript-typescript]
+        # `actions` added 2026-08-13. AIFactory, TFactory and factory-gitops
+        # scanned it; this repo did not, so its workflows were unexamined and
+        # reported ZERO Actions alerts by not looking. TFactory reports 48
+        # unpinned-tag and 1 untrusted-checkout from the same shape of file.
+        # This is the Factory#711 defect one level down: there it was a narrow
+        # query SUITE, here it is an omitted LANGUAGE. Expect the count to rise
+        # on the first scan; that is the change working.
+        # Safe to add here: this repo's codeql-config.yml sets no `paths:` key,
+        # which would otherwise apply to EVERY matrix language and fail the
+        # actions analysis with "no source code seen".
+        language: [python, javascript-typescript, actions]
 
     steps:
       - name: Checkout
