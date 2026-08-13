@@ -4,10 +4,11 @@
  * Runs pytest using the correct virtual environment path for Windows/Mac/Linux
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { assertNotOption } = require('./argv-safety.cjs');
 
 const isWindows = os.platform() === 'win32';
 const rootDir = path.join(__dirname, '..');
@@ -38,16 +39,20 @@ if (!fs.existsSync(pytestPath)) {
   process.exit(1);
 }
 
-// Get any additional args passed to the script
+// Get any additional args passed to the script. They are pytest's own flags, so
+// they are forwarded verbatim -- but as separate argv entries, not joined into a
+// shell string. The old `execSync(\`"${pytestPath}" "${testsDir}" ${testArgs}\`)`
+// ran through `sh -c`, so `npm run test:backend -- '; curl evil'` executed
+// (js/indirect-command-line-injection). execFileSync spawns pytest directly, so
+// nothing here is word-split or expanded.
 const args = process.argv.slice(2);
-const testArgs = args.length > 0 ? args.join(' ') : '-v';
+const pytestBin = assertNotOption(pytestPath, 'pytest path');
+const pytestArgs = [assertNotOption(testsDir, 'tests dir'), ...(args.length > 0 ? args : ['-v'])];
 
-// Run pytest
-const cmd = `"${pytestPath}" "${testsDir}" ${testArgs}`;
-console.log(`> ${cmd}\n`);
+console.log(`> ${pytestBin} ${pytestArgs.join(' ')}\n`);
 
 try {
-  execSync(cmd, { stdio: 'inherit', cwd: rootDir });
+  execFileSync(pytestBin, pytestArgs, { stdio: 'inherit', cwd: rootDir });
 } catch (error) {
   process.exit(error.status || 1);
 }
