@@ -254,7 +254,10 @@ class TestWriteSkillContext:
         """Provide a temporary spec dir and fixture-backed SkillsService."""
         self.spec_dir = tmp_path / "spec"
         self.spec_dir.mkdir()
-        self.fixture_service = SkillsService(skills_base_path=FIXTURES_PATH)
+        self.fixture_service = SkillsService(
+            skills_base_path=FIXTURES_PATH,
+            cache_path=tmp_path / "skills-cache.json",
+        )
 
     def _make_agent_service(self):
         """Return an AgentService instance with settings mocked out."""

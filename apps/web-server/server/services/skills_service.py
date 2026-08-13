@@ -8,20 +8,31 @@ Skills path resolution (first match wins):
 1. APP_SKILLS_PATH env var (explicit override)
 2. <project-root>/skills/  (local copy, works on host and in Docker)
 
-Uses a pickle cache (~/.pfactory/skills-cache.pkl) to avoid re-scanning
+Uses a JSON cache (~/.pfactory/skills-cache.json) to avoid re-scanning
 6,000+ files on every startup.  The cache is invalidated when the skills
 directory's modification time changes.
+
+The cache is JSON, not pickle (#533; AIFactory #324 L1): a server-generated
+cache file is an RCE primitive if its path ever becomes writable or
+traversable, because the version/path guards only run *after* ``pickle.load``
+has already executed arbitrary reduce code.  JSON loads inert data; we
+reconstruct the dataclasses explicitly.
+
+Migration: a pre-existing ``skills-cache.pkl`` is never opened — the cache
+path itself changed, so a stale pickle is inert and the index is rebuilt
+from source on first start.
 """
 
+import contextlib
+import json
 import logging
 import os
-import pickle
 import re
 import string
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +61,11 @@ def _resolve_skills_path() -> Path:
 DEFAULT_SKILLS_PATH = _resolve_skills_path()
 
 # Cache location
-DEFAULT_CACHE_PATH = Path.home() / ".pfactory" / "skills-cache.pkl"
+DEFAULT_CACHE_PATH = Path.home() / ".pfactory" / "skills-cache.json"
 
-# Cache format version — bump when _IndexEntry or SkillSummary fields change
-_CACHE_VERSION = 1
+# Cache format version — bump when _IndexEntry or SkillSummary fields change.
+# Bumped to 2 for the pickle->JSON migration (#533).
+_CACHE_VERSION = 2
 
 # Stop words excluded from keyword search / suggestion scoring
 STOP_WORDS = frozenset(
@@ -329,7 +341,7 @@ class SkillsService:
         return newest
 
     def _load_cache(self) -> bool:
-        """Try to load the index from the pickle cache. Returns True on success."""
+        """Try to load the index from the JSON cache. Returns True on success."""
         try:
             if not self._cache_path.exists():
                 logger.info("No skills cache found — will scan directory")
@@ -347,8 +359,8 @@ class SkillsService:
                 return False
 
             t0 = time.monotonic()
-            with open(self._cache_path, "rb") as f:
-                data = pickle.load(f)
+            with open(self._cache_path, encoding="utf-8") as f:
+                data = json.load(f)
 
             if not isinstance(data, dict) or data.get("version") != _CACHE_VERSION:
                 logger.info("Skills cache version mismatch — rebuilding")
@@ -358,7 +370,7 @@ class SkillsService:
                 logger.info("Skills cache base path mismatch — rebuilding")
                 return False
 
-            self._index = data["index"]
+            self._index = self._index_from_json(data["index"])
             self._built = True
             total = sum(len(entries) for entries in self._index.values())
             elapsed = time.monotonic() - t0
@@ -375,19 +387,59 @@ class SkillsService:
             return False
 
     def _save_cache(self) -> None:
-        """Persist the current index to the pickle cache."""
+        """Persist the current index to the JSON cache."""
         try:
             self._cache_path.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 "version": _CACHE_VERSION,
                 "base_path": str(self._base_path),
-                "index": self._index,
+                "index": self._index_to_json(),
             }
-            with open(self._cache_path, "wb") as f:
-                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(self._cache_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            # 0600 — the cache is read back at startup; keep it owner-only.
+            with contextlib.suppress(OSError):
+                self._cache_path.chmod(0o600)
             logger.info("Skills cache saved to %s", self._cache_path)
         except Exception as exc:
             logger.warning("Failed to save skills cache: %s", exc)
+
+    def _index_to_json(self) -> dict[str, list[dict[str, object]]]:
+        """Serialize the in-memory index to JSON-safe primitives.
+
+        ``frozenset`` token fields become sorted lists; ``Path`` becomes a
+        string; ``SkillSummary`` becomes a plain dict.
+        """
+        out: dict[str, list[dict[str, object]]] = {}
+        for category, entries in self._index.items():
+            out[category] = [
+                {
+                    "summary": asdict(e.summary),
+                    "file_path": str(e.file_path),
+                    "name_tokens": sorted(e.name_tokens),
+                    "description_tokens": sorted(e.description_tokens),
+                }
+                for e in entries
+            ]
+        return out
+
+    @staticmethod
+    def _index_from_json(
+        raw: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, list["_IndexEntry"]]:
+        """Reconstruct the index dataclasses from JSON primitives."""
+        index: dict[str, list[_IndexEntry]] = {}
+        for category, entries in raw.items():
+            index[category] = [
+                _IndexEntry(
+                    summary=SkillSummary(**e["summary"]),
+                    file_path=Path(e["file_path"]),
+                    name_tokens=frozenset(e["name_tokens"]),
+                    description_tokens=frozenset(e["description_tokens"]),
+                )
+                for e in entries
+            ]
+        return index
 
     def _scan_and_build(self) -> None:
         """Full scan of the skills directory (the slow path)."""
