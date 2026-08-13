@@ -257,14 +257,26 @@ def test_mutation_sabotaging_seal_turns_the_at_rest_check_red(
     monkeypatch.setattr(secret_field, "seal", lambda value: value)
 
     settings_routes.save_profiles({"profiles": [{"id": "p1", "oauthToken": NEW_TOKEN}]})
-    with pytest.raises(AssertionError):
+
+    # Assert WHY it goes red, not just THAT it does. A bare `raises(AssertionError)`
+    # is a boolean, and a boolean cannot be wrong in an informative way: an
+    # unrelated bug in assert_absent would satisfy it just as well as a real leak.
+    # The pattern is built from the same constants assert_absent uses, so it
+    # cannot drift out of sync with the check it is describing.
+    with pytest.raises(
+        AssertionError,
+        match=rf"{WINDOW}-char window .*secret length {len(NEW_TOKEN)}",
+    ):
         assert_absent((data_dir / "claude-profiles.json").read_bytes(), NEW_TOKEN)
 
 
 def test_window_check_catches_a_partial_leak() -> None:
     """A whole-string assertion would pass here; the window check must not."""
     partial = NEW_TOKEN[:20].encode()
-    with pytest.raises(AssertionError):
+    with pytest.raises(
+        AssertionError,
+        match=rf"{WINDOW}-char window .*secret length {len(NEW_TOKEN)}",
+    ):
         assert_absent(partial, NEW_TOKEN)
     assert NEW_TOKEN.encode() not in partial  # the naive check stays green
 
