@@ -32,7 +32,6 @@ from typing import Any
 # Import the existing secrets scanner
 try:
     from security.scan_secrets import (
-        SecretMatch,
         get_all_tracked_files,
         redacted_fingerprint,
         scan_files,
@@ -41,7 +40,6 @@ try:
     HAS_SECRETS_SCANNER = True
 except ImportError:
     HAS_SECRETS_SCANNER = False
-    SecretMatch = None
 
 
 # =============================================================================
