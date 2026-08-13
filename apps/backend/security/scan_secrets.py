@@ -16,6 +16,7 @@ Exit codes:
 """
 
 import argparse
+import hashlib
 import re
 import subprocess
 import sys
@@ -315,11 +316,32 @@ def is_false_positive(line: str, matched_text: str) -> bool:
     return False
 
 
-def mask_secret(text: str, visible_chars: int = 8) -> str:
-    """Mask a secret, showing only first few characters."""
-    if len(text) <= visible_chars:
-        return text
-    return text[:visible_chars] + "***"
+def redacted_fingerprint(text: str) -> str:
+    """Return a non-reversible fingerprint of a detected match, safe to log.
+
+    Replaces the old ``mask_secret``, which returned the match *verbatim* when
+    it was no longer than ``visible_chars`` and otherwise handed over its first
+    8-12 characters. Every caller of that helper writes its result into a log
+    line, a pre-commit error or a JSON report on disk -- so the scanner built to
+    keep credentials out of those places was itself putting a usable prefix of
+    every credential it found into them.
+
+    Kept deliberately, because a fingerprint nobody can triage is no better
+    than no scanner at all:
+
+    * the length, which distinguishes a 20-char token from a PEM block;
+    * 12 hex of SHA-256, so the same credential is recognisable across files
+      and across runs -- "did the rotation actually change it?", "is this the
+      same key leaked in three repos?" -- without revealing a character of it.
+
+    Every caller already reports the pattern name and ``file:line`` next to
+    this value, and that is what you navigate by; the value itself only ever
+    added risk.
+
+    ponytail: a bare digest of a low-entropy match is brute-forceable. Salt it
+    per-deployment if these fingerprints ever leave the operator's own logs.
+    """
+    return f"<redacted {len(text)} chars sha256:{hashlib.sha256(text.encode()).hexdigest()[:12]}>"
 
 
 def scan_content(content: str, file_path: str) -> list[SecretMatch]:
@@ -447,9 +469,9 @@ def print_results(matches: list[SecretMatch]) -> None:
     for file_path, file_matches in files_with_matches.items():
         print(f"\n{YELLOW}File: {file_path}{NC}")
         for match in file_matches:
-            masked = mask_secret(match.matched_text)
+            fingerprint = redacted_fingerprint(match.matched_text)
             print(f"  Line {match.line_number}: [{match.pattern_name}]")
-            print(f"    {CYAN}{masked}{NC}")
+            print(f"    {CYAN}{fingerprint}{NC}")
 
     print(f"\n{RED}{'=' * 60}{NC}")
     print(f"\n{YELLOW}If these are false positives, you can:{NC}")
@@ -471,7 +493,7 @@ def print_json_results(matches: list[SecretMatch]) -> None:
                 "file": m.file_path,
                 "line": m.line_number,
                 "type": m.pattern_name,
-                "preview": mask_secret(m.matched_text),
+                "preview": redacted_fingerprint(m.matched_text),
             }
             for m in matches
         ],
