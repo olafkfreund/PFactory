@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 from cli import pfactory_main
 from click.testing import CliRunner
 
@@ -50,10 +51,13 @@ class TestInitNonInteractive:
         assert result.exit_code == 0, result.output
         yml_path = tmp_path / ".pfactory.yml"
         assert yml_path.exists(), ".pfactory.yml not created"
-        text = yml_path.read_text()
-        assert "version" in text
-        assert "api" in text
-        assert "https://api.staging.example.com" in text
+        # Parse rather than substring-match the YAML text: "https://..." loose in
+        # the file proves nothing about which key it landed under (the generated
+        # header even carries an unrelated docs URL).
+        config = yaml.safe_load(yml_path.read_text())
+        assert config["version"] == 1
+        assert [t["name"] for t in config["targets"]] == ["api"]
+        assert config["targets"][0]["base_url"] == "https://api.staging.example.com"
 
     def test_creates_pfactory_yml_with_bearer_auth(self, tmp_path: Path) -> None:
         result = run_init(
@@ -129,9 +133,9 @@ class TestInitNonInteractive:
             "--base-url", "https://new.example.com",
         )
         assert result.exit_code == 0, result.output
-        text = existing.read_text()
-        assert "new-api" in text
-        assert "new.example.com" in text
+        config = yaml.safe_load(existing.read_text())
+        assert [t["name"] for t in config["targets"]] == ["new-api"]
+        assert config["targets"][0]["base_url"] == "https://new.example.com"
 
     def test_validates_generated_yaml_via_load_pfactory_yml(self, tmp_path: Path) -> None:
         """Validate that the generated YAML is parseable by load_pfactory_yml."""

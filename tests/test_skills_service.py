@@ -250,7 +250,10 @@ class TestGetSkill:
         skill = self.service.get_skill("frontend", "react")
         assert skill is not None
         assert skill.source is not None
-        assert "github.com" in skill.source
+        # Whole URL, not a host substring: a substring check passes on any text
+        # mentioning github.com, so it cannot prove the blockquote's link target
+        # was the thing extracted.
+        assert skill.source == "https://github.com/facebook/react"
 
 
 class TestGetSkillContent:
