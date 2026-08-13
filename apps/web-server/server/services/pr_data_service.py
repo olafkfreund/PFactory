@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from server.error_ref import error_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -68,7 +70,15 @@ def _run_gh(args: list[str], cwd: str | None = None, timeout: int = 30) -> dict:
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Command timed out"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        # routes/github.py returns this "error" to the browser, so `str(e)` would
+        # publish an OSError naming the workspace path, or a connection error
+        # naming an internal host and port (CWE-209).
+        return {
+            "success": False,
+            "error": error_message(
+                logger, f"gh {args[:2]} failed in {cwd}", e, "the gh command failed"
+            ),
+        }
 
 
 # ============================================================================
@@ -242,7 +252,15 @@ class PRDataService:
         try:
             review_data = json.loads(review_file.read_text())
         except (json.JSONDecodeError, OSError) as e:
-            return {"success": False, "error": f"Failed to read review data: {e}"}
+            return {
+                "success": False,
+                "error": error_message(
+                    logger,
+                    f"read review data for PR #{pr_number}",
+                    e,
+                    "the review data could not be read",
+                ),
+            }
 
         findings = review_data.get("findings", [])
 
@@ -546,7 +564,15 @@ class PRDataService:
         except json.JSONDecodeError:
             return {"success": False, "error": "Failed to parse stored review data"}
         except OSError as e:
-            return {"success": False, "error": f"Failed to read review file: {e}"}
+            return {
+                "success": False,
+                "error": error_message(
+                    logger,
+                    f"read review file for PR #{pr_number}",
+                    e,
+                    "the review file could not be read",
+                ),
+            }
 
     def delete_review(
         self,
@@ -567,7 +593,15 @@ class PRDataService:
         try:
             review_file.unlink()
         except OSError as e:
-            return {"success": False, "error": f"Failed to delete review file: {e}"}
+            return {
+                "success": False,
+                "error": error_message(
+                    logger,
+                    f"delete review file for PR #{pr_number}",
+                    e,
+                    "the review file could not be deleted",
+                ),
+            }
 
         # Update the index file to remove the entry
         index_file = _review_index_path(project_path)
@@ -603,7 +637,15 @@ class PRDataService:
         except json.JSONDecodeError:
             return {"success": False, "error": "Failed to parse review logs"}
         except OSError as e:
-            return {"success": False, "error": f"Failed to read logs file: {e}"}
+            return {
+                "success": False,
+                "error": error_message(
+                    logger,
+                    f"read review logs for PR #{pr_number}",
+                    e,
+                    "the review logs could not be read",
+                ),
+            }
 
     # ------------------------------------------------------------------
     # Private helpers

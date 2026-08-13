@@ -31,6 +31,8 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from factory_common.logsafe import sanitize_log
+
 # Resolve the backend package so `plan.service` imports (mirrors plan_pipeline.py).
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -240,7 +242,9 @@ def _tool_get_task_contract(args: dict[str, Any]) -> dict[str, Any]:
     try:
         SERVICE.emit_contract(sess.session_id, dry_run=True)
     except Exception as exc:  # noqa: BLE001 — surface as a tool error
-        logger.exception("failed to build task contract for session %s", sess.session_id)
+        logger.exception(
+            "failed to build task contract for session %s", sanitize_log(sess.session_id)
+        )
         raise _ToolError("failed to build task contract") from exc
     if sess.contract_result is None:
         raise _ToolError("task contract could not be built")
@@ -372,7 +376,7 @@ def _dispatch(method: str, params: dict[str, Any], req_id: Any) -> dict[str, Any
                 },
             )
         except Exception:  # noqa: BLE001
-            logger.exception("MCP tool %s crashed", name)
+            logger.exception("MCP tool %s crashed", sanitize_log(name))
             return _ok(
                 req_id,
                 {

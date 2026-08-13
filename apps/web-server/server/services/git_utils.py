@@ -4,9 +4,14 @@ Extracted from routes/git.py so route modules (git.py, tasks.py) can share it
 without importing each other.
 """
 
+import logging
 import re
 import subprocess
 from pathlib import Path
+
+from server.error_ref import error_message
+
+logger = logging.getLogger(__name__)
 
 # A git revision we are willing to place in a command line. Deliberately
 # strict, and anchored so the first character is alphanumeric: there is no
@@ -49,7 +54,17 @@ def run_git_command(args: list[str], cwd: str | Path) -> dict:
             return {"success": False, "error": result.stderr.strip()}
         return {"success": True, "output": result.stdout.strip()}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        # The caller returns this dict's "error" straight to the browser, so it
+        # must not carry `str(e)` - that is an OSError naming the workspace path
+        # on disk, or a decode error quoting bytes from the repo (CWE-209,
+        # py/stack-trace-exposure). Full detail goes to the server log under a
+        # correlation id the user can quote back.
+        return {
+            "success": False,
+            "error": error_message(
+                logger, f"git {args[:2]} failed in {cwd}", e, "the git command failed"
+            ),
+        }
 
 
 def run_gh_command(args: list[str], cwd: str | None = None) -> dict:
@@ -66,7 +81,14 @@ def run_gh_command(args: list[str], cwd: str | None = None) -> dict:
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Command timed out"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        # Same reasoning as run_git_command above: routes/github.py returns this
+        # dict's "error" to the client in ~28 places.
+        return {
+            "success": False,
+            "error": error_message(
+                logger, f"gh {args[:2]} failed in {cwd}", e, "the gh command failed"
+            ),
+        }
 
 
 # A single path component we are willing to join onto a trusted root. No

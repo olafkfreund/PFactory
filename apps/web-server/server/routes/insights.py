@@ -15,6 +15,8 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
 
+from factory_common.logsafe import sanitize_log
+
 from ..services.insights_service import get_insights_service
 
 logger = logging.getLogger(__name__)
@@ -186,7 +188,9 @@ async def clear_insights_session(projectId: str = Path(...)):
         raise
     except Exception as e:
         # Log error and return 500
-        logging.getLogger(__name__).error(f"Failed to clear insights session: {e}", exc_info=True)
+        logging.getLogger(__name__).error(
+            "Failed to clear insights session: %s", sanitize_log(e), exc_info=True
+        )
         raise HTTPException(status_code=500, detail=f"Failed to clear insights session: {e!s}")
 
 
@@ -204,7 +208,9 @@ async def create_task_from_insights(projectId: str = Path(...), request: CreateT
         result = await create_task(task_request)
         return {"success": True, "data": result}
     except Exception:
-        logger.exception("create_task_from_insights failed for project_id=%s", projectId)
+        logger.exception(
+            "create_task_from_insights failed for project_id=%s", sanitize_log(projectId)
+        )
         return {"success": False, "error": "Failed to create task from insights."}
 
 
@@ -222,7 +228,9 @@ async def generate_task_from_chat(projectId: str = Path(...), request: GenerateT
         )
         return {"success": True, "data": result}
     except Exception:
-        logger.exception("generate_task_from_chat failed for project_id=%s", projectId)
+        logger.exception(
+            "generate_task_from_chat failed for project_id=%s", sanitize_log(projectId)
+        )
         return {"success": False, "error": "Failed to generate task from chat."}
 
 
@@ -377,7 +385,7 @@ async def clear_files_insights_session(projectId: str):
     except Exception as e:
         # Log error and return 500
         logging.getLogger(__name__).error(
-            f"Failed to clear files insights session: {e}", exc_info=True
+            "Failed to clear files insights session: %s", sanitize_log(e), exc_info=True
         )
         raise HTTPException(
             status_code=500, detail=f"Failed to clear files insights session: {e!s}"

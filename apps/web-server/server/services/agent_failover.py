@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from factory_common.logsafe import sanitize_log
+
 from ..crypto.secret_field import unseal, unseal_profiles  # noqa: TID252
 
 if TYPE_CHECKING:
@@ -79,7 +81,9 @@ class AgentFailoverMixin:
         legacy_profiles_file = get_data_file("claude-profiles.json")
         if not profiles_file.exists() and legacy_profiles_file.exists():
             profiles_file = legacy_profiles_file
-            logger.debug(f"[AgentService] Using legacy profiles file at {profiles_file}")
+            logger.debug(
+                "[AgentService] Using legacy profiles file at %s", sanitize_log(profiles_file)
+            )
 
         if profiles_file.exists():
             try:
@@ -105,7 +109,9 @@ class AgentFailoverMixin:
                             profile_id = p.get("id")
                             profile_name = p.get("name", "Active Profile")
                             logger.info(
-                                f"[AgentService] Using active profile: {profile_name} ({profile_id})"  # noqa: E501
+                                "[AgentService] Using active profile: %s (%s)",
+                                sanitize_log(profile_name),
+                                sanitize_log(profile_id),
                             )
                             return (token, profile_id, profile_name)
 
@@ -114,11 +120,17 @@ class AgentFailoverMixin:
                     token = p.get("oauthToken") or p.get("token")
                     profile_id = p.get("id")
                     profile_name = p.get("name", "Default Profile")
-                    logger.info(f"[AgentService] Using profile: {profile_name} ({profile_id})")
+                    logger.info(
+                        "[AgentService] Using profile: %s (%s)",
+                        sanitize_log(profile_name),
+                        sanitize_log(profile_id),
+                    )
                     return (token, profile_id, profile_name)
 
             except (json.JSONDecodeError, OSError) as e:
-                logger.warning(f"[AgentService] Failed to load claude-profiles.json: {e}")
+                logger.warning(
+                    "[AgentService] Failed to load claude-profiles.json: %s", sanitize_log(e)
+                )
 
         # Fallback to static token file
         token_file = Path.home() / ".claude" / "oauth_token"
@@ -198,12 +210,14 @@ class AgentFailoverMixin:
         if not settings_file.exists() and legacy_settings_file.exists():
             settings_file = legacy_settings_file
             logger.debug(
-                f"[AgentService] Using legacy auto-switch settings file at {settings_file}"
+                "[AgentService] Using legacy auto-switch settings file at %s",
+                sanitize_log(settings_file),
             )
 
         if not settings_file.exists():
             logger.debug(
-                f"[AgentService] Auto-switch settings not found at {settings_file}, failover disabled"  # noqa: E501
+                "[AgentService] Auto-switch settings not found at %s, failover disabled",
+                sanitize_log(settings_file),
             )
             return False
 
@@ -217,12 +231,16 @@ class AgentFailoverMixin:
                 return True
             else:
                 logger.debug(
-                    f"[AgentService] Auto-switch disabled - enabled: {enabled}, autoSwitchOnRateLimit: {auto_switch_on_rate_limit}"  # noqa: E501
+                    "[AgentService] Auto-switch disabled - enabled: %s, autoSwitchOnRateLimit: %s",
+                    sanitize_log(enabled),
+                    sanitize_log(auto_switch_on_rate_limit),
                 )
                 return False
 
         except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"[AgentService] Failed to read auto-switch settings: {e}")
+            logger.warning(
+                "[AgentService] Failed to read auto-switch settings: %s", sanitize_log(e)
+            )
             return False
 
     def _is_rate_limit_line(self, line: str) -> bool:
@@ -290,7 +308,9 @@ class AgentFailoverMixin:
 
         if not profiles_file.exists() and legacy_profiles_file.exists():
             profiles_file = legacy_profiles_file
-            logger.debug(f"[AgentService] Using legacy profiles file at {profiles_file}")
+            logger.debug(
+                "[AgentService] Using legacy profiles file at %s", sanitize_log(profiles_file)
+            )
 
         if not profiles_file.exists():
             logger.warning(
@@ -330,7 +350,10 @@ class AgentFailoverMixin:
                 logger.warning("[AgentService] Active profile has no token; env not updated")
 
             logger.info(
-                f"[AgentService] Updated active profile: {old_active} → {profile_id} (reason: {reason})"  # noqa: E501
+                "[AgentService] Updated active profile: %s → %s (reason: %s)",
+                sanitize_log(old_active),
+                sanitize_log(profile_id),
+                sanitize_log(reason),
             )
 
             # Emit WebSocket event for system-wide profile change
@@ -350,7 +373,7 @@ class AgentFailoverMixin:
             )
 
         except Exception as e:  # noqa: BLE001
-            logger.error(f"[AgentService] Failed to update active profile: {e}")
+            logger.error("[AgentService] Failed to update active profile: %s", sanitize_log(e))
 
     async def _retry_task_with_fallback_model(
         self,
@@ -385,7 +408,9 @@ class AgentFailoverMixin:
             new_cmd.extend(["--model", "sonnet"])
 
         logger.info(
-            f"[AgentService] [Model: sonnet] Fallback triggered for {task_id} (original: {failed_model})"  # noqa: E501
+            "[AgentService] [Model: sonnet] Fallback triggered for %s (original: %s)",
+            sanitize_log(task_id),
+            sanitize_log(failed_model),
         )
 
         # Emit WebSocket event for model fallback
@@ -459,13 +484,15 @@ class AgentFailoverMixin:
 
         if not token:
             logger.warning(
-                f"[AgentService] No alternate profile available for retry (excluded: {failed_profile_id})"  # noqa: E501
+                "[AgentService] No alternate profile available for retry (excluded: %s)",
+                sanitize_log(failed_profile_id),
             )
             return None
 
         if profile_id == failed_profile_id:
             logger.warning(
-                f"[AgentService] Only profile available is the one that failed ({failed_profile_id})"  # noqa: E501
+                "[AgentService] Only profile available is the one that failed (%s)",
+                sanitize_log(failed_profile_id),
             )
             return None
 
@@ -473,7 +500,11 @@ class AgentFailoverMixin:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token
 
         # Log profile switch
-        logger.info(f"[AgentService] Retrying with profile: {profile_name} ({profile_id})")
+        logger.info(
+            "[AgentService] Retrying with profile: %s (%s)",
+            sanitize_log(profile_name),
+            sanitize_log(profile_id),
+        )
 
         # Emit WebSocket event for profile switch
         await self._emit_profile_switch(

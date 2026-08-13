@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from factory_common.logsafe import sanitize_log
+
 from ..auth import WebSocketAuthError, authenticate_websocket, verify_websocket_token
 
 logger = logging.getLogger(__name__)
@@ -150,9 +152,10 @@ async def events_websocket(websocket: WebSocket):
     # If authenticated user, load their org memberships for routing
     if user_info and user_info.get("id"):
         try:
-            from ..database.engine import async_session_factory
-            from ..database import OrgMember
             from sqlalchemy import select
+
+            from ..database import OrgMember
+            from ..database.engine import async_session_factory
 
             async with async_session_factory() as session:
                 result = await session.execute(
@@ -191,7 +194,9 @@ async def emit_task_progress(task_id: str, progress: dict):
     import logging
 
     logging.getLogger(__name__).info(
-        f"[WebSocket] Emitting task:progress - taskId: {task_id}, percentage: {progress.get('percentage', 'N/A')}%"
+        "[WebSocket] Emitting task:progress - taskId: %s, percentage: %s%%",
+        sanitize_log(task_id),
+        sanitize_log(progress.get("percentage", "N/A")),
     )
     await broadcast_event("task:progress", {"taskId": task_id, **progress})
 
@@ -200,7 +205,9 @@ async def emit_task_error(task_id: str, error: str):
     import logging
 
     logging.getLogger(__name__).info(
-        f"[WebSocket] Emitting task:error - taskId: {task_id}, error: {error[:100]}..."
+        "[WebSocket] Emitting task:error - taskId: %s, error: %s...",
+        sanitize_log(task_id),
+        sanitize_log(error[:100]),
     )
     await broadcast_event("task:error", {"taskId": task_id, "error": error})
 
@@ -212,11 +219,16 @@ async def emit_task_status(task_id: str, status: str, review_reason: str | None 
     if review_reason:
         payload["reviewReason"] = review_reason
         logging.getLogger(__name__).info(
-            f"[WebSocket] Emitting task:status - taskId: {task_id}, status: {status}, reviewReason: {review_reason}"
+            "[WebSocket] Emitting task:status - taskId: %s, status: %s, reviewReason: %s",
+            sanitize_log(task_id),
+            sanitize_log(status),
+            sanitize_log(review_reason),
         )
     else:
         logging.getLogger(__name__).info(
-            f"[WebSocket] Emitting task:status - taskId: {task_id}, status: {status}"
+            "[WebSocket] Emitting task:status - taskId: %s, status: %s",
+            sanitize_log(task_id),
+            sanitize_log(status),
         )
     await broadcast_event("task:status", payload)
 
@@ -227,7 +239,9 @@ async def emit_task_log(task_id: str, log: str):
     # Only log the first 50 chars to avoid flooding logs with full log content
     log_preview = log[:50].replace("\n", "\\n") if len(log) > 50 else log.replace("\n", "\\n")
     logging.getLogger(__name__).debug(
-        f"[WebSocket] Emitting task:log - taskId: {task_id}, log: {log_preview}..."
+        "[WebSocket] Emitting task:log - taskId: %s, log: %s...",
+        sanitize_log(task_id),
+        sanitize_log(log_preview),
     )
     await broadcast_event("task:log", {"taskId": task_id, "log": log})
 
@@ -240,7 +254,10 @@ async def emit_task_update(task_id: str, task_data: dict):
     phase = exec_progress.get("phase", "N/A") if exec_progress else "N/A"
     progress = exec_progress.get("phaseProgress", "N/A") if exec_progress else "N/A"
     logging.getLogger(__name__).info(
-        f"[WebSocket] Emitting task:update - taskId: {task_id}, phase: {phase}, progress: {progress}%"
+        "[WebSocket] Emitting task:update - taskId: %s, phase: %s, progress: %s%%",
+        sanitize_log(task_id),
+        sanitize_log(phase),
+        sanitize_log(progress),
     )
     await broadcast_event("task:update", {"taskId": task_id, **task_data})
 
@@ -264,7 +281,10 @@ async def emit_profile_switch(task_id: str, switch_data: dict):
     from_profile = switch_data.get("fromProfile", "N/A")
     to_profile = switch_data.get("toProfile", "N/A")
     logging.getLogger(__name__).info(
-        f"[WebSocket] Emitting task:profile-switch - taskId: {task_id}, from: {from_profile}, to: {to_profile}"
+        "[WebSocket] Emitting task:profile-switch - taskId: %s, from: %s, to: %s",
+        sanitize_log(task_id),
+        sanitize_log(from_profile),
+        sanitize_log(to_profile),
     )
     await broadcast_event("task:profile-switch", {"taskId": task_id, **switch_data})
 
@@ -292,8 +312,10 @@ async def emit_task_logs_stream(spec_id: str, chunk: dict):
         chunk.get("content", "")[:50].replace("\n", "\\n") if chunk.get("content") else ""
     )
     logging.getLogger(__name__).debug(
-        f"[WebSocket] Emitting task-logs:stream - specId: {spec_id}, "
-        f"type: {chunk_type}, content: {content_preview}..."
+        "[WebSocket] Emitting task-logs:stream - specId: %s, type: %s, content: %s...",
+        sanitize_log(spec_id),
+        sanitize_log(chunk_type),
+        sanitize_log(content_preview),
     )
     await broadcast_event("task-logs:stream", {"specId": spec_id, "chunk": chunk})
 
@@ -318,13 +340,18 @@ async def emit_subtask_update(
     logger = logging.getLogger(__name__)
     if previous_status:
         logger.info(
-            f"[WebSocket] Emitting task:subtask-update - taskId: {task_id}, "
-            f"subtaskId: {subtask_id}, status: {previous_status} -> {status}"
+            "[WebSocket] Emitting task:subtask-update - taskId: %s, subtaskId: %s, status: %s -> %s",
+            sanitize_log(task_id),
+            sanitize_log(subtask_id),
+            sanitize_log(previous_status),
+            sanitize_log(status),
         )
     else:
         logger.info(
-            f"[WebSocket] Emitting task:subtask-update - taskId: {task_id}, "
-            f"subtaskId: {subtask_id}, status: {status}"
+            "[WebSocket] Emitting task:subtask-update - taskId: %s, subtaskId: %s, status: %s",
+            sanitize_log(task_id),
+            sanitize_log(subtask_id),
+            sanitize_log(status),
         )
     await broadcast_event(
         "task:subtask-update",
