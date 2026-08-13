@@ -26,7 +26,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [python, javascript-typescript]
+        # `actions` added in Factory#711. Until then this repo did not scan its
+        # own workflows at all, so it reported zero GitHub Actions alerts for the
+        # same reason an unrun test reports no failures -- the question was never
+        # asked. The fleet sweep that closed 50 actions alerts across AIFactory
+        # and TFactory recorded this repo as "clean"; it was not. Asking the
+        # question here surfaces 36 third-party actions referenced by mutable
+        # tag, all pinned to immutable SHAs in the same change.
+        #
+        # AIFactory, TFactory, CFactory and factory-gitops all scan this
+        # language; this repo was the last one that did not.
+        language: [python, javascript-typescript, actions]
 
     steps:
       - name: Checkout

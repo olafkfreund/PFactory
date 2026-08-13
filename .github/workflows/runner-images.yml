@@ -70,14 +70,14 @@ jobs:
       # docker/setup-buildx-action enables BuildKit features (layer caching,
       # multi-platform builds, --check flag). Required for dockerfile:1.7 syntax.
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       # Build the image and load it into the local Docker daemon so the
       # hello-world smoke step below can run it.
       # push: false — nothing reaches the registry until the smoke has passed.
       # load: true  — exports image to local daemon for the smoke test.
       - name: Build pfactory-runner-${{ matrix.runner }}
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: docker/pfactory-runner-${{ matrix.runner }}
           file: docker/pfactory-runner-${{ matrix.runner }}/Dockerfile
@@ -189,7 +189,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -200,7 +200,7 @@ jobs:
       - name: Push pfactory-runner-${{ matrix.runner }} to GHCR
         id: push
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: docker/pfactory-runner-${{ matrix.runner }}
           file: docker/pfactory-runner-${{ matrix.runner }}/Dockerfile
@@ -223,7 +223,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Install cosign
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da  # v3.7.0
 
       - name: Sign pfactory-runner-${{ matrix.runner }}
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
