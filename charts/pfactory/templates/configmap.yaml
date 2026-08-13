@@ -25,6 +25,9 @@ data:
   AWS_KMS_KEY_ID: {{ .Values.kms.awsKmsKeyId | quote }}
   {{- end }}
   {{- if eq .Values.kms.backend "vault_transit" }}
+  # VAULT_ADDR is a URL, not a credential -- the token it authenticates
+  # with is a Secret ref in deployment.yaml (AIFactory#1290).
+  VAULT_ADDR: {{ .Values.kms.vaultAddr | quote }}
   VAULT_TRANSIT_KEY: {{ .Values.kms.vaultTransitKey | quote }}
   {{- end }}
   {{- if eq .Values.kms.backend "azure_kv" }}

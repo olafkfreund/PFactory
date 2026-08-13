@@ -54,7 +54,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
-from .kms import get_backend
+from .kms import encryption_is_required, get_backend
 
 _log = logging.getLogger(__name__)
 
@@ -99,18 +99,26 @@ def is_sealed(value: str) -> bool:
 def seal(value: str | None) -> str | None:
     """Encrypt ``value`` for storage in a JSON file. Idempotent.
 
-    Falls back to returning the plaintext (with a one-time warning) when no
-    KMS key is configured — a deployment without a key must still be able to
-    save a profile, and it is no worse off than before this change.
+    Falls back to returning the plaintext (with a one-time warning) when NO KMS
+    backend was selected — a deployment without a key must still be able to save
+    a profile, and it is no worse off than before this change.
+
+    When a backend WAS selected (AIFactory#1290) the fallback is a lie: the
+    operator believes these credentials are encrypted. There we raise, so the
+    save fails loudly and retryably instead of quietly writing a token in the
+    clear.
     """
     if not value or is_sealed(value):
         return value
     try:
         blob = get_backend().encrypt(value.encode("utf-8"))
-    except Exception:  # noqa: BLE001 - every backend raises its own type
+    except Exception:
         # Broad on purpose: each KMS backend raises its own errors (RuntimeError
         # for a missing key, botocore/hvac/azure/google client errors for the
-        # cloud ones). Saving a profile must not 500 because a key is missing.
+        # cloud ones). Saving a profile must not 500 because no key was ever
+        # configured -- but it MUST 500 when a configured KMS is unusable.
+        if encryption_is_required():
+            raise
         _warn_no_key()
         return value
     return SEALED_PREFIX + base64.urlsafe_b64encode(blob).decode("ascii")

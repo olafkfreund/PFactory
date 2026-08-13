@@ -285,3 +285,53 @@ def test_no_key_configured_falls_back_to_plaintext_with_a_warning(
     assert NEW_TOKEN not in caplog.text  # never log the secret
     secret_field._warn_no_key.cache_clear()
     reset_backend_cache()
+
+
+# --- AIFactory#1290: a SELECTED backend that cannot construct must not degrade
+#
+# The degradation above is honest only while nobody asked for encryption. Once
+# an operator sets APP_KMS_BACKEND to a cloud KMS, silence is the vulnerability:
+# they believe the tokens are ciphertext and they are plaintext. Two guards,
+# because neither alone is enough -- the boot check cannot see a KMS that dies
+# after start-up, and the per-write check cannot stop a pod that was already
+# accepting traffic before the first profile save.
+
+
+@pytest.fixture
+def selected_but_broken(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A cloud backend is selected and has nothing it needs to construct."""
+    monkeypatch.setenv("KMS_BACKEND", "vault_transit")
+    monkeypatch.delenv("APP_KMS_BACKEND", raising=False)
+    monkeypatch.delenv("VAULT_ADDR", raising=False)
+    monkeypatch.delenv("VAULT_TOKEN", raising=False)
+    reset_backend_cache()
+    yield
+    reset_backend_cache()
+
+
+@pytest.mark.usefixtures("selected_but_broken")
+def test_selected_backend_that_cannot_construct_fails_at_boot() -> None:
+    """The pod must not come up pretending to encrypt."""
+    with pytest.raises(SystemExit) as excinfo:
+        _kms.enforce_kms_safety()
+    assert "PLAINTEXT" in str(excinfo.value)
+
+
+@pytest.mark.usefixtures("selected_but_broken")
+def test_seal_raises_rather_than_writing_plaintext_when_a_backend_is_selected() -> None:
+    """A KMS that breaks after boot fails the write, it does not downgrade it."""
+    with pytest.raises(Exception) as excinfo:
+        secret_field.seal(NEW_TOKEN)
+    assert NEW_TOKEN not in str(excinfo.value)  # never leak the secret
+
+
+def test_the_unconfigured_default_still_boots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The documented no-KMS posture must NOT be turned into a boot failure."""
+    monkeypatch.delenv("KMS_FERNET_KEY", raising=False)
+    monkeypatch.delenv("APP_KMS_FERNET_KEY", raising=False)
+    monkeypatch.delenv("APP_KMS_BACKEND", raising=False)
+    monkeypatch.setenv("KMS_BACKEND", "fernet")
+    reset_backend_cache()
+    _kms.enforce_kms_safety()  # must not raise
+    assert _kms.encryption_is_required() is False
+    reset_backend_cache()

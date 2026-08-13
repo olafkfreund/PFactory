@@ -101,12 +101,52 @@ spec:
                   name: {{ .Values.oidc.clientSecretRef.name }}
                   key: {{ .Values.oidc.clientSecretRef.key }}
             {{- end }}
+            {{- /* KMS at-rest encryption (AIFactory#1290, same chart shape here).
+                   values.yaml advertises five backends; every one of them must
+                   actually reach the pod with what crypto.kms.get_backend()
+                   needs, or the pod comes up unable to encrypt -- and
+                   secret_field.seal() degrades to writing PLAINTEXT rather than
+                   failing a save. A selected-but-unconfigured backend is a typo,
+                   not a deployment, so refuse to render. Only real credentials
+                   come from Secret refs; key identifiers (ARN, vault URL, key
+                   name) are not secret and ride the ConfigMap. A key in
+                   values.yaml would land in `helm get values` and in whatever
+                   git repo holds the release. */}}
             {{- if eq .Values.kms.backend "fernet" }}
             - name: KMS_FERNET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.kms.fernetKeyRef.name }}
-                  key: {{ .Values.kms.fernetKeyRef.key }}
+                  name: {{ required "kms.backend=fernet requires kms.fernetKeyRef.name (a Secret holding the Fernet key). See charts/pfactory/values.yaml." .Values.kms.fernetKeyRef.name }}
+                  key: {{ required "kms.backend=fernet requires kms.fernetKeyRef.key. See charts/pfactory/values.yaml." .Values.kms.fernetKeyRef.key }}
+            {{- else if eq .Values.kms.backend "aws_kms" }}
+            {{- if not .Values.kms.awsKmsKeyId }}
+            {{- fail "kms.backend=aws_kms requires kms.awsKmsKeyId (the KMS key ARN, id, or alias). Without it the pod cannot encrypt credentials at rest. See charts/pfactory/values.yaml." }}
+            {{- end }}
+            {{- else if eq .Values.kms.backend "vault_transit" }}
+            {{- if not .Values.kms.vaultAddr }}
+            {{- fail "kms.backend=vault_transit requires kms.vaultAddr (e.g. https://vault.vault.svc:8200). Without it the pod cannot encrypt credentials at rest. See charts/pfactory/values.yaml." }}
+            {{- end }}
+            {{- if not .Values.kms.vaultTokenRef.name }}
+            {{- fail "kms.backend=vault_transit requires kms.vaultTokenRef.name (a Secret holding a Vault token with transit encrypt/decrypt caps). See charts/pfactory/values.yaml." }}
+            {{- end }}
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kms.vaultTokenRef.name }}
+                  key: {{ required "kms.backend=vault_transit requires kms.vaultTokenRef.key. See charts/pfactory/values.yaml." .Values.kms.vaultTokenRef.key }}
+            {{- else if eq .Values.kms.backend "azure_kv" }}
+            {{- if not .Values.kms.azureKeyvaultUrl }}
+            {{- fail "kms.backend=azure_kv requires kms.azureKeyvaultUrl (e.g. https://kv-pfactory.vault.azure.net). Without it the pod cannot encrypt credentials at rest. See charts/pfactory/values.yaml." }}
+            {{- end }}
+            {{- if not .Values.kms.azureKeyvaultKey }}
+            {{- fail "kms.backend=azure_kv requires kms.azureKeyvaultKey (the Key Vault key name). See charts/pfactory/values.yaml." }}
+            {{- end }}
+            {{- else if eq .Values.kms.backend "gcp_kms" }}
+            {{- if not .Values.kms.gcpKmsKeyName }}
+            {{- fail "kms.backend=gcp_kms requires kms.gcpKmsKeyName (projects/P/locations/L/keyRings/R/cryptoKeys/K). Without it the pod cannot encrypt credentials at rest. See charts/pfactory/values.yaml." }}
+            {{- end }}
+            {{- else }}
+            {{- fail (printf "kms.backend=%q is not a backend this chart can give a key to -- must be one of fernet, aws_kms, vault_transit, azure_kv, gcp_kms. See charts/pfactory/values.yaml." .Values.kms.backend) }}
             {{- end }}
             {{- if .Values.rmux.enabled }}
             # Epic #44 R3 — flip on the rmux Live Agent Console.
