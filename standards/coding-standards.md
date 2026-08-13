@@ -309,6 +309,33 @@ reported near-zero because they ran the default suite; levelling to
 `security-and-quality` took the fleet 1,526 to 3,876 with no code change. Never
 compare alert counts across repos without checking the suite.
 
+4.13 **The unfixed-tree check in 4.12 is NOT sufficient. Delete the sanitizer
+and re-run STOCK.** If stock's count collapses to what your barrier reports,
+your barrier IS that deletion in disguise - it silences without fixing. The
+4.12 check passes trivially whenever the helper being barriered did not exist
+on the base tree, which is precisely the common case. Three barriers were
+proposed on 2026-08-13 and all three failed this test, none the old one:
+
+| proposed barrier | what it actually did |
+|---|---|
+| project-registry lookup | matched 93 nodes, cleared **0** alerts (119 -> 119) |
+| `client_error` | cleared 104, and all 104 were the ONE branch that must not be barriered - the two sink lists were byte-identical at 18 |
+| `confine_to_workspace` on registry paths | a **runtime no-op**: `_allowed_roots()` contains the value being checked |
+
+Three corollaries, each earned the same day:
+
+* **"This barrier clears N alerts" is usually counted per SOURCE.** Each sink is
+  reached by many sources; removing one from a sink that has thirteen others
+  leaves the sink reported. One estimate said ~42 and delivered 0.
+* **A guard whose allowlist is derived from the same data it guards cannot
+  reject that data.** Ask what populates the allowlist before trusting it.
+* **A helper with two branches is not a sanitizer.** Barriering the call node
+  covers the unsafe branch too.
+
+When the honest answer is "the fix is code, not a query", say so and record the
+measurements in `.github/codeql/VALIDATION.md` so the next reader does not
+re-derive it and reach the other answer.
+
 ## 5. How to consume the shared baseline
 
 Each service extends the hub baseline and may only tighten:
