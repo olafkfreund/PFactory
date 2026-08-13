@@ -1,0 +1,221 @@
+# Factory fleet SECURITY-SINK lint baseline — whole-repo, BLOCKING.
+#
+# This file is the canonical rule set for `security_lint.py` beside it. It is
+# NOT `standards/ruff.toml` and does not extend it. The two exist for different
+# reasons and are enforced in different scopes, which is the whole point:
+#
+#   standards/ruff.toml   the full style+correctness bar, enforced DIFF-SCOPED
+#                         by each repo's ratchet ("legacy is fixed on touch").
+#   this file             a small set of security SINKS, enforced WHOLE-REPO,
+#                         blocking, with an explicit per-finding allowlist.
+#
+# WHY A SECOND, SEPARATE GATE (Factory: g2-seclint).
+# The diff-scoped ratchet was a correct engineering decision and is untouched by
+# this file. It is correct for style debt: an import-order nit in code nobody
+# opens harms nobody, and a whole-repo blocking `ruff check` on the full select
+# set is unlandable (measured 2026-08-13, whole-repo, each repo's pinned ruff:
+# PFactory 6436 errors on the strict set). But "fixed on touch" resolves to
+# NEVER for code nobody touches, and untouched code is precisely where old
+# vulnerabilities live. It also grades a legacy `pickle.load` on a user-writable
+# path — an unauthenticated RCE primitive — exactly like a legacy `I001`.
+#
+# The demonstrated cost: `skills_service.py` called `pickle.load` on a cache
+# file for months. PFactory fixed it (PFactory#533, pickle -> JSON) and the fix
+# never propagated; TFactory was still on `pickle.load` when this file was
+# written. Neither repo's CI could see it, because neither PR touched the other
+# repo's copy.
+#
+# ------------------------------------------------------------------------
+# CURATION PRINCIPLE
+# ------------------------------------------------------------------------
+# Include a rule when a violation is PLAUSIBLY EXPLOITABLE AS WRITTEN — i.e.
+# the finding itself, with no taint analysis, is already close to a bug.
+# Exclude a rule when the finding is only interesting given data flow ruff
+# cannot see. Those belong to CodeQL, which does do taint tracking, and doubling
+# them up here would buy nothing but a large grandfather list.
+#
+# The size of the allowlist IS the design constraint. A gate whose allowlist has
+# a hundred entries is a gate nobody reads the diff of. Measured against the
+# fleet on 2026-08-13, this rule set produces 18 findings across all five repos.
+# That is small enough that every one of them was individually triaged, and
+# small enough that adding an entry is a visible act.
+#
+# ------------------------------------------------------------------------
+target-version = "py311"
+
+# Deliberately NOT extending anything, and deliberately carrying no
+# per-file-ignores. Tests are in scope: `pickle.load` in a test fixture still
+# runs in CI, on a runner that holds fleet credentials. The 18 findings above
+# already include tests, so scoping tests out would buy nothing but a hole.
+[lint]
+# Nothing but the sinks. `select` is exhaustive and `ignore` is empty by
+# construction: a rule is either argued in below or argued out below, never
+# selected-then-silently-ignored.
+select = [
+    # === Arbitrary code execution / unsafe deserialization ================
+    # Every rule here means "an attacker who controls these bytes runs code".
+    # There is no benign form; the only question is reachability, which is a
+    # review question, not a lint question. Zero tolerance, allowlist by hand.
+    "S102",  # exec() on a string.
+    "S307",  # eval() on a string.
+    "S301",  # pickle/cPickle/dill/shelve load. THE rule this gate exists for.
+    "S302",  # marshal.loads — same primitive, less famous.
+    "S506",  # yaml.load without SafeLoader — !!python/object is exec by proxy.
+    "S612",  # logging.config.listen() — an unauthenticated eval() on a socket.
+    "S202",  # tarfile.extractall without a member filter — zip-slip / path
+             # traversal to arbitrary file write, which is RCE one cron job
+             # later. Not on the original candidate list; added because the
+             # fleet unpacks agent-produced archives (packed-path propagation).
+
+    # === Shell / command injection =======================================
+    # Included because the shell metacharacter problem is visible in the CALL
+    # SHAPE, not in the data flow: `shell=True` is dangerous whenever any part
+    # of the string is not a literal, and ruff can see `shell=True`.
+    "S602",  # subprocess(..., shell=True)
+    "S604",  # any call with shell=True
+    "S605",  # os.system / os.popen — a shell by construction
+    "S609",  # wildcard in a shell command (`chmod *`) — narrow, zero FPs seen
+    "S601",  # paramiko exec_command — a remote shell, same argument
+    "S103",  # chmod to a world-writable mode; the enabler for every one of the
+             # above once an attacker can write the file being executed.
+
+    # === Injection into other interpreters ===============================
+    "S608",  # SQL built by string concatenation / f-string.
+    "S610",  # Django .extra()
+    "S611",  # Django RawSQL
+
+    # === TLS / certificate validation ====================================
+    # A disabled certificate check is exploitable with no data flow at all: the
+    # attacker is the network. This whole block was MISSING from the original
+    # candidate list and is, on any OWASP reading (A02:2021), higher severity
+    # than most of what was on it.
+    "S501",  # requests(..., verify=False) — silent MITM
+    "S323",  # ssl._create_unverified_context()
+    "S502",  # ssl with an insecure protocol version
+    "S503",  # ssl with insecure defaults
+    "S504",  # ssl without a version specified
+    "S507",  # paramiko AutoAddPolicy / missing host key policy
+
+    # === Cryptography ====================================================
+    "S324",  # md5/sha1 WITHOUT usedforsecurity=False. Note the negative: ruff
+             # already honours the kwarg, so the surviving findings are exactly
+             # the ones that never declared themselves non-security. That makes
+             # this rule cheap and its fix self-documenting.
+    "S303",  # insecure hash function via a crypto lib
+    "S304",  # insecure cipher
+    "S305",  # insecure cipher MODE (ECB)
+    "S505",  # weak key size (RSA < 2048 etc.)
+    "S306",  # tempfile.mktemp — a symlink race by construction, unlike S108
+
+    # === XML ==============================================================
+    # `xml.etree` and friends are documented by CPython as vulnerable to
+    # entity-expansion DoS (billion laughs, quadratic blowup). The fleet parses
+    # coverage.xml and playwright junit.xml produced by RUNNING CODE THE FLEET
+    # DID NOT WRITE, inside the sandbox, so "the input is ours" is false here.
+    "S313", "S314", "S315", "S316", "S317", "S318", "S319",
+
+    # === Cleartext protocols =============================================
+    "S312",  # telnetlib
+    "S321",  # ftplib
+
+    # === Web-framework foot-guns =========================================
+    "S201",  # flask app.run(debug=True) — the werkzeug console is an RCE shell
+    "S701",  # jinja2 autoescape=False — stored XSS
+    "S702",  # mako templates (no autoescape at all)
+
+    # === SNMP =============================================================
+    # Zero findings and no SNMP in the fleet. Kept because the cost of a rule
+    # with no findings is zero and its value is preventing the FIRST one; that
+    # is the same argument that makes S102/S307 worth selecting at zero.
+    "S508", "S509",
+]
+
+# ------------------------------------------------------------------------
+# ARGUED OUT — every exclusion below is a decision, not an oversight.
+#
+# The rule for reading this list: these are all in the `S` ruleset and all
+# still enforced DIFF-SCOPED by standards/ruff.toml on any file a PR touches.
+# Excluding one here demotes it from "blocking whole-repo" to "blocking on
+# touch". It does not unenforce it.
+#
+#   S101  assert. Not a sink; it is a `python -O` correctness rule. 10,608
+#         findings in TFactory alone — this single rule would be 99% of the
+#         gate's output and 0% of its value.
+#
+#   S104  hardcoded bind to 0.0.0.0. In a container this is REQUIRED, and every
+#         one of the 4-7 findings per repo is a uvicorn host in a pod. The
+#         actual control is the NetworkPolicy / Service, not the bind address.
+#         A rule that is wrong on every current instance trains people to
+#         allowlist without reading.
+#
+#   S105/S106/S107  "possible hardcoded password". This is the biggest
+#         disagreement with the original candidate list, and the reason is
+#         that these rules match on the NAME, not the value. Every one of the
+#         ~30 non-test findings fleet-wide was inspected on 2026-08-13; all are
+#         false: `DEFAULT_TOKEN_FILE` (a path), `_LANG_TOKEN` (a parser token),
+#         `token` inside a SQL TOKENIZER in database_validators.py, `_PASS_SEL`
+#         (a CSS selector), `password_hash=` (an argument name), and
+#         `DEV_AUDIT_HMAC_SECRET`, which is a labelled dev default already
+#         guarded at runtime by check_audit_secret() (CFactory#81).
+#         Including them costs ~90 allowlist entries per repo to catch zero
+#         real secrets. A hardcoded secret is a SECRET-SCANNER's job — the
+#         value's entropy and shape, not the variable's name.
+#         *** THIS LEAVES A REAL GAP: the fleet runs no gitleaks/trufflehog/
+#         detect-secrets in any repo (checked across all five .github trees on
+#         2026-08-13). That is tracked separately; it is not fixed by
+#         pretending S105 is a secret scanner. ***
+#
+#   S108  hardcoded /tmp path. 79-90 findings each, ~99% in tests. The threat
+#         is a symlink race by a second local user; fleet code runs one-user in
+#         a container. The genuinely dangerous shape — a predictable path that
+#         is later DESERIALIZED — is caught by S301 above, at the sink, which
+#         is where it matters. S306 (mktemp) is kept because that one IS a race
+#         with no benign reading.
+#
+#   S110/S112  try-except-pass / try-except-continue. Error swallowing. A real
+#         smell, covered by BLE in the style ratchet; not a sink.
+#
+#   S113  requests without a timeout. Availability, not a sink. Noisy.
+#
+#   S311  random instead of secrets. Zero findings today, which is the reason
+#         to leave it out rather than a reason to add it: the fleet already
+#         uses `secrets` where it matters, while `random` for backoff jitter
+#         and sampling is correct and common. Selecting it would generate a
+#         steady stream of allowlist entries for jitter, and an allowlist that
+#         grows on correct code is an allowlist nobody reads.
+#
+#   S310  urllib.urlopen (SSRF / file:// scheme). 32-38 findings per repo.
+#         Genuinely a real class — and genuinely a TAINT question: the rule
+#         fires identically on a constant URL and an attacker-supplied one.
+#         CodeQL's `py/ssrf` and `py/full-ssrf` do the analysis ruff cannot,
+#         and a fleet-wide SSRF remediation is in flight behind a shared
+#         request helper. A raw-call gate now would fight that fix and
+#         grandfather 100+ entries. Revisit once the helper has landed: the
+#         right rule then is "urlopen outside the helper", which is a grep, not
+#         an S rule.
+#
+#   S603  subprocess without shell=True. 157-228 findings per repo. THE
+#         EXPLOITABLE SUBSET WAS LOOKED FOR AND IS NOT STATICALLY SEPARABLE:
+#         an argv-list call is injection-safe by construction *unless an
+#         element is attacker-controlled*, and which element is tainted is
+#         exactly the thing ruff does not compute. Splitting on "argv[0] is not
+#         a literal" was tried and does not survive contact — the fleet's
+#         runners legitimately build argv[0] from a resolved tool path. This
+#         sink is CodeQL's (`py/command-line-injection`), and it has it.
+#
+#   S606  start-process-with-no-shell. Same argument as S603; argv-based.
+#
+#   S607  partial executable path (`git`, `kubectl`, `npm`). 198-308 findings.
+#         Exploitable only when PATH is attacker-influenced. The exploitable
+#         subset — a partial path in a privileged context — is again a property
+#         of the environment, not of the call site. The durable control here is
+#         the baked-CLI image work, not a lint rule.
+#
+#   S308  django mark_safe, S613 itsdangerous. No Django, no itsdangerous.
+#         Selecting a rule for a framework the fleet does not use is how a
+#         select list becomes decoration.
+#
+#   S320  removed from ruff. (Selecting it is a hard error, not a no-op —
+#         found the hard way; leaving this line here so the next person does
+#         not re-add it from an old bandit table.)
+# ------------------------------------------------------------------------
