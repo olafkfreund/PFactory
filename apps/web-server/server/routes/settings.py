@@ -14,8 +14,10 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Body
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, AliasChoices
+from fastapi import APIRouter, Body, HTTPException, Query
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SecretStr, field_validator
+
+from factory_common.logsafe import sanitize_log
 from server.services.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 
 # --------------------------------------------------------------------------
@@ -428,7 +430,6 @@ async def get_api_token():
 async def regenerate_api_token():
     """Regenerate the API token."""
     import secrets
-    from pathlib import Path
 
     from ..paths import get_data_file
 
@@ -539,7 +540,7 @@ async def update_api_key(request: UpdateApiKeyRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update API key: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update API key: {e!s}")
 
 
 @router.get("/local-llm/detect")
@@ -837,7 +838,7 @@ async def list_openai_compat_models(
 
         return {"models": models}
     except Exception:
-        logger.exception("Failed to list OpenAI-compatible models from %s", baseUrl)
+        logger.exception("Failed to list OpenAI-compatible models from %s", sanitize_log(baseUrl))
         return {"success": False, "error": "Failed to list models from the configured server"}
 
 
@@ -884,7 +885,9 @@ async def test_openai_compat_connection(request: OpenAICompatTestRequest):
             "message": f"Connected successfully. {model_count} model(s) available.",
         }
     except Exception:
-        logger.exception("OpenAI-compatible connection test failed for %s", request.baseUrl)
+        logger.exception(
+            "OpenAI-compatible connection test failed for %s", sanitize_log(request.baseUrl)
+        )
         return {"success": False, "error": "Connection test failed"}
 
 
@@ -895,8 +898,9 @@ async def pull_ollama_model(
 ):
     """Pull (download) an Ollama model."""
     try:
-        import httpx
         import json
+
+        import httpx
 
         pull_url = assert_safe_outbound_url(f"{ollamaBaseUrl}/api/pull", allow_private=True)
 
@@ -914,7 +918,7 @@ async def pull_ollama_model(
 
                 return {"success": True, "message": f"Model {modelName} pulled successfully"}
     except Exception:
-        logger.exception("Failed to pull Ollama model %s", modelName)
+        logger.exception("Failed to pull Ollama model %s", sanitize_log(modelName))
         return {"success": False, "error": "Failed to pull the requested model"}
 
 
@@ -997,9 +1001,9 @@ async def save_tab_state(state: dict):
         tab_file.write_text(json.dumps(state, indent=2))
         return {"success": True}
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save tab state: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save tab state: {e!s}")
     except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid tab state data: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid tab state data: {e!s}")
 
 
 # --------------------------------------------------------------------------
@@ -1274,7 +1278,7 @@ async def rename_claude_profile(profile_id: str, update: ProfileRename):
         save_profiles(data)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to rename Claude profile %s", profile_id)
+        logger.exception("Failed to rename Claude profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to rename profile"}
 
 
@@ -1304,7 +1308,7 @@ async def set_active_claude_profile(request: ActiveProfileRequest):
         _sync_env_token_for_active_profile(data, request.profileId, logger)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to set active Claude profile %s", request.profileId)
+        logger.exception("Failed to set active Claude profile %s", sanitize_log(request.profileId))
         return {"success": False, "error": "Failed to set active profile"}
 
 
@@ -1335,7 +1339,7 @@ async def initialize_claude_profile(profile_id: str):
         save_profiles(data)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to initialize Claude profile %s", profile_id)
+        logger.exception("Failed to initialize Claude profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to initialize profile"}
 
 
@@ -1497,7 +1501,7 @@ async def set_claude_profile_token(profile_id: str, request: SetTokenRequest):
         _sync_env_token_for_active_profile(data, data.get("activeProfileId"), logger)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to set token for Claude profile %s", profile_id)
+        logger.exception("Failed to set token for Claude profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to set profile token"}
 
 
@@ -1751,7 +1755,7 @@ async def retry_with_profile(request: RetryWithProfileRequest):
         return response
 
     except Exception:
-        logger.exception("Failed to switch profile to %s", request.profileId)
+        logger.exception("Failed to switch profile to %s", sanitize_log(request.profileId))
         return {"success": False, "error": "Failed to switch profile"}
 
 
@@ -2020,7 +2024,7 @@ async def update_api_profile(profile_id: str, profile_update: ApiProfileUpdate):
         return {"success": True, "data": updated_profile}
 
     except Exception:
-        logger.exception("Failed to update API profile %s", profile_id)
+        logger.exception("Failed to update API profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to update API profile"}
 
 
@@ -2088,7 +2092,7 @@ async def delete_api_profile(profile_id: str):
         }
 
     except Exception:
-        logger.exception("Failed to delete API profile %s", profile_id)
+        logger.exception("Failed to delete API profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to delete API profile"}
 
 
@@ -2117,7 +2121,7 @@ async def set_active_api_profile(request: dict):
         save_api_profiles(data)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to set active API profile %s", profile_id)
+        logger.exception("Failed to set active API profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to set active profile"}
 
 
@@ -2145,7 +2149,7 @@ async def test_api_connection(request: TestConnectionRequest):
         build_no_redirect_opener().open(req, timeout=10)
         return {"success": True, "data": {"connected": True}}
     except Exception:
-        logger.exception("API connection test failed for %s", request.baseUrl)
+        logger.exception("API connection test failed for %s", sanitize_log(request.baseUrl))
         return {"success": False, "error": "Connection test failed"}
 
 
@@ -2169,7 +2173,7 @@ async def discover_api_models(request: TestConnectionRequest):
         models = [m.get("id") for m in data.get("data", [])]
         return {"success": True, "data": models}
     except Exception:
-        logger.exception("Failed to discover models from %s", request.baseUrl)
+        logger.exception("Failed to discover models from %s", sanitize_log(request.baseUrl))
         return {"success": False, "error": "Failed to discover models"}
 
 
@@ -2328,11 +2332,9 @@ async def update_source_env(config: SourceEnvUpdate):
     except HTTPException:
         raise
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse existing .env file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse existing .env file: {e!s}")
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to update source environment: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to update source environment: {e!s}")
 
 
 @router.get("/source-token-check")

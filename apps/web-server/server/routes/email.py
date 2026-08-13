@@ -8,6 +8,8 @@ Handles:
 - Checking OAuth credential configuration status
 """
 
+import html as html_lib
+import json
 import logging
 import os
 import secrets
@@ -665,7 +667,7 @@ def _oauth_result_html(
 <html>
 <head><title>PFactory - Email Connection</title></head>
 <body>
-<p>{message}</p>
+<p>{html_lib.escape(message)}</p>
 <script>
   if (window.opener) {{
     window.opener.postMessage({{
@@ -684,5 +686,30 @@ def _oauth_result_html(
 
 
 def _js_string(s: str) -> str:
-    """Escape a string for safe embedding in JavaScript."""
-    return "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'"
+    """Encode a string as a JS literal safe inside an inline ``<script>``.
+
+    The hand-rolled quote/backslash/newline escaping this replaced did not touch
+    ``<``, so a value containing ``</script>`` closed the block and everything
+    after it was parsed as HTML - the callback's ``?error=`` query parameter is
+    attacker-supplied and reaches here verbatim (CWE-79, py/reflective-xss).
+
+    ``json.dumps`` is the JS string grammar, so it handles the quoting; the
+    translate table then covers what JSON and JS disagree about:
+
+    * ``<`` -> ``\\u003c`` so no substring of the value can ever spell
+      ``</script>``. Escaping the ``<`` is what makes this safe, not escaping
+      the quote - the HTML tokenizer looks for the tag, not for balanced JS.
+    * U+2028/U+2029 are legal in JSON strings but were line terminators in JS
+      before ES2019, and an old embedded webview is still a syntax error away
+      from executing the tail of the page as its own script.
+    """
+    return json.dumps(s).translate(_JS_LITERAL_ESCAPES)
+
+
+#: Written as ordinals rather than literal characters: U+2028/U+2029 are
+#: invisible in an editor and a reviewer cannot tell them from a space.
+_JS_LITERAL_ESCAPES = {
+    ord("<"): "\\u003c",
+    0x2028: "\\u2028",
+    0x2029: "\\u2029",
+}

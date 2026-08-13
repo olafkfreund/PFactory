@@ -22,6 +22,8 @@ or put ``{exc}`` back in any caller's sentence, and every
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
 import subprocess
@@ -34,7 +36,15 @@ _WEB_SERVER = Path(__file__).resolve().parents[1]
 if str(_WEB_SERVER) not in sys.path:
     sys.path.insert(0, str(_WEB_SERVER))
 
+# apps/backend must be importable before `server.routes.github` pulls in `plan`;
+# the route does this insert itself at call time, so mirror it here.
+_BACKEND = _WEB_SERVER.parent / "backend"
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from plan.service import SERVICE  # noqa: E402
 from server.error_ref import error_message, error_reference  # noqa: E402
+from server.routes import github, terminal  # noqa: E402
 from server.services import git_utils, pr_data_service  # noqa: E402
 
 # An exception shaped like the ones these wrappers actually catch: it names an
@@ -149,3 +159,73 @@ def test_known_failures_keep_their_plain_message(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(subprocess, "run", missing)
     assert git_utils.run_gh_command(["pr", "list"])["error"] == "GitHub CLI (gh) not installed"
+
+
+# ---------------------------------------------------------------------------
+# The two remaining py/stack-trace-exposure sinks (#547 follow-up).
+#
+# Both are the SAME shape as the wrappers above, but they live in the ROUTE, not
+# in a shared helper, so driving the helper would never have caught them. Each
+# was an `except ValueError` arm whose comment asserted the message was a
+# curated, hand-authored string. That is true of SOME of the ValueErrors those
+# blocks catch and false of the rest, and the handler cannot tell at the point
+# it has to produce a body which one it is holding.
+# ---------------------------------------------------------------------------
+
+
+def _leaky_value_error() -> ValueError:
+    """The shape `confine_to_workspace` and the plan pipeline actually raise."""
+    try:
+        raise ValueError(BOOM_MSG)
+    except ValueError as exc:
+        return exc
+
+
+def test_remove_terminal_worktree_body_leaks_nothing(
+    monkeypatch: pytest.MonkeyPatch, captured: pytest.LogCaptureFixture
+) -> None:
+    """routes/terminal.py: `TerminalWorktreeService(project)` puts the path
+    through `confine_to_workspace`, whose ValueError quotes the rejected path
+    and names the allowed roots."""
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise _leaky_value_error()
+
+    monkeypatch.setattr(terminal, "TerminalWorktreeService", boom)
+    result = asyncio.run(
+        terminal.remove_terminal_worktree("wt", project="/srv/ws/acme", deleteBranch=False)
+    )
+    assert result["success"] is False
+    ref = assert_no_leak(result["error"])
+    # ...and the operator still gets the whole failure, under that same id.
+    assert ref in captured.text
+    assert LEAKY_PATH in captured.text
+
+
+def test_plan_review_pr_body_leaks_nothing(
+    monkeypatch: pytest.MonkeyPatch, captured: pytest.LogCaptureFixture
+) -> None:
+    """routes/github.py: the bare `ValueError` arm around the plan pipeline."""
+    monkeypatch.setattr(
+        github,
+        "run_gh_command",
+        lambda *_a, **_k: {
+            "success": True,
+            "output": json.dumps({"title": "t", "body": "b"}),
+        },
+    )
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise _leaky_value_error()
+
+    monkeypatch.setattr(SERVICE, "ingest_text", boom)
+
+    response = asyncio.run(
+        github.plan_review_pr(7, github.PlanReviewPRRequest(repo="o/n", pr_number=7))
+    )
+    assert response.status_code == 400
+    body = json.loads(response.body)
+    assert body["success"] is False
+    ref = assert_no_leak(body["error"])
+    assert ref in captured.text
+    assert LEAKY_PATH in captured.text

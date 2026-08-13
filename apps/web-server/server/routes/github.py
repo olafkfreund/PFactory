@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 
 from ..services.git_utils import run_gh_command, safe_spec_component  # #335
 
@@ -554,15 +555,25 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
         # identical while /api/health and other requests stay served.
         await SERVICE.process_async(session.session_id)
     except (PlanServiceError, ValueError) as exc:
-        # PlanServiceError/ValueError here are hand-authored, curated messages
-        # from plan.service (e.g. "process the plan before approving") - safe
-        # to surface to the caller as-is, not an internal leak.
-        logger.warning(
-            "Plan review ingest/process failed for PR #%s: %s",
-            sanitize_log(pr_number),
-            sanitize_log(exc),
+        # PlanServiceError's own text is curated, but the bare `ValueError` arm
+        # catches whatever the whole ingest/process pipeline raises - a json
+        # decode, an int() on a malformed field, a pathlib relative_to - and
+        # those messages carry on-disk paths and library internals. One handler
+        # cannot tell the two apart at the point it must produce a body, so the
+        # detail goes to the log under a correlation id and the caller gets the
+        # id. Costs the curated wording; the operator still has it in one grep.
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": error_message(
+                    logger,
+                    f"plan review ingest/process failed for PR #{pr_number}",
+                    exc,
+                    "the plan could not be reviewed",
+                ),
+            },
         )
-        return JSONResponse(status_code=400, content={"success": False, "error": str(exc)})
 
     comment_body = _render_plan_review_comment(request.repo, pr_number, session)
 
@@ -782,7 +793,7 @@ async def _monitor_gh_auth(proc: asyncio.subprocess.Process):
                 "error": "Authentication flow did not complete. Please try again.",
             }
             log.warning("[GitHub Auth] Process exited with code %s", sanitize_log(proc.returncode))
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _gh_auth_status = {
             "complete": True,
             "success": False,
@@ -867,7 +878,7 @@ async def start_github_auth():
                 while True:
                     try:
                         line = await asyncio.wait_for(stream.readline(), timeout=15)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         break
                     if not line:
                         break
@@ -1078,7 +1089,27 @@ project_router = APIRouter()
 
 
 def _resolve_project_path(projectId: str) -> FilePath | None:
-    """Resolve a project ID to its filesystem path."""
+    """Resolve a project ID to its filesystem path.
+
+    CodeQL reports three `py/path-injection-sanitized` sinks downstream of this
+    function (pr_data_service 253/594, pr_review_service 154) with `projectId`
+    as the source. Deliberately NOT wrapped in `confine_to_workspace`, because
+    here that barrier cannot fail: `_allowed_roots()` is the workspace root plus
+    *every registered project root*, and the value being checked IS a registered
+    project root, so `resolved == root` always matches. Calling it would clear
+    the three alerts - it is a registered sanitizer in
+    .github/codeql/custom-queries/PathInjectionSanitized.ql - while changing
+    nothing at runtime, which is silencing dressed as a fix.
+
+    What actually confines these paths is above and behind this line:
+    `projectId` is only ever a dict KEY, constrained by the `not in projects`
+    test to the finite set of registered ids, and the `path` VALUE it selects is
+    written solely by `routes/projects.add_project` / `update_project`, both of
+    which do run `confine_to_workspace` on the request-supplied path. No
+    caller-supplied *text* reaches the path expression; the caller only picks
+    which already-confined project to address. See the PR body for the writer
+    enumeration.
+    """
     from .projects import load_projects
 
     projects = load_projects()
@@ -1093,7 +1124,7 @@ def _map_gh_issue(issue: dict, repo_full_name: str = "") -> dict:
     author = issue.get("author", {}) or {}
     assignees = issue.get("assignees", []) or []
     labels = issue.get("labels", []) or []
-    milestone = issue.get("milestone", None)
+    milestone = issue.get("milestone")
 
     return {
         "id": issue.get("number", 0),
@@ -1128,7 +1159,7 @@ def _map_gh_issue(issue: dict, repo_full_name: str = "") -> dict:
         "repoFullName": repo_full_name,
         "createdAt": issue.get("createdAt", ""),
         "updatedAt": issue.get("updatedAt", ""),
-        "closedAt": issue.get("closedAt", None),
+        "closedAt": issue.get("closedAt"),
     }
 
 
@@ -1426,7 +1457,7 @@ async def get_project_github_repositories(projectId: str):
                 "isPrivate": repo_info.get("isPrivate", False),
             }
             return {"success": True, "data": [mapped_repo]}
-        except Exception as e:
+        except Exception:
             return {"success": True, "data": []}
 
     result = run_gh_command(
