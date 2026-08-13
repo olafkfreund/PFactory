@@ -57,8 +57,12 @@ test('regex metacharacters in the version are matched literally', () => {
   // Sanity: the construction this replaced really was injectable. It escaped
   // dots and left every other metacharacter live, so these two "versions"
   // matched a changelog that contains neither of them literally.
-  const legacy = (version) =>
-    new RegExp(`^## ${version.replace(/\./g, '\\.')}(\\s|-)`, 'm').test(CHANGELOG);
+  //
+  // The escaped forms are written out as literals rather than produced by the
+  // old `version.replace(/\./g, '\\.')` call, so this test does not itself
+  // carry the incomplete sanitizer it is describing.
+  const legacy = (escapedVersion) =>
+    new RegExp(`^## ${escapedVersion}(\\s|-)`, 'm').test(CHANGELOG);
   assert.equal(legacy('\\S+'), true);
-  assert.equal(legacy('[0-9].[0-9].[0-9]'), true);
+  assert.equal(legacy('[0-9]\\.[0-9]\\.[0-9]'), true);
 });
