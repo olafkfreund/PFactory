@@ -67,6 +67,14 @@ LEGACY_TOKEN = _SESS + "legacy" + "A" * 42
 NEW_TOKEN = _OAT + "B" * 40
 API_KEY = _PROJ + "C" * 40
 
+# A second, distinct token. Every other fixture in this file holds exactly ONE
+# profile, and a one-profile store cannot tell "seals every entry" from "seals
+# the first entry" -- _map_profiles loops, but nothing proved the loop. The
+# multi-profile store is not a hypothetical: it is the whole point of the token
+# pool (RFC-0016 #670), which hands DISTINCT credentials to concurrent builds.
+# So the untested case was the one the feature exists for.
+SECOND_TOKEN = _OAT + "D" * 40
+
 # Any run of this many characters of a secret appearing in the file is a leak.
 # 12 is the width a previous fleet fix leaked through while a whole-string
 # assertion stayed green.
@@ -268,6 +276,33 @@ def test_mutation_sabotaging_seal_turns_the_at_rest_check_red(
         match=rf"{WINDOW}-char window .*secret length {len(NEW_TOKEN)}",
     ):
         assert_absent((data_dir / "claude-profiles.json").read_bytes(), NEW_TOKEN)
+
+
+def test_every_profile_is_sealed_not_just_the_first(store: tuple[Any, Path]) -> None:
+    """A store with two tokens must have BOTH sealed, and both must round-trip.
+
+    Truncating the seal loop to its first entry leaves every other test in this
+    file green: they all use a single-profile store, where "first" and "every"
+    are the same thing.
+    """
+    settings_routes, data_dir = store
+    settings_routes.save_profiles(
+        {
+            "profiles": [
+                {"id": "p1", "name": "Work", "oauthToken": NEW_TOKEN},
+                {"id": "p2", "name": "Personal", "oauthToken": SECOND_TOKEN},
+            ],
+            "activeProfileId": "p1",
+        }
+    )
+
+    raw = (data_dir / "claude-profiles.json").read_bytes()
+    assert_absent(raw, NEW_TOKEN)
+    assert_absent(raw, SECOND_TOKEN)
+    assert raw.count(b"enc.v1:") == 2
+
+    loaded = settings_routes.load_profiles()
+    assert [p["oauthToken"] for p in loaded["profiles"]] == [NEW_TOKEN, SECOND_TOKEN]
 
 
 def test_window_check_catches_a_partial_leak() -> None:
