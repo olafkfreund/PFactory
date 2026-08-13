@@ -358,21 +358,21 @@ def _safe_extract(blob: bytes, dest_dir: Path) -> None:
     """Extract a tar.gz blob into ``dest_dir``, rejecting any member that would
     escape it (absolute paths, ``..`` traversal, or links pointing outside).
 
-    Uses tarfile's ``data`` filter when available (Python 3.12+, CVE-2007-4559
-    hardening) and ALWAYS applies an explicit per-member containment check so the
-    guard holds on older runtimes too — nothing is written if any member fails."""
+    Two independent guards, neither relying on the other: an explicit per-member
+    containment check BEFORE anything is written, then tarfile's ``data`` filter
+    (CVE-2007-4559 hardening) on the extraction itself."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
         for member in tar.getmembers():
             _vet_member(member, dest_dir)
-    # Re-open: getmembers() above consumed the stream. Extract with the stdlib
-    # ``data`` filter as defence-in-depth on top of the explicit per-member checks.
-    use_data_filter = hasattr(tarfile, "data_filter")  # Python 3.12+
+    # Re-open: getmembers() above consumed the stream. `filter="data"` is not
+    # conditional on the runtime: it has shipped since 3.9.17/3.10.12/3.11.4/3.12
+    # and every consumer of this module is well past that. The old
+    # `hasattr(tarfile, "data_filter")` fallback called extractall() with NO
+    # filter, which is an unguarded extraction sink on paper (CodeQL py/tarslip,
+    # Factory#1) even though _vet_member had already vetted the members.
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
-        if use_data_filter:
-            tar.extractall(dest_dir, filter="data")
-        else:  # pragma: no cover - only on Python < 3.12
-            tar.extractall(dest_dir)  # noqa: S202 — members vetted above
+        tar.extractall(dest_dir, filter="data")
 
 
 def pack_workspace(store: ArtifactStore, ref: ArtifactRef, src_dir: str | os.PathLike[str]) -> str:
