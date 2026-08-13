@@ -176,7 +176,10 @@ def check_ollama_running(base_url: str | None = None) -> bool:
             f"{base_url or 'http://localhost:11434'}/api/tags", allow_private=True
         )
     except ValueError as exc:
-        logger.warning("refusing to probe Ollama at %r: %s", base_url, exc)
+        # The caller's URL is deliberately NOT echoed: it would put attacker
+        # text straight into the log (py/log-injection). The guard's own
+        # message names the reason, which is what an operator needs.
+        logger.warning("refusing to probe Ollama, unsafe base URL: %s", exc)
         return False
     try:
         build_no_redirect_opener().open(probe_url, timeout=5)
@@ -272,7 +275,8 @@ async def pull_ollama_model(request: PullModelRequest):
         # self-hosted Ollama on a private address is the normal case.
         pull_url = assert_safe_outbound_url(f"{url}/api/pull", allow_private=True)
     except ValueError as exc:
-        logger.warning("refusing to pull from Ollama at %r: %s", url, exc)
+        # Same reason as check_ollama_running: the URL is not echoed.
+        logger.warning("refusing to pull from Ollama, unsafe base URL: %s", exc)
         return {"success": False, "error": "Refusing to contact that Ollama URL"}
 
     try:
