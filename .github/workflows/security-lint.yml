@@ -51,7 +51,7 @@ env:
   #
   # >>> DRAFT: replace with the SQUASH-MERGE SHA of Factory#726 before this
   # >>> leaves draft. A pin to a branch head is not a pin; it moves under you.
-  HUB_PIN_SHA: "0c6991fb4ff537459b0330dc7778fa47ca337801"
+  HUB_PIN_SHA: "a6e5289f1a31b5b568402b9c616cb4fb828431bf"
 
 jobs:
   security-sinks:

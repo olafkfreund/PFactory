@@ -433,9 +433,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("targets", nargs="*", default=["."])
     parser.add_argument("--config", type=Path, default=_DEFAULT_CONFIG)
-    parser.add_argument(
-        "--allowlist", type=Path, default=Path("security-lint-allowlist.toml")
-    )
+    parser.add_argument("--allowlist", type=Path, default=Path("security-lint-allowlist.toml"))
     parser.add_argument("--ruff", default="ruff")
     parser.add_argument(
         "--today", default=None, help="override today's date (YYYY-MM-DD), for tests"
