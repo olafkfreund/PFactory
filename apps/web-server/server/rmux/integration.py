@@ -17,6 +17,8 @@ import logging
 import os
 from pathlib import Path
 
+from factory_common.logsafe import sanitize_log
+
 from .session import get_registry
 
 logger = logging.getLogger(__name__)
@@ -68,7 +70,7 @@ async def create_if_enabled(
     except Exception:
         logger.warning(
             "rmux create_for_task failed (falling back to PTY); spec_id=%s",
-            spec_id,
+            sanitize_log(spec_id),
             exc_info=True,
         )
         return None
@@ -88,7 +90,5 @@ async def reap_if_enabled(spec_id: str) -> None:
         await registry.reap_for_task(spec_id)
     except Exception:
         logger.warning(
-            "rmux reap_for_task failed (ignored); spec_id=%s",
-            spec_id,
-            exc_info=True,
+            "rmux reap_for_task failed (ignored); spec_id=%s", sanitize_log(spec_id), exc_info=True
         )

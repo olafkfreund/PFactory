@@ -17,8 +17,9 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..services.git_utils import run_gh_command, safe_spec_component  # #335
+from factory_common.logsafe import sanitize_log
 
+from ..services.git_utils import run_gh_command, safe_spec_component  # #335
 
 logger = logging.getLogger(__name__)
 
@@ -449,7 +450,11 @@ async def dispatch_to_copilot(request: CopilotDispatchRequest):
     try:
         meta = SERVICE.dispatch(request.repo, request.issueNumber)
     except RuntimeError:
-        logger.exception("Copilot dispatch failed for %s#%s", request.repo, request.issueNumber)
+        logger.exception(
+            "Copilot dispatch failed for %s#%s",
+            sanitize_log(request.repo),
+            sanitize_log(request.issueNumber),
+        )
         return JSONResponse(
             status_code=502, content={"success": False, "error": "Copilot dispatch failed"}
         )
@@ -530,7 +535,7 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
     try:
         pr = json.loads(view["output"])
     except json.JSONDecodeError:
-        logger.exception("failed to parse PR JSON for #%s", pr_number)
+        logger.exception("failed to parse PR JSON for #%s", sanitize_log(pr_number))
         return JSONResponse(
             status_code=502,
             content={"success": False, "error": "failed to parse PR data"},
@@ -552,7 +557,11 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
         # PlanServiceError/ValueError here are hand-authored, curated messages
         # from plan.service (e.g. "process the plan before approving") - safe
         # to surface to the caller as-is, not an internal leak.
-        logger.warning("Plan review ingest/process failed for PR #%s: %s", pr_number, exc)
+        logger.warning(
+            "Plan review ingest/process failed for PR #%s: %s",
+            sanitize_log(pr_number),
+            sanitize_log(exc),
+        )
         return JSONResponse(status_code=400, content={"success": False, "error": str(exc)})
 
     comment_body = _render_plan_review_comment(request.repo, pr_number, session)
@@ -772,7 +781,7 @@ async def _monitor_gh_auth(proc: asyncio.subprocess.Process):
                 "success": False,
                 "error": "Authentication flow did not complete. Please try again.",
             }
-            log.warning(f"[GitHub Auth] Process exited with code {proc.returncode}")
+            log.warning("[GitHub Auth] Process exited with code %s", sanitize_log(proc.returncode))
     except asyncio.TimeoutError:
         _gh_auth_status = {
             "complete": True,
@@ -1473,7 +1482,9 @@ async def check_project_github_connection(projectId: str):
                 },
             }
         except Exception:
-            logger.exception("GitHub connection check failed for project %s", projectId)
+            logger.exception(
+                "GitHub connection check failed for project %s", sanitize_log(projectId)
+            )
             return {
                 "success": True,
                 "data": {
@@ -1729,7 +1740,11 @@ async def investigate_github_issue(projectId: str, issueNumber: int, request: In
                 except Exception:
                     all_comments = []
             except Exception:
-                logger.exception("Failed to fetch issue #%s for project %s", issueNumber, projectId)
+                logger.exception(
+                    "Failed to fetch issue #%s for project %s",
+                    sanitize_log(issueNumber),
+                    sanitize_log(projectId),
+                )
                 return {
                     "success": False,
                     "error": "Failed to fetch issue",
@@ -1805,7 +1820,9 @@ async def investigate_github_issue(projectId: str, issueNumber: int, request: In
             analysis_data = analysis_result
         except Exception:
             # If AI analysis fails, still return the issue data
-            logger.exception("AI analysis failed for issue %s", issue_info.get("number"))
+            logger.exception(
+                "AI analysis failed for issue %s", sanitize_log(issue_info.get("number"))
+            )
             analysis_status = "failed"
             analysis_data = {
                 "error": "AI analysis failed",
@@ -1990,7 +2007,7 @@ async def get_project_github_prs(
             prs = [_map_provider_pr(pr) for pr in prs_raw]
             return {"success": True, "data": prs}
         except Exception:
-            logger.exception("Failed to fetch PRs for project %s", projectId)
+            logger.exception("Failed to fetch PRs for project %s", sanitize_log(projectId))
             return {"success": False, "error": "Failed to fetch pull requests"}
 
     from ..services.pr_data_service import get_pr_data_service
@@ -2180,7 +2197,7 @@ async def post_pr_comment(
             comment_id = await provider.add_comment(prNumber, request.body)
             return {"success": True, "data": {"commentId": comment_id}}
         except Exception:
-            logger.exception("Failed to post PR comment for #%s", prNumber)
+            logger.exception("Failed to post PR comment for #%s", sanitize_log(prNumber))
             return JSONResponse(
                 status_code=500, content={"success": False, "error": "Failed to post PR comment"}
             )
@@ -2223,7 +2240,7 @@ async def approve_pr(
             await provider.post_review(prNumber, review)
             return {"success": True}
         except Exception:
-            logger.exception("Failed to approve PR #%s", prNumber)
+            logger.exception("Failed to approve PR #%s", sanitize_log(prNumber))
             return JSONResponse(
                 status_code=500, content={"success": False, "error": "Failed to approve PR"}
             )
@@ -2266,7 +2283,7 @@ async def merge_pr(
                     status_code=500, content={"success": False, "error": "Failed to merge PR"}
                 )
         except Exception:
-            logger.exception("Failed to merge PR #%s", prNumber)
+            logger.exception("Failed to merge PR #%s", sanitize_log(prNumber))
             return JSONResponse(
                 status_code=500, content={"success": False, "error": "Failed to merge PR"}
             )

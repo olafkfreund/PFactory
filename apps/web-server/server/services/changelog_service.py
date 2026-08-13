@@ -13,6 +13,8 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+from factory_common.logsafe import sanitize_log
+
 from ..config import get_settings
 from ..websockets.events import broadcast_event
 
@@ -103,7 +105,9 @@ class ChangelogService:
     ) -> bool:
         """Start changelog generation for a project."""
         if self.is_running(project_id):
-            logger.warning(f"Changelog generation already running for project {project_id}")
+            logger.warning(
+                "Changelog generation already running for project %s", sanitize_log(project_id)
+            )
             return False
 
         settings = get_settings()
@@ -111,7 +115,7 @@ class ChangelogService:
         changelog_runner = backend_path / "runners" / "changelog_runner.py"
 
         if not changelog_runner.exists():
-            logger.error(f"changelog_runner.py not found at {changelog_runner}")
+            logger.error("changelog_runner.py not found at %s", sanitize_log(changelog_runner))
             await self._emit_error(project_id, "Changelog runner not found")
             return False
 
@@ -177,7 +181,11 @@ class ChangelogService:
         if request.get("customInstructions"):
             cmd.extend(["--custom-instructions", request["customInstructions"]])
 
-        logger.info(f"Starting changelog generation for {project_id}: {' '.join(cmd)}")
+        logger.info(
+            "Starting changelog generation for %s: %s",
+            sanitize_log(project_id),
+            sanitize_log(" ".join(cmd)),
+        )
 
         # Set up environment with PYTHONPATH pointing to backend.
         # Scrub ANTHROPIC_API_KEY (OAuth-only policy — see core/auth.py).
@@ -210,7 +218,7 @@ class ChangelogService:
                                     env["CLAUDE_CODE_OAUTH_TOKEN"] = token
                                 break
                 except Exception as e:
-                    logger.warning(f"Failed to read OAuth token from .env: {e}")
+                    logger.warning("Failed to read OAuth token from .env: %s", sanitize_log(e))
 
         try:
             # Start the subprocess - run from backend directory
@@ -236,7 +244,7 @@ class ChangelogService:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to start changelog generation: {e}")
+            logger.error("Failed to start changelog generation: %s", sanitize_log(e))
             await self._emit_error(project_id, str(e))
             return False
 
@@ -253,7 +261,7 @@ class ChangelogService:
             except asyncio.TimeoutError:
                 proc.kill()
             except Exception as e:
-                logger.error(f"Error stopping changelog generation: {e}")
+                logger.error("Error stopping changelog generation: %s", sanitize_log(e))
 
         self._cleanup(project_id)
         await self._emit_stopped(project_id)
@@ -276,7 +284,9 @@ class ChangelogService:
                     line = line_bytes.decode("utf-8", errors="replace").rstrip()
                     if line:
                         stderr_lines.append(line)
-                        logger.error(f"[{project_id}] STDERR: {line}")
+                        logger.error(
+                            "[%s] STDERR: %s", sanitize_log(project_id), sanitize_log(line)
+                        )
 
             # Start stderr reader in background
             stderr_task = asyncio.create_task(read_stderr())
@@ -284,7 +294,7 @@ class ChangelogService:
             # Read stdout line by line
             async for line_bytes in proc.stdout:
                 line = line_bytes.decode("utf-8", errors="replace").rstrip()
-                logger.debug(f"[{project_id}] {line}")
+                logger.debug("[%s] %s", sanitize_log(project_id), sanitize_log(line))
 
                 # Detect phase changes
                 phase = self._detect_phase(line)
@@ -309,14 +319,14 @@ class ChangelogService:
                     if stderr_lines
                     else f"Changelog generation failed with exit code {return_code}"
                 )
-                logger.error(f"Changelog generation failed: {error_msg}")
+                logger.error("Changelog generation failed: %s", sanitize_log(error_msg))
                 await self._emit_error(project_id, error_msg)
 
         except asyncio.CancelledError:
-            logger.info(f"Changelog generation cancelled for {project_id}")
+            logger.info("Changelog generation cancelled for %s", sanitize_log(project_id))
             raise
         except Exception as e:
-            logger.error(f"Error processing changelog output: {e}", exc_info=True)
+            logger.error("Error processing changelog output: %s", sanitize_log(e), exc_info=True)
             await self._emit_error(project_id, f"Unexpected error: {str(e)}")
         finally:
             self._cleanup(project_id)
@@ -331,7 +341,13 @@ class ChangelogService:
     async def _emit_progress(self, project_id: str, phase: ChangelogPhase, message: str):
         """Emit progress event via WebSocket."""
         progress = PHASE_PROGRESS.get(phase, 0)
-        logger.info(f"[{project_id}] Phase: {phase.value} ({progress}%) - {message}")
+        logger.info(
+            "[%s] Phase: %s (%s%%) - %s",
+            sanitize_log(project_id),
+            sanitize_log(phase.value),
+            sanitize_log(progress),
+            sanitize_log(message),
+        )
 
         await broadcast_event(
             "changelog:progress",
@@ -352,9 +368,11 @@ class ChangelogService:
                 content = changelog_path.read_text(encoding="utf-8")
             else:
                 content = "# Changelog\n\nNo changelog content was generated."
-                logger.warning(f"Generated changelog file not found at {changelog_path}")
+                logger.warning(
+                    "Generated changelog file not found at %s", sanitize_log(changelog_path)
+                )
 
-            logger.info(f"[{project_id}] Changelog generation complete")
+            logger.info("[%s] Changelog generation complete", sanitize_log(project_id))
 
             await broadcast_event(
                 "changelog:complete",
@@ -368,12 +386,12 @@ class ChangelogService:
             )
 
         except Exception as e:
-            logger.error(f"Error reading generated changelog: {e}")
+            logger.error("Error reading generated changelog: %s", sanitize_log(e))
             await self._emit_error(project_id, f"Failed to read generated changelog: {str(e)}")
 
     async def _emit_error(self, project_id: str, error: str):
         """Emit error event."""
-        logger.error(f"[{project_id}] Error: {error}")
+        logger.error("[%s] Error: %s", sanitize_log(project_id), sanitize_log(error))
 
         await broadcast_event(
             "changelog:error",
@@ -386,7 +404,7 @@ class ChangelogService:
 
     async def _emit_stopped(self, project_id: str):
         """Emit stopped event."""
-        logger.info(f"[{project_id}] Generation stopped")
+        logger.info("[%s] Generation stopped", sanitize_log(project_id))
 
         await broadcast_event("changelog:stopped", {"projectId": project_id})
 

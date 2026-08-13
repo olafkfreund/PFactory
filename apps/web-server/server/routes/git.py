@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
+from factory_common.logsafe import sanitize_log
 from server.services.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 
 from ..services.git_utils import (  # #335
@@ -127,7 +128,9 @@ async def initialize_git(request: InitGitRequest):
     if not is_git_repo:
         result = run_git_command(["init"], path)
         if not result["success"]:
-            logger.warning("git init failed for %s: %s", path, result.get("error"))
+            logger.warning(
+                "git init failed for %s: %s", sanitize_log(path), sanitize_log(result.get("error"))
+            )
             return {"success": False, "error": "Failed to initialize git repository"}
 
     # Create .gitignore if it doesn't exist
@@ -179,7 +182,7 @@ def check_ollama_running(base_url: str | None = None) -> bool:
         # The caller's URL is deliberately NOT echoed: it would put attacker
         # text straight into the log (py/log-injection). The guard's own
         # message names the reason, which is what an operator needs.
-        logger.warning("refusing to probe Ollama, unsafe base URL: %s", exc)
+        logger.warning("refusing to probe Ollama, unsafe base URL: %s", sanitize_log(exc))
         return False
     try:
         build_no_redirect_opener().open(probe_url, timeout=5)
@@ -276,7 +279,7 @@ async def pull_ollama_model(request: PullModelRequest):
         pull_url = assert_safe_outbound_url(f"{url}/api/pull", allow_private=True)
     except ValueError as exc:
         # Same reason as check_ollama_running: the URL is not echoed.
-        logger.warning("refusing to pull from Ollama, unsafe base URL: %s", exc)
+        logger.warning("refusing to pull from Ollama, unsafe base URL: %s", sanitize_log(exc))
         return {"success": False, "error": "Refusing to contact that Ollama URL"}
 
     try:
@@ -300,10 +303,10 @@ async def pull_ollama_model(request: PullModelRequest):
             return {"success": False, "error": f"Pull failed: {status}"}
 
     except urllib.error.URLError as e:
-        logger.warning("failed to connect to Ollama at %s: %s", url, e)
+        logger.warning("failed to connect to Ollama at %s: %s", sanitize_log(url), sanitize_log(e))
         return {"success": False, "error": "Failed to connect to Ollama"}
     except Exception:
-        logger.exception("failed to pull Ollama model %s", model_name)
+        logger.exception("failed to pull Ollama model %s", sanitize_log(model_name))
         return {"success": False, "error": "Failed to pull model"}
 
 
@@ -427,7 +430,7 @@ async def install_claude_code():
         node_available = result.returncode == 0
         if node_available:
             steps_completed.append("node-present")
-            log.info(f"Node.js already available: {result.stdout.strip()}")
+            log.info("Node.js already available: %s", sanitize_log(result.stdout.strip()))
     except Exception:
         pass
 
@@ -488,7 +491,7 @@ async def install_claude_code():
                     "success": False,
                     "error": "Node.js installed but not found in PATH after fnm setup",
                 }
-            log.info(f"Node.js verified: {result.stdout.strip()}")
+            log.info("Node.js verified: %s", sanitize_log(result.stdout.strip()))
         except Exception:
             log.exception("Node.js verification failed after install")
             return {
@@ -765,7 +768,7 @@ async def check_mcp_health(server: McpServerConfig):
             # The specific reason goes to the log, not the response: it is a
             # curated message today, but a health probe is exactly the kind of
             # endpoint an attacker uses to map what the server can reach.
-            logger.warning("refusing to probe %r: %s", server.url, exc)
+            logger.warning("refusing to probe %r: %s", sanitize_log(server.url), sanitize_log(exc))
             return {
                 "success": True,
                 "data": {
@@ -788,7 +791,9 @@ async def check_mcp_health(server: McpServerConfig):
                 "data": {"serverId": server.id, "status": "healthy", "message": "Server responded"},
             }
         except Exception:
-            logger.warning("MCP health probe failed for %r", server.url, exc_info=True)
+            logger.warning(
+                "MCP health probe failed for %r", sanitize_log(server.url), exc_info=True
+            )
             return {
                 "success": True,
                 "data": {
@@ -925,7 +930,11 @@ async def download_source_update():
         # Check for uncommitted changes
         status_result = run_git_command(["status", "--porcelain"], source_path)
         if not status_result["success"]:
-            logger.warning("git status failed for %s: %s", source_path, status_result.get("error"))
+            logger.warning(
+                "git status failed for %s: %s",
+                sanitize_log(source_path),
+                sanitize_log(status_result.get("error")),
+            )
             return {"success": False, "error": "Failed to check git status"}
 
         has_changes = bool(status_result.get("output", "").strip())
@@ -935,8 +944,8 @@ async def download_source_update():
         if not branch_result["success"]:
             logger.warning(
                 "git branch --show-current failed for %s: %s",
-                source_path,
-                branch_result.get("error"),
+                sanitize_log(source_path),
+                sanitize_log(branch_result.get("error")),
             )
             return {"success": False, "error": "Failed to get current branch"}
 
@@ -951,7 +960,9 @@ async def download_source_update():
         fetch_result = run_git_command(["fetch", "origin"], source_path)
         if not fetch_result["success"]:
             logger.warning(
-                "git fetch origin failed for %s: %s", source_path, fetch_result.get("error")
+                "git fetch origin failed for %s: %s",
+                sanitize_log(source_path),
+                sanitize_log(fetch_result.get("error")),
             )
             return {"success": False, "error": "Failed to fetch updates"}
 
@@ -1002,9 +1013,9 @@ async def download_source_update():
         if not pull_result["success"]:
             logger.warning(
                 "git pull origin %s failed for %s: %s",
-                current_branch,
-                source_path,
-                pull_result.get("error"),
+                sanitize_log(current_branch),
+                sanitize_log(source_path),
+                sanitize_log(pull_result.get("error")),
             )
             return {"success": False, "error": "Failed to pull updates"}
 
@@ -1119,7 +1130,7 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
     except HTTPException:
         raise
     except Exception:
-        logger.exception("failed to load project %s for commit squash", projectId)
+        logger.exception("failed to load project %s for commit squash", sanitize_log(projectId))
         return {"success": False, "error": "Failed to load project"}
 
     # Validate commit count
@@ -1196,7 +1207,9 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
 
     if not reset_result["success"]:
         logger.warning(
-            "git reset --soft failed for %s: %s", project_path, reset_result.get("error")
+            "git reset --soft failed for %s: %s",
+            sanitize_log(project_path),
+            sanitize_log(reset_result.get("error")),
         )
         return {"success": False, "error": "Failed to reset commits"}
 
@@ -1208,8 +1221,8 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
         run_git_command(["reset", "ORIG_HEAD"], project_path)
         logger.warning(
             "git commit failed during squash for %s: %s",
-            project_path,
-            commit_result.get("error"),
+            sanitize_log(project_path),
+            sanitize_log(commit_result.get("error")),
         )
         return {"success": False, "error": "Failed to create squashed commit"}
 
@@ -1291,7 +1304,7 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     except HTTPException:
         raise
     except Exception:
-        logger.exception("failed to load project %s for worktree creation", projectId)
+        logger.exception("failed to load project %s for worktree creation", sanitize_log(projectId))
         return {"success": False, "error": "Failed to load project"}
 
     # Validate worktree name (alphanumeric, dashes, underscores only)
@@ -1339,7 +1352,7 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     try:
         worktrees_base.mkdir(parents=True, exist_ok=True)
     except Exception:
-        logger.exception("failed to create worktree directory %s", worktrees_base)
+        logger.exception("failed to create worktree directory %s", sanitize_log(worktrees_base))
         return {"success": False, "error": "Failed to create worktree directory"}
 
     # Build git worktree add command
@@ -1380,7 +1393,9 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
             pass
 
         logger.warning(
-            "git worktree add failed for %s: %s", project_path, worktree_result.get("error")
+            "git worktree add failed for %s: %s",
+            sanitize_log(project_path),
+            sanitize_log(worktree_result.get("error")),
         )
         return {"success": False, "error": "Failed to create worktree"}
 
@@ -1481,7 +1496,7 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
     except HTTPException:
         raise
     except Exception:
-        logger.exception("failed to load project %s for release creation", projectId)
+        logger.exception("failed to load project %s for release creation", sanitize_log(projectId))
         return {"success": False, "error": "Failed to load project"}
 
     # Ensure version starts with 'v' if not already present (conventional)
@@ -1498,7 +1513,11 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
         )
 
         if not result["success"]:
-            logger.warning("gh release create failed for %s: %s", project_path, result.get("error"))
+            logger.warning(
+                "gh release create failed for %s: %s",
+                sanitize_log(project_path),
+                sanitize_log(result.get("error")),
+            )
             return {"success": False, "error": "Failed to create GitHub release"}
 
         return {
@@ -1510,5 +1529,9 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
         }
 
     except Exception:
-        logger.exception("failed to create GitHub release %s for %s", version_tag, project_path)
+        logger.exception(
+            "failed to create GitHub release %s for %s",
+            sanitize_log(version_tag),
+            sanitize_log(project_path),
+        )
         return {"success": False, "error": "Failed to create GitHub release"}

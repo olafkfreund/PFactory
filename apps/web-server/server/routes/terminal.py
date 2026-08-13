@@ -10,16 +10,20 @@ import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
+
+from factory_common.logsafe import sanitize_log
 
 from ..config import get_settings
 from ..pty.manager import get_pty_manager
 from ..services.git_utils import confine_to_workspace, safe_spec_component  # #335
 from ..services.terminal_worktree_service import TerminalWorktreeService
 from .projects import load_projects
+
+from server.error_ref import error_message
 
 logger = logging.getLogger(__name__)
 
@@ -203,10 +207,15 @@ async def create_terminal(request: CreateTerminalRequest):
             session_id=request.id,  # Use frontend-provided ID if available
         )
     except RuntimeError as e:
+        # `str(e)` here is whatever the PTY layer raised - "openpty failed:
+        # [Errno 24] Too many open files", a path under the server's runtime
+        # dir - and it went straight into the 503 body (CWE-209).
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e),
-        )
+            detail=error_message(
+                logger, "open terminal session", e, "the terminal session could not be started"
+            ),
+        ) from e
 
     return TerminalInfo(**session.to_dict())
 
@@ -318,10 +327,14 @@ async def clear_terminal_sessions(project: str | None = None):
                     session_file.unlink()
                     cleared_count += 1
                 except Exception:
-                    logger.exception("Failed to remove terminal session file %s", session_file.name)
+                    logger.exception(
+                        "Failed to remove terminal session file %s", sanitize_log(session_file.name)
+                    )
                     errors.append(f"Failed to remove {session_file.name}")
         except Exception:
-            logger.exception("Failed to process terminal sessions directory %s", sessions_dir)
+            logger.exception(
+                "Failed to process terminal sessions directory %s", sanitize_log(sessions_dir)
+            )
             errors.append(f"Failed to process {sessions_dir}")
 
     result = {
@@ -365,7 +378,7 @@ async def list_terminal_worktrees(project: str = Query(...)):
         worktrees = service.list_worktrees()
         return {"success": True, "data": worktrees}
     except Exception:
-        logger.exception("Failed to list terminal worktrees for project %s", project)
+        logger.exception("Failed to list terminal worktrees for project %s", sanitize_log(project))
         return {"success": False, "error": "Failed to list terminal worktrees"}
 
 
@@ -393,11 +406,19 @@ async def create_terminal_worktree(request: CreateTerminalWorktreeRequest):
         # Validation errors (invalid name, already exists, etc.)
         return TerminalWorktreeResult(success=False, error=str(e))
     except subprocess.CalledProcessError as e:
-        # Git command errors
-        error_msg = f"Git error: {e.stderr if e.stderr else str(e)}"
-        return TerminalWorktreeResult(success=False, error=error_msg)
+        # git's stderr names absolute worktree paths on the server and, for a
+        # remote-touching command, the remote URL with any embedded credential.
+        return TerminalWorktreeResult(
+            success=False,
+            error=error_message(logger, "create terminal worktree", e, "the git command failed"),
+        )
     except Exception as e:
-        return TerminalWorktreeResult(success=False, error=str(e))
+        return TerminalWorktreeResult(
+            success=False,
+            error=error_message(
+                logger, "create terminal worktree", e, "the worktree could not be created"
+            ),
+        )
 
 
 @router.delete("/worktrees/{name}")
@@ -421,13 +442,13 @@ async def remove_terminal_worktree(
     except ValueError as e:
         # Hand-authored validation message from TerminalWorktreeService (e.g.
         # "Worktree 'x' not found") - safe to surface to the caller as-is.
-        logger.warning("Terminal worktree removal validation failed: %s", e)
+        logger.warning("Terminal worktree removal validation failed: %s", sanitize_log(e))
         return {"success": False, "error": str(e)}
     except subprocess.CalledProcessError:
-        logger.exception("Git error while removing terminal worktree %s", name)
+        logger.exception("Git error while removing terminal worktree %s", sanitize_log(name))
         return {"success": False, "error": "Failed to remove terminal worktree"}
     except Exception:
-        logger.exception("Failed to remove terminal worktree %s", name)
+        logger.exception("Failed to remove terminal worktree %s", sanitize_log(name))
         return {"success": False, "error": "Failed to remove terminal worktree"}
 
 
@@ -594,8 +615,10 @@ async def save_terminal_buffer(terminal_id: str, request: dict):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save terminal buffer: {str(e)}",
-        )
+            detail=error_message(
+                logger, "save terminal buffer", e, "the terminal buffer could not be saved"
+            ),
+        ) from e
 
 
 @router.get("/{terminal_id}/alive")

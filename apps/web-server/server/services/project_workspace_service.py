@@ -34,6 +34,7 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+from factory_common.logsafe import sanitize_log
 from server.services.git_utils import safe_spec_component
 
 logger = logging.getLogger(__name__)
@@ -184,7 +185,7 @@ async def clone_or_update(
                     )
                 except GitOperationError:
                     pass
-        logger.info("[workspace] pulled latest into %s", workspace)
+        logger.info("[workspace] pulled latest into %s", sanitize_log(workspace))
         return workspace
 
     # Fresh clone
@@ -204,7 +205,7 @@ async def clone_or_update(
             )
         except GitOperationError:
             pass
-    logger.info("[workspace] cloned %s → %s", git_url, workspace)
+    logger.info("[workspace] cloned %s → %s", sanitize_log(git_url), sanitize_log(workspace))
     return workspace
 
 
@@ -215,7 +216,9 @@ class GitOperationError(RuntimeError):
 async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
     """Run ``git <args>`` with a timeout. Returns stdout on success."""
     cmd = ["git", *args]
-    logger.debug("[workspace] running: git %s (cwd=%s)", " ".join(args), cwd)
+    logger.debug(
+        "[workspace] running: git %s (cwd=%s)", sanitize_log(" ".join(args)), sanitize_log(cwd)
+    )
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,

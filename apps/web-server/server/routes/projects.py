@@ -14,6 +14,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from factory_common.logsafe import sanitize_log
 from server.services.git_utils import confine_to_workspace, safe_spec_component
 
 # --------------------------------------------------------------------------
@@ -270,7 +271,7 @@ def ensure_tracked_project(repo: str) -> str | None:
             save_projects(projects)
         return project_id
     except Exception:  # noqa: BLE001 - visibility convenience must never break ingest
-        logger.exception("[projects] ensure_tracked_project failed for repo=%s", repo)
+        logger.exception("[projects] ensure_tracked_project failed for repo=%s", sanitize_log(repo))
         return None
 
 
@@ -748,7 +749,9 @@ async def initialize_project(project_id: str):
         # Return nested format expected by frontend
         return {"success": True, "data": {"success": True}}
     except Exception:
-        logger.exception("[projects] initialize_project failed for project_id=%s", project_id)
+        logger.exception(
+            "[projects] initialize_project failed for project_id=%s", sanitize_log(project_id)
+        )
         return {"success": False, "error": "Failed to initialize project."}
 
 
@@ -1076,7 +1079,9 @@ async def list_project_worktrees(project_id: str):
 
         return {"worktrees": enriched_worktrees}
     except Exception:
-        logger.exception("[projects] list_project_worktrees failed for project_id=%s", project_id)
+        logger.exception(
+            "[projects] list_project_worktrees failed for project_id=%s", sanitize_log(project_id)
+        )
         return {"worktrees": [], "error": "Failed to list worktrees."}
 
 

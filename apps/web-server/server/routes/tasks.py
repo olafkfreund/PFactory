@@ -16,6 +16,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from factory_common.logsafe import sanitize_log
 from server.services.git_utils import safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
@@ -372,15 +373,19 @@ def sync_worktree_to_main_spec(project_path: Path, spec_id: str) -> bool:
         # Only sync if worktree has more progress (more completed subtasks)
         if worktree_completed > main_completed:
             logger.info(
-                f"[WorktreeSync] Syncing plan for {spec_id}: "
-                f"worktree has {worktree_completed} completed vs main {main_completed}"
+                "[WorktreeSync] Syncing plan for %s: worktree has %s completed vs main %s",
+                sanitize_log(spec_id),
+                sanitize_log(worktree_completed),
+                sanitize_log(main_completed),
             )
             main_plan_file.write_text(json.dumps(worktree_plan, indent=2))
             return True
 
         return False
     except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"[WorktreeSync] Failed to sync {spec_id}: {e}")
+        logger.warning(
+            "[WorktreeSync] Failed to sync %s: %s", sanitize_log(spec_id), sanitize_log(e)
+        )
         return False
 
 
@@ -1292,13 +1297,15 @@ def _try_close_github_issue(project_path: Path, spec_dir: Path) -> None:
             cwd=str(project_path),
         )
         if result["success"]:
-            logger.info(f"Auto-closed GitHub issue #{issue_number}")
+            logger.info("Auto-closed GitHub issue #%s", sanitize_log(issue_number))
         else:
             logger.warning(
-                f"Failed to auto-close GitHub issue #{issue_number}: {result.get('error', 'unknown')}"
+                "Failed to auto-close GitHub issue #%s: %s",
+                sanitize_log(issue_number),
+                sanitize_log(result.get("error", "unknown")),
             )
     except Exception as e:
-        logger.warning(f"Error auto-closing GitHub issue: {e}")
+        logger.warning("Error auto-closing GitHub issue: %s", sanitize_log(e))
 
 
 class TaskStatusUpdate(BaseModel):
@@ -1601,10 +1608,13 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
     plan_updated = False
     if plan_file.exists():
         try:
-            logger.info(f"[ApprovePlan] Reading plan file: {plan_file}")
+            logger.info("[ApprovePlan] Reading plan file: %s", sanitize_log(plan_file))
             plan = json.loads(plan_file.read_text())
             logger.info(
-                f"[ApprovePlan] Current status: {plan.get('status')}, planStatus: {plan.get('planStatus')}, reviewReason: {plan.get('reviewReason')}"
+                "[ApprovePlan] Current status: %s, planStatus: %s, reviewReason: %s",
+                sanitize_log(plan.get("status")),
+                sanitize_log(plan.get("planStatus")),
+                sanitize_log(plan.get("reviewReason")),
             )
 
             # Update BOTH status and planStatus fields
@@ -1618,9 +1628,9 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
                 "[ApprovePlan] Updated plan file - status: in_progress, planStatus: in_progress"
             )
         except (json.JSONDecodeError, OSError) as e:
-            logger.error(f"[ApprovePlan] Failed to update plan file: {e}")
+            logger.error("[ApprovePlan] Failed to update plan file: %s", sanitize_log(e))
     else:
-        logger.warning(f"[ApprovePlan] Plan file does not exist: {plan_file}")
+        logger.warning("[ApprovePlan] Plan file does not exist: %s", sanitize_log(plan_file))
 
     # Emit status change via WebSocket
     from ..websockets.events import emit_task_status
@@ -1640,11 +1650,16 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
             # The spec_runner process may have exited but the monitor may not have
             # cleaned up running_tasks (e.g., if the process hung or monitor failed).
             if agent_service.is_running(task_id):
-                logger.info(f"[ApprovePlan] Cleaning up stale spec creation process for {task_id}")
+                logger.info(
+                    "[ApprovePlan] Cleaning up stale spec creation process for %s",
+                    sanitize_log(task_id),
+                )
                 try:
                     await agent_service.stop_task(task_id)
                 except Exception as stop_err:
-                    logger.warning(f"[ApprovePlan] Failed to stop stale process: {stop_err}")
+                    logger.warning(
+                        "[ApprovePlan] Failed to stop stale process: %s", sanitize_log(stop_err)
+                    )
                     # Force-remove from running_tasks as fallback
                     agent_service.running_tasks.pop(task_id, None)
 
@@ -1669,7 +1684,7 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
             auto_restarted = True
         except Exception as e:
             # If auto-restart fails, still return success for approval
-            logger.warning(f"Auto-restart failed for {task_id}: {e}")
+            logger.warning("Auto-restart failed for %s: %s", sanitize_log(task_id), sanitize_log(e))
 
     return {
         "success": True,
@@ -1734,7 +1749,7 @@ async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanReque
             # the reject took effect even if the bookkeeping fails. Log
             # and continue.
 
-            logger.warning(f"[RejectPlan] couldn't update test_plan.json: {exc}")
+            logger.warning("[RejectPlan] couldn't update test_plan.json: %s", sanitize_log(exc))
 
     return {
         "success": True,
@@ -1959,7 +1974,7 @@ async def get_task_logs(task_id: str):
     checking both main spec dir and worktree.
     """
 
-    logger.info(f"[GetTaskLogs] Called with task_id: {task_id}")
+    logger.info("[GetTaskLogs] Called with task_id: %s", sanitize_log(task_id))
 
     if ":" not in task_id:
         raise HTTPException(
@@ -1968,19 +1983,21 @@ async def get_task_logs(task_id: str):
         )
 
     project_id, spec_id = split_task_id(task_id)
-    logger.info(f"[GetTaskLogs] project_id={project_id}, spec_id={spec_id}")
+    logger.info(
+        "[GetTaskLogs] project_id=%s, spec_id=%s", sanitize_log(project_id), sanitize_log(spec_id)
+    )
 
     projects = load_projects()
 
     if project_id not in projects:
-        logger.error(f"[GetTaskLogs] Project not found: {project_id}")
+        logger.error("[GetTaskLogs] Project not found: %s", sanitize_log(project_id))
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
 
     project_path = Path(projects[project_id]["path"])
-    logger.info(f"[GetTaskLogs] project_path: {project_path}")
+    logger.info("[GetTaskLogs] project_path: %s", sanitize_log(project_path))
 
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
     worktree_spec_dir = (
@@ -1994,24 +2011,29 @@ async def get_task_logs(task_id: str):
         / spec_id
     )
 
-    logger.info(f"[GetTaskLogs] Checking spec_dir: {spec_dir}")
-    logger.info(f"[GetTaskLogs] Checking worktree_spec_dir: {worktree_spec_dir}")
+    logger.info("[GetTaskLogs] Checking spec_dir: %s", sanitize_log(spec_dir))
+    logger.info("[GetTaskLogs] Checking worktree_spec_dir: %s", sanitize_log(worktree_spec_dir))
 
     # Check for task_logs.json (phase-based logs) - prefer worktree if exists
     task_logs_file = None
     for check_dir in [worktree_spec_dir, spec_dir]:
         candidate = check_dir / "task_logs.json"
-        logger.info(f"[GetTaskLogs] Checking {candidate}, exists: {candidate.exists()}")
+        logger.info(
+            "[GetTaskLogs] Checking %s, exists: %s",
+            sanitize_log(candidate),
+            sanitize_log(candidate.exists()),
+        )
         if candidate.exists():
             task_logs_file = candidate
-            logger.info(f"[GetTaskLogs] Found task_logs.json at: {task_logs_file}")
+            logger.info("[GetTaskLogs] Found task_logs.json at: %s", sanitize_log(task_logs_file))
             break
 
     if task_logs_file:
         try:
             task_logs = json.loads(task_logs_file.read_text())
             logger.info(
-                f"[GetTaskLogs] Successfully loaded task_logs.json, has phases: {'phases' in task_logs}"
+                "[GetTaskLogs] Successfully loaded task_logs.json, has phases: %s",
+                sanitize_log("phases" in task_logs),
             )
             result = {
                 "specId": task_logs.get("spec_id", spec_id),
@@ -2028,11 +2050,12 @@ async def get_task_logs(task_id: str):
                     break
 
             logger.info(
-                f"[GetTaskLogs] Returning phase-based logs with {len(result.get('phases', {}))} phases"
+                "[GetTaskLogs] Returning phase-based logs with %s phases",
+                len(result.get("phases", {})),
             )
             return result
         except json.JSONDecodeError as e:
-            logger.error(f"[GetTaskLogs] JSON decode error: {e}")
+            logger.error("[GetTaskLogs] JSON decode error: %s", sanitize_log(e))
             pass
     else:
         logger.warning("[GetTaskLogs] No task_logs.json found, returning fallback format")
@@ -2372,7 +2395,7 @@ async def get_worktree_merge_preview(task_id: str):
 
     except Exception as e:
         # Log but don't fail - semantic detection is optional enhancement
-        logger.warning(f"Semantic conflict detection failed: {e}")
+        logger.warning("Semantic conflict detection failed: %s", sanitize_log(e))
 
     # Merge results: combine git conflicts with semantic conflicts
     all_conflicts = semantic_conflicts.copy()
@@ -2499,11 +2522,15 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
     # Check if a merge is already in progress
     merge_head = project_path / ".git" / "MERGE_HEAD"
     if merge_head.exists():
-        logger.info(f"Merge already in progress for {task_id}, resolving existing conflicts")
+        logger.info(
+            "Merge already in progress for %s, resolving existing conflicts", sanitize_log(task_id)
+        )
     else:
         # Start the git merge (allow conflicts)
         logger.info(
-            f"Starting git merge of {worktree_branch} into current branch for task {task_id}"
+            "Starting git merge of %s into current branch for task %s",
+            sanitize_log(worktree_branch),
+            sanitize_log(task_id),
         )
         merge_result = subprocess.run(
             ["git", "merge", worktree_branch, "--no-commit", "--no-ff"],
@@ -2514,7 +2541,7 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
 
         if merge_result.returncode == 0:
             # Clean merge, no conflicts - commit it
-            logger.info(f"Clean merge for {task_id}, committing")
+            logger.info("Clean merge for %s, committing", sanitize_log(task_id))
             run_git_command(
                 ["commit", "-m", f"Merge {worktree_branch} into current branch"],
                 cwd=project_path,
@@ -2529,13 +2556,13 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
             }
         elif merge_result.returncode != 1 and "CONFLICT" not in merge_result.stdout:
             # Unexpected error (not a conflict)
-            logger.error(f"Git merge failed unexpectedly: {merge_result.stderr}")
+            logger.error("Git merge failed unexpectedly: %s", sanitize_log(merge_result.stderr))
             return {
                 "success": False,
                 "error": f"Git merge failed: {merge_result.stderr.strip()}",
             }
         else:
-            logger.info(f"Merge has conflicts for {task_id}, resolving with AI")
+            logger.info("Merge has conflicts for %s, resolving with AI", sanitize_log(task_id))
 
     if not options.useAI:
         return {
@@ -2577,7 +2604,9 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
             },
         }
 
-    logger.info(f"Found {len(conflicted_files)} conflicted files: {conflicted_files}")
+    logger.info(
+        "Found %s conflicted files: %s", len(conflicted_files), sanitize_log(conflicted_files)
+    )
 
     # Resolve each conflicted file using AI
     resolved_files = []
@@ -2591,14 +2620,14 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
         try:
             full_path = project_path / file_path
             if not full_path.exists():
-                logger.warning(f"Conflicted file not found: {full_path}")
+                logger.warning("Conflicted file not found: %s", sanitize_log(full_path))
                 failed_files.append({"file": file_path, "error": "File not found"})
                 continue
 
             content = full_path.read_text()
 
             if "<<<<<<< " not in content:
-                logger.info(f"File {file_path} has no conflict markers, staging")
+                logger.info("File %s has no conflict markers, staging", sanitize_log(file_path))
                 run_git_command(["add", file_path], cwd=project_path)
                 resolved_files.append(file_path)
                 continue
@@ -2618,28 +2647,39 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
                     or "=======" in resolved_content
                     or ">>>>>>> " in resolved_content
                 ):
-                    logger.warning(f"AI resolution for {file_path} still has markers, cleaning up")
+                    logger.warning(
+                        "AI resolution for %s still has markers, cleaning up",
+                        sanitize_log(file_path),
+                    )
                     resolved_content = _clean_conflict_markers(resolved_content)
 
                 full_path.write_text(resolved_content)
-                logger.info(f"Wrote resolved content to {full_path}")
+                logger.info("Wrote resolved content to %s", sanitize_log(full_path))
 
                 add_result = run_git_command(["add", file_path], cwd=project_path)
                 if add_result["success"]:
                     resolved_files.append(file_path)
-                    logger.info(f"Staged resolved file: {file_path}")
+                    logger.info("Staged resolved file: %s", sanitize_log(file_path))
                 else:
-                    logger.warning(f"Failed to stage {file_path}: {add_result['error']}")
+                    logger.warning(
+                        "Failed to stage %s: %s",
+                        sanitize_log(file_path),
+                        sanitize_log(add_result["error"]),
+                    )
                     failed_files.append(
                         {"file": file_path, "error": "Failed to stage resolved file"}
                     )
             else:
                 error_msg = merge_result.get("error", "AI resolution failed")
-                logger.error(f"AI resolution failed for {file_path}: {error_msg}")
+                logger.error(
+                    "AI resolution failed for %s: %s",
+                    sanitize_log(file_path),
+                    sanitize_log(error_msg),
+                )
                 failed_files.append({"file": file_path, "error": "AI conflict resolution failed"})
 
         except Exception:
-            logger.exception(f"Failed to resolve {file_path}")
+            logger.exception("Failed to resolve %s", sanitize_log(file_path))
             failed_files.append({"file": file_path, "error": "Failed to resolve conflict"})
 
     if failed_files:
@@ -2661,7 +2701,7 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
         commit_msg = f"Merge {worktree_branch} (AI-resolved conflicts)"
         commit_result = run_git_command(["commit", "-m", commit_msg], cwd=project_path)
         if not commit_result["success"]:
-            logger.warning(f"Merge commit failed: {commit_result['error']}")
+            logger.warning("Merge commit failed: %s", sanitize_log(commit_result["error"]))
             return {
                 "success": True,
                 "data": {
@@ -2700,7 +2740,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
     5. Drops the stash after successful merge
     """
 
-    logger.info(f"Resolving uncommitted conflicts for task {task_id}")
+    logger.info("Resolving uncommitted conflicts for task %s", sanitize_log(task_id))
 
     # #335 sanitize the caller-supplied task id before it is joined onto a root
     try:
@@ -2795,7 +2835,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
         )
         if result.returncode == 0 and "No local changes to save" not in result.stdout:
             stash_created = True
-            logger.info(f"Stashed changes: {result.stdout.strip()}")
+            logger.info("Stashed changes: %s", sanitize_log(result.stdout.strip()))
         elif result.returncode != 0:
             # Fallback: try without --include-untracked (for older git or if no untracked)
             result = subprocess.run(
@@ -2806,7 +2846,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
             )
             if result.returncode == 0 and "No local changes to save" not in result.stdout:
                 stash_created = True
-                logger.info(f"Stashed changes (fallback): {result.stdout.strip()}")
+                logger.info("Stashed changes (fallback): %s", sanitize_log(result.stdout.strip()))
             elif result.returncode != 0 and "No local changes to save" not in (
                 result.stderr + result.stdout
             ):
@@ -2897,7 +2937,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
                     )
 
             except Exception as e:
-                logger.error(f"Failed to resolve {file_path}: {e}")
+                logger.error("Failed to resolve %s: %s", sanitize_log(file_path), sanitize_log(e))
                 failed_files.append({"file": file_path, "error": str(e)})
 
     finally:
@@ -2949,7 +2989,7 @@ async def resolve_git_merge_conflicts(task_id: str):
     5. Return success (user can then commit the merge)
     """
 
-    logger.info(f"Resolving git merge conflicts for task {task_id}")
+    logger.info("Resolving git merge conflicts for task %s", sanitize_log(task_id))
 
     # #335 sanitize the caller-supplied task id before it is joined onto a root
     try:
@@ -2999,10 +3039,10 @@ async def resolve_git_merge_conflicts(task_id: str):
 
     if merge_head_main.exists():
         work_path = project_path
-        logger.info(f"Found merge in progress in main project: {project_path}")
+        logger.info("Found merge in progress in main project: %s", sanitize_log(project_path))
     elif merge_head_worktree and (merge_head_worktree / "MERGE_HEAD").exists():
         work_path = worktree_path
-        logger.info(f"Found merge in progress in worktree: {worktree_path}")
+        logger.info("Found merge in progress in worktree: %s", sanitize_log(worktree_path))
     else:
         # No merge in progress - check if there are files with conflict markers anyway
         # This can happen if the merge state was cleared but files still have markers
@@ -3014,7 +3054,9 @@ async def resolve_git_merge_conflicts(task_id: str):
     diff_u_result = run_git_command(["diff", "--name-only", "--diff-filter=U"], cwd=work_path)
     if diff_u_result["success"] and diff_u_result["output"]:
         conflicted_files = [f for f in diff_u_result["output"].split("\n") if f]
-        logger.info(f"Found {len(conflicted_files)} conflicted files: {conflicted_files}")
+        logger.info(
+            "Found %s conflicted files: %s", len(conflicted_files), sanitize_log(conflicted_files)
+        )
 
     # If no conflicted files from git, scan for files with conflict markers
     if not conflicted_files:
@@ -3054,7 +3096,7 @@ async def resolve_git_merge_conflicts(task_id: str):
         try:
             full_path = work_path / file_path
             if not full_path.exists():
-                logger.warning(f"Conflicted file not found: {full_path}")
+                logger.warning("Conflicted file not found: %s", sanitize_log(full_path))
                 failed_files.append({"file": file_path, "error": "File not found"})
                 continue
 
@@ -3063,7 +3105,7 @@ async def resolve_git_merge_conflicts(task_id: str):
 
             # Check if file actually has conflict markers
             if "<<<<<<< " not in content:
-                logger.info(f"File {file_path} has no conflict markers, skipping")
+                logger.info("File %s has no conflict markers, skipping", sanitize_log(file_path))
                 # Stage it anyway since git thinks it's conflicted
                 run_git_command(["add", file_path], cwd=work_path)
                 resolved_files.append(file_path)
@@ -3084,31 +3126,42 @@ async def resolve_git_merge_conflicts(task_id: str):
                     or "=======" in resolved_content
                     or ">>>>>>> " in resolved_content
                 ):
-                    logger.warning(f"AI resolution for {file_path} still contains conflict markers")
+                    logger.warning(
+                        "AI resolution for %s still contains conflict markers",
+                        sanitize_log(file_path),
+                    )
                     # Try to clean up obvious marker remnants
                     resolved_content = _clean_conflict_markers(resolved_content)
 
                 # Write resolved content
                 full_path.write_text(resolved_content)
-                logger.info(f"Wrote resolved content to {full_path}")
+                logger.info("Wrote resolved content to %s", sanitize_log(full_path))
 
                 # Stage the file
                 add_result = run_git_command(["add", file_path], cwd=work_path)
                 if add_result["success"]:
                     resolved_files.append(file_path)
-                    logger.info(f"Staged resolved file: {file_path}")
+                    logger.info("Staged resolved file: %s", sanitize_log(file_path))
                 else:
-                    logger.warning(f"Failed to stage {file_path}: {add_result['error']}")
+                    logger.warning(
+                        "Failed to stage %s: %s",
+                        sanitize_log(file_path),
+                        sanitize_log(add_result["error"]),
+                    )
                     failed_files.append(
                         {"file": file_path, "error": "Failed to stage resolved file"}
                     )
             else:
                 error_msg = merge_result.get("error", "AI resolution failed")
-                logger.error(f"AI resolution failed for {file_path}: {error_msg}")
+                logger.error(
+                    "AI resolution failed for %s: %s",
+                    sanitize_log(file_path),
+                    sanitize_log(error_msg),
+                )
                 failed_files.append({"file": file_path, "error": "AI conflict resolution failed"})
 
         except Exception:
-            logger.exception(f"Failed to resolve {file_path}")
+            logger.exception("Failed to resolve %s", sanitize_log(file_path))
             failed_files.append({"file": file_path, "error": "Failed to resolve conflict"})
 
     if failed_files:
@@ -3142,10 +3195,12 @@ async def resolve_git_merge_conflicts(task_id: str):
         commit_git_result = run_git_command(["commit", "-m", commit_msg], cwd=work_path)
         if commit_git_result["success"]:
             commit_result = "Merge committed successfully"
-            logger.info(f"Auto-committed merge: {commit_msg}")
+            logger.info("Auto-committed merge: %s", sanitize_log(commit_msg))
         else:
             commit_result = "Merge commit failed"
-            logger.warning(f"Failed to auto-commit merge: {commit_git_result['error']}")
+            logger.warning(
+                "Failed to auto-commit merge: %s", sanitize_log(commit_git_result["error"])
+            )
     except Exception:
         commit_result = "Merge commit failed"
         logger.exception("Error during auto-commit")
@@ -3196,7 +3251,7 @@ async def abort_worktree_merge(task_id: str):
     worktree and the main project to ensure a clean state.
     """
 
-    logger.info(f"Aborting merge for task {task_id}")
+    logger.info("Aborting merge for task %s", sanitize_log(task_id))
 
     # Parse task_id to get spec_id
     # task_id could be "project_id:spec_id" or just "spec_id"
@@ -3255,9 +3310,11 @@ async def abort_worktree_merge(task_id: str):
                 )
                 if result.returncode == 0:
                     aborted_locations.append("worktree")
-                    logger.info(f"Aborted merge in worktree: {worktree_path}")
+                    logger.info("Aborted merge in worktree: %s", sanitize_log(worktree_path))
                 else:
-                    logger.warning(f"Failed to abort merge in worktree: {result.stderr}")
+                    logger.warning(
+                        "Failed to abort merge in worktree: %s", sanitize_log(result.stderr)
+                    )
                     errors.append(f"Worktree: {result.stderr.strip()}")
         except subprocess.TimeoutExpired:
             errors.append("Worktree: git merge --abort timed out")
@@ -3283,9 +3340,11 @@ async def abort_worktree_merge(task_id: str):
                 )
                 if result.returncode == 0:
                     aborted_locations.append("main project")
-                    logger.info(f"Aborted merge in main project: {project_path}")
+                    logger.info("Aborted merge in main project: %s", sanitize_log(project_path))
                 else:
-                    logger.warning(f"Failed to abort merge in main project: {result.stderr}")
+                    logger.warning(
+                        "Failed to abort merge in main project: %s", sanitize_log(result.stderr)
+                    )
                     errors.append(f"Main project: {result.stderr.strip()}")
         except subprocess.TimeoutExpired:
             errors.append("Main project: git merge --abort timed out")
@@ -3368,7 +3427,9 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
     if not branch_result["success"]:
         logger.warning(
-            f"Could not determine worktree branch for {task_id}: {branch_result['error']}"
+            "Could not determine worktree branch for %s: %s",
+            sanitize_log(task_id),
+            sanitize_log(branch_result["error"]),
         )
         return {"success": False, "error": "Could not determine worktree branch"}
     worktree_branch = branch_result["output"]
@@ -3449,7 +3510,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Push timed out"}
     except Exception:
-        logger.exception(f"Failed to push branch {worktree_branch}")
+        logger.exception("Failed to push branch %s", sanitize_log(worktree_branch))
         return {"success": False, "error": "Failed to push branch"}
 
     # Load task title/description for PR defaults
@@ -3523,7 +3584,9 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
                 "error": f"Provider {provider_type_value!r} does not support PR creation yet",
             }
         except Exception:
-            logger.exception(f"Failed to create PR via provider for {worktree_branch}")
+            logger.exception(
+                "Failed to create PR via provider for %s", sanitize_log(worktree_branch)
+            )
             return {"success": False, "error": "Failed to create PR"}
 
     # Create the PR using gh CLI (GitHub-only path)
@@ -3570,7 +3633,9 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     gh_result = run_gh_command(gh_args, cwd=str(project_path))
 
     if not gh_result["success"]:
-        logger.warning(f"gh pr create failed: {gh_result.get('error', 'unknown error')}")
+        logger.warning(
+            "gh pr create failed: %s", sanitize_log(gh_result.get("error", "unknown error"))
+        )
         return {"success": False, "error": "Failed to create PR"}
 
     # Parse PR URL from output
@@ -3652,7 +3717,9 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
     branch_result = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
     if not branch_result["success"]:
         logger.warning(
-            f"Could not determine worktree branch for {task_id}: {branch_result['error']}"
+            "Could not determine worktree branch for %s: %s",
+            sanitize_log(task_id),
+            sanitize_log(branch_result["error"]),
         )
         return {"success": False, "error": "Could not determine worktree branch"}
     worktree_branch = branch_result["output"]
@@ -3673,7 +3740,7 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
         if blocker.exists():
             try:
                 blocker.unlink()
-                logger.info(f"Removed merge-blocking file: {fname}")
+                logger.info("Removed merge-blocking file: %s", sanitize_log(fname))
             except OSError:
                 pass
 
@@ -3703,7 +3770,7 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
                 cwd=project_path,
             )["success"]
         except Exception as e:
-            logger.warning(f"Failed to cleanup worktree after merge: {e}")
+            logger.warning("Failed to cleanup worktree after merge: %s", sanitize_log(e))
             # Don't fail the merge just because cleanup failed
 
         return {
@@ -4137,7 +4204,7 @@ async def discard_worktree(task_id: str):
             },
         }
     except Exception:
-        logger.exception(f"Failed to discard worktree for {spec_id}")
+        logger.exception("Failed to discard worktree for %s", sanitize_log(spec_id))
         return {"success": False, "error": "Failed to discard worktree"}
 
 
@@ -4336,7 +4403,9 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
     try:
         worktree_path = _safe_launch_path(worktree_path)
     except ValueError as exc:
-        logger.warning("rejected launch path %r: %s", worktree_path, exc)
+        logger.warning(
+            "rejected launch path %r: %s", sanitize_log(worktree_path), sanitize_log(exc)
+        )
         return {"success": False, "error": "Invalid worktree path"}
 
     # "custom" used to mean "run the executable the caller names" — an
@@ -4367,7 +4436,7 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
             "error": f"IDE command not found. Make sure '{ide}' is installed and in your PATH.",
         }
     except Exception:
-        logger.exception(f"Failed to open IDE {ide!r}")
+        logger.exception("Failed to open IDE %s", sanitize_log(f"{ide!r}"))
         return {"success": False, "error": "Failed to open IDE"}
 
 
@@ -4386,7 +4455,9 @@ async def open_worktree_in_terminal(request: OpenInTerminalRequest):
     try:
         worktree_path = _safe_launch_path(worktree_path)
     except ValueError as exc:
-        logger.warning("rejected launch path %r: %s", worktree_path, exc)
+        logger.warning(
+            "rejected launch path %r: %s", sanitize_log(worktree_path), sanitize_log(exc)
+        )
         return {"success": False, "error": "Invalid worktree path"}
 
     if terminal == "custom":
@@ -4414,7 +4485,7 @@ async def open_worktree_in_terminal(request: OpenInTerminalRequest):
             "error": f"Terminal command not found. Make sure '{terminal}' is installed and in your PATH.",
         }
     except Exception:
-        logger.exception(f"Failed to open terminal {terminal!r}")
+        logger.exception("Failed to open terminal %s", sanitize_log(f"{terminal!r}"))
         return {"success": False, "error": "Failed to open terminal"}
 
 

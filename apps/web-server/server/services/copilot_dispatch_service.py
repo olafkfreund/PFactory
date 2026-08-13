@@ -25,6 +25,8 @@ import subprocess
 from collections.abc import Callable
 from datetime import datetime, timezone
 
+from factory_common.logsafe import sanitize_log
+
 logger = logging.getLogger(__name__)
 
 # Type of the injectable gh runner: (args) -> CompletedProcess
@@ -93,9 +95,9 @@ class CopilotDispatchService:
             )
         logger.info(
             "[copilot-dispatch] assigned %s#%s to %s",
-            repo_full_name,
-            issue_number,
-            self.AGENT_HANDLE,
+            sanitize_log(repo_full_name),
+            sanitize_log(issue_number),
+            sanitize_log(self.AGENT_HANDLE),
         )
         return {
             "enabled": True,
@@ -129,9 +131,9 @@ class CopilotDispatchService:
         if result.returncode != 0:
             logger.warning(
                 "[copilot-dispatch] PR poll failed for %s#%s: %s",
-                repo_full_name,
-                issue_number,
-                (result.stderr or "").strip(),
+                sanitize_log(repo_full_name),
+                sanitize_log(issue_number),
+                sanitize_log((result.stderr or "").strip()),
             )
             return None
         number = (result.stdout or "").strip()

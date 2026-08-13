@@ -36,6 +36,8 @@ from pathlib import Path
 
 from sqlalchemy import select
 
+from factory_common.logsafe import sanitize_log
+
 from ..database import OrgMember
 from ..database.engine import async_session_factory
 from ..websockets.events import send_to_user
@@ -150,8 +152,8 @@ class NotificationService:
         except Exception:
             logger.warning(
                 "Failed to push notification via WebSocket: user_id=%s type=%s",
-                user_id,
-                type,
+                sanitize_log(user_id),
+                sanitize_log(type),
                 exc_info=True,
             )
 
@@ -161,16 +163,16 @@ class NotificationService:
         except Exception:
             logger.warning(
                 "Failed to send email notification: user_id=%s type=%s",
-                user_id,
-                type,
+                sanitize_log(user_id),
+                sanitize_log(type),
                 exc_info=True,
             )
 
         logger.debug(
             "Notification created: user_id=%s type=%s title=%s",
-            user_id,
-            type,
-            title,
+            sanitize_log(user_id),
+            sanitize_log(type),
+            sanitize_log(title),
         )
         return notification
 
@@ -218,7 +220,7 @@ class NotificationService:
         except Exception:
             logger.warning(
                 "Failed to look up org members for notification: org_id=%s",
-                org_id,
+                sanitize_log(org_id),
                 exc_info=True,
             )
             return []
@@ -236,8 +238,8 @@ class NotificationService:
 
         logger.debug(
             "Org notification sent: org_id=%s type=%s recipients=%d",
-            org_id,
-            type,
+            sanitize_log(org_id),
+            sanitize_log(type),
             len(notifications),
         )
         return notifications

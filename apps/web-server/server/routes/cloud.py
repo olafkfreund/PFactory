@@ -25,6 +25,8 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from factory_common.logsafe import sanitize_log
+
 # Add apps/backend to sys.path so ``import agents.cloud.store`` resolves
 # (the canonical pattern used by routes/provider_runtimes.py).
 _BACKEND = Path(__file__).resolve().parents[3] / "backend"
@@ -56,9 +58,13 @@ async def _run_assessment_bg(req: "CloudRunRequest") -> None:
             services=req.services,
             fail_on_severity=req.fail_on_severity,
         )
-        logger.info("cloud assessment stored: %s (%s)", out["assessment_id"], out["verdict"])
+        logger.info(
+            "cloud assessment stored: %s (%s)",
+            sanitize_log(out["assessment_id"]),
+            sanitize_log(out["verdict"]),
+        )
     except Exception:  # never let a background failure crash the loop
-        logger.exception("cloud assessment run failed for provider=%s", req.provider)
+        logger.exception("cloud assessment run failed for provider=%s", sanitize_log(req.provider))
 
 
 @router.post("/assessments/run", summary="Launch a cloud check (gate → assessment)")

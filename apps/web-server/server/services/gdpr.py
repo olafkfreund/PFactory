@@ -42,6 +42,8 @@ from datetime import datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from factory_common.logsafe import sanitize_log
+
 from ..database.models import AuditLog, EmailAccount, User
 from .audit_chain import GENESIS, compute_hash, row_as_mapping
 
@@ -159,7 +161,7 @@ async def erase_user(db: AsyncSession, user_id: str) -> dict:
     logger.info(
         "GDPR erasure complete for user_id=%s — %d audit rows anonymized, "
         "%d email accounts deleted",
-        user_id,
+        sanitize_log(user_id),
         len(audit_rows),
         len(ea_rows),
     )

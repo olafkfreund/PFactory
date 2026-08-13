@@ -25,6 +25,8 @@ from email.mime.text import MIMEText
 import httpx
 from sqlalchemy import select, update
 
+from factory_common.logsafe import sanitize_log
+
 from ..database import EmailAccount
 from ..database.engine import async_session_factory
 
@@ -56,11 +58,13 @@ class EmailService:
                 )
                 accounts = result.scalars().all()
         except Exception:
-            logger.warning("Failed to load email accounts for user %s", user_id, exc_info=True)
+            logger.warning(
+                "Failed to load email accounts for user %s", sanitize_log(user_id), exc_info=True
+            )
             return False
 
         if not accounts:
-            logger.debug("No email accounts configured for user %s", user_id)
+            logger.debug("No email accounts configured for user %s", sanitize_log(user_id))
             return False
 
         for account in accounts:
@@ -70,22 +74,22 @@ class EmailService:
                 elif account.provider == "gmail":
                     sent = await self._send_via_gmail(account, subject, body_html)
                 else:
-                    logger.debug("Unsupported email provider: %s", account.provider)
+                    logger.debug("Unsupported email provider: %s", sanitize_log(account.provider))
                     continue
 
                 if sent:
                     logger.info(
                         "Email sent to %s via %s: %s",
-                        account.email_address,
-                        account.provider,
-                        subject,
+                        sanitize_log(account.email_address),
+                        sanitize_log(account.provider),
+                        sanitize_log(subject),
                     )
                     return True
             except Exception:
                 logger.warning(
                     "Failed to send email via %s (%s)",
-                    account.provider,
-                    account.email_address,
+                    sanitize_log(account.provider),
+                    sanitize_log(account.email_address),
                     exc_info=True,
                 )
 
@@ -129,9 +133,9 @@ class EmailService:
             return True
 
         logger.warning(
-            "MS Graph sendMail failed: status=%d body=%s",
-            response.status_code,
-            response.text[:500],
+            "MS Graph sendMail failed: status=%s body=%s",
+            sanitize_log(response.status_code),
+            sanitize_log(response.text[:500]),
         )
         return False
 
@@ -152,8 +156,8 @@ class EmailService:
         if not account.refresh_token:
             logger.warning(
                 "Token expired and no refresh token for %s (%s)",
-                account.provider,
-                account.email_address,
+                sanitize_log(account.provider),
+                sanitize_log(account.email_address),
             )
             return None
 
@@ -189,9 +193,9 @@ class EmailService:
 
         if response.status_code != 200:
             logger.warning(
-                "Outlook token refresh failed: status=%d body=%s",
-                response.status_code,
-                response.text[:500],
+                "Outlook token refresh failed: status=%s body=%s",
+                sanitize_log(response.status_code),
+                sanitize_log(response.text[:500]),
             )
             return None
 
@@ -220,11 +224,11 @@ class EmailService:
         except Exception:
             logger.warning(
                 "Failed to persist refreshed token for %s",
-                account.email_address,
+                sanitize_log(account.email_address),
                 exc_info=True,
             )
 
-        logger.info("Refreshed Outlook token for %s", account.email_address)
+        logger.info("Refreshed Outlook token for %s", sanitize_log(account.email_address))
         return new_access_token
 
     async def _send_via_gmail(self, account: EmailAccount, subject: str, body_html: str) -> bool:
@@ -257,9 +261,9 @@ class EmailService:
             return True
 
         logger.warning(
-            "Gmail sendMessage failed: status=%d body=%s",
-            response.status_code,
-            response.text[:500],
+            "Gmail sendMessage failed: status=%s body=%s",
+            sanitize_log(response.status_code),
+            sanitize_log(response.text[:500]),
         )
         return False
 
@@ -287,9 +291,9 @@ class EmailService:
 
         if response.status_code != 200:
             logger.warning(
-                "Gmail token refresh failed: status=%d body=%s",
-                response.status_code,
-                response.text[:500],
+                "Gmail token refresh failed: status=%s body=%s",
+                sanitize_log(response.status_code),
+                sanitize_log(response.text[:500]),
             )
             return None
 
@@ -319,11 +323,11 @@ class EmailService:
         except Exception:
             logger.warning(
                 "Failed to persist refreshed token for %s",
-                account.email_address,
+                sanitize_log(account.email_address),
                 exc_info=True,
             )
 
-        logger.info("Refreshed Gmail token for %s", account.email_address)
+        logger.info("Refreshed Gmail token for %s", sanitize_log(account.email_address))
         return new_access_token
 
 
