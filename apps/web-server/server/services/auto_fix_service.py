@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 
 logger = logging.getLogger(__name__)
 
@@ -623,7 +624,12 @@ async def check_new_and_start_all(project_id: str) -> dict[str, Any]:
                 sanitize_log(iss["number"]),
                 sanitize_log(e),
             )
-            errors.append({"issueNumber": iss["number"], "error": str(e)})
+            errors.append(
+                {
+                    "issueNumber": iss["number"],
+                    "error": error_message(logger, "operation failed", e, "The operation failed"),
+                }
+            )
 
     # Advance any delegated tasks alongside polling for new issues.
     delegation_summary: dict[str, Any] = {}

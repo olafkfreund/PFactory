@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 
 from ..config import get_settings
 
@@ -135,7 +136,7 @@ class ConflictService:
             logger.error("Conflict detection failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
                 "conflicts": [],
                 "stats": {
                     "totalFiles": 0,
@@ -266,7 +267,7 @@ class ConflictService:
             logger.error("Conflict resolution failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
                 "resolved": [],
                 "remaining": [],
             }
@@ -415,7 +416,7 @@ class ConflictService:
             logger.error("AI merge failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
             }
 
     def _ai_merge_three_way_sync(
@@ -505,7 +506,7 @@ TASK: Intelligently merge both sets of changes into the base.
             logger.error("AI merge sync failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
             }
 
     async def resolve_conflict_markers(
@@ -542,7 +543,7 @@ TASK: Intelligently merge both sets of changes into the base.
             logger.error("Conflict marker resolution failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
             }
 
     def _resolve_conflict_markers_sync(
@@ -658,7 +659,7 @@ Return ONLY the raw file content."""
             logger.error("Conflict marker resolution sync failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
             }
 
 
