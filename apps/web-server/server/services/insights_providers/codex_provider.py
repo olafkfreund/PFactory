@@ -12,6 +12,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from server.error_ref import error_message
+
 from ...websockets.events import broadcast_event
 from .base import ProviderInfo, ProviderModel, ProviderStrategy
 
@@ -165,7 +167,9 @@ class CodexProvider(ProviderStrategy):
                 {
                     "projectId": project_id,
                     "type": "error",
-                    "error": str(e),
+                    "error": error_message(
+                        logger, "CodexProvider failed", e, "The provider call failed"
+                    ),
                 },
             )
             return ""

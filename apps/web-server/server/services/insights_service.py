@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 
 from ..websockets.events import broadcast_event
 from .git_utils import safe_spec_component  # #335
@@ -404,7 +405,9 @@ class InsightsService:
                 {
                     "projectId": project_id,
                     "type": "error",
-                    "error": str(e),
+                    "error": error_message(
+                        logger, "InsightsService failed", e, "The provider call failed"
+                    ),
                 },
             )
         finally:
