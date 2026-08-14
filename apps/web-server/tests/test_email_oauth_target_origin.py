@@ -33,10 +33,14 @@ branch fall back to ``'*'``, and ``test_wildcard_is_never_emitted`` /
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from fastapi import Request
+from fastapi.responses import HTMLResponse
 
 _WEB_SERVER = Path(__file__).resolve().parents[1]
 if str(_WEB_SERVER) not in sys.path:
@@ -49,14 +53,19 @@ _PORTAL = "https://portal.example"
 
 
 class _FakeRequest:
-    """Only the surface ``_opener_origin`` touches."""
+    """Only the surface ``_opener_origin`` touches: a header mapping."""
 
     def __init__(self, **headers: str) -> None:
         self.headers = {k.replace("_", "-"): v for k, v in headers.items()}
 
 
+def _req(**headers: str) -> Request:
+    """A stand-in Request. Cast because only ``.headers`` is ever read."""
+    return cast(Request, _FakeRequest(**headers))
+
+
 @pytest.fixture
-def allowlist(monkeypatch):
+def allowlist(monkeypatch: pytest.MonkeyPatch) -> Callable[[list[str]], None]:
     """Point ``get_settings().CORS_ORIGINS`` at a known allowlist."""
 
     def _apply(origins: list[str]) -> None:
@@ -70,8 +79,8 @@ def allowlist(monkeypatch):
     return _apply
 
 
-def _body(resp) -> str:
-    return resp.body.decode()
+def _body(resp: HTMLResponse) -> str:
+    return bytes(resp.body).decode()
 
 
 # --------------------------------------------------------------------------
@@ -79,20 +88,20 @@ def _body(resp) -> str:
 # --------------------------------------------------------------------------
 
 
-def test_recognised_origin_is_the_target_origin():
+def test_recognised_origin_is_the_target_origin() -> None:
     html = _body(_oauth_result_html(success=True, message="ok", target_origin=_PORTAL))
     assert "postMessage" in html
     assert _PORTAL in html
 
 
-def test_wildcard_is_never_emitted():
+def test_wildcard_is_never_emitted() -> None:
     """The regression this file exists for."""
     html = _body(_oauth_result_html(success=True, message="ok", target_origin=_PORTAL))
     assert "'*'" not in html
     assert '"*"' not in html
 
 
-def test_unknown_origin_posts_nothing():
+def test_unknown_origin_posts_nothing() -> None:
     """No recognised opener => no postMessage, rather than a wildcard one."""
     html = _body(_oauth_result_html(success=True, message="ok", email="a@b.com"))
     assert "postMessage" not in html
@@ -101,7 +110,7 @@ def test_unknown_origin_posts_nothing():
     assert "window.close" in html
 
 
-def test_payload_is_not_leaked_when_origin_is_unknown():
+def test_payload_is_not_leaked_when_origin_is_unknown() -> None:
     """The address must not reach the page at all on the unnamed-recipient path."""
     html = _body(_oauth_result_html(success=True, message="Connected", email="secret@example.com"))
     assert "secret@example.com" not in html
@@ -112,37 +121,39 @@ def test_payload_is_not_leaked_when_origin_is_unknown():
 # --------------------------------------------------------------------------
 
 
-def test_origin_header_must_be_allowlisted(allowlist):
+def test_origin_header_must_be_allowlisted(allowlist: Callable[[list[str]], None]) -> None:
     allowlist([_PORTAL])
-    assert _opener_origin(_FakeRequest(origin=_PORTAL)) == _PORTAL
+    assert _opener_origin(_req(origin=_PORTAL)) == _PORTAL
 
 
-def test_unlisted_origin_is_rejected(allowlist):
+def test_unlisted_origin_is_rejected(allowlist: Callable[[list[str]], None]) -> None:
     allowlist([_PORTAL])
-    assert _opener_origin(_FakeRequest(origin="https://evil.example")) is None
+    assert _opener_origin(_req(origin="https://evil.example")) is None
 
 
-def test_referer_is_used_when_origin_is_absent(allowlist):
+def test_referer_is_used_when_origin_is_absent(allowlist: Callable[[list[str]], None]) -> None:
     """Same-origin GET omits Origin in most browsers; Referer carries a path."""
     allowlist([_PORTAL])
-    req = _FakeRequest(referer=f"{_PORTAL}/settings/integrations?tab=email")
-    assert _opener_origin(req) == _PORTAL
+    assert _opener_origin(_req(referer=f"{_PORTAL}/settings/integrations?tab=email")) == _PORTAL
 
 
-def test_no_headers_yields_none(allowlist):
+def test_no_headers_yields_none(allowlist: Callable[[list[str]], None]) -> None:
     allowlist([_PORTAL])
-    assert _opener_origin(_FakeRequest()) is None
+    assert _opener_origin(_req()) is None
 
 
-def test_wildcard_in_cors_config_does_not_authorize_everything(allowlist):
+def test_wildcard_in_cors_config_does_not_authorize_everything(
+    allowlist: Callable[[list[str]], None],
+) -> None:
     """A '*' entry must not re-authorize the wildcard being removed here."""
     allowlist(["*", _PORTAL])
-    assert _opener_origin(_FakeRequest(origin="https://evil.example")) is None
-    assert _opener_origin(_FakeRequest(origin=_PORTAL)) == _PORTAL
+    assert _opener_origin(_req(origin="https://evil.example")) is None
+    assert _opener_origin(_req(origin=_PORTAL)) == _PORTAL
 
 
-def test_referer_path_cannot_smuggle_an_allowed_origin(allowlist):
+def test_referer_path_cannot_smuggle_an_allowed_origin(
+    allowlist: Callable[[list[str]], None],
+) -> None:
     """Reduction to scheme://netloc must happen before the comparison."""
     allowlist([_PORTAL])
-    req = _FakeRequest(referer=f"https://evil.example/redirect?to={_PORTAL}")
-    assert _opener_origin(req) is None
+    assert _opener_origin(_req(referer=f"https://evil.example/redirect?to={_PORTAL}")) is None
