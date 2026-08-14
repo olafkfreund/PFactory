@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 
 from ...crypto.secret_field import unseal_profiles  # noqa: TID252
 from ...websockets.events import broadcast_event
@@ -378,7 +379,9 @@ class ClaudeProvider(ProviderStrategy):
                 {
                     "projectId": project_id,
                     "type": "error",
-                    "error": str(e),
+                    "error": error_message(
+                        logger, "ClaudeProvider failed", e, "The provider call failed"
+                    ),
                 },
             )
             return ""

@@ -13,6 +13,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from server.error_ref import error_message
+
 from ...websockets.events import broadcast_event
 from .base import ProviderInfo, ProviderModel, ProviderStrategy
 from .tools import execute_tool, get_tool_definitions
@@ -356,7 +358,9 @@ class OllamaProvider(ProviderStrategy):
                 {
                     "projectId": project_id,
                     "type": "error",
-                    "error": str(e),
+                    "error": error_message(
+                        logger, "OllamaProvider failed", e, "The provider call failed"
+                    ),
                 },
             )
             return ""
