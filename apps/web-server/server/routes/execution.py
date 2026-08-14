@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 
 from ..services.agent_service import get_agent_service
 from ..websockets.events import emit_task_status
@@ -327,7 +328,9 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to start spec creation: {str(e)}",
+                    detail=error_message(
+                        logger, "Failed to start spec creation", e, "Failed to start spec creation"
+                    ),
                 )
 
     # Sync runtime options to task_metadata.json for backend to read
@@ -472,7 +475,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
             logger.exception("[StartTask] Delegation failed for %s", sanitize_log(task_id))
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Delegation failed: {e}",
+                detail=error_message(logger, "Delegation failed", e, "Delegation failed"),
             )
         return {
             "success": True,
@@ -520,7 +523,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start task: {str(e)}",
+            detail=error_message(logger, "Failed to start task", e, "Failed to start task"),
         )
 
     return {
@@ -709,7 +712,9 @@ async def create_and_run_task(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start task creation: {str(e)}",
+            detail=error_message(
+                logger, "Failed to start task creation", e, "Failed to start task creation"
+            ),
         )
 
     return {

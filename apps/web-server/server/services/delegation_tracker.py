@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,12 @@ async def scan_delegated_tasks(project_id: str) -> dict[str, Any]:
             sanitize_log(project_id),
             sanitize_log(e),
         )
-        return {"checked": 0, "promoted": [], "declined": [], "error": str(e)}
+        return {
+            "checked": 0,
+            "promoted": [],
+            "declined": [],
+            "error": error_message(logger, "operation failed", e, "The operation failed"),
+        }
 
     # GitHub Copilot (V1) and GitLab Duo Workflow (V1.5) are both wired.
     # Azure DevOps has no autonomous agent equivalent — skip with a notice.
@@ -104,7 +110,12 @@ async def scan_delegated_tasks(project_id: str) -> dict[str, Any]:
             sanitize_log(project_id),
             sanitize_log(e),
         )
-        return {"checked": len(delegated), "promoted": [], "declined": [], "error": str(e)}
+        return {
+            "checked": len(delegated),
+            "promoted": [],
+            "declined": [],
+            "error": error_message(logger, "operation failed", e, "The operation failed"),
+        }
 
     now = datetime.now(timezone.utc)
 

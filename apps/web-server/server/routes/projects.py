@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 from server.services.git_utils import confine_to_workspace, safe_spec_component
 
 # --------------------------------------------------------------------------
@@ -619,7 +620,15 @@ async def add_project(project: ProjectCreate):
             except OSError as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot create directory: {project.path} ({e})",
+                    # The path is the caller's own input, so it stays; only
+                    # the exception is withheld -- an OSError here names the
+                    # parent directory it could not write into, which is ours.
+                    detail=error_message(
+                        logger,
+                        f"cannot create directory {project.path}",
+                        e,
+                        f"Cannot create directory: {project.path}",
+                    ),
                 )
 
         if not project_path.is_dir():

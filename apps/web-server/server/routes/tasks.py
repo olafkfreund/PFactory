@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 from server.services.git_utils import safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
@@ -1794,7 +1795,9 @@ async def get_qa_report(task_id: str):
     except OSError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not read QA report: {exc}",
+            detail=error_message(
+                logger, "could not read QA report", exc, "Could not read the QA report"
+            ),
         ) from exc
 
     return {
@@ -1962,7 +1965,9 @@ async def get_plan_html(task_id: str):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate plan HTML: {str(e)}",
+            detail=error_message(
+                logger, "failed to generate plan HTML", e, "Failed to generate the plan HTML"
+            ),
         )
 
 
@@ -2855,7 +2860,11 @@ async def resolve_uncommitted_conflicts(task_id: str):
                     "error": f"Failed to stash changes: {result.stderr or result.stdout}",
                 }
     except subprocess.CalledProcessError as e:
-        return {"success": False, "error": f"Failed to stash changes: {e.stderr}"}
+        # e.stderr is git's own output: it names paths under the worktree.
+        return {
+            "success": False,
+            "error": error_message(logger, "failed to stash changes", e, "Failed to stash changes"),
+        }
 
     resolved_files = []
     failed_files = []
@@ -2938,7 +2947,14 @@ async def resolve_uncommitted_conflicts(task_id: str):
 
             except Exception as e:
                 logger.error("Failed to resolve %s: %s", sanitize_log(file_path), sanitize_log(e))
-                failed_files.append({"file": file_path, "error": str(e)})
+                failed_files.append(
+                    {
+                        "file": file_path,
+                        "error": error_message(
+                            logger, "failed to resolve file", e, "Could not resolve the file"
+                        ),
+                    }
+                )
 
     finally:
         # Drop the stash only if we created one
