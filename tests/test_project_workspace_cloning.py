@@ -236,6 +236,10 @@ async def test_clone_or_update_no_branch_skips_checkout(tmp_path):
 
 @pytest.mark.asyncio
 async def test_clone_or_update_raises_on_git_failure(tmp_path):
+    """PFactory#576: git's stderr is no longer embedded in the exception
+    message -- it may carry a credentialed remote URL on an auth failure, and
+    a caller (routes/projects.py) puts this message straight into a client
+    response. Only the subcommand + exit code are safe to surface there."""
     from server.services.project_workspace_service import (
         GitOperationError,
         clone_or_update,
@@ -254,7 +258,8 @@ async def test_clone_or_update_raises_on_git_failure(tmp_path):
             )
 
     assert "exit 128" in str(exc.value)
-    assert "repository not found" in str(exc.value)
+    assert "clone" in str(exc.value)
+    assert "repository not found" not in str(exc.value)
 
 
 @pytest.mark.asyncio

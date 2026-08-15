@@ -39,21 +39,6 @@ from server.services.git_utils import safe_spec_component
 
 logger = logging.getLogger(__name__)
 
-# PFactory#576: strips a credentialed URL's userinfo (https://user:TOKEN@host/...)
-# before ANY text that might carry one reaches a log call. `sanitize_log`
-# (imported above) only escapes control characters for CWE-117 -- it is not a
-# secret scrubber, and this fleet's logs are forwarded off-host (a scheduled
-# audit-siem-forward job), so a log is not a safe place for a token either.
-# Applied to git's raw argv (every credentialed operation logs it at DEBUG)
-# and to git's stderr (which independently echoes the remote URL on some auth
-# failures, so scrubbing only the argv would still leak via stderr).
-_CRED_IN_URL = re.compile(r"(https?://)[^/@\s]+@")
-
-
-def _scrub_credential(text: str) -> str:
-    """Redact `user:token@` from any URL userinfo in *text*."""
-    return _CRED_IN_URL.sub(r"\1***@", text)
-
 
 DEFAULT_WORKSPACE_ROOT = Path.home() / ".pfactory" / "workspaces"
 
@@ -184,6 +169,7 @@ async def clone_or_update(
                 ["remote", "set-url", "origin", fetch_url],
                 cwd=workspace,
                 timeout=timeout_seconds,
+                credentialed=True,
             )
         try:
             await _run_git(
@@ -222,7 +208,9 @@ async def clone_or_update(
     if branch:
         cmd.extend(["--branch", branch])
     cmd.extend([fetch_url, str(workspace)])
-    await _run_git(cmd, cwd=workspace.parent, timeout=timeout_seconds)
+    await _run_git(
+        cmd, cwd=workspace.parent, timeout=timeout_seconds, credentialed=credential is not None
+    )
     if credential is not None:
         # Strip the credential from origin so it isn't persisted in
         # the workspace's ``.git/config``.
@@ -242,12 +230,14 @@ class GitOperationError(RuntimeError):
     """Raised when a git operation fails or times out."""
 
 
-async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
+async def _run_git(
+    args: list[str], *, cwd: Path, timeout: float, credentialed: bool = False
+) -> str:
     """Run ``git <args>`` with a timeout. Returns stdout on success.
 
-    PFactory#576: when ``args`` carries a credentialed URL (a clone/fetch/
-    remote-set-url against a ``https://user:TOKEN@host/...`` origin --
-    ``clone_or_update`` builds exactly that), the token is an argv element
+    PFactory#576: when ``credentialed`` is set (a clone/fetch/remote-set-url
+    against a ``https://user:TOKEN@host/...`` origin -- ``clone_or_update``
+    builds exactly that and passes it here), the token is an argv element
     AND git itself echoes the remote URL back on an auth failure, so it can
     be in ``stderr`` independently of argv. GitOperationError's message used
     to interpolate both; a caller (``routes/projects.py``) puts that message
@@ -257,16 +247,21 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
 
     Neither the failing subcommand name (``clone``, ``fetch``, ``pull``,
     ``remote``) nor the exit code is secret, so those still identify the
-    failure; the full argv and stderr go to the debug/warning log only,
-    which callers never put in a response. The log is NOT treated as a safe
-    dumping ground for the credential, though -- this fleet forwards
-    application logs off-host (a scheduled audit-siem-forward job), so both
-    log lines below run the argv/stderr through :func:`_scrub_credential`
-    first (``sanitize_log`` alone is a CWE-117 control-character escape, not
-    a secret scrubber). The neighbouring comment about "never persisted to
-    git's config" is about the credential not landing on disk in the repo;
-    it says nothing about whether a log is an acceptable destination, and
-    the two are deliberately not conflated here.
+    failure regardless of ``credentialed``.
+
+    For a credentialed call, the full argv and stderr are not logged either
+    -- only the safe subcommand/exit-code shape. An earlier version of this
+    fix ran them through a regex scrubber first (``_scrub_credential``)
+    instead of omitting them, reasoning that ``sanitize_log`` alone is only
+    a CWE-117 control-character escape, not a secret scrubber. That was
+    still wrong: CodeQL's clear-text-logging query (correctly) does not
+    treat an ad-hoc ``re.sub`` as a recognized sanitizer, because a regex
+    pattern can miss a credential shape it wasn't written for -- exactly the
+    gap this fix closes by not relying on pattern-matching the secret out of
+    text that legitimately might contain it at all. This fleet forwards
+    application logs off-host (a scheduled audit-siem-forward job), so the
+    log is not a safe destination for the credential either, the same as
+    the client response was not.
 
     This does not remove the credential from argv -- it is still
     world-readable on the host via ps/proc while the process runs -- only
@@ -276,11 +271,12 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
     """
     cmd = ["git", *args]
     subcommand = args[0] if args else "git"
-    logger.debug(
-        "[workspace] running: git %s (cwd=%s)",
-        sanitize_log(_scrub_credential(" ".join(args))),
-        sanitize_log(cwd),
-    )
+    if credentialed:
+        logger.debug("[workspace] running: git %s ... (cwd=%s)", subcommand, sanitize_log(cwd))
+    else:
+        logger.debug(
+            "[workspace] running: git %s (cwd=%s)", sanitize_log(" ".join(args)), sanitize_log(cwd)
+        )
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -301,16 +297,25 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
         raise GitOperationError(f"git {subcommand} timed out after {timeout}s") from e
 
     if proc.returncode != 0:
-        stderr_text = stderr.decode("utf-8", "replace").strip() or "no stderr"
-        # Full argv + stderr (which may carry the credentialed URL either
-        # way) go to the log only -- never into the exception message below,
-        # which a caller may put straight into a client response. Scrubbed
-        # before logging too: this fleet forwards application logs off-host.
-        logger.warning(
-            "[workspace] git %s failed (exit %s): %s",
-            sanitize_log(subcommand),
-            proc.returncode,
-            sanitize_log(_scrub_credential(stderr_text)),
-        )
+        # Full stderr goes to the log only when NOT credentialed -- never
+        # into the exception message below, which a caller may put straight
+        # into a client response. A credentialed failure logs the safe shape
+        # only: git's stderr on an auth failure can independently carry the
+        # remote URL (and therefore the token), so there is no text derived
+        # from this operation that is provably safe to log verbatim.
+        if credentialed:
+            logger.warning(
+                "[workspace] git %s failed (exit %s) [credentialed op, detail withheld]",
+                sanitize_log(subcommand),
+                proc.returncode,
+            )
+        else:
+            stderr_text = stderr.decode("utf-8", "replace").strip() or "no stderr"
+            logger.warning(
+                "[workspace] git %s failed (exit %s): %s",
+                sanitize_log(subcommand),
+                proc.returncode,
+                sanitize_log(stderr_text),
+            )
         raise GitOperationError(f"git {subcommand} failed (exit {proc.returncode})")
     return stdout.decode("utf-8", "replace")

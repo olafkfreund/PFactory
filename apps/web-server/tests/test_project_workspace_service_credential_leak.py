@@ -10,14 +10,18 @@ HTTPException response. A wrong or revoked token is the most likely
 trigger, since ANY non-zero exit reached the disclosure, not just ones where
 git's stderr happens to name the URL.
 
-Moving the argv/stderr into a log line is not itself a fix here: this
-fleet's application logs are forwarded off-host (a scheduled
+Moving the argv/stderr into a log line was tried first and was not itself a
+fix: this fleet's application logs are forwarded off-host (a scheduled
 audit-siem-forward job), and `sanitize_log` only escapes control characters
-(CWE-117) -- it does not redact secrets. So the log lines below are
-asserted too, on the rendered record TEXT (`record.getMessage()`, which
-applies the `%`-formatting), not on the raw `%s` arguments passed to the
-logger call -- an argument-level assertion would miss a formatting layer
-concatenating a scrubbed piece next to an unscrubbed one.
+(CWE-117) -- it does not redact secrets. A follow-up ran the logged text
+through a regex scrubber instead of omitting it; CodeQL correctly flagged
+that too (clear-text-logging-sensitive-data), because a hand-written regex
+pattern can miss a credential shape it wasn't written for and CodeQL does
+not treat `re.sub` as a recognized sanitizer. The fix that stuck: a
+credentialed `_run_git` call never logs the argv or stderr at all, only the
+safe subcommand/exit-code shape -- so the log lines below are asserted on
+the RENDERED record TEXT (`record.getMessage()`, which applies the
+`%`-formatting), not on the raw `%s` arguments passed to the logger call.
 
 The test that matters throughout asserts the SECRET IS ABSENT, not that a
 friendly message is present -- a friendly message can be present with the
@@ -38,7 +42,7 @@ _UNREACHABLE = "https://oauth2:{token}@127.0.0.1:1/owner/repo.git"
 
 
 @pytest.mark.asyncio
-async def test_failed_clone_does_not_leak_the_embedded_token(tmp_path, caplog):
+async def test_failed_credentialed_clone_does_not_leak_the_embedded_token(tmp_path, caplog):
     secret = "ghp_SUPERSECRETTOKENDONOTLEAK1234567890"  # noqa: S105 (test fixture, not real)
     fetch_url = _UNREACHABLE.format(token=secret)
     dest = tmp_path / "dest"
@@ -47,7 +51,7 @@ async def test_failed_clone_does_not_leak_the_embedded_token(tmp_path, caplog):
         caplog.at_level(logging.DEBUG, logger="server.services.project_workspace_service"),
         pytest.raises(GitOperationError) as excinfo,
     ):
-        await _run_git(["clone", fetch_url, str(dest)], cwd=tmp_path, timeout=10)
+        await _run_git(["clone", fetch_url, str(dest)], cwd=tmp_path, timeout=10, credentialed=True)
 
     message = str(excinfo.value)
     assert secret not in message
@@ -63,13 +67,13 @@ async def test_failed_clone_does_not_leak_the_embedded_token(tmp_path, caplog):
     rendered = [r.getMessage() for r in caplog.records]
     assert not any(secret in line for line in rendered)
     assert not any(fetch_url in line for line in rendered)
-    # The scrub marker proves the DEBUG line ran the credentialed argv
-    # through the scrubber rather than happening not to log it at all.
-    assert any("***@" in line for line in rendered)
+    # Proves the credentialed path actually took the withheld-detail branch
+    # rather than happening not to log anything at all.
+    assert any("detail withheld" in line for line in rendered)
 
 
 @pytest.mark.asyncio
-async def test_timeout_does_not_leak_the_embedded_token(tmp_path, caplog):
+async def test_timeout_on_credentialed_clone_does_not_leak_the_embedded_token(tmp_path, caplog):
     """Same property on the timeout path, which builds its message separately."""
     secret = "ghp_ANOTHERSECRETTOKEN9876543210"  # noqa: S105 (test fixture, not real)
     fetch_url = _UNREACHABLE.format(token=secret)
@@ -81,7 +85,9 @@ async def test_timeout_does_not_leak_the_embedded_token(tmp_path, caplog):
     ):
         # A near-zero timeout forces the TimeoutError branch rather than the
         # (also-covered) non-zero-exit branch.
-        await _run_git(["clone", fetch_url, str(dest)], cwd=tmp_path, timeout=0.001)
+        await _run_git(
+            ["clone", fetch_url, str(dest)], cwd=tmp_path, timeout=0.001, credentialed=True
+        )
 
     message = str(excinfo.value)
     assert secret not in message
@@ -90,4 +96,23 @@ async def test_timeout_does_not_leak_the_embedded_token(tmp_path, caplog):
     rendered = [r.getMessage() for r in caplog.records]
     assert not any(secret in line for line in rendered)
     assert not any(fetch_url in line for line in rendered)
-    assert any("***@" in line for line in rendered)
+
+
+@pytest.mark.asyncio
+async def test_non_credentialed_failure_still_logs_full_detail(tmp_path, caplog):
+    """The withholding is specific to credentialed calls -- a plain public-URL
+    failure should still log its real stderr for operators, unchanged."""
+    dest = tmp_path / "dest"
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="server.services.project_workspace_service"),
+        pytest.raises(GitOperationError),
+    ):
+        await _run_git(
+            ["clone", "https://127.0.0.1:1/owner/repo.git", str(dest)],
+            cwd=tmp_path,
+            timeout=10,
+        )
+
+    rendered = [r.getMessage() for r in caplog.records]
+    assert not any("detail withheld" in line for line in rendered)
