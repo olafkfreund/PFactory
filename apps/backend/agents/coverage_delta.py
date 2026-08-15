@@ -41,6 +41,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from agents import safe_xml
+
 
 class CoverageParseError(ValueError):
     """Raised when the Cobertura XML cannot be parsed."""
@@ -110,9 +112,13 @@ def parse_coverage_xml(path: Path) -> CoverageSnapshot:
     if not path.exists():
         raise FileNotFoundError(f"coverage XML not found: {path}")
 
+    # Cobertura XML is emitted by the system under test -- LLM-generated or
+    # user-supplied code running in the verification sandbox -- so it is not
+    # trusted input. `safe_parse` rejects entity declarations, which is what
+    # every entity-expansion DoS needs (Factory#722).
     try:
-        tree = ET.parse(path)
-    except ET.ParseError as exc:
+        tree = safe_xml.parse(path)
+    except (ET.ParseError, safe_xml.EntityDeclarationError) as exc:
         raise CoverageParseError(f"failed to parse coverage XML at {path}: {exc}") from exc
 
     root = tree.getroot()

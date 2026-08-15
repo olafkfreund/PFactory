@@ -21,13 +21,6 @@
 # `usedforsecurity=False`, which leaves the digest byte-identical.
 
 [[allow]]
-path = "apps/backend/agents/coverage_delta.py"
-rule = "S314"
-count = 1
-reason = "Parses a Cobertura report emitted by the system under test. Entity-expansion DoS is real but availability-only and contained to one sandboxed job; the fix adds a defusedxml dependency, which does not belong in a gate-introduction PR."
-issue = "Factory#722"
-
-[[allow]]
 path = "apps/backend/prompts_pkg/prompt_generator.py"
 rule = "S608"
 count = 1
