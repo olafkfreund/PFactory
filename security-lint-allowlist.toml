@@ -21,13 +21,6 @@
 # `usedforsecurity=False`, which leaves the digest byte-identical.
 
 [[allow]]
-path = "apps/backend/agents/coverage_delta.py"
-rule = "S314"
-count = 1
-reason = "Parses a Cobertura report emitted by the system under test. Entity-expansion DoS is real but availability-only and contained to one sandboxed job; the fix adds a defusedxml dependency, which does not belong in a gate-introduction PR."
-issue = "Factory#722"
-
-[[allow]]
 path = "apps/backend/prompts_pkg/prompt_generator.py"
 rule = "S608"
 count = 1
@@ -38,8 +31,8 @@ issue = "Factory#723"
 path = "apps/backend/runners/github/providers/azure_devops_provider.py"
 rule = "S608"
 count = 1
-reason = "WIQL query interpolates the tenant-configured Azure DevOps project name. Real, low-severity injection. The file is the hub CANONICAL vendored under a byte-exact drift gate, so the fix is a coordinated five-repo re-vendor, not a line edit here."
-issue = "Factory#721"
+reason = "The injection is FIXED (Factory#721): the project name goes through the canonical `_wiql_literal`, which doubles every single quote, so a tenant-supplied name can only ever be compared as data. The finding remains because WIQL has no parameter binding at all -- the endpoint takes one opaque query string -- so ruff still sees interpolation and cannot see the escaping. That leaves it in the Factory#723 class: unavoidable interpolation, checked at the interpolation point."
+issue = "Factory#723"
 
 [[allow]]
 path = "apps/web-server/server/database/alembic/versions/20260525_c6e3b2d4a8f0_encrypt_credentials.py"
