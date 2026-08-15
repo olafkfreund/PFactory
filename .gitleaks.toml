@@ -1,0 +1,24 @@
+title = "gitleaks config for PFactory"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known false positives: test fixtures and documentation examples, not real secrets"
+paths = [
+  # scan_secrets.py is a PFactory product feature that scans code the factory
+  # generates for secrets; its test suite intentionally embeds fake secret
+  # patterns (fake AWS keys, fake stripe keys, fake JWTs, etc.) as fixtures to
+  # verify the detector's own pattern matching. These are not real credentials.
+  '''tests/test_scan_secrets\.py''',
+  '''tests/test_security_scanner\.py''',
+  '''tests/test_skills_service\.py''',
+  # Documentation using placeholder tokens (YOUR_TOKEN, acw_your_token) in
+  # curl/websocket example commands, not real credentials.
+  '''apps/web-server/README\.md''',
+  '''guides/api-tokens\.md''',
+  # AI prompt template containing an example finding/diff used to teach the
+  # PR-review agent what a hardcoded-secret finding looks like; the value is
+  # a fabricated illustrative string, not a real key.
+  '''apps/backend/prompts/github/pr_followup\.md''',
+]
