@@ -65,7 +65,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # docker/setup-buildx-action enables BuildKit features (layer caching,
       # multi-platform builds, --check flag). Required for dockerfile:1.7 syntax.

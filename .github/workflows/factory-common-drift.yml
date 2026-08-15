@@ -52,7 +52,7 @@ jobs:
     steps:
       # Levelled to v7 in the fleet-wide pinning sweep (Factory#715, Factory#769
       # -- #731 had claimed this but never actually touched this file).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: pfactory
 
@@ -76,7 +76,7 @@ jobs:
       # per standards rule 4.7 that must fail rather than pass. If Factory ever
       # becomes private, add a read token here -- do not add a soft-skip.
       - name: Check out hub factory-common at the pinned SHA
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: olafkfreund/Factory
           ref: ${{ steps.pin.outputs.sha }}
