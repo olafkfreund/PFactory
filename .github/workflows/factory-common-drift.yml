@@ -50,11 +50,11 @@ jobs:
     name: vendored factory_common matches the hub canonical
     runs-on: ubuntu-latest
     steps:
-      # actions/checkout@v4 rather than a 40-hex pin to match every other
+      # actions/checkout@v7 rather than a 40-hex pin to match every other
       # workflow in this repo. PFactory has no SHA-pinned actions today; the
       # fleet-wide pinning sweep (Factory#731) should convert this file with
       # the rest of them in one pass, not leave it as the lone dialect.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: pfactory
 
@@ -78,7 +78,7 @@ jobs:
       # per standards rule 4.7 that must fail rather than pass. If Factory ever
       # becomes private, add a read token here -- do not add a soft-skip.
       - name: Check out hub factory-common at the pinned SHA
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: olafkfreund/Factory
           ref: ${{ steps.pin.outputs.sha }}
