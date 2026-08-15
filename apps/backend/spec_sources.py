@@ -35,7 +35,16 @@ class SpecFormat(str, Enum):
 
 
 class SpecSourceError(ValueError):
-    """Raised when a source can't be parsed into any acceptance criteria."""
+    """Raised when a source can't be parsed into any acceptance criteria.
+
+    Verified safe to return to the client verbatim (Factory#718): every raise
+    site in this module is a developer-written literal, never an inner
+    exception. See ``client_errors.client_error``.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 @dataclass(frozen=True)

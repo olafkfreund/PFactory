@@ -27,6 +27,7 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 import provider_runtime as pr  # noqa: E402  (after sys.path insert)
+from client_errors import client_error  # noqa: E402
 
 router = APIRouter(prefix="/api/provider-runtimes", tags=["Provider Runtimes"])
 
@@ -60,7 +61,9 @@ def pin_provider_runtime(name: str, body: _VersionBody) -> dict:
     try:
         pr.set_pin(name, body.version)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=client_error(exc, default="not found")
+        ) from exc
     return _status_dict(pr.get_status(name, check_latest=False))
 
 
@@ -69,9 +72,13 @@ def update_provider_runtime(name: str, body: _VersionBody) -> dict:
     try:
         result = pr.run_install(name, body.version)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=client_error(exc, default="not found")
+        ) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error(exc)
+        ) from exc
     return {
         "name": result.name,
         "command": result.command,

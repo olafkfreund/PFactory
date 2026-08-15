@@ -18,7 +18,16 @@ from plan.review.readiness.models import Waiver
 
 
 class WaiverError(RuntimeError):
-    """Raised when a waiver action violates the gate's preconditions."""
+    """Raised when a waiver action violates the gate's preconditions.
+
+    Verified safe to return to the client verbatim (Factory#718): every raise
+    site here is a developer-written literal describing the caller's own
+    request, never an inner exception. See ``client_errors.client_error``.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 def _utcnow_iso() -> str:

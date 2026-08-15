@@ -237,7 +237,19 @@ class PlanSession(BaseModel):
 
 
 class PlanServiceError(RuntimeError):
-    """Raised for invalid session ids or out-of-order stage calls."""
+    """Raised for invalid session ids or out-of-order stage calls.
+
+    Verified safe to return to the client verbatim (Factory#718): every raise
+    site in this module passes a developer-written literal, never an inner
+    exception. ``client_message`` opts this type into
+    :func:`client_errors.client_error`, so that trust is enforced by a type
+    check at the read site rather than by every route remembering not to
+    change it.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 logger = logging.getLogger(__name__)

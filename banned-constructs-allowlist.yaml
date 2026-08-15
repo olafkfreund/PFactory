@@ -1,0 +1,47 @@
+# Grandfathered banned-construct findings for THIS repo.
+#
+# Read by scripts/check_banned_constructs.py. THIS FILE IS NOT AN IGNORE
+# LIST: an entry with no `issue` fails the gate, and an entry matching
+# nothing fails the gate too -- so this list can only ratchet down.
+
+- path: tests/fixtures/demo-scenarios/multi-lane/sut/api_quote.py
+  rule: raw-exception-in-response
+  reason: >-
+    Demo/test fixture (the multi-lane pipeline-breadth demo SUT), not
+    production code. `quote()`'s only raise site is a single developer-written
+    literal ("qty must be non-negative") with no interpolated inner exception
+    -- already safe. The branch is additionally unreachable via the route
+    itself: `qty` is constrained non-negative by FastAPI's `Query(ge=0)`
+    before `quote()` is ever called (see the existing `# pragma: no cover`
+    on the except clause). Left alone rather than pulled into the
+    apps/backend `client_errors` machinery, which would be a needless
+    cross-tree dependency for a fixture whose whole point is staying minimal.
+  issue: Factory#718
+
+- path: apps/web-server/factory_common/http.py
+  rule: raw-exception-in-response
+  reason: >-
+    Vendored byte-exact from the Factory hub (shared/factory-common), under
+    the drift gate -- this repo cannot edit it without breaking that gate for
+    every one of the 5 vendored copies fleet-wide. `HttpClient.request`'s
+    `except urllib.error.URLError as exc: last_error = str(exc)` is a real
+    bucket-B leak (URLError's text can name a target host/port), but the fix
+    belongs in the hub canonical + a coordinated re-vendor across all 5
+    copies (the same pattern Factory#732 used), not a local patch here.
+    Reported upstream; not fixed in this PFactory-only PR.
+  issue: Factory#718
+
+- path: apps/web-server/server/routes/oidc_routes.py
+  rule: raw-exception-in-response
+  reason: >-
+    False positive by proximity, not a leak: `str(exc)[:200]` on this line
+    reaches `logger.warning(...)` only (server-side log), never the client.
+    The HTTPException raised right after it carries a separate, static
+    `detail="OIDC callback rejected"` -- the code already has a comment
+    explaining this is deliberate (reflected-XSS defense: authlib's own
+    exception can embed an attacker-controlled state/code param). This site
+    is forked 3 ways (PFactory:165, AIFactory:197, TFactory:173, the same
+    handler) -- left for the other two repos' owners to allowlist the same
+    way rather than fixed here alone, per the coordination this issue asks
+    for.
+  issue: Factory#718

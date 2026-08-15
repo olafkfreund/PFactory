@@ -7,9 +7,16 @@ without importing each other.
 import logging
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from server.error_ref import error_message
+
+_BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from client_errors import InputRejectedError  # noqa: E402  (after sys.path insert)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +40,9 @@ def assert_safe_git_ref(value: object, field: str = "ref") -> str:
     """
     text = str(value)
     if not _GIT_REF_RE.fullmatch(text) or ".." in text:
-        raise ValueError(f"invalid {field}: {text[:80]!r}")
+        # Factory#718: echoes only the caller's own value, truncated -- safe
+        # for InputRejectedError's client_message contract.
+        raise InputRejectedError(f"invalid {field}: {text[:80]!r}")
     return text
 
 
@@ -128,7 +137,9 @@ def safe_spec_component(value: object, field: str = "spec_id") -> str:
     """
     text = str(value)
     if text in _RESERVED_COMPONENTS or not _SPEC_COMPONENT_RE.fullmatch(text):
-        raise ValueError(f"invalid {field}: {text[:80]!r}")
+        # Factory#718: echoes only the caller's own value, truncated -- safe
+        # for InputRejectedError's client_message contract.
+        raise InputRejectedError(f"invalid {field}: {text[:80]!r}")
     return text
 
 
@@ -180,4 +191,8 @@ def confine_to_workspace(value: object, field: str = "path") -> Path:
     for root in roots:
         if resolved == root or root in resolved.parents:
             return resolved
-    raise ValueError(f"invalid {field}: {str(value)[:120]!r} is outside the allowed workspace")
+    # Factory#718: echoes only the caller's own value, truncated -- safe for
+    # InputRejectedError's client_message contract.
+    raise InputRejectedError(
+        f"invalid {field}: {str(value)[:120]!r} is outside the allowed workspace"
+    )

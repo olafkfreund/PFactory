@@ -35,9 +35,6 @@ from typing import Any
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
 
-logger = logging.getLogger(__name__)
-
-
 # Ensure ``apps/backend`` is on sys.path so ``from runners.github.providers ...``
 # imports resolve.  This must happen at module load time — before any function
 # that uses ``IssueFilters`` etc. is called.  Mirrors the same trick that
@@ -45,6 +42,10 @@ logger = logging.getLogger(__name__)
 _BACKEND_PATH = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(_BACKEND_PATH))
+
+from client_errors import InputRejectedError  # noqa: E402  (after sys.path insert)
+
+logger = logging.getLogger(__name__)
 
 
 # Default AutoFixConfig — matches the AutoFixConfig type at
@@ -198,7 +199,7 @@ def _provider_for(project_id: str):
 
     projects = load_projects()
     if project_id not in projects:
-        raise ValueError(f"Project {project_id} not found")
+        raise InputRejectedError(f"Project {project_id} not found")
     project = projects[project_id]
     settings = project.get("settings") or {}
     provider_type_str = (settings.get("gitProvider") or "github").lower()
@@ -338,7 +339,7 @@ async def check_new_issues(project_id: str) -> list[dict[str, Any]]:
 
     projects = load_projects()
     if project_id not in projects:
-        raise ValueError(f"Project {project_id} not found")
+        raise InputRejectedError(f"Project {project_id} not found")
     project_path = Path(projects[project_id]["path"])
     settings = projects[project_id].get("settings") or {}
     provider_type = (settings.get("gitProvider") or "github").lower()
@@ -426,7 +427,7 @@ async def start_auto_fix(project_id: str, issue_number: int) -> dict[str, Any]:
 
     projects = load_projects()
     if project_id not in projects:
-        raise ValueError(f"Project {project_id} not found")
+        raise InputRejectedError(f"Project {project_id} not found")
     project_path = Path(projects[project_id]["path"])
     settings = projects[project_id].get("settings") or {}
     provider_type = (settings.get("gitProvider") or "github").lower()
@@ -604,7 +605,7 @@ async def check_new_and_start_all(project_id: str) -> dict[str, Any]:
     """
     cfg = get_config(project_id)
     if not cfg:
-        raise ValueError(f"Project {project_id} not found")
+        raise InputRejectedError(f"Project {project_id} not found")
 
     # Fast-forward portal-managed clones before we look for new issues.
     await _pull_clone_if_any(project_id)
