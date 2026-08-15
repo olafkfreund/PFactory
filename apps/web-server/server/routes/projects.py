@@ -543,8 +543,8 @@ async def scan_for_projects(request: ScanProjectsRequest):
         # Handle unexpected errors
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to scan for projects: {e!s}",
-        )
+            detail=error_message(logger, "scan for projects", e, "Failed to scan for projects"),
+        ) from e
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -955,7 +955,12 @@ async def update_project_settings(project_id: str, settings: ProjectSettingsUpda
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update project settings: {e!s}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_message(
+                logger, "update project settings", e, "Failed to update project settings"
+            ),
+        ) from e
 
 
 @router.get("/{project_id}/worktrees")
