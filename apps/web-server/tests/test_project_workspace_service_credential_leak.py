@@ -31,10 +31,11 @@ token appended after it.
 from __future__ import annotations
 
 import logging
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from server.services.project_workspace_service import GitOperationError, _run_git
+from server.services.project_workspace_service import GitOperationError, _run_git, clone_or_update
 
 # A connection to a closed local port fails immediately (no network, no DNS),
 # so this is fast and deterministic without reaching out to a real host.
@@ -112,7 +113,69 @@ async def test_non_credentialed_failure_still_logs_full_detail(tmp_path, caplog)
             ["clone", "https://127.0.0.1:1/owner/repo.git", str(dest)],
             cwd=tmp_path,
             timeout=10,
+            credentialed=False,
         )
 
     rendered = [r.getMessage() for r in caplog.records]
     assert not any("detail withheld" in line for line in rendered)
+
+
+@pytest.mark.asyncio
+async def test_credentialed_pull_fetch_failure_does_not_leak_the_token(tmp_path, caplog):
+    """The exact gap review found: `remote set-url` points origin at the
+    credentialed URL, then `fetch` (clean argv) runs against THAT origin and
+    fails with git's stderr echoing the credentialed URL back -- the second
+    disclosure path, reachable even though `fetch`'s own argv never carries
+    the token.
+    """
+    secret = "ghp_PULLPATHSECRETTOKEN0123456789"  # noqa: S105 (test fixture, not real)
+    workspace = tmp_path / "existing-repo"
+    (workspace / ".git").mkdir(parents=True)
+
+    calls: list[list[str]] = []
+
+    async def fake_create_subprocess_exec(*args, **_kwargs):
+        proc = MagicMock()
+        git_args = list(args[1:])  # drop the "git" binary itself
+        calls.append(git_args)
+        if git_args[:2] == ["fetch", "--prune"]:
+            proc.returncode = 128
+            stderr = (
+                f"fatal: Authentication failed for "
+                f"'https://oauth2:{secret}@127.0.0.1:1/owner/repo.git'"
+            ).encode()
+
+            async def _communicate():
+                return (b"", stderr)
+        else:
+            proc.returncode = 0
+
+            async def _communicate():
+                return (b"", b"")
+
+        proc.communicate = _communicate
+        proc.kill = MagicMock()
+        return proc
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="server.services.project_workspace_service"),
+        patch("asyncio.create_subprocess_exec", new=fake_create_subprocess_exec),
+        pytest.raises(GitOperationError) as excinfo,
+    ):
+        await clone_or_update(
+            git_url="https://127.0.0.1:1/owner/repo.git",
+            root=tmp_path,
+            slug="existing-repo",
+            credential=("oauth2", secret),
+        )
+
+    # Confirms the test actually exercised the fetch-failure path, not some
+    # other branch.
+    assert any(c[:2] == ["fetch", "--prune"] for c in calls)
+
+    message = str(excinfo.value)
+    assert secret not in message
+
+    rendered = [r.getMessage() for r in caplog.records]
+    assert not any(secret in line for line in rendered)
+    assert any("detail withheld" in line for line in rendered)

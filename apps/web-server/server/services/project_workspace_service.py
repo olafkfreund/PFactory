@@ -171,22 +171,30 @@ async def clone_or_update(
                 timeout=timeout_seconds,
                 credentialed=True,
             )
+        # PFactory#576: `origin` now points at `fetch_url` (credentialed) when
+        # `credential is not None` -- fetch/checkout/pull below run AGAINST
+        # that origin, so a failure here can have git's own stderr echo the
+        # credentialed URL back (the same disclosure path as the remote-set-url
+        # call above), even though none of their own argv carries it.
         try:
             await _run_git(
                 ["fetch", "--prune", "origin"],
                 cwd=workspace,
                 timeout=timeout_seconds,
+                credentialed=credential is not None,
             )
             if branch:
                 await _run_git(
                     ["checkout", branch],
                     cwd=workspace,
                     timeout=timeout_seconds,
+                    credentialed=credential is not None,
                 )
             await _run_git(
                 ["pull", "--ff-only"],
                 cwd=workspace,
                 timeout=timeout_seconds,
+                credentialed=credential is not None,
             )
         finally:
             if credential is not None:
@@ -197,6 +205,8 @@ async def clone_or_update(
                         ["remote", "set-url", "origin", git_url],
                         cwd=workspace,
                         timeout=timeout_seconds,
+                        # git_url (not fetch_url) is already sanitized.
+                        credentialed=False,
                     )
                 except GitOperationError:
                     pass
@@ -219,6 +229,8 @@ async def clone_or_update(
                 ["remote", "set-url", "origin", git_url],
                 cwd=workspace,
                 timeout=timeout_seconds,
+                # git_url (not fetch_url) is already sanitized.
+                credentialed=False,
             )
         except GitOperationError:
             pass
@@ -230,10 +242,18 @@ class GitOperationError(RuntimeError):
     """Raised when a git operation fails or times out."""
 
 
-async def _run_git(
-    args: list[str], *, cwd: Path, timeout: float, credentialed: bool = False
-) -> str:
+async def _run_git(args: list[str], *, cwd: Path, timeout: float, credentialed: bool) -> str:
     """Run ``git <args>`` with a timeout. Returns stdout on success.
+
+    ``credentialed`` has no default (PFactory#576 review): a default of
+    ``False`` is fail-OPEN -- safety would depend on every present and
+    future caller remembering to pass ``True``, silently, with nothing
+    turning red when someone forgot. That is exactly how three call sites
+    in ``clone_or_update`` (the fetch/checkout/pull that run against an
+    origin ``remote set-url``'d to a credentialed URL moments earlier) were
+    missed on the first pass of this fix. Requiring the argument makes
+    every new ``_run_git`` call site answer the question explicitly instead
+    of inheriting a default that happens to be wrong for it.
 
     PFactory#576: when ``credentialed`` is set (a clone/fetch/remote-set-url
     against a ``https://user:TOKEN@host/...`` origin -- ``clone_or_update``
