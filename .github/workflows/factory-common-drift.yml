@@ -94,7 +94,7 @@ jobs:
           set -euo pipefail
           canonical="factory-hub/shared/factory-common/factory_common"
           vendored="pfactory/apps/web-server/factory_common"
-          expected="__init__.py http.py logsafe.py secrets.py"
+          expected="__init__.py http.py logsafe.py secrets.py url_safety.py"
 
           # The file list is hand-maintained, and a hand-maintained list is
           # precisely how logsafe.py ended up vendored-but-ungated in AIFactory:
