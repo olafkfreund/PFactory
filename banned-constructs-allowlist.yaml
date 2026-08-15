@@ -29,4 +29,12 @@
     belongs in the hub canonical + a coordinated re-vendor across all 5
     copies (the same pattern Factory#732 used), not a local patch here.
     Reported upstream; not fixed in this PFactory-only PR.
+
+    This entry is keyed (path, rule), so it also grandfathers any FUTURE
+    violation added to this copy under the same rule -- not just the one
+    named above. That is safe here specifically because the copy is
+    byte-exact drift-gated (factory-common-drift.yml): this repo cannot add
+    a new violation to it directly, and any future violation could only
+    arrive via a re-vendor from the hub, where it would be caught (and this
+    entry revisited) at the source.
   issue: Factory#718
