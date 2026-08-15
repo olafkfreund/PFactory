@@ -381,8 +381,7 @@ def emit_contract(
         # internal URL). Logged in full server-side; only the class name and a
         # static sentence cross into the response body below.
         logger.warning(
-            "emit_contract fast-path failed for spec_id=%s, falling back to "
-            "create-and-run: %s",
+            "emit_contract fast-path failed for spec_id=%s, falling back to create-and-run: %s",
             spec_id,
             type(exc).__name__,
             exc_info=exc,
@@ -419,9 +418,7 @@ def emit_contract(
                 "ok": False,
                 "dry_run": False,
                 "endpoint": url,
-                "errors": [
-                    "from-plan failed; create-and-run fallback also failed"
-                ],
+                "errors": ["from-plan failed; create-and-run fallback also failed"],
             }
         return {
             "ok": True,
