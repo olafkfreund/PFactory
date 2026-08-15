@@ -3,12 +3,17 @@ credential -- to a caller, OR to the application log.
 
 `clone_or_update` embeds a PAT into the fetch URL for network operations
 (`_inject_credential`) and hands it to `_run_git` as an argv element. Before
-this fix, `GitOperationError`'s message interpolated the full argv AND git's
-own stderr (which independently echoes the remote URL on some auth
-failures) -- and `routes/projects.py` puts that message straight into an
-HTTPException response. A wrong or revoked token is the most likely
-trigger, since ANY non-zero exit reached the disclosure, not just ones where
-git's stderr happens to name the URL.
+this fix, `GitOperationError`'s message interpolated the full argv verbatim
+(`' '.join(args)`) -- and `routes/projects.py` puts that message straight
+into an HTTPException response. A wrong or revoked token is the most likely
+trigger, since it always exits non-zero.
+
+stderr is withheld too, but as defence in depth rather than a second
+demonstrated leak: measured against git 2.54.0, git redacts userinfo from
+its own composed error text on both auth and connection failures. That is
+not a guarantee this code can rely on -- it is a property of the installed
+git version, does not cover a remote's own verbatim `remote:` lines, and
+`GIT_TRACE`/`GIT_CURL_VERBOSE` bypass it entirely.
 
 Moving the argv/stderr into a log line was tried first and was not itself a
 fix: this fleet's application logs are forwarded off-host (a scheduled
@@ -123,10 +128,13 @@ async def test_non_credentialed_failure_still_logs_full_detail(tmp_path, caplog)
 @pytest.mark.asyncio
 async def test_credentialed_pull_fetch_failure_does_not_leak_the_token(tmp_path, caplog):
     """The exact gap review found: `remote set-url` points origin at the
-    credentialed URL, then `fetch` (clean argv) runs against THAT origin and
-    fails with git's stderr echoing the credentialed URL back -- the second
-    disclosure path, reachable even though `fetch`'s own argv never carries
-    the token.
+    credentialed URL, then `fetch` (clean argv) runs against THAT origin.
+    This is the site that was left on `credentialed`'s old unsafe default
+    (see the docstring on `_run_git` for why it is marked defensively --
+    NOT because this stderr is demonstrated to carry the token on the git
+    version this repo runs; it constructs a stderr that names the URL
+    purely to prove the withholding is unconditional on THIS call, not
+    contingent on what a real git binary happens to print here).
     """
     secret = "ghp_PULLPATHSECRETTOKEN0123456789"  # noqa: S105 (test fixture, not real)
     workspace = tmp_path / "existing-repo"

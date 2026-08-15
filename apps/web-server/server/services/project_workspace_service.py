@@ -257,13 +257,30 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float, credentialed: 
 
     PFactory#576: when ``credentialed`` is set (a clone/fetch/remote-set-url
     against a ``https://user:TOKEN@host/...`` origin -- ``clone_or_update``
-    builds exactly that and passes it here), the token is an argv element
-    AND git itself echoes the remote URL back on an auth failure, so it can
-    be in ``stderr`` independently of argv. GitOperationError's message used
-    to interpolate both; a caller (``routes/projects.py``) puts that message
+    builds exactly that and passes it here), the token is an argv element.
+    The DEMONSTRATED leak is exactly that: ``' '.join(args)`` interpolated
+    verbatim into ``GitOperationError``'s message on the ``clone`` and the
+    initial ``remote set-url`` calls, whose argv carries ``fetch_url``
+    directly -- and a caller (``routes/projects.py``) puts that message
     straight into an HTTPException detail. A wrong or revoked token -- the
     most likely trigger, since it always exits non-zero -- disclosed the
     token being tested back to whoever tested it.
+
+    ``fetch``/``checkout``/``pull`` (which run against an origin already
+    pointed at the credentialed URL, but whose OWN argv is clean) are marked
+    ``credentialed`` too, as defence in depth rather than a demonstrated
+    leak: measured against git 2.54.0, git redacts the userinfo from its OWN
+    composed error text on both an auth failure and a connection failure.
+    That redaction is not something this code can rely on going forward,
+    for three reasons -- git's own userinfo redaction on error paths is a
+    property of the installed git version, not a documented guarantee, and
+    could regress or differ on whatever git ships in a given runtime image;
+    a malicious or misconfigured remote's own ``remote:`` lines are printed
+    verbatim by git, which redacts what IT composes, not what the server
+    sends; and ``GIT_TRACE``/``GIT_CURL_VERBOSE`` (exactly what an operator
+    debugging a stuck clone would reach for) bypass this entirely. None of
+    that is a demonstrated leak today -- it is why these three are marked
+    defensively rather than left on the pre-fix default.
 
     Neither the failing subcommand name (``clone``, ``fetch``, ``pull``,
     ``remote``) nor the exit code is secret, so those still identify the
