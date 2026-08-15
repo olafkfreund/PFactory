@@ -227,8 +227,31 @@ class GitOperationError(RuntimeError):
 
 
 async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
-    """Run ``git <args>`` with a timeout. Returns stdout on success."""
+    """Run ``git <args>`` with a timeout. Returns stdout on success.
+
+    PFactory#576: when ``args`` carries a credentialed URL (a clone/fetch/
+    remote-set-url against a ``https://user:TOKEN@host/...`` origin --
+    ``clone_or_update`` builds exactly that), the token is an argv element
+    AND git itself echoes the remote URL back on an auth failure, so it can
+    be in ``stderr`` independently of argv. GitOperationError's message used
+    to interpolate both; a caller (``routes/projects.py``) puts that message
+    straight into an HTTPException detail. A wrong or revoked token -- the
+    most likely trigger, since it always exits non-zero -- disclosed the
+    token being tested back to whoever tested it.
+
+    Neither the failing subcommand name (``clone``, ``fetch``, ``pull``,
+    ``remote``) nor the exit code is secret, so those still identify the
+    failure; the full argv and stderr go to the debug/warning log only,
+    which callers never put in a response (this module's own comment a few
+    lines up already treats the log as the credential's one write path:
+    "the workspace dir gets a sanitized origin ... never persisted to git's
+    config"). This does not remove the credential from argv -- it is still
+    world-readable on the host via ps/proc while the process runs -- only
+    from client-visible text; keeping it out of argv entirely (GIT_ASKPASS
+    or a credential helper) is a separate, larger change (PFactory#576).
+    """
     cmd = ["git", *args]
+    subcommand = args[0] if args else "git"
     logger.debug(
         "[workspace] running: git %s (cwd=%s)", sanitize_log(" ".join(args)), sanitize_log(cwd)
     )
@@ -240,7 +263,7 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as e:
-        raise GitOperationError(f"git executable not found on PATH: {e}") from e
+        raise GitOperationError("git executable not found on PATH") from e
 
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -249,11 +272,18 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
             proc.kill()
         except ProcessLookupError:
             pass
-        raise GitOperationError(f"git {' '.join(args)} timed out after {timeout}s") from e
+        raise GitOperationError(f"git {subcommand} timed out after {timeout}s") from e
 
     if proc.returncode != 0:
-        raise GitOperationError(
-            f"git {' '.join(args)} failed (exit {proc.returncode}): "
-            f"{stderr.decode('utf-8', 'replace').strip() or 'no stderr'}"
+        stderr_text = stderr.decode("utf-8", "replace").strip() or "no stderr"
+        # Full argv + stderr (which may carry the credentialed URL either
+        # way) go to the log only -- never into the exception message below,
+        # which a caller may put straight into a client response.
+        logger.warning(
+            "[workspace] git %s failed (exit %s): %s",
+            sanitize_log(subcommand),
+            proc.returncode,
+            sanitize_log(stderr_text),
         )
+        raise GitOperationError(f"git {subcommand} failed (exit {proc.returncode})")
     return stdout.decode("utf-8", "replace")
