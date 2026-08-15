@@ -135,6 +135,47 @@ def test_helper_parses_from_a_path(tmp_path: Path) -> None:
     assert parse(target).getroot().get("line-rate") == "0.5"
 
 
+# ─── external DOCTYPEs, which the real reports actually carry ─────────────
+
+# Real producers emit these. A JaCoCo report opens with the PUBLIC form below,
+# verbatim, and coverage.py <= 6.x emitted the SYSTEM form. Both name an
+# EXTERNAL DTD and neither declares an entity, so both must keep parsing: the
+# hardening rejects entity DECLARATIONS, not doctypes.
+#
+# This is the regression this file exists to prevent as much as the bomb is.
+# expat does not fetch an external subset unless asked (SetParamEntityParsing
+# defaults to never), so `ExternalEntityRefHandler` never fires for these -- but
+# that is a DEFAULT, and a future edit to `_new_parser` that turned parameter-
+# entity parsing on would reject every JaCoCo report in the fleet. Verified
+# against genuinely produced artefacts: a 479 KB coverage.py report, a
+# Playwright junit.xml, and a jacoco.xml from a real Maven run.
+_DOCTYPES = [
+    # JaCoCo 0.8.x, byte-for-byte from a real `mvn test` report.
+    ("report", '<!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd">'),
+    # coverage.py <= 6.x.
+    (
+        "coverage",
+        "<!DOCTYPE coverage SYSTEM 'http://cobertura.sourceforge.net/xml/coverage-04.dtd'>",
+    ),
+    # An empty internal subset: legal, and declares nothing.
+    ("coverage", "<!DOCTYPE coverage []>"),
+]
+
+
+@pytest.mark.parametrize(("root", "doctype"), _DOCTYPES)
+def test_an_external_doctype_still_parses(root: str, doctype: str) -> None:
+    """A doctype that declares no entity is not an attack and must be allowed."""
+    doc = (
+        f"<?xml version='1.0'?>{doctype}<{root} line-rate='0.5'><child n='1'>text</child></{root}>"
+    )
+    parsed = fromstring(doc)
+    assert parsed.tag == root
+    assert parsed.get("line-rate") == "0.5"
+    assert parsed.findtext("child") == "text"
+    # And it agrees with the reference implementation, doctype and all.
+    assert parsed.get("line-rate") == ET.fromstring(doc).get("line-rate")  # noqa: S314
+
+
 # ─── the real call site ──────────────────────────────────────────────────
 
 
