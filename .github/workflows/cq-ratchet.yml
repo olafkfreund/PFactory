@@ -195,6 +195,58 @@ jobs:
           exit $fail
 
       # ---------------------------------------------------------------------
+      # Factory#730: the step above (and the two "must extend"/"must not
+      # loosen" checks below) compare FILE BYTES. standards/ruff.toml can be
+      # byte-identical to the hub while the EFFECTIVE config a plain
+      # `ruff check` resolves is not -- a per-file-ignores table that a local
+      # override table replaces rather than merges, or a target-version that
+      # never makes it into the root config, reopen exactly what the vendored
+      # file closes, and no byte diff sees either. This asserts on the
+      # resolved behaviour instead of the file.
+      #
+      # The probe lives under tests/ so it must earn the shared S101/PLR2004
+      # test carve-out (standards/ruff.toml's per-file-ignores), and it sorts
+      # stdlib `tomllib` ahead of a third-party import -- clean only under
+      # target-version >= py311 (tomllib is stdlib since 3.11; an older or
+      # unset target classifies it third-party and demands the opposite
+      # order). The hub baseline is clean on this probe by construction, so
+      # this repo's ORDINARY `ruff check` (no --config override, exactly what
+      # a developer or another CI job gets) must be too.
+      - name: Install ruff (pinned)
+        run: pip install "ruff==${RUFF_VERSION}"
+
+      - name: Effective config matches the hub baseline (not just file bytes)
+        run: |
+          set -euo pipefail
+          probe_dir="tests/__ruff_drift_probe__"
+          probe="${probe_dir}/test_probe.py"
+          mkdir -p "${probe_dir}"
+          cat > "${probe}" <<'PY'
+          import tomllib
+
+          import requests
+
+          assert requests and tomllib
+          PY
+          trap 'rm -rf "${probe_dir}"' EXIT
+
+          repo_verdict="$(ruff check --select S,I,UP --output-format concise "${probe}" 2>&1 || true)"
+          hub_verdict="$(ruff check --select S,I,UP --output-format concise --config /tmp/hub-ruff.toml "${probe}" 2>&1 || true)"
+
+          if [ "${repo_verdict}" != "${hub_verdict}" ]; then
+            echo "::error::Effective ruff config has drifted from the hub baseline (Factory#730)."
+            echo "--- this repo, ordinary \`ruff check\` (no --config override) ---"
+            echo "${repo_verdict}"
+            echo "--- hub baseline (standards/ruff.toml) ---"
+            echo "${hub_verdict}"
+            echo "File bytes can match while the EFFECTIVE config (per-file-ignores reach, target-version)"
+            echo "does not. Fix the root ruff.toml (extend / target-version / per-file-ignores); this is"
+            echo "not a standards/ruff.toml byte diff."
+            exit 1
+          fi
+          echo "Effective config matches the hub baseline for the S101/target-version probe."
+
+      # ---------------------------------------------------------------------
       # Tighten-only (#470). The step above pins the VENDORED baseline to the
       # hub; these three pin the REPO-ROOT configs to that baseline. Both halves
       # are needed and they check different things: standards/ is what CI reads
