@@ -336,6 +336,47 @@ When the honest answer is "the fix is code, not a query", say so and record the
 measurements in `.github/codeql/VALIDATION.md` so the next reader does not
 re-derive it and reach the other answer.
 
+4.14 **Publish prose from a file, then diff the file against what was
+published.** Rules 4.10-4.13 gate code. Nothing gates the sentences that assert
+the code is gated - and those sentences are what people act on. An issue body is
+what someone builds from; a PR description is what a reviewer reads instead of
+the diff; a status report is what a decision gets made on. Code has a check that
+runs whether or not anyone remembers. Prose has a reader who may not exist.
+
+Seven instances in a single session on 2026-08-13, none of them in code
+(Factory#739), on top of the seven in systems that produced 4.10 (Factory#642).
+Both agents failed it while actively discussing it with each other, and the
+worst instance was inside the issue documenting the other six. A discipline two
+people cannot hold for the length of one conversation, while it is the explicit
+topic of that conversation, will not be held by anyone under deadline. So it has
+to be mechanical:
+
+```sh
+gh issue create --body-file body.md ...
+diff body.md <(gh issue view N --json body -q .body)   # trailing newline only
+```
+
+`--body-file` is safe-by-construction against shell mangling AND it leaves a
+source of truth to compare against. `--body "..."` has neither property, and
+leaves nothing to diff, so damage is findable only by reading.
+
+Grepping for the claim you replaced is the weaker fallback, and it must run in
+BOTH directions - old phrase absent, new phrase present - for the same reason an
+empty file passes any "must not contain" test and an alerts endpoint returning
+`[]` means both "clean" and "not analysed yet". A negative result proves nothing
+unless something positive pins it. But grep only finds damage you predicted: the
+instance that forced this rule was two inline-code spans **deleted** before
+publication, and nobody greps for text they did not know had gone. Diff asks the
+strictly stronger question - is the published artefact the thing I wrote? - and
+falls out of a flag you should be using anyway.
+
+Corollary, earned the same day: **a correction is landed when it replaces the
+claim, not when it follows it.** Appending a comment preserves the record and
+feels like the careful choice, but an issue is read as a statement of what is
+true, not as a transcript. Nobody scrolls. The comment is for provenance; the
+body is the claim. Two of the seven were corrections filed as comments under
+bodies that kept the refuted assertion.
+
 ## 5. How to consume the shared baseline
 
 Each service extends the hub baseline and may only tighten:
