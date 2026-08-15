@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from re import Pattern
 
 PLACEHOLDER = "***REDACTED***"
 
@@ -41,7 +40,7 @@ class SecretPattern:
     """
 
     name: str
-    regex: Pattern[str]
+    regex: re.Pattern[str]
     description: str
 
     def redacted(self, match: re.Match[str]) -> str:
