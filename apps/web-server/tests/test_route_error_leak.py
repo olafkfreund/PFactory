@@ -28,6 +28,7 @@ and both leak cases go red naming the fragment that escaped.
 
 from __future__ import annotations
 
+import pathlib
 import re
 from typing import Any
 from unittest.mock import patch
@@ -36,7 +37,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.routes import logs as logs_routes
+from server.routes import logs as logs_routes, settings as settings_routes
 
 REF = re.compile(r"\b[0-9a-f]{12}\b")
 
@@ -101,6 +102,76 @@ def test_a_log_read_failure_does_not_leak_the_path(client: TestClient, tmp_path:
         patch("builtins.open", side_effect=BOOM),
     ):
         response = client.get("/api/logs/server/raw")
+
+    assert response.status_code == 500, (
+        f"handler not reached, so this proves nothing: {response.text!r}"
+    )
+    _assert_no_leak(response.text)
+    assert REF.search(response.text), "no correlation id for the caller to quote"
+
+
+# --------------------------------------------------------------------------
+# settings routes (#785). Five handlers in settings.py put `{e!s}` into a
+# response body. Two of them are driven end-to-end here; the other three are
+# the same single-expression conversion onto `error_message`.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def settings_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(settings_routes.router, prefix="/api/settings")
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_a_tab_state_write_failure_does_not_leak_the_path(
+    settings_client: TestClient, tmp_path: Any
+) -> None:
+    """`except OSError` at settings.py:1004 rendered the absolute path.
+
+    `get_tab_state_file` is patched to a real path so `mkdir` succeeds and the
+    handler is actually entered; the failure is injected at `write_text`, which
+    is the call the old code interpolated.
+    """
+    with (
+        patch.object(settings_routes, "get_tab_state_file", return_value=tmp_path / "tabs.json"),
+        patch.object(pathlib.Path, "write_text", side_effect=BOOM),
+    ):
+        response = settings_client.put("/api/settings/tab-state", json={"open": ["a"]})
+
+    assert response.status_code == 500, (
+        f"handler not reached, so this proves nothing: {response.text!r}"
+    )
+    _assert_no_leak(response.text)
+    assert REF.search(response.text), "no correlation id for the caller to quote"
+
+
+def test_a_foreign_exception_is_redacted_not_just_a_known_one(
+    settings_client: TestClient, tmp_path: Any
+) -> None:
+    """The property is that an exception NOBODY here wrote gets redacted.
+
+    A test that only shows a deliberate rejection surviving passes on the
+    unfixed code too. So this raises a type from a third-party namespace, with
+    a message this repo did not author, and requires the text not to reach the
+    caller.
+
+    It subclasses ``OSError`` deliberately. The first version of this case
+    raised a bare ``Exception``, which the handler does not catch -- so it
+    escaped to FastAPI's default 500 and the assertion passed without the
+    fixed code running at all. It survived the mutation check that failed the
+    other three, which is how the vacuity showed up.
+    """
+
+    class VendorTransportError(OSError):
+        """Stands in for a library exception this repo does not author."""
+
+    foreign = VendorTransportError(f"connect to {INTERNAL_HOST} failed reading {CREDENTIALS_FILE}")
+    with (
+        patch.object(settings_routes, "get_tab_state_file", return_value=tmp_path / "tabs.json"),
+        patch.object(pathlib.Path, "write_text", side_effect=foreign),
+    ):
+        response = settings_client.put("/api/settings/tab-state", json={"open": ["a"]})
 
     assert response.status_code == 500, (
         f"handler not reached, so this proves nothing: {response.text!r}"

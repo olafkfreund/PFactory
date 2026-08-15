@@ -18,6 +18,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
 from server.services.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 
 # --------------------------------------------------------------------------
@@ -540,7 +541,10 @@ async def update_api_key(request: UpdateApiKeyRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update API key: {e!s}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_message(logger, "api key update failed", e, "Failed to update API key"),
+        ) from e
 
 
 @router.get("/local-llm/detect")
@@ -1001,9 +1005,21 @@ async def save_tab_state(state: dict):
         tab_file.write_text(json.dumps(state, indent=2))
         return {"success": True}
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save tab state: {e!s}")
+        raise HTTPException(
+            status_code=500,
+            # OSError renders the absolute path of the tab-state file.
+            detail=error_message(logger, "tab state write failed", e, "Failed to save tab state"),
+        ) from e
     except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid tab state data: {e!s}")
+        raise HTTPException(
+            status_code=400,
+            # 400, so the caller keeps an actionable answer: the payload they
+            # sent is not serialisable. The stdlib message ("Object of type
+            # set is not JSON serializable") describes THEIR data, but it is
+            # written by json, not by this repo, so it is referenced rather
+            # than echoed.
+            detail=error_message(logger, "tab state serialise failed", e, "Invalid tab state data"),
+        ) from e
 
 
 # --------------------------------------------------------------------------
@@ -2332,9 +2348,21 @@ async def update_source_env(config: SourceEnvUpdate):
     except HTTPException:
         raise
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse existing .env file: {e!s}")
+        raise HTTPException(
+            status_code=500,
+            # JSONDecodeError renders the line/column of the SERVER's .env
+            # file, which is server-side structure, not caller input.
+            detail=error_message(
+                logger, "env parse failed", e, "Failed to parse existing .env file"
+            ),
+        ) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update source environment: {e!s}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_message(
+                logger, "source env update failed", e, "Failed to update source environment"
+            ),
+        ) from e
 
 
 @router.get("/source-token-check")
