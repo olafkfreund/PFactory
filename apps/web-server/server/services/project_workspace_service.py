@@ -39,6 +39,22 @@ from server.services.git_utils import safe_spec_component
 
 logger = logging.getLogger(__name__)
 
+# PFactory#576: strips a credentialed URL's userinfo (https://user:TOKEN@host/...)
+# before ANY text that might carry one reaches a log call. `sanitize_log`
+# (imported above) only escapes control characters for CWE-117 -- it is not a
+# secret scrubber, and this fleet's logs are forwarded off-host (a scheduled
+# audit-siem-forward job), so a log is not a safe place for a token either.
+# Applied to git's raw argv (every credentialed operation logs it at DEBUG)
+# and to git's stderr (which independently echoes the remote URL on some auth
+# failures, so scrubbing only the argv would still leak via stderr).
+_CRED_IN_URL = re.compile(r"(https?://)[^/@\s]+@")
+
+
+def _scrub_credential(text: str) -> str:
+    """Redact `user:token@` from any URL userinfo in *text*."""
+    return _CRED_IN_URL.sub(r"\1***@", text)
+
+
 DEFAULT_WORKSPACE_ROOT = Path.home() / ".pfactory" / "workspaces"
 
 # Default git operation timeout — long enough for a fresh clone of a
@@ -242,18 +258,28 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
     Neither the failing subcommand name (``clone``, ``fetch``, ``pull``,
     ``remote``) nor the exit code is secret, so those still identify the
     failure; the full argv and stderr go to the debug/warning log only,
-    which callers never put in a response (this module's own comment a few
-    lines up already treats the log as the credential's one write path:
-    "the workspace dir gets a sanitized origin ... never persisted to git's
-    config"). This does not remove the credential from argv -- it is still
+    which callers never put in a response. The log is NOT treated as a safe
+    dumping ground for the credential, though -- this fleet forwards
+    application logs off-host (a scheduled audit-siem-forward job), so both
+    log lines below run the argv/stderr through :func:`_scrub_credential`
+    first (``sanitize_log`` alone is a CWE-117 control-character escape, not
+    a secret scrubber). The neighbouring comment about "never persisted to
+    git's config" is about the credential not landing on disk in the repo;
+    it says nothing about whether a log is an acceptable destination, and
+    the two are deliberately not conflated here.
+
+    This does not remove the credential from argv -- it is still
     world-readable on the host via ps/proc while the process runs -- only
-    from client-visible text; keeping it out of argv entirely (GIT_ASKPASS
-    or a credential helper) is a separate, larger change (PFactory#576).
+    from client-visible text and from the forwarded log; keeping it out of
+    argv entirely (GIT_ASKPASS or a credential helper) is a separate, larger
+    change (PFactory#576).
     """
     cmd = ["git", *args]
     subcommand = args[0] if args else "git"
     logger.debug(
-        "[workspace] running: git %s (cwd=%s)", sanitize_log(" ".join(args)), sanitize_log(cwd)
+        "[workspace] running: git %s (cwd=%s)",
+        sanitize_log(_scrub_credential(" ".join(args))),
+        sanitize_log(cwd),
     )
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -278,12 +304,13 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
         stderr_text = stderr.decode("utf-8", "replace").strip() or "no stderr"
         # Full argv + stderr (which may carry the credentialed URL either
         # way) go to the log only -- never into the exception message below,
-        # which a caller may put straight into a client response.
+        # which a caller may put straight into a client response. Scrubbed
+        # before logging too: this fleet forwards application logs off-host.
         logger.warning(
             "[workspace] git %s failed (exit %s): %s",
             sanitize_log(subcommand),
             proc.returncode,
-            sanitize_log(stderr_text),
+            sanitize_log(_scrub_credential(stderr_text)),
         )
         raise GitOperationError(f"git {subcommand} failed (exit {proc.returncode})")
     return stdout.decode("utf-8", "replace")
