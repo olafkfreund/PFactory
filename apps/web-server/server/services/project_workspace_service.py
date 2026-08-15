@@ -39,6 +39,7 @@ from server.services.git_utils import safe_spec_component
 
 logger = logging.getLogger(__name__)
 
+
 DEFAULT_WORKSPACE_ROOT = Path.home() / ".pfactory" / "workspaces"
 
 # Default git operation timeout — long enough for a fresh clone of a
@@ -168,23 +169,36 @@ async def clone_or_update(
                 ["remote", "set-url", "origin", fetch_url],
                 cwd=workspace,
                 timeout=timeout_seconds,
+                credentialed=True,
             )
+        # PFactory#576: `origin` now points at `fetch_url` (credentialed) when
+        # `credential is not None` -- fetch/checkout/pull below run AGAINST
+        # that origin, even though none of their own argv carries the token.
+        # Marked `credentialed` as a precaution, not against a demonstrated
+        # leak: git redacts URL userinfo from the errors it composes (see
+        # `_run_git`'s docstring), but that is a property of git's version
+        # and of what git itself writes, not a guarantee this module can
+        # rely on -- a server's own `remote:` lines are printed verbatim, and
+        # GIT_TRACE/GIT_CURL_VERBOSE bypass it entirely.
         try:
             await _run_git(
                 ["fetch", "--prune", "origin"],
                 cwd=workspace,
                 timeout=timeout_seconds,
+                credentialed=credential is not None,
             )
             if branch:
                 await _run_git(
                     ["checkout", branch],
                     cwd=workspace,
                     timeout=timeout_seconds,
+                    credentialed=credential is not None,
                 )
             await _run_git(
                 ["pull", "--ff-only"],
                 cwd=workspace,
                 timeout=timeout_seconds,
+                credentialed=credential is not None,
             )
         finally:
             if credential is not None:
@@ -195,6 +209,8 @@ async def clone_or_update(
                         ["remote", "set-url", "origin", git_url],
                         cwd=workspace,
                         timeout=timeout_seconds,
+                        # git_url (not fetch_url) is already sanitized.
+                        credentialed=False,
                     )
                 except GitOperationError:
                     pass
@@ -206,7 +222,9 @@ async def clone_or_update(
     if branch:
         cmd.extend(["--branch", branch])
     cmd.extend([fetch_url, str(workspace)])
-    await _run_git(cmd, cwd=workspace.parent, timeout=timeout_seconds)
+    await _run_git(
+        cmd, cwd=workspace.parent, timeout=timeout_seconds, credentialed=credential is not None
+    )
     if credential is not None:
         # Strip the credential from origin so it isn't persisted in
         # the workspace's ``.git/config``.
@@ -215,6 +233,8 @@ async def clone_or_update(
                 ["remote", "set-url", "origin", git_url],
                 cwd=workspace,
                 timeout=timeout_seconds,
+                # git_url (not fetch_url) is already sanitized.
+                credentialed=False,
             )
         except GitOperationError:
             pass
@@ -226,12 +246,78 @@ class GitOperationError(RuntimeError):
     """Raised when a git operation fails or times out."""
 
 
-async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
-    """Run ``git <args>`` with a timeout. Returns stdout on success."""
+async def _run_git(args: list[str], *, cwd: Path, timeout: float, credentialed: bool) -> str:
+    """Run ``git <args>`` with a timeout. Returns stdout on success.
+
+    ``credentialed`` has no default (PFactory#576 review): a default of
+    ``False`` is fail-OPEN -- safety would depend on every present and
+    future caller remembering to pass ``True``, silently, with nothing
+    turning red when someone forgot. That is exactly how three call sites
+    in ``clone_or_update`` (the fetch/checkout/pull that run against an
+    origin ``remote set-url``'d to a credentialed URL moments earlier) were
+    missed on the first pass of this fix. Requiring the argument makes
+    every new ``_run_git`` call site answer the question explicitly instead
+    of inheriting a default that happens to be wrong for it.
+
+    PFactory#576: when ``credentialed`` is set (a clone/fetch/remote-set-url
+    against a ``https://user:TOKEN@host/...`` origin -- ``clone_or_update``
+    builds exactly that and passes it here), the token is an argv element.
+    The DEMONSTRATED leak is exactly that: ``' '.join(args)`` interpolated
+    verbatim into ``GitOperationError``'s message on the ``clone`` and the
+    initial ``remote set-url`` calls, whose argv carries ``fetch_url``
+    directly -- and a caller (``routes/projects.py``) puts that message
+    straight into an HTTPException detail. A wrong or revoked token -- the
+    most likely trigger, since it always exits non-zero -- disclosed the
+    token being tested back to whoever tested it.
+
+    ``fetch``/``checkout``/``pull`` (which run against an origin already
+    pointed at the credentialed URL, but whose OWN argv is clean) are marked
+    ``credentialed`` too, as defence in depth rather than a demonstrated
+    leak: measured against git 2.54.0, git redacts the userinfo from its OWN
+    composed error text on both an auth failure and a connection failure.
+    That redaction is not something this code can rely on going forward,
+    for three reasons -- git's own userinfo redaction on error paths is a
+    property of the installed git version, not a documented guarantee, and
+    could regress or differ on whatever git ships in a given runtime image;
+    a malicious or misconfigured remote's own ``remote:`` lines are printed
+    verbatim by git, which redacts what IT composes, not what the server
+    sends; and ``GIT_TRACE``/``GIT_CURL_VERBOSE`` (exactly what an operator
+    debugging a stuck clone would reach for) bypass this entirely. None of
+    that is a demonstrated leak today -- it is why these three are marked
+    defensively rather than left on the pre-fix default.
+
+    Neither the failing subcommand name (``clone``, ``fetch``, ``pull``,
+    ``remote``) nor the exit code is secret, so those still identify the
+    failure regardless of ``credentialed``.
+
+    For a credentialed call, the full argv and stderr are not logged either
+    -- only the safe subcommand/exit-code shape. An earlier version of this
+    fix ran them through a regex scrubber first (``_scrub_credential``)
+    instead of omitting them, reasoning that ``sanitize_log`` alone is only
+    a CWE-117 control-character escape, not a secret scrubber. That was
+    still wrong: CodeQL's clear-text-logging query (correctly) does not
+    treat an ad-hoc ``re.sub`` as a recognized sanitizer, because a regex
+    pattern can miss a credential shape it wasn't written for -- exactly the
+    gap this fix closes by not relying on pattern-matching the secret out of
+    text that legitimately might contain it at all. This fleet forwards
+    application logs off-host (a scheduled audit-siem-forward job), so the
+    log is not a safe destination for the credential either, the same as
+    the client response was not.
+
+    This does not remove the credential from argv -- it is still
+    world-readable on the host via ps/proc while the process runs -- only
+    from client-visible text and from the forwarded log; keeping it out of
+    argv entirely (GIT_ASKPASS or a credential helper) is a separate, larger
+    change (PFactory#576).
+    """
     cmd = ["git", *args]
-    logger.debug(
-        "[workspace] running: git %s (cwd=%s)", sanitize_log(" ".join(args)), sanitize_log(cwd)
-    )
+    subcommand = args[0] if args else "git"
+    if credentialed:
+        logger.debug("[workspace] running: git %s ... (cwd=%s)", subcommand, sanitize_log(cwd))
+    else:
+        logger.debug(
+            "[workspace] running: git %s (cwd=%s)", sanitize_log(" ".join(args)), sanitize_log(cwd)
+        )
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -240,7 +326,7 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as e:
-        raise GitOperationError(f"git executable not found on PATH: {e}") from e
+        raise GitOperationError("git executable not found on PATH") from e
 
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -249,11 +335,29 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float) -> str:
             proc.kill()
         except ProcessLookupError:
             pass
-        raise GitOperationError(f"git {' '.join(args)} timed out after {timeout}s") from e
+        raise GitOperationError(f"git {subcommand} timed out after {timeout}s") from e
 
     if proc.returncode != 0:
-        raise GitOperationError(
-            f"git {' '.join(args)} failed (exit {proc.returncode}): "
-            f"{stderr.decode('utf-8', 'replace').strip() or 'no stderr'}"
-        )
+        # Full stderr goes to the log only when NOT credentialed -- never
+        # into the exception message below, which a caller may put straight
+        # into a client response. A credentialed failure logs the safe shape
+        # only, as a precaution: this module has no guarantee that stderr on
+        # a credentialed operation is free of the token (see the docstring
+        # above), so there is no text derived from this operation that is
+        # provably safe to log verbatim.
+        if credentialed:
+            logger.warning(
+                "[workspace] git %s failed (exit %s) [credentialed op, detail withheld]",
+                sanitize_log(subcommand),
+                proc.returncode,
+            )
+        else:
+            stderr_text = stderr.decode("utf-8", "replace").strip() or "no stderr"
+            logger.warning(
+                "[workspace] git %s failed (exit %s): %s",
+                sanitize_log(subcommand),
+                proc.returncode,
+                sanitize_log(stderr_text),
+            )
+        raise GitOperationError(f"git {subcommand} failed (exit {proc.returncode})")
     return stdout.decode("utf-8", "replace")
