@@ -173,9 +173,13 @@ async def clone_or_update(
             )
         # PFactory#576: `origin` now points at `fetch_url` (credentialed) when
         # `credential is not None` -- fetch/checkout/pull below run AGAINST
-        # that origin, so a failure here can have git's own stderr echo the
-        # credentialed URL back (the same disclosure path as the remote-set-url
-        # call above), even though none of their own argv carries it.
+        # that origin, even though none of their own argv carries the token.
+        # Marked `credentialed` as a precaution, not against a demonstrated
+        # leak: git redacts URL userinfo from the errors it composes (see
+        # `_run_git`'s docstring), but that is a property of git's version
+        # and of what git itself writes, not a guarantee this module can
+        # rely on -- a server's own `remote:` lines are printed verbatim, and
+        # GIT_TRACE/GIT_CURL_VERBOSE bypass it entirely.
         try:
             await _run_git(
                 ["fetch", "--prune", "origin"],
@@ -337,9 +341,10 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float, credentialed: 
         # Full stderr goes to the log only when NOT credentialed -- never
         # into the exception message below, which a caller may put straight
         # into a client response. A credentialed failure logs the safe shape
-        # only: git's stderr on an auth failure can independently carry the
-        # remote URL (and therefore the token), so there is no text derived
-        # from this operation that is provably safe to log verbatim.
+        # only, as a precaution: this module has no guarantee that stderr on
+        # a credentialed operation is free of the token (see the docstring
+        # above), so there is no text derived from this operation that is
+        # provably safe to log verbatim.
         if credentialed:
             logger.warning(
                 "[workspace] git %s failed (exit %s) [credentialed op, detail withheld]",
