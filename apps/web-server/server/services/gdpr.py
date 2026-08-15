@@ -37,7 +37,9 @@ import hashlib
 import json
 import logging
 import re
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +48,12 @@ from factory_common.logsafe import sanitize_log
 
 from ..database.models import AuditLog, EmailAccount, User
 from .audit_chain import GENESIS, compute_hash, row_as_mapping
+
+_BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from client_errors import InputRejectedError  # noqa: E402  (after sys.path insert)
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +115,7 @@ async def erase_user(db: AsyncSession, user_id: str) -> dict:
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise ValueError(f"user_id {user_id!r} not found")
+        raise InputRejectedError(f"user_id {user_id!r} not found")
     if user.gdpr_erased_at is not None:
         return {
             "user_id": user.id,

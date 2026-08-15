@@ -1958,10 +1958,14 @@ async def get_plan_html(task_id: str):
         return HTMLResponse(content=html_file.read_text(), status_code=200)
 
     except ImportError as e:
+        # Factory#718: ImportError's own text is not reviewed (it can name an
+        # internal module path); the static sentence already says everything
+        # a caller needs, so the exception is logged, not echoed.
+        logger.warning("HTML generator import failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"HTML generator not available: {str(e)}",
-        )
+            detail="HTML generator not available",
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -28,6 +28,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+# git_utils's own import already put apps/backend on sys.path.
+from client_errors import client_error
 from server.error_ref import error_message
 from server.services.git_utils import safe_spec_component
 
@@ -92,7 +94,9 @@ def _validate_spec_id(spec_id: str) -> None:
     try:
         safe_spec_component(spec_id)
     except ValueError as exc:
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST, detail=client_error(exc)
+        ) from None
 
 
 def _find_spec_dir(root: Path, spec_id: str) -> Path | None:
@@ -790,7 +794,7 @@ def list_visual_baselines(spec_id: str, target: str) -> dict:
     try:
         entries = vb.list_baselines(spec_dir, target)
     except vb.VisualBaselineError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     return {
         "target": target,
         "baselines": [{"snapshot": e.snapshot, "sizeBytes": e.size_bytes} for e in entries],
@@ -806,7 +810,7 @@ def get_visual_baseline(spec_id: str, target: str, snapshot: str):
     try:
         path = vb.baseline_path(spec_dir, target, snapshot)
     except vb.VisualBaselineError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     if not path.is_file():
         raise HTTPException(status_code=404, detail="baseline not found")
     return _FileResponse(path, media_type="image/png", filename=snapshot)
@@ -833,7 +837,7 @@ def accept_visual_baseline(
     try:
         dest = vb.accept_baseline(spec_dir, target, snapshot, src)
     except vb.VisualBaselineError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     return {
         "accepted": True,
         "target": target,

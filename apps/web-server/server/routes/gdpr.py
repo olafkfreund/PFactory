@@ -18,6 +18,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# gdpr service's own import already put apps/backend on sys.path.
+from client_errors import client_error
 from factory_common.logsafe import sanitize_log
 
 from ..database import User
@@ -48,7 +50,9 @@ async def trigger_gdpr_erasure(
     try:
         summary = await erase_user(db, user_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=client_error(exc, default="not found")
+        ) from exc
 
     logger.warning(
         "GDPR erasure executed: user_id=%s by actor=%s audit_rows=%s",

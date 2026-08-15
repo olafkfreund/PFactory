@@ -13,6 +13,8 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
 
+# git_utils's own import already put apps/backend on sys.path.
+from client_errors import client_error
 from factory_common.logsafe import sanitize_log
 from server.services.git_utils import assert_safe_git_ref, safe_spec_component  # #335
 
@@ -43,7 +45,7 @@ def ref(value, field: str) -> str:
     try:
         return assert_safe_git_ref(value, field)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
+        raise HTTPException(status_code=400, detail=client_error(exc)) from None
 
 
 router = APIRouter()
@@ -344,7 +346,7 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
         package_json = project_path / "package.json"
         if package_json.exists():
             try:
-                with open(package_json, "r") as f:
+                with open(package_json) as f:
                     pkg = json.load(f)
                 pkg["version"] = request.version
                 with open(package_json, "w") as f:

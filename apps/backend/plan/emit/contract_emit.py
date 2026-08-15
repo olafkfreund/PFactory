@@ -11,6 +11,7 @@ policy.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -36,6 +37,9 @@ if TYPE_CHECKING:
     from plan.emit.aifactory_handoff import HttpClient
     from plan.models import NormalizedPlan
     from plan.review.models import PlanReview
+
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow_iso() -> str:
@@ -371,13 +375,24 @@ def emit_contract(
     except Exception as exc:
         # Fast-path unavailable — fall back to the legacy create-and-run path for
         # the first child so the handoff still lands (AIFactory then plans).
+        # Factory#718: `exc` is whatever `_post_with_readback`'s transport call
+        # raised -- urllib, TLS, or AIFactory's own response parsing -- and its
+        # text was never reviewed for what it reveals (a host, a port, an
+        # internal URL). Logged in full server-side; only the class name and a
+        # static sentence cross into the response body below.
+        logger.warning(
+            "emit_contract fast-path failed for spec_id=%s, falling back to create-and-run: %s",
+            spec_id,
+            type(exc).__name__,
+            exc_info=exc,
+        )
         from plan.emit.aifactory_handoff import build_requirements, trigger_api
 
         if not epic.children:
             return {
                 "ok": False,
                 "dry_run": False,
-                "errors": [f"from-plan failed ({exc}); no children for fallback"],
+                "errors": ["from-plan failed; no children for fallback"],
             }
         # The fallback ALSO POSTs to AIFactory (create-and-run) and can fail the
         # same way. It must not escape as an uncaught 500 (#321): a transport error
@@ -393,15 +408,17 @@ def emit_contract(
                 dry_run=False,
             )
         except Exception as fb_exc:  # noqa: BLE001 - the handoff must never 500
+            logger.warning(
+                "emit_contract create-and-run fallback also failed for spec_id=%s: %s",
+                spec_id,
+                type(fb_exc).__name__,
+                exc_info=fb_exc,
+            )
             return {
                 "ok": False,
                 "dry_run": False,
                 "endpoint": url,
-                "errors": [
-                    f"from-plan failed ({type(exc).__name__}: {exc}); "
-                    f"create-and-run fallback also failed "
-                    f"({type(fb_exc).__name__}: {fb_exc})"
-                ],
+                "errors": ["from-plan failed; create-and-run fallback also failed"],
             }
         return {
             "ok": True,
@@ -409,6 +426,6 @@ def emit_contract(
             "signed": signed,
             "endpoint": url,
             "fallback": True,
-            "fallback_reason": str(exc),
+            "fallback_reason": "from-plan failed; used create-and-run fallback",
             "fallback_response": fb,
         }

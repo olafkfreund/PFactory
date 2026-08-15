@@ -38,7 +38,16 @@ _BASELINES_SUBDIR = "visual_baselines"
 
 
 class VisualBaselineError(ValueError):
-    """Raised for an unsafe target or snapshot name."""
+    """Raised for an unsafe target or snapshot name.
+
+    Verified safe to return to the client verbatim (Factory#718): all 3 raise
+    sites echo only the caller's own ``target``/``snapshot`` value, never an
+    inner exception. See ``client_errors.client_error``.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 def _safe_component(value: str, *, kind: str) -> str:

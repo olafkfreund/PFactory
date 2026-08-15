@@ -1,0 +1,63 @@
+# Grandfathered banned-construct findings for THIS repo.
+#
+# Read by scripts/check_banned_constructs.py. THIS FILE IS NOT AN IGNORE
+# LIST: an entry with no `issue` fails the gate, and an entry matching
+# nothing fails the gate too -- so this list can only ratchet down.
+
+- path: tests/fixtures/demo-scenarios/multi-lane/sut/api_quote.py
+  rule: raw-exception-in-response
+  reason: >-
+    Demo/test fixture (the multi-lane pipeline-breadth demo SUT), not
+    production code. `quote()`'s only raise site is a single developer-written
+    literal ("qty must be non-negative") with no interpolated inner exception
+    -- already safe. The branch is additionally unreachable via the route
+    itself: `qty` is constrained non-negative by FastAPI's `Query(ge=0)`
+    before `quote()` is ever called (see the existing `# pragma: no cover`
+    on the except clause). Left alone rather than pulled into the
+    apps/backend `client_errors` machinery, which would be a needless
+    cross-tree dependency for a fixture whose whole point is staying minimal.
+  issue: Factory#718
+
+- path: apps/web-server/factory_common/http.py
+  rule: raw-exception-in-response
+  reason: >-
+    Vendored byte-exact from the Factory hub (shared/factory-common), under
+    the drift gate -- this repo cannot edit it without breaking that gate for
+    every one of the 5 vendored copies fleet-wide. `HttpClient.request`'s
+    `except urllib.error.URLError as exc: last_error = str(exc)` is a real
+    bucket-B leak (URLError's text can name a target host/port), but the fix
+    belongs in the hub canonical + a coordinated re-vendor across all 5
+    copies (the same pattern Factory#732 used), not a local patch here.
+    Reported upstream; not fixed in this PFactory-only PR.
+
+    Checked reachability rather than assumed it (with a positive control,
+    since a zero from a broken grep is byte-identical to a real zero):
+    `git grep -E "\bHttpClient\b|\bHttpResponse\b"` outside factory_common/
+    matches only an UNRELATED same-named `HttpClient` Protocol defined
+    locally in `plan/emit/aifactory_handoff.py` and imported by
+    `plan/emit/contract_emit.py` -- neither imports from `factory_common`.
+    No file imports `factory_common` (top-level) or
+    `factory_common.http.HttpClient`/`HttpResponse` by any spelling, and
+    nothing reads `.body[...]`. UNREACHABLE in this repo (matches the
+    CFactory/AIFactory result for the same file).
+
+    This entry is keyed (path, rule), so it also grandfathers any FUTURE
+    violation added to this copy under the same rule -- not just the one
+    named above. That is safe here for two independent reasons: the copy is
+    byte-exact drift-gated (factory-common-drift.yml), so this repo cannot
+    add a new violation to it directly and any future one could only arrive
+    via a re-vendor from the hub, where it is caught at the source; AND the
+    module is unreachable, so even a genuine future violation in it has no
+    caller in this repo to disclose through. If either fact changes --
+    PFactory starts importing this module, or it stops being drift-gated --
+    this entry needs re-review.
+
+    Also flagging upstream, since it will matter wherever this file IS
+    reachable: two lines above the flagged one, `except
+    urllib.error.HTTPError as exc: return HttpResponse(exc.code,
+    {"error": exc.read().decode()[:300]})` returns up to 300 bytes of the
+    upstream response body verbatim. Not flagged by this rule (no
+    `str(exc)`), but it is the more serious half of the same function --
+    where the module IS consumed, that is raw third-party response content,
+    not just an exception message.
+  issue: Factory#718

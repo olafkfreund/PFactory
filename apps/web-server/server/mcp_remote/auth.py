@@ -55,7 +55,16 @@ class AuthenticatedKey:
 
 
 class MCPAuthError(Exception):
-    """Raised on auth failures; the SSE/JSON-RPC layer maps to HTTP 401/403."""
+    """Raised on auth failures; the SSE/JSON-RPC layer maps to HTTP 401/403.
+
+    Verified safe to return to the client verbatim (Factory#718): all 5 raise
+    sites in this module are developer-written literals, never an inner
+    exception. See ``client_errors.client_error``.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 def _hash_key(raw_key: str) -> str:
