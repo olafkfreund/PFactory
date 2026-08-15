@@ -94,25 +94,38 @@ jobs:
           set -euo pipefail
           canonical="factory-hub/shared/factory-common/factory_common"
           vendored="pfactory/apps/web-server/factory_common"
-          expected="__init__.py http.py logsafe.py secrets.py url_safety.py"
 
-          # The file list is hand-maintained, and a hand-maintained list is
-          # precisely how logsafe.py ended up vendored-but-ungated in AIFactory:
-          # the module was copied in, the list was not updated, and the gate
-          # stayed green over an unguarded copy. So the list is itself checked
-          # against BOTH trees first. A new canonical module, or a new vendored
-          # one, fails here loudly instead of being skipped in silence.
-          want="$(printf '%s\n' ${expected} | sort | tr '\n' ' ')"
-          for tree in "${vendored}" "${canonical}"; do
-            found="$(cd "${tree}" && ls -1 ./*.py | sed 's|^\./||' | sort | tr '\n' ' ')"
-            if [ "${found}" != "${want}" ]; then
-              echo "FILE LIST STALE for ${tree}"
-              echo "  gate checks: ${want}"
-              echo "  tree holds : ${found}"
-              echo "Add the module to \`expected\` in this workflow (and vendor it), or remove it from both."
-              exit 1
-            fi
-          done
+          # Discovered, not listed (Factory#767, matching AIFactory#1299). A
+          # hand-maintained file list is precisely how logsafe.py (Factory#717)
+          # and url_safety.py (Factory#734) became vendored-but-ungated: a list
+          # naming N files cannot notice an (N+1)th, so vendoring a new module
+          # without editing the list left it vendored and unguarded -- green
+          # gate, unchecked copy. The expected set IS the canonical directory's
+          # own file list, so a new canonical module is gated the moment it
+          # exists there, with no row for someone to forget to add.
+          #
+          # LIMITATION: `ls -1 ./*.py` only sees top-level .py files -- it
+          # misses subdirectories and dotfiles. factory_common has no
+          # subpackage today; if it ever gains one, this derivation needs a
+          # `find`-based rewrite alongside it, or a module could again land
+          # vendored and unguarded, just one directory level down.
+          expected="$(cd "${canonical}" && ls -1 ./*.py | sed 's|^\./||' | sort | tr '\n' ' ')"
+          if [ -z "${expected// /}" ]; then
+            echo "Canonical tree at the pinned SHA contains no .py files -- refusing"
+            echo "to compare against an empty expectation."
+            exit 1
+          fi
+          echo "canonical: ${expected}"
+
+          found="$(cd "${vendored}" && ls -1 ./*.py | sed 's|^\./||' | sort | tr '\n' ' ')"
+          if [ "${found}" != "${expected}" ]; then
+            echo "MODULE SET MISMATCH for ${vendored}"
+            echo "  canonical holds: ${expected}"
+            echo "  this copy holds: ${found}"
+            echo "Vendor the WHOLE canonical directory. factory_common/__init__.py"
+            echo "imports every sibling module, so a partial copy is an ImportError."
+            exit 1
+          fi
 
           for f in ${expected}; do
             if ! diff "${vendored}/${f}" "${canonical}/${f}"; then
