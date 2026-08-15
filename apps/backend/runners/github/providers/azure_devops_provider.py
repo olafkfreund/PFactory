@@ -41,6 +41,29 @@ _COMMENT_MAX_PAGES = 10
 _COMMENT_API_VERSION = "7.1-preview.4"
 
 
+def _wiql_literal(value: str) -> str:
+    """Render ``value`` as a WIQL single-quoted string literal.
+
+    WIQL is a query language with no parameter binding: the REST endpoint takes
+    one opaque ``query`` string, so a value that reaches a WHERE clause has to be
+    interpolated. Interpolating it raw is an injection (Factory#721) — the Azure
+    DevOps project name is tenant-supplied configuration (RFC-0020), and a name
+    containing ``'`` closes the literal early and the rest of the name becomes
+    query syntax.
+
+    Escaping is therefore the fix, and WIQL follows T-SQL: a single quote inside
+    a literal is written twice. Doubling every quote leaves no way out of the
+    literal, so the value can only ever be compared as data.
+
+    WIQL has no statement separator and the endpoint accepts exactly one SELECT,
+    so the ceiling on this bug was reading work items the caller's own PAT could
+    already read. It is still an injection and it still gets closed.
+
+    OWASP: A03:2021 Injection.
+    """
+    return "'" + value.replace("'", "''") + "'"
+
+
 @dataclass
 class AzureDevOpsProvider(FanoutCommentsMixin):
     """
@@ -358,7 +381,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
         wiql_query = f"""
         SELECT [System.Id], [System.Title], [System.State]
         FROM workitems
-        WHERE [System.TeamProject] = '{self._proj}'
+        WHERE [System.TeamProject] = {_wiql_literal(self._proj)}
         {state_condition}
         ORDER BY [System.CreatedDate] DESC
         """
