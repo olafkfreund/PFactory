@@ -30,18 +30,3 @@
     copies (the same pattern Factory#732 used), not a local patch here.
     Reported upstream; not fixed in this PFactory-only PR.
   issue: Factory#718
-
-- path: apps/web-server/server/routes/oidc_routes.py
-  rule: raw-exception-in-response
-  reason: >-
-    False positive by proximity, not a leak: `str(exc)[:200]` on this line
-    reaches `logger.warning(...)` only (server-side log), never the client.
-    The HTTPException raised right after it carries a separate, static
-    `detail="OIDC callback rejected"` -- the code already has a comment
-    explaining this is deliberate (reflected-XSS defense: authlib's own
-    exception can embed an attacker-controlled state/code param). This site
-    is forked 3 ways (PFactory:165, AIFactory:197, TFactory:173, the same
-    handler) -- left for the other two repos' owners to allowlist the same
-    way rather than fixed here alone, per the coordination this issue asks
-    for.
-  issue: Factory#718
