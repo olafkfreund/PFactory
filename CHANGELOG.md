@@ -1,5 +1,60 @@
 # Changelog
 
+## Unreleased
+
+- **A plan whose worked example contradicts its own invariant is now blocked
+  (#402).** A plan that states an invariant in one section and violates it in the
+  worked example three paragraphs down is not a specification, it is two. A human
+  reviewer skims past it; a coding agent implements the example. The gate reads
+  both and refuses the plan rather than letting the contradiction become a defect
+  downstream.
+- **Plan review publishes the per-lens verdict, not just `gates_passed`
+  (CFactory#245).** Review runs several lenses and was collapsing them to one
+  boolean, hiding the only thing a reviewer needed: a plan can be sound on
+  structure and wrong on testability. The cockpit can now disable Approve on a
+  gate-blocked plan and name the lens that blocked it.
+- **Acceptance criteria that wrap across lines keep their continuation (#510).**
+  A wrapped criterion was truncated at the wrap, so the second half vanished
+  silently between ingest and plan. Verified before and after on the identical
+  brief.
+- **Reconnaissance mines C#, Kotlin, PHP, Swift and C/C++ paths.** Code-aware
+  planning only helps for languages the recogniser can see; those stacks were
+  falling back to generic advice on brownfield work.
+- **Child-task synthesis aims at the right target.** The CI/CD child was scoped
+  to the whole pipeline rather than the delta the change touches, and the testing
+  child was pointed at a design document instead of at test files. Both produced
+  plausible work aimed at the wrong place.
+- **Knowledge grounding is scoped to the dimensions a plan actually has.**
+  Enrichment was being applied to dimensions the plan never mentioned, producing
+  confident additions about absent topics.
+- **Two security criticals closed, with the analysis made barrier-aware (#505,
+  #517).** A command-injection path and an SSRF path. Stock queries do not
+  understand the project's own sanitisers, so a guarded path still reports as
+  vulnerable and a real fix cannot be told from a suppression. The
+  command-injection work was verified against a positive control, because a query
+  that reports nothing is indistinguishable from one that finds nothing. The SSRF
+  fix also cleared an email address being written to the logs in plain text.
+- **A pull-request body that says it does NOT close an issue must not close it
+  (#520).** GitHub's own parser fires on a closing keyword even inside a negation,
+  and the default branch here is `dev`, so the phrasing closed a live issue twice.
+  Write "does not resolve the backlog for" — one intervening word defeats both
+  parsers.
+- **Runner images are published, signed, and actually used (#493).** The default
+  runner image pointed at an image the pipeline did not build, so CI was green
+  while testing something other than what was published.
+- **Things that looked like controls and were not.** A pod-disruption budget
+  allowing zero disruptions blocks maintenance and protects nothing; a pre-commit
+  hook was rewriting files with an unpinned formatter; a test was writing a fake
+  "gate skipped" notice into the real CI job summary. None were reported as bugs,
+  because each one went green.
+- **90 type errors cleared across two rounds, split by kind.** Most were
+  suppressions and annotation debt; a handful were genuine defects including a
+  wrong signature, invisible inside a pile everyone had learned to scroll past.
+- **OTLP tracing, claimed only once a span landed (Factory#516).** The first
+  attempt instrumented an application that was not the one serving requests, and
+  the startup probe blocked startup for twenty seconds waiting on the collector -
+  an availability regression introduced by an observability feature.
+
 ## 0.7.0 — code-aware planning over existing repositories (RFC-0010) (2026-06-18)
 
 - **PFactory now reads the target repo before it plans ([RFC-0010](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0010-code-aware-planning-and-behavioral-equivalence.md), Factory#105).** A new reconnaissance stage (`plan/recon/`) runs in `process()` between detection and plan-type: it does a **static, read-only** checkout of the target repo (`recon/clone.py` — shallow/single-branch/blobless, git hooks disabled, no submodule fetch, https-only, size/time caps, always torn down; **never executes repo code**), then builds a `RepoMap` (`recon/reconnoiter.py`, reusing the vendored `project/*` detectors) including a static Terraform/Helm/K8s inventory (`recon/iac_probe.py`). `repo`/`base_ref` are threaded from ingest so the stage has a repo to read.
