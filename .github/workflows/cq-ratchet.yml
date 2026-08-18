@@ -161,6 +161,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Assert the hub pin is really on hub main
+        # standards/.hub-sha comes from the PR's own tree and is handed to
+        # raw.githubusercontent as a ref against olafkfreund/Factory. GitHub
+        # serves every fork of a repo from one object store, so a commit that
+        # exists only in a fork of Factory is still fetchable by SHA from
+        # Factory itself -- a fork PR could otherwise pin a standards/ tree
+        # matching its own drifted copy and this gate would diff two matching
+        # trees and go green (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          .github/scripts/assert-hub-pin-on-main.sh \
+            "$(tr -d '[:space:]' < standards/.hub-sha)" "standards/.hub-sha"
+
       - name: Diff vendored baseline against pinned hub
         run: |
           set -euo pipefail
