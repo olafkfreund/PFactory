@@ -119,12 +119,19 @@ def _get_token_from_windows_credential_files() -> str | None:
         ]
 
         for cred_path in cred_paths:
-            if os.path.exists(cred_path):
+            # No exists() check: open() already reports absence, and asking
+            # first collapses "absent" into "unreadable" -- a permission error
+            # on a credential file would read as "no credential here" and this
+            # loop would move on silently. FileNotFoundError is the only
+            # absence; anything else is a real problem worth surfacing.
+            try:
                 with open(cred_path, encoding="utf-8") as f:
                     data = json.load(f)
-                    token = data.get("claudeAiOauth", {}).get("accessToken")
-                    if token and token.startswith("sk-ant-oat01-"):
-                        return token
+            except FileNotFoundError:
+                continue
+            token = data.get("claudeAiOauth", {}).get("accessToken")
+            if token and token.startswith("sk-ant-oat01-"):
+                return token
 
         return None
 

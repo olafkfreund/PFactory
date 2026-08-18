@@ -2,20 +2,23 @@ name: security cleanup gates
 
 # Gate 5 (banned constructs) for this service repo. Factory#786.
 #
-# NON-BLOCKING UNTIL 2026-09-15. The `continue-on-error: true` on the job below
-# is the whole of the temporary part; deleting that one line flips it.
+# BLOCKING. A failure here fails the PR.
 #
-# This repo has 16 non-allowlisted findings at wiring time — the most in the
-# fleet. Factory#785 tracks the real share of them: 9 genuine error-disclosure
-# sites (settings.py x5, insights.py x2, projects.py x2), all behind
-# TokenAuthMiddleware, plus one untriaged exists-then-read in core/auth.py.
-# PFactory#575 already fixed 37 of the original 52.
+# Wired non-blocking in Factory#786 with 16 non-allowlisted findings -- the
+# most in the fleet -- because blocking with that outstanding reddens every
+# unrelated PR, which is how a gate gets deleted rather than met.
 #
-# Blocking now would redden every unrelated PR in this repo, which is how a
-# gate gets deleted rather than met. Non-blocking makes the number visible and
-# falsifiable today, which it has never been: this gate has never run here.
-# If you are reading this after 2026-09-15 and the line is still here, that is
-# the dark gate Factory#718 exists to prevent — flip it or re-argue the date.
+# They are now zero. PFactory#575 and #579/#580 fixed the real error-disclosure
+# sites (52 -> 6 across settings.py, insights.py and projects.py), and
+# Factory#785's remainder was closed here: two genuine exists-then-read sites
+# fixed at the source, and four verified false positives given entries that say
+# what they are rather than "grandfathered at gate rollout".
+#
+# Flipped BECAUSE it passes -- verified rc=0 against the current hub checker
+# before the flip, not in the hope that it would. That is the same order
+# AIFactory, CFactory and TFactory followed.
+#
+# All four service repos now block.
 
 on:
   pull_request:
@@ -41,9 +44,8 @@ env:
 
 jobs:
   banned-constructs:
-    name: Gate 5 — banned constructs (NON-BLOCKING until 2026-09-15, Factory#786)
+    name: Gate 5 — banned constructs (blocking, Factory#786)
     runs-on: ubuntu-latest
-    continue-on-error: true  # DELETE THIS LINE TO FLIP TO BLOCKING (Factory#786)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
