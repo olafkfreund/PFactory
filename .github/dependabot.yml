@@ -86,3 +86,22 @@ updates:
       github-actions:
         patterns:
           - "*"
+    # cosign-installer majors are a CLUSTER decision, not a dependency bump.
+    #
+    # v3.7.0 -> v4.1.2 takes cosign v2 -> v3, which moves signatures from the
+    # legacy `sha256-<digest>.sig` tag to an OCI 1.1 referrer. Kyverno v1.18.2
+    # reads the legacy tag only -- its buildCosignOptions never sets
+    # ExperimentalOCI11 -- so every image built after that bump is rejected at
+    # admission with "no signatures found" while CI stays green. It cost
+    # AIFactory 3 days of stale deploys (Factory#799, Factory#804).
+    #
+    # `type: SigstoreBundle` does not rescue it either; that was tested against
+    # the live cluster and still failed, because cosign v3 writes the OLD
+    # payload at the NEW location and that matches neither Kyverno verifier.
+    #
+    # Unpin only when Kyverno can verify what the new cosign writes, proven
+    # against the cluster. assert-signature-location.sh fails the build if this
+    # is ever moved without that.
+    ignore:
+      - dependency-name: "sigstore/cosign-installer"
+        update-types: ["version-update:semver-major"]

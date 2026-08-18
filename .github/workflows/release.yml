@@ -199,7 +199,7 @@ jobs:
 
       - name: Install cosign
         if: steps.detect.outputs.should_release == 'true'
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da  # v3.7.0
 
       - name: Sign both images (cosign keyless via Sigstore + GitHub OIDC)
         if: steps.detect.outputs.should_release == 'true'
@@ -210,6 +210,11 @@ jobs:
           IMAGE_RMUX="ghcr.io/${{ github.repository_owner }}/pfactory@${{ steps.build_rmux.outputs.digest }}"
           cosign sign --yes "$IMAGE"
           cosign sign --yes "$IMAGE_RMUX"
+
+          # Asks the question the CLUSTER asks, not cosign's. Factory#804.
+          repo="ghcr.io/${{ github.repository_owner }}/pfactory"
+          ./.github/scripts/assert-signature-location.sh "$repo" "${{ steps.build.outputs.digest }}"
+          ./.github/scripts/assert-signature-location.sh "$repo" "${{ steps.build_rmux.outputs.digest }}"
 
       - name: Install Syft
         if: steps.detect.outputs.should_release == 'true'
