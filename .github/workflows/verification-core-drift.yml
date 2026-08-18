@@ -76,6 +76,18 @@ jobs:
         with:
           path: service
 
+      - name: Assert the hub pin is really on hub main
+        # HUB_PIN_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy. Fork commits are fetchable by SHA from
+        # Factory itself (one shared object store), so without this a fork PR
+        # could pin a canonical tree crafted to match its own drifted vendored
+        # copy and this gate would diff two matching trees and go green
+        # (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: service/.github/scripts/assert-hub-pin-on-main.sh "${HUB_PIN_SHA}" "verification-core-drift HUB_PIN_SHA"
+
       - name: Check out the Factory hub canonical at the pinned SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

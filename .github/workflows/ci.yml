@@ -96,6 +96,26 @@ jobs:
         # web-server's requirements.txt from the install step above).
         run: apps/backend/.venv/bin/pytest tests/ apps/web-server/tests/ -m "not slow" -q
 
+      - name: Assert the hub pin is really on hub main
+        # HUB_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy, and check_schema_drift.py hands it to
+        # raw.githubusercontent as a ref against olafkfreund/Factory. GitHub
+        # serves every fork of a repo from one object store, so a commit that
+        # exists only in a fork of Factory is still fetchable by SHA from
+        # Factory itself -- a fork PR could otherwise pin a canonical schema
+        # matching its own drifted vendored copy and this guard would compare
+        # two matching schemas and go green (Factory#806).
+        #
+        # `!cancelled()`, matching the step below: without it an earlier
+        # failure in this job SKIPS this assert while the guard it protects
+        # still runs. A step that silently skips is exactly the failure mode
+        # this change exists to close.
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/assert-hub-pin-on-main.sh "${HUB_SHA}" "ci.yml HUB_SHA"
+
       - name: Schema-drift guard (RFC-0010)
         # Fail if the vendored Task Contract schema drifts from the canonical
         # copy in the Factory hub at the PINNED HUB_SHA above. Soft-skips ONLY on

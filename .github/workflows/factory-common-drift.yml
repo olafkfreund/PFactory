@@ -72,6 +72,19 @@ jobs:
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+      - name: Assert the hub pin is really on hub main
+        # The 40-hex shape check above closes ref confusion, not the BYPASS:
+        # GitHub serves every fork of a repo from one object store, so a commit
+        # that exists only in a fork of Factory is still fetchable by SHA from
+        # Factory itself. Without this a fork PR could pin a canonical tree
+        # crafted to match its own drifted vendored copy and this gate would
+        # diff two matching trees and go green (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.pin.outputs.sha }}
+        run: pfactory/.github/scripts/assert-hub-pin-on-main.sh "${SHA}" "apps/web-server/factory_common/.hub-sha"
+
       # No continue-on-error: an unreachable hub is a gate that cannot run, and
       # per standards rule 4.7 that must fail rather than pass. If Factory ever
       # becomes private, add a read token here -- do not add a soft-skip.

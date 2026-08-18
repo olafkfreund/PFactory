@@ -50,6 +50,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Assert the hub pin is really on hub main
+        # HUB_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy. codeload serves any commit in the hub's
+        # fork network, so without this a fork PR could pin a canonical tree
+        # crafted to match its own drifted vendored copy and this gate would
+        # diff two matching trees and go green (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/assert-hub-pin-on-main.sh "${HUB_SHA}" "factory-github-drift HUB_SHA"
+
       - name: Fetch hub drift checker (main) + canonical tree (pinned SHA)
         run: |
           set -euo pipefail

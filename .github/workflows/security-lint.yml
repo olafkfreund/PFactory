@@ -76,6 +76,19 @@ jobs:
           command -v ruff
           ruff --version
 
+      - name: Assert the hub pin is really on hub main
+        # HUB_PIN_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy. GitHub serves every fork of a repo from
+        # one object store, so a fork commit is fetchable by SHA from Factory
+        # itself -- a fork PR could otherwise pin a hub tree carrying a
+        # matching-but-neutered security_lint.py and this gate would diff two
+        # matching trees, go green, and then RUN the neutered engine
+        # (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/assert-hub-pin-on-main.sh "${HUB_PIN_SHA}" "security-lint HUB_PIN_SHA"
+
       - name: Diff the vendored engine against the pinned hub
         # Fails CLOSED (rule 4.7): a fetch that cannot reach the hub has
         # verified nothing, so it is a failure, not a skip.
