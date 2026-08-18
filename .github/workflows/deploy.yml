@@ -87,7 +87,7 @@ jobs:
       # signature covers both :sha-<short> and :latest.
       # ----------------------------------------------------------------------
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da  # v3.7.0
 
       - name: Sign image (cosign keyless via Sigstore + GitHub OIDC)
         run: cosign sign --yes "${IMAGE}@${{ steps.build.outputs.digest }}"
@@ -101,6 +101,11 @@ jobs:
             --certificate-identity-regexp "^https://github\.com/${{ github.repository_owner }}/PFactory/" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "${IMAGE}@${{ steps.build.outputs.digest }}"
+
+      # The self-test above asks cosign about cosign. This asks the question
+      # the CLUSTER asks. See the script header and Factory#804.
+      - name: Assert the signature is where Kyverno looks (Factory#804)
+        run: ./.github/scripts/assert-signature-location.sh "${IMAGE}" "${{ steps.build.outputs.digest }}"
 
       - name: Bump factory-gitops (if GITOPS_PAT set)
         if: "${{ env.GITOPS_PAT != '' }}"
