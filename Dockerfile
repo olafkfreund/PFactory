@@ -236,6 +236,12 @@ EXPOSE 3114
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:3114/api/health || exit 1
 
+# `apps/backend/client_errors.py` is imported as a top-level module by 14
+# web-server modules (and 10 backend ones). WORKDIR below is apps/web-server,
+# so without this the interpreter cannot see it and `server.main` dies at
+# import with ModuleNotFoundError. See #586.
+ENV PYTHONPATH=/home/projects/MagesticAI/apps/backend
+
 WORKDIR /home/projects/MagesticAI/apps/web-server
 
 # Direct CMD — no shell wrapper. Egress control belongs in K8s NetworkPolicy

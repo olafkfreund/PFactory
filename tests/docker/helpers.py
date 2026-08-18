@@ -87,6 +87,45 @@ def docker_run(
     return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
 
 
+def docker_logs(container_name: str, tail: int = 60) -> str:
+    """Last `tail` lines of a container's combined stdout/stderr.
+
+    Best effort by design: this is only ever called on a path that is already
+    failing, so a docker error here must not replace the real assertion with a
+    subprocess traceback.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["docker", "logs", "--tail", str(tail), container_name],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"<could not read container logs: {type(exc).__name__}>"
+    out = (result.stdout or "") + (result.stderr or "")
+    return out.strip() or "<container produced no output>"
+
+
+def health_or_explain(url: str, container_name: str, timeout: int = 60) -> str:
+    """Return "" when the endpoint answers, else a message carrying the logs.
+
+    The four P0 runtime tests asserted on wait_for_health alone, so a red run
+    said only "container did not become healthy" and gave the reader nothing to
+    act on -- which is why this check stayed red across four merges with nobody
+    able to diagnose it (PFactory#586). The container's own output is the first
+    thing anyone would ask for, so the failure carries it.
+    """
+    if wait_for_health(url, timeout=timeout):
+        return ""
+    return (
+        f"container did not answer {url} within {timeout}s\n"
+        f"--- docker logs {container_name} (last 60 lines) ---\n"
+        f"{docker_logs(container_name)}"
+    )
+
+
 def docker_kill(container_name: str) -> None:
     """Best-effort cleanup of a named container. Never raises."""
     subprocess.run(
