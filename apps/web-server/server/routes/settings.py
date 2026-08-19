@@ -18,8 +18,8 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from factory_common.logsafe import sanitize_log
+from factory_common.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 from server.error_ref import error_message
-from server.services.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 
 # --------------------------------------------------------------------------
 # Type Definitions for Validation

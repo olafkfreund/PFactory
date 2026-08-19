@@ -30,8 +30,8 @@ import PartialServerSideRequestForgeryFlow::PathGraph
  * MEASURED for `assert_safe_probe_url` (see .github/codeql/codeql-config.yml),
  * not assumed, and re-measuring it is not worth another cycle.
  *
- * What `assert_safe_outbound_url` (services/url_safety.py) actually enforces,
- * since barriering it is a claim that it is sound:
+ * What `assert_safe_outbound_url` (apps/web-server/factory_common/url_safety.py)
+ * actually enforces, since barriering it is a claim that it is sound:
  *
  * - Scheme allowlist: http/https only. `urllib` will happily open `file://`,
  *   which turns a model-list call into an arbitrary local-file read.
@@ -44,6 +44,10 @@ import PartialServerSideRequestForgeryFlow::PathGraph
  *   not simply "no check".
  * - The default (`allow_private=False`) additionally requires a PUBLIC address.
  * - Fails closed: an unresolvable host is refused, not fetched.
+ * - It rejects by RAISING `InputRejectedError` (a `ValueError` subclass), and
+ *   returns the checked URL otherwise. Every call site catches `ValueError`
+ *   or lets it reach a broad handler, so the registration below is on the
+ *   call, not on any exception type.
  * - Callers pair it with `build_no_redirect_opener()`, so a permitted URL that
  *   302s to the metadata address is refused at the hop rather than followed.
  *   (`httpx` callers need nothing: it does not follow redirects by default.)
@@ -68,6 +72,13 @@ class OutboundUrlSanitizer extends ServerSideRequestForgery::Sanitizer {
     exists(DataFlow::CallCfgNode call, string name |
       // `assert_safe_probe_url` is the MCP health probe's adapter; it delegates
       // to `assert_safe_outbound_url` and re-raises as its own error type.
+      //
+      // PFactory#612 moved `assert_safe_outbound_url` from the forked
+      // `server/services/url_safety.py` to the vendored hub canonical at
+      // `factory_common/url_safety.py`. Registration is BY NAME and the name did
+      // not change, so both clauses below still match; only the file the
+      // definition lives in moved, and that file was already in scope (nothing
+      // in codeql-config.yml's paths-ignore covers factory_common/).
       name in ["assert_safe_outbound_url", "assert_safe_probe_url"] and
       (
         call.getFunction().asExpr().(Name).getId() = name or

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from factory_common.logsafe import sanitize_log
-from server.services.url_safety import assert_safe_outbound_url, build_no_redirect_opener
+from factory_common.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 
 from ..services.git_utils import (  # #335
     confine_to_workspace,

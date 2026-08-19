@@ -3,6 +3,8 @@
 Single source of truth for cross-cutting primitives the Factory fleet repeatedly
 re-implements:
 
+* :mod:`factory_common.client_errors` - InputRejectedError, the caller-safe
+  validation failure.
 * :mod:`factory_common.http` - Cloudflare-friendly typed urllib JSON client.
 * :mod:`factory_common.secrets` - canonical secret-pattern table + redact/scan.
 * :mod:`factory_common.logsafe` - CWE-117 log-value sanitizer (sanitize_log).
@@ -14,6 +16,7 @@ Established by the Phase-1 deduplication work in the code-quality program
 
 from __future__ import annotations
 
+from factory_common.client_errors import InputRejectedError
 from factory_common.http import (
     DEFAULT_USER_AGENT,
     HttpClient,
@@ -48,6 +51,7 @@ __all__ = [
     "SECRET_PATTERNS",
     "HttpClient",
     "HttpResponse",
+    "InputRejectedError",
     "SecretPattern",
     "assert_safe_outbound_url",
     "basic_auth",

@@ -6,7 +6,7 @@ and one embedding-keyword set instead of each re-implementing them.
 
 import httpx
 
-from .url_safety import assert_safe_outbound_url
+from factory_common.url_safety import assert_safe_outbound_url
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
