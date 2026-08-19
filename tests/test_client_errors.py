@@ -75,3 +75,33 @@ def test_non_string_client_message_is_not_trusted():
     exc = ValueError("whatever")
     exc.client_message = 12345  # not a string
     assert client_error(exc) == "invalid request"
+
+
+def test_the_hub_s_input_rejected_error_is_trusted_too():
+    """A DIFFERENT class, also named InputRejectedError, must work identically.
+
+    This is the whole reason #618 is not a live bug. PFactory forks
+    `InputRejectedError` instead of re-exporting the hub's
+    `factory_common.client_errors` one (the hub docstring names four such
+    reinventions). Two same-named classes coexist, and `client_error` reads
+    `client_message` by attribute rather than by type, so both are trusted.
+
+    CFactory had the same fork and gated on `isinstance`, where the hub class
+    silently downgraded a safe message to a correlation id -- CFactory#414 had
+    to re-export to fix it. PFactory escapes that only because of one line.
+
+    So a "cleanup" tightening `client_error` to
+    `isinstance(exc, InputRejectedError)` -- which reads stricter and safer --
+    would break every rejection raised by the vendored guard. This test is the
+    thing that goes red if anyone tries it.
+    """
+
+    class InputRejectedError(ValueError):  # deliberately shadows the real one
+        """Stands in for factory_common.client_errors.InputRejectedError."""
+
+        def __init__(self, client_message: str) -> None:
+            super().__init__(client_message)
+            self.client_message = client_message
+
+    hub_style = InputRejectedError("refusing to fetch link-local address")
+    assert client_error(hub_style) == "refusing to fetch link-local address"
