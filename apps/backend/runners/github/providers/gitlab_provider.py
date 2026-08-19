@@ -73,7 +73,14 @@ class GitLabProvider(FanoutCommentsMixin):
     # -------------------------------------------------------------------------
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            base_url=self._base_url, headers=self._headers, timeout=30.0
+            base_url=self._base_url,
+            headers=self._headers,
+            timeout=30.0,
+            # Factory#825: explicit, not inherited from httpx's default. These
+            # requests carry PRIVATE-TOKEN, which httpx does NOT strip across a
+            # redirect (unlike Authorization), so a 302 from _base_url would
+            # hand the PAT to the target host in full.
+            follow_redirects=False,
         )
 
     # -------------------------------------------------------------------------
@@ -624,7 +631,8 @@ class GitLabProvider(FanoutCommentsMixin):
             "Authorization": f"Bearer {self._token}",
             "Content-Type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # follow_redirects: see _client() -- this POST carries the Duo bearer token.
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
             resp = await client.post(url, headers=bearer_headers, json=payload)
 
         if resp.status_code in (200, 201):

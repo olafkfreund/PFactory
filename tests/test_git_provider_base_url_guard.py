@@ -259,34 +259,40 @@ async def test_redirect_does_not_re_send_the_credential():
 
 
 def test_every_provider_client_declines_redirects():
-    """All three credential-carrying provider clients are no-redirect.
+    """All credential-carrying provider clients are no-redirect.
 
-    These clients live in the vendored factory-github canonical, so PFactory
-    cannot set the flag itself without drifting the shared layer -- httpx's
-    default supplies it today. That makes this a characterisation test on a
-    property PFactory's credential safety depends on: if the canonical ever
-    starts following redirects, this fails here rather than leaking a PAT in
-    production. Making the posture explicit upstream is tracked in Factory#825.
+    This was a characterisation test on httpx's default: the clients live in the
+    vendored factory-github canonical, so this repo could not set the flag itself
+    without drifting the shared layer. Factory#825 set it explicitly upstream, so
+    the property is now intentional rather than inherited -- and this stays, as
+    the check that the re-vendored copy actually carries it.
     """
     from runners.github.providers.azure_devops_provider import AzureDevOpsProvider
     from runners.github.providers.gitlab_provider import GitLabProvider
     from runners.github.providers.http_github_provider import HttpGitHubProvider
 
-    for provider in (
-        GitLabProvider(_repo="o/r", _token="t"),
-        AzureDevOpsProvider(_repo="o/r", _pat="t"),
-        HttpGitHubProvider(_repo="o/r", _token="t"),
+    azure = AzureDevOpsProvider(_repo="o/r", _pat="t")
+    # _patch_client() is the ADO write path and builds its own client, so
+    # _client() alone does not cover it (Factory#825).
+    for label, client in (
+        ("GitLab", GitLabProvider(_repo="o/r", _token="t")._client()),
+        ("AzureDevOps", azure._client()),
+        ("AzureDevOps._patch_client", azure._patch_client()),
+        ("HttpGitHub", HttpGitHubProvider(_repo="o/r", _token="t")._client()),
     ):
-        client = provider._client()
-        assert client.follow_redirects is False, type(provider).__name__
+        assert client.follow_redirects is False, label
 
 
 def test_no_provider_http_client_enables_redirects():
-    """The ad-hoc clients count too, and no provider instance exposes them.
+    """The inline clients count too, and no provider instance exposes them.
 
-    Several ``httpx.AsyncClient`` call sites are constructed inline, so an
-    attribute check on the three ``_client()`` factories cannot see them. This
-    parses the modules and asserts none of them turns redirects on.
+    The GitLab Duo POST is constructed inline, so an attribute check on the
+    ``_client()`` factories cannot see it. This parses the modules and requires
+    every client site to STATE ``follow_redirects=False``: since Factory#825 an
+    omitted flag is itself the defect, not merely a not-yet-wrong default.
+
+    Site count went 8 -> 5 in Factory#825: the four inline Azure DevOps write-path
+    clients were collapsed onto ``AzureDevOpsProvider._patch_client()``.
     """
     import ast
 
@@ -301,9 +307,12 @@ def test_no_provider_http_client_enables_redirects():
             if not (isinstance(func, ast.Attribute) and func.attr == "AsyncClient"):
                 continue
             checked += 1
-            for kw in node.keywords:
-                if kw.arg == "follow_redirects":
-                    assert kw.value.value is False, (
-                        f"{module.name}:{node.lineno} follows redirects while carrying a credential"
-                    )
-    assert checked >= 8, f"expected the 8 known client sites, found {checked}"
+            flag = next((kw for kw in node.keywords if kw.arg == "follow_redirects"), None)
+            assert flag is not None, (
+                f"{module.name}:{node.lineno} states no redirect posture while "
+                "carrying a credential -- the canonical must set follow_redirects=False"
+            )
+            assert flag.value.value is False, (
+                f"{module.name}:{node.lineno} follows redirects while carrying a credential"
+            )
+    assert checked >= 5, f"expected the 5 known client sites, found {checked}"
