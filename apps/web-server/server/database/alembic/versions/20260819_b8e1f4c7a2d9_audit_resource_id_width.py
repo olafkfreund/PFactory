@@ -36,13 +36,17 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        "audit_logs",
-        "resource_id",
-        existing_type=sa.String(36),
-        type_=sa.String(255),
-        existing_nullable=True,
-    )
+    # batch_alter_table for SQLite portability -- SQLite has no ALTER COLUMN, so
+    # a bare op.alter_column is a syntax error there while being fine on
+    # Postgres. The test suite migrates against SQLite. Same pattern as
+    # c6e3b2d4a8f0.
+    with op.batch_alter_table("audit_logs") as batch:
+        batch.alter_column(
+            "resource_id",
+            existing_type=sa.String(36),
+            type_=sa.String(255),
+            existing_nullable=True,
+        )
 
 
 def downgrade() -> None:
@@ -56,10 +60,10 @@ def downgrade() -> None:
             f"{too_long} audit_logs row(s) have resource_id longer than 36 chars; "
             "narrowing would truncate audit references. Resolve those rows first."
         )
-    op.alter_column(
-        "audit_logs",
-        "resource_id",
-        existing_type=sa.String(255),
-        type_=sa.String(36),
-        existing_nullable=True,
-    )
+    with op.batch_alter_table("audit_logs") as batch:
+        batch.alter_column(
+            "resource_id",
+            existing_type=sa.String(255),
+            type_=sa.String(36),
+            existing_nullable=True,
+        )
