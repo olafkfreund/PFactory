@@ -28,12 +28,13 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.services.git_base_url import safe_git_base_url  # #610
 
 # Ensure ``apps/backend`` is on sys.path so ``from runners.github.providers ...``
 # imports resolve.  This must happen at module load time — before any function
@@ -209,7 +210,8 @@ def _provider_for(project_id: str):
     from runners.github.providers.protocol import ProviderType
 
     token = settings.get("gitToken")
-    base_url = settings.get("gitBaseUrl")
+    # #610: same trust boundary as routes/github.py::_get_project_provider.
+    base_url = safe_git_base_url(settings.get("gitBaseUrl"))
     org = settings.get("gitOrg")
     proj_name = settings.get("gitProject")
     repo_name = settings.get("gitRepo")
@@ -443,7 +445,7 @@ async def start_auto_fix(project_id: str, issue_number: int) -> dict[str, Any]:
                 spec_id = d.name
                 break
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     if spec_id is None:
         # Fetch the issue and create the spec
