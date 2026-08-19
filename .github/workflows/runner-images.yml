@@ -58,6 +58,7 @@ jobs:
   build:
     name: build ${{ matrix.runner }} image
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false   # keep building remaining images if one fails
       matrix:
