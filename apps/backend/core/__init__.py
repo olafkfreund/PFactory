@@ -8,33 +8,24 @@ Core components for the PFactory autonomous coding framework.
 # Note: We use lazy imports here because the full agent module has many dependencies
 # that may not be needed for basic operations like workspace management.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Bound lazily by __getattr__ below; declared here so static analysis
+    # (CodeQL py/undefined-export, mypy, IDEs) can resolve every __all__ entry.
+    from .worktree import WorktreeManager
+
 __all__ = [
-    "ProgressTracker",
-    "WorkspaceManager",
     "WorktreeManager",
-    "run_autonomous_agent",
-    "run_followup_planner",
 ]
 
 
 def __getattr__(name):
     """Lazy imports to avoid circular dependencies and heavy imports."""
-    if name in ("run_autonomous_agent", "run_followup_planner"):
-        from .agent import run_autonomous_agent, run_followup_planner
-
-        return locals()[name]
-    elif name == "WorkspaceManager":
-        from .workspace import WorkspaceManager
-
-        return WorkspaceManager
-    elif name == "WorktreeManager":
+    if name == "WorktreeManager":
         from .worktree import WorktreeManager
 
         return WorktreeManager
-    elif name == "ProgressTracker":
-        from .progress import ProgressTracker
-
-        return ProgressTracker
     elif name in ("create_claude_client", "ClaudeClient"):
         from . import client as _client
 
