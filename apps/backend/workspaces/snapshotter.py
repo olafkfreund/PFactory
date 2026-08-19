@@ -47,6 +47,7 @@ import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants + helpers
@@ -125,7 +126,7 @@ class SnapshotResult:
     aifactory_api_url: str | None = None
     correction_cycle: int = 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         # Group the hand-back target into a single ``aifactory`` envelope so
         # the handback builder (P2) reads ``source["aifactory"]`` as one unit.

@@ -70,7 +70,7 @@ def validate_tool_input(
     return True, None
 
 
-def get_safe_tool_input(block: Any, default: dict | None = None) -> dict:
+def get_safe_tool_input(block: Any, default: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Safely extract tool_input from a ToolUseBlock, defaulting to empty dict.
 
