@@ -15,8 +15,29 @@ how the list came to know `fastapi` and `sqlalchemy` and nothing else.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Any
+
+# Put `apps/web-server` on sys.path for every module in this tree.
+#
+# Twenty-one of these modules do this insert themselves; eleven of the
+# thirty-five cannot be imported without one and do not have it, so they resolve
+# `server.*` only because an alphabetically-earlier module that DOES insert
+# happened to be collected first. That holds for a full run and breaks on any
+# order change: a single module, a `-k` filter, an xdist split, any plugin that
+# shuffles collection.
+#
+# Four of the eleven are security tests -- test_log_forgery,
+# test_project_workspace_service_credential_leak, test_route_error_leak and
+# test_insights_error_leak. A collection-order change would take those out
+# silently, and a suite that skipped them reports the same green as one that
+# ran them.
+#
+# The per-module inserts stay; they are all guarded by an `in sys.path` check.
+_WEB_SERVER = Path(__file__).resolve().parents[1]
+if str(_WEB_SERVER) not in sys.path:
+    sys.path.insert(0, str(_WEB_SERVER))
 
 _MECHANISM = Path(__file__).resolve().parents[3] / "tests" / "missing_deps.py"
 _spec = importlib.util.spec_from_file_location("missing_deps", _MECHANISM)
