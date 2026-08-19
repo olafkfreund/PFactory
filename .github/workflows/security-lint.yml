@@ -1,0 +1,138 @@
+name: security lint (whole-repo, blocking)
+
+# The security-sink half of the code-quality bar. The engine and the rule set
+# under security-lint/ are VENDORED BYTE-EXACT from the Factory hub
+# (shared/factory-seclint/). One engine, not five copies: fix it in the hub and
+# re-vendor here. Never patch this copy — the drift step below will catch it.
+#
+# WHY THIS IS NOT THE RATCHET, AND MUST NOT BECOME IT
+# ---------------------------------------------------
+# This repo's strict lint bar is enforced DIFF-SCOPED: only the files a PR
+# touches are held to it, because a whole-repo blocking run on the full select
+# set has thousands of legacy violations and would be permanently red. That
+# decision is correct for style debt and is untouched by this workflow.
+#
+# It is wrong for security sinks, for one reason: "legacy is fixed on touch"
+# resolves to "never" for code nobody touches, and untouched code is exactly
+# where old vulnerabilities live. A `pickle.load` on a startup cache file
+# survived months of green CI in this fleet on precisely that mechanism, and the
+# fix that landed in a sibling repo never propagated.
+#
+# So this gate is whole-repo and blocking, over a rule set small enough that
+# every pre-existing finding is written down individually in
+# security-lint-allowlist.toml rather than waved through by a category ignore.
+# Every allowlist entry needs an issue reference, and an entry that matches
+# nothing is an error — so the list can only ratchet down.
+#
+# NO `paths:` FILTER, DELIBERATELY. A whole-repo gate that only runs when a .py
+# changes cannot see a finding introduced by a config change (an exclude, a
+# vendored file, a submodule bump). And per Factory#543, a path-filtered
+# workflow reports "no run" rather than "skipped", which wedges a PR the moment
+# this becomes a required check.
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Must match this repo's other lint jobs. A security gate running a different
+  # ruff than the ratchet is a gate whose findings nobody can reproduce locally.
+  RUFF_VERSION: "0.15.17"
+
+  # The hub commit this repo's vendored copy is pinned to: the SQUASH-MERGE SHA
+  # of Factory#726, not that PR's branch head. A branch head is not a pin -- it
+  # moves under you, and a drift gate reading one cannot tell a hub change from
+  # a force-push. Bump this deliberately, re-vendor in the same commit, never
+  # edit the vendored copy to satisfy a local lint.
+  HUB_PIN_SHA: "5a2dc4795baf08f48488999ead75748e97a3604d"
+
+jobs:
+  security-sinks:
+    name: security sinks (whole repo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        # Explicit shell so a failed download cannot pass through a pipeline
+        # (the `curl | sh` trap), and `command -v` because a green install step
+        # is not the same as an installed tool.
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install "ruff==${RUFF_VERSION}"
+          command -v ruff
+          ruff --version
+
+      - name: Assert the hub pin is really on hub main
+        # HUB_PIN_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy. GitHub serves every fork of a repo from
+        # one object store, so a fork commit is fetchable by SHA from Factory
+        # itself -- a fork PR could otherwise pin a hub tree carrying a
+        # matching-but-neutered security_lint.py and this gate would diff two
+        # matching trees, go green, and then RUN the neutered engine
+        # (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/assert-hub-pin-on-main.sh "${HUB_PIN_SHA}" "security-lint HUB_PIN_SHA"
+
+      - name: Diff the vendored engine against the pinned hub
+        # Fails CLOSED (rule 4.7): a fetch that cannot reach the hub has
+        # verified nothing, so it is a failure, not a skip.
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://raw.githubusercontent.com/olafkfreund/Factory/${HUB_PIN_SHA}/shared/factory-seclint"
+          fail=0
+          for f in ruff-security.toml security_lint.py; do
+            if ! curl -fsSL "${base}/${f}" -o "/tmp/hub-${f}"; then
+              echo "::error::could not fetch ${f} from the hub at ${HUB_PIN_SHA}."
+              echo "The drift check cannot run, so it fails rather than passing."
+              fail=1
+              continue
+            fi
+            if ! diff -u "/tmp/hub-${f}" "security-lint/${f}"; then
+              echo "::error::security-lint/${f} drifted from the pinned hub canonical."
+              echo "Re-vendor from the hub; do not edit this copy."
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Prove the gate can fail
+        # Runs BEFORE the verdict, in the same job. A green security gate whose
+        # ability to go red was never demonstrated is Factory#694 / #697 all
+        # over again: this plants a `pickle.load` in a tempdir, requires red,
+        # removes it, requires green.
+        run: python3 security-lint/security_lint.py --self-test
+
+      - name: Enforce (whole repo, blocking)
+        run: python3 security-lint/security_lint.py .
+
+      - name: Allowlist size to the run summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(grep -c '^\[\[allow\]\]' security-lint-allowlist.toml || echo 0)
+          {
+            echo "## Security-sink gate"
+            echo ""
+            echo "- Grandfathered findings: **${count}**"
+            echo "- Every entry carries an issue reference; the gate fails without one."
+            echo "- An entry that matches nothing also fails, so this number can only go down."
+          } >> "$GITHUB_STEP_SUMMARY"

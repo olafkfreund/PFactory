@@ -5,13 +5,14 @@ Uses HTTP streaming to localhost:11434/api/chat (NDJSON format).
 Supports tool calling for models that implement OpenAI-compatible function calling.
 """
 
-import asyncio
 import json
 import logging
 import shutil
 import subprocess
 import time
 from pathlib import Path
+
+from server.error_ref import error_message
 
 from ...websockets.events import broadcast_event
 from .base import ProviderInfo, ProviderModel, ProviderStrategy
@@ -356,7 +357,9 @@ class OllamaProvider(ProviderStrategy):
                 {
                     "projectId": project_id,
                     "type": "error",
-                    "error": str(e),
+                    "error": error_message(
+                        logger, "OllamaProvider failed", e, "The provider call failed"
+                    ),
                 },
             )
             return ""

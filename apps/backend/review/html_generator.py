@@ -9,6 +9,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 try:
     from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -97,7 +98,7 @@ def extract_workflow_type(spec_content: str) -> str:
     return "standard"
 
 
-def calculate_progress(plan: dict) -> int:
+def calculate_progress(plan: dict[str, Any]) -> int:
     """Calculate overall progress percentage.
 
     Args:
@@ -121,7 +122,7 @@ def calculate_progress(plan: dict) -> int:
     return int((completed_subtasks / total_subtasks) * 100)
 
 
-def determine_phase_status(phase: dict) -> str:
+def determine_phase_status(phase: dict[str, Any]) -> str:
     """Determine the status of a phase based on its subtasks.
 
     Args:

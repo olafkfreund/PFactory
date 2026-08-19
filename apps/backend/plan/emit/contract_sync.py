@@ -33,7 +33,16 @@ _REQUIRED_FIELDS = ("correlation_key", "service", "status")
 
 
 class SyncError(ValueError):
-    """Raised when an inbound completion event is malformed."""
+    """Raised when an inbound completion event is malformed.
+
+    Verified safe to return to the client verbatim (Factory#718): both raise
+    sites in this module describe the caller's own payload shape, never an
+    inner exception. See ``client_errors.client_error``.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 class CompletionEvent(BaseModel):

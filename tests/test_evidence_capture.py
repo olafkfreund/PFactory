@@ -159,7 +159,10 @@ def test_render_playwright_config_substitutes_output_dir(tmp_path: Path) -> None
 def test_render_playwright_config_substitutes_base_url(tmp_path: Path) -> None:
     output = tmp_path / "evidence"
     rendered = render_playwright_config(output, "https://staging.example.com")
-    assert "https://staging.example.com" in rendered
+    # The whole baseURL line, not the URL loose in the file: the template also
+    # names @@BASE_URL@@ in a header comment, so a substring check would not
+    # prove the substitution reached the config field Playwright reads.
+    assert 'baseURL: "https://staging.example.com",' in rendered
 
 
 def test_render_playwright_config_default_policies(tmp_path: Path) -> None:

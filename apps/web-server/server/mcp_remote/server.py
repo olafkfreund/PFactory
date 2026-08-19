@@ -19,6 +19,8 @@ isn't supported in V1; the SDK returns the standard JSON-RPC
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -30,6 +32,12 @@ from mcp.types import TextContent, Tool
 
 from .auth import MCPAuthError, authenticate
 from .tools import dispatch_tool_call, get_tool_definitions
+
+_BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from client_errors import client_error  # noqa: E402  (after sys.path insert)
 
 logger = logging.getLogger(__name__)
 
@@ -151,5 +159,7 @@ async def messages_endpoint(request: Request):
         await authenticate(request.headers.get("Authorization"))
     except MCPAuthError as exc:
         logger.warning("MCP message-post auth failed: %s", exc)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=client_error(exc)
+        ) from exc
     return await _sse_transport.handle_post_message(request.scope, request.receive, request._send)

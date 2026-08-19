@@ -1,0 +1,63 @@
+# Packages held to a WHOLE-PACKAGE `mypy --strict` bar of ZERO errors.
+#
+# WHY THIS FILE EXISTS (PFactory#468)
+# ----------------------------------
+# standards/mypy.ini already sets `strict = True`, but scripts/ratchet_lint.py
+# only gates the files a PR CHANGES. That freezes the backlog without shrinking
+# it, and — the part this file fixes — it does not hold a package that HAS been
+# cleaned at zero. Under the ratchet alone, a package with 0 errors and a package
+# with 300 are treated identically: both may gain nothing in a touched file, and
+# both may quietly regrow through a file nobody re-measures whole.
+#
+# So a package that reaches zero is written down here, and scripts/
+# mypy_strict_packages.py runs `mypy --strict` over the WHOLE directory on every
+# PR and requires zero. That is the one-way ratchet: the list can only grow, and
+# the count for anything on it can only be zero.
+#
+# Same shape as security-lint-allowlist.toml, inverted: that file enumerates what
+# is grandfathered and can only shrink; this one enumerates what is finished and
+# can only grow.
+#
+# RULES
+#   - One repo-relative directory per line; `#` starts a comment.
+#   - An entry naming a directory that does not exist is an ERROR, not a skip
+#     (Factory#788: an allowlist entry that matches nothing fails the gate).
+#   - The gate measures through scripts/ratchet_lint.run_mypy, the SAME code path
+#     the per-file ratchet uses. Two invocations would drift and the two gates
+#     would disagree about what "clean" means.
+#   - Adding a package here is a claim you have driven it to zero. Removing one
+#     is a regression and needs a reason in the PR body.
+#
+# NOT LISTED, DELIBERATELY: apps/web-server/factory_common. It measures zero, but
+# it is a byte-exact vendored mirror of the hub canonical (factory-common-drift.yml)
+# — this repo cannot fix an error in it without breaking the drift gate, so gating
+# it here would create a state with no local remedy. The hub gates its own copy.
+
+# --- cleaned in PFactory#468 (43 errors cleared) ---
+apps/backend/framework_registry
+apps/backend/pfactory_yml
+apps/backend/project
+apps/backend/review
+apps/backend/scripts
+apps/backend/security
+apps/backend/tests_catalog
+apps/backend/workspaces
+
+# --- already at zero when #468 measured; listed so they cannot regress ---
+apps/backend/factory_invariants
+apps/backend/mcp_server
+apps/backend/templates_pkg
+
+# --- cleaned in PFactory#468 tier 2 (56 errors cleared) ---
+apps/backend/planner_lib
+apps/backend/providers
+apps/backend/task_logger
+
+# NOT LISTED, BLOCKED RATHER THAN SKIPPED: apps/backend/memory (9 errors).
+# memory/graphiti_helpers.py imports `graphiti_memory`, and no module of that
+# name exists anywhere in the tree — the import is kept alive only by a
+# try/ImportError guard, so it fails silently at runtime and reports
+# import-not-found under mypy. That is an import resolving to nothing behind a
+# silent guard (Factory#834/#844), not a typing problem: the package cannot
+# reach zero from here, and pretending otherwise would mean suppressing the one
+# error that is telling the truth.

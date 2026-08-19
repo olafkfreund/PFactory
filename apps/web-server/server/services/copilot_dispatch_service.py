@@ -23,7 +23,9 @@ import logging
 import os
 import subprocess
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from factory_common.logsafe import sanitize_log
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +33,13 @@ logger = logging.getLogger(__name__)
 GhRunner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 
-def _default_gh_runner(args: list[str]) -> "subprocess.CompletedProcess[str]":
+def _default_gh_runner(args: list[str]) -> subprocess.CompletedProcess[str]:
     """Run ``gh <args>`` capturing text output (30s timeout)."""
     return subprocess.run(["gh", *args], capture_output=True, text=True, timeout=30)
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class CopilotDispatchService:
@@ -93,9 +95,9 @@ class CopilotDispatchService:
             )
         logger.info(
             "[copilot-dispatch] assigned %s#%s to %s",
-            repo_full_name,
-            issue_number,
-            self.AGENT_HANDLE,
+            sanitize_log(repo_full_name),
+            sanitize_log(issue_number),
+            sanitize_log(self.AGENT_HANDLE),
         )
         return {
             "enabled": True,
@@ -129,9 +131,9 @@ class CopilotDispatchService:
         if result.returncode != 0:
             logger.warning(
                 "[copilot-dispatch] PR poll failed for %s#%s: %s",
-                repo_full_name,
-                issue_number,
-                (result.stderr or "").strip(),
+                sanitize_log(repo_full_name),
+                sanitize_log(issue_number),
+                sanitize_log((result.stderr or "").strip()),
             )
             return None
         number = (result.stdout or "").strip()

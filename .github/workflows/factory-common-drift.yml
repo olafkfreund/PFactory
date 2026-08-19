@@ -1,0 +1,150 @@
+name: factory_common drift
+
+# Byte-exact drift gate for the vendored factory_common package
+# (epic Factory#154; hub canonical: shared/factory-common/factory_common/).
+#
+# This repo vendors the hub's shared layer at apps/web-server/factory_common/.
+# That copy MUST stay byte-identical to the canonical at the SHA pinned in
+# apps/web-server/factory_common/.hub-sha. This job checks out the hub at that
+# SHA and diffs the tracked files; a byte mismatch fails the build.
+#
+# The gate ships in the SAME pull request as the vendored copy it guards, so
+# there is never a window in which the copy exists ungated. An unchecked
+# vendored copy is worse than no vendored copy, because it carries the
+# appearance of a contract (the reasoning in verification-core-drift.yml, and
+# Factory#397 / Factory#400 - this repo already lost weeks to two hub modules
+# that were vendored with no gate of any kind and had silently diverged).
+#
+# To change a vendored module: land it in the hub canonical first, re-vendor it
+# here byte-for-byte, then bump .hub-sha. Never edit a vendored copy to satisfy
+# a local style bar -- these copies are governed by this byte-exact gate, not by
+# the repo style config (they are excluded in ruff.toml for exactly that
+# reason).
+#
+# PIN HAZARD (Factory#638, and the same note verification-core-drift.yml
+# carries): .hub-sha must hold a SQUASH-MERGE commit on hub `main`, never a hub
+# PR-branch head. The hub squash-merges, so a branch head stops existing the
+# moment its PR lands and the pin then resolves to nothing -- a gate that cannot
+# run rather than one that fails honestly.
+
+on:
+  pull_request:
+    branches: [dev, main]
+    # No paths: filter, matching verification-core-drift.yml in this repo
+    # (Factory#525). A filter switches the gate off for exactly the PR that
+    # never touches the listed paths, and on a green PR page "the check did not
+    # run" is indistinguishable from "the check passed" (Factory#471). This gate
+    # is a four-file diff against a checkout; running it always costs seconds.
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: factory-common-drift-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: vendored factory_common matches the hub canonical
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Levelled to v7 in the fleet-wide pinning sweep (Factory#715, Factory#769
+      # -- #731 had claimed this but never actually touched this file).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: pfactory
+
+      - name: Read pinned hub SHA
+        id: pin
+        # Validated before use, because this file comes from the PR's own tree:
+        # on a fork PR its contents are attacker-controlled, and the value is
+        # handed straight to actions/checkout as a `ref`. Reject anything that is
+        # not a bare 40-character commit id. (CodeQL actions/untrusted-checkout;
+        # the sibling gates in AIFactory grew this guard in Factory#711.)
+        run: |
+          set -euo pipefail
+          sha="$(tr -d '[:space:]' < pfactory/apps/web-server/factory_common/.hub-sha)"
+          if ! printf '%s' "$sha" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "factory_common/.hub-sha is not a 40-character commit SHA: '${sha}'" >&2
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Assert the hub pin is really on hub main
+        # The 40-hex shape check above closes ref confusion, not the BYPASS:
+        # GitHub serves every fork of a repo from one object store, so a commit
+        # that exists only in a fork of Factory is still fetchable by SHA from
+        # Factory itself. Without this a fork PR could pin a canonical tree
+        # crafted to match its own drifted vendored copy and this gate would
+        # diff two matching trees and go green (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.pin.outputs.sha }}
+        run: pfactory/.github/scripts/assert-hub-pin-on-main.sh "${SHA}" "apps/web-server/factory_common/.hub-sha"
+
+      # No continue-on-error: an unreachable hub is a gate that cannot run, and
+      # per standards rule 4.7 that must fail rather than pass. If Factory ever
+      # becomes private, add a read token here -- do not add a soft-skip.
+      - name: Check out hub factory-common at the pinned SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: olafkfreund/Factory
+          ref: ${{ steps.pin.outputs.sha }}
+          path: factory-hub
+          # This tree is only ever diffed, never executed, and nothing here runs
+          # git against it afterwards. Do not leave the job token behind in
+          # factory-hub/.git/config, where a checked-out ref chosen by the PR
+          # would sit next to it.
+          persist-credentials: false
+
+      - name: Diff vendored factory_common against the hub canonical
+        run: |
+          set -euo pipefail
+          canonical="factory-hub/shared/factory-common/factory_common"
+          vendored="pfactory/apps/web-server/factory_common"
+
+          # Discovered, not listed (Factory#767, matching AIFactory#1299). A
+          # hand-maintained file list is precisely how logsafe.py (Factory#717)
+          # and url_safety.py (Factory#734) became vendored-but-ungated: a list
+          # naming N files cannot notice an (N+1)th, so vendoring a new module
+          # without editing the list left it vendored and unguarded -- green
+          # gate, unchecked copy. The expected set IS the canonical directory's
+          # own file list, so a new canonical module is gated the moment it
+          # exists there, with no row for someone to forget to add.
+          #
+          # LIMITATION: `ls -1 ./*.py` only sees top-level .py files -- it
+          # misses subdirectories and dotfiles. factory_common has no
+          # subpackage today; if it ever gains one, this derivation needs a
+          # `find`-based rewrite alongside it, or a module could again land
+          # vendored and unguarded, just one directory level down.
+          expected="$(cd "${canonical}" && ls -1 ./*.py | sed 's|^\./||' | sort | tr '\n' ' ')"
+          if [ -z "${expected// /}" ]; then
+            echo "Canonical tree at the pinned SHA contains no .py files -- refusing"
+            echo "to compare against an empty expectation."
+            exit 1
+          fi
+          echo "canonical: ${expected}"
+
+          found="$(cd "${vendored}" && ls -1 ./*.py | sed 's|^\./||' | sort | tr '\n' ' ')"
+          if [ "${found}" != "${expected}" ]; then
+            echo "MODULE SET MISMATCH for ${vendored}"
+            echo "  canonical holds: ${expected}"
+            echo "  this copy holds: ${found}"
+            echo "Vendor the WHOLE canonical directory. factory_common/__init__.py"
+            echo "imports every sibling module, so a partial copy is an ImportError."
+            exit 1
+          fi
+
+          for f in ${expected}; do
+            if ! diff "${vendored}/${f}" "${canonical}/${f}"; then
+              echo "DRIFT: ${vendored}/${f} diverged from the hub canonical (${canonical}/${f})."
+              echo "Re-vendor from the hub and bump apps/web-server/factory_common/.hub-sha,"
+              echo "or land the change in shared/factory-common/ in the hub first."
+              exit 1
+            fi
+          done
+          echo "No drift: vendored factory_common matches the pinned hub canonical."

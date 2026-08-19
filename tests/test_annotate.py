@@ -85,7 +85,10 @@ def test_improved_draft_preserves_original_and_appends_cited_section():
     md = result.improved_markdown
     assert md.startswith("# Orders Platform SOW")          # original preserved verbatim
     assert "PFactory review — suggested edits" in md        # cited section appended
-    assert "OWASP" in md and "owasp.org" in md              # citation rendered
+    # The whole rendered Source line, not "owasp.org" loose in the document: a
+    # substring check passes even if the URI is dropped from the link and only
+    # echoed in the prose, which is exactly the rendering bug worth catching.
+    assert "- **Source:** [OWASP](https://owasp.org)" in md
     assert result.change_log and result.change_log[0]["citation_uri"] == "https://owasp.org"
 
 

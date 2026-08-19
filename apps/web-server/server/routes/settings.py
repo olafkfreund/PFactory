@@ -14,8 +14,12 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Body
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, AliasChoices
+from fastapi import APIRouter, Body, HTTPException, Query
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SecretStr, field_validator
+
+from factory_common.logsafe import sanitize_log
+from factory_common.url_safety import assert_safe_outbound_url, build_no_redirect_opener
+from server.error_ref import error_message
 
 # --------------------------------------------------------------------------
 # Type Definitions for Validation
@@ -33,6 +37,7 @@ MemoryEmbeddingProviderType = Literal[
 ]
 
 from ..config import get_settings
+from ..crypto.secret_field import seal_fields, unseal_fields, unseal_profiles  # noqa: TID252, E402
 from ..paths import atomic_write_secret_json
 
 router = APIRouter()
@@ -352,22 +357,29 @@ def get_settings_file() -> Path:
 
 
 def load_app_settings() -> AppSettings:
-    """Load application settings from disk."""
+    """Load application settings from disk (credential fields unsealed, #537)."""
     settings_file = get_settings_file()
     if settings_file.exists():
         try:
             data = json.loads(settings_file.read_text())
-            return AppSettings(**data)
+            return AppSettings(**unseal_fields(data))
         except (json.JSONDecodeError, TypeError):
             pass
     return AppSettings()
 
 
 def save_app_settings(settings: AppSettings) -> None:
-    """Save application settings to disk."""
-    settings_file = get_settings_file()
-    settings_file.parent.mkdir(parents=True, exist_ok=True)
-    settings_file.write_text(settings.model_dump_json(indent=2))
+    """Save application settings to disk.
+
+    settings.json carries globalClaudeOAuthToken / provider API keys / email
+    OAuth client secrets. Before #537 it was the one credential store here that
+    wrote plaintext with NO chmod at all (umask default, typically 0644) — the
+    #298 atomic-0600 pass never reached it. It now seals those fields and goes
+    through the same atomic writer as the profile stores.
+    """
+    atomic_write_secret_json(
+        get_settings_file(), seal_fields(json.loads(settings.model_dump_json()))
+    )
 
 
 # --------------------------------------------------------------------------
@@ -419,7 +431,6 @@ async def get_api_token():
 async def regenerate_api_token():
     """Regenerate the API token."""
     import secrets
-    from pathlib import Path
 
     from ..paths import get_data_file
 
@@ -530,7 +541,10 @@ async def update_api_key(request: UpdateApiKeyRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update API key: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_message(logger, "api key update failed", e, "Failed to update API key"),
+        ) from e
 
 
 @router.get("/local-llm/detect")
@@ -803,8 +817,13 @@ async def list_openai_compat_models(
         if apiKey:
             headers["Authorization"] = f"Bearer {apiKey}"
 
+        # `baseUrl` is a query parameter: guard it before it becomes an outbound
+        # request (CodeQL py/partial-ssrf). Permissive posture — the default is
+        # localhost:8080 and a LAN-hosted OpenAI-compatible server is the point.
+        models_url = assert_safe_outbound_url(f"{baseUrl}/v1/models", allow_private=True)
+
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{baseUrl}/v1/models", headers=headers)
+            response = await client.get(models_url, headers=headers)
             response.raise_for_status()
             data = response.json()
 
@@ -823,7 +842,7 @@ async def list_openai_compat_models(
 
         return {"models": models}
     except Exception:
-        logger.exception("Failed to list OpenAI-compatible models from %s", baseUrl)
+        logger.exception("Failed to list OpenAI-compatible models from %s", sanitize_log(baseUrl))
         return {"success": False, "error": "Failed to list models from the configured server"}
 
 
@@ -849,8 +868,10 @@ async def test_openai_compat_connection(request: OpenAICompatTestRequest):
         if request.apiKey:
             headers["Authorization"] = f"Bearer {request.apiKey.get_secret_value()}"
 
+        models_url = assert_safe_outbound_url(f"{request.baseUrl}/v1/models", allow_private=True)
+
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{request.baseUrl}/v1/models", headers=headers)
+            response = await client.get(models_url, headers=headers)
             response.raise_for_status()
             data = response.json()
 
@@ -868,7 +889,9 @@ async def test_openai_compat_connection(request: OpenAICompatTestRequest):
             "message": f"Connected successfully. {model_count} model(s) available.",
         }
     except Exception:
-        logger.exception("OpenAI-compatible connection test failed for %s", request.baseUrl)
+        logger.exception(
+            "OpenAI-compatible connection test failed for %s", sanitize_log(request.baseUrl)
+        )
         return {"success": False, "error": "Connection test failed"}
 
 
@@ -879,14 +902,15 @@ async def pull_ollama_model(
 ):
     """Pull (download) an Ollama model."""
     try:
-        import httpx
         import json
+
+        import httpx
+
+        pull_url = assert_safe_outbound_url(f"{ollamaBaseUrl}/api/pull", allow_private=True)
 
         # Stream the pull progress
         async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST", f"{ollamaBaseUrl}/api/pull", json={"name": modelName}
-            ) as response:
+            async with client.stream("POST", pull_url, json={"name": modelName}) as response:
                 response.raise_for_status()
 
                 # Stream progress updates
@@ -898,7 +922,7 @@ async def pull_ollama_model(
 
                 return {"success": True, "message": f"Model {modelName} pulled successfully"}
     except Exception:
-        logger.exception("Failed to pull Ollama model %s", modelName)
+        logger.exception("Failed to pull Ollama model %s", sanitize_log(modelName))
         return {"success": False, "error": "Failed to pull the requested model"}
 
 
@@ -910,9 +934,14 @@ async def test_ollama_connection(
     try:
         import httpx
 
+        tags_url = assert_safe_outbound_url(f"{ollamaBaseUrl}/api/tags", allow_private=True)
+        chat_url = assert_safe_outbound_url(
+            f"{ollamaBaseUrl}/v1/chat/completions", allow_private=True
+        )
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Check if server is reachable
-            response = await client.get(f"{ollamaBaseUrl}/api/tags")
+            response = await client.get(tags_url)
             response.raise_for_status()
 
             # Check if model exists
@@ -927,7 +956,7 @@ async def test_ollama_connection(
 
             # Test model with simple query
             test_response = await client.post(
-                f"{ollamaBaseUrl}/v1/chat/completions",
+                chat_url,
                 json={
                     "model": modelName,
                     "messages": [{"role": "user", "content": "Test"}],
@@ -976,9 +1005,21 @@ async def save_tab_state(state: dict):
         tab_file.write_text(json.dumps(state, indent=2))
         return {"success": True}
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save tab state: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            # OSError renders the absolute path of the tab-state file.
+            detail=error_message(logger, "tab state write failed", e, "Failed to save tab state"),
+        ) from e
     except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid tab state data: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            # 400, so the caller keeps an actionable answer: the payload they
+            # sent is not serialisable. The stdlib message ("Object of type
+            # set is not JSON serializable") describes THEIR data, but it is
+            # written by json, not by this repo, so it is referenced rather
+            # than echoed.
+            detail=error_message(logger, "tab state serialise failed", e, "Invalid tab state data"),
+        ) from e
 
 
 # --------------------------------------------------------------------------
@@ -1025,7 +1066,9 @@ def load_profiles() -> dict:
             # Normalize field names for backward compatibility
             if "profiles" in data:
                 data["profiles"] = [normalize_profile_fields(p) for p in data["profiles"]]
-            return data
+            # Unseal after normalization so the legacy "token" field has already
+            # been renamed to "oauthToken" (#537).
+            return unseal_profiles(data)
         except json.JSONDecodeError:
             pass
     return {"profiles": [], "activeProfileId": None}
@@ -1251,7 +1294,7 @@ async def rename_claude_profile(profile_id: str, update: ProfileRename):
         save_profiles(data)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to rename Claude profile %s", profile_id)
+        logger.exception("Failed to rename Claude profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to rename profile"}
 
 
@@ -1281,7 +1324,7 @@ async def set_active_claude_profile(request: ActiveProfileRequest):
         _sync_env_token_for_active_profile(data, request.profileId, logger)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to set active Claude profile %s", request.profileId)
+        logger.exception("Failed to set active Claude profile %s", sanitize_log(request.profileId))
         return {"success": False, "error": "Failed to set active profile"}
 
 
@@ -1312,7 +1355,7 @@ async def initialize_claude_profile(profile_id: str):
         save_profiles(data)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to initialize Claude profile %s", profile_id)
+        logger.exception("Failed to initialize Claude profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to initialize profile"}
 
 
@@ -1474,7 +1517,7 @@ async def set_claude_profile_token(profile_id: str, request: SetTokenRequest):
         _sync_env_token_for_active_profile(data, data.get("activeProfileId"), logger)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to set token for Claude profile %s", profile_id)
+        logger.exception("Failed to set token for Claude profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to set profile token"}
 
 
@@ -1728,7 +1771,7 @@ async def retry_with_profile(request: RetryWithProfileRequest):
         return response
 
     except Exception:
-        logger.exception("Failed to switch profile to %s", request.profileId)
+        logger.exception("Failed to switch profile to %s", sanitize_log(request.profileId))
         return {"success": False, "error": "Failed to switch profile"}
 
 
@@ -1824,11 +1867,11 @@ def get_api_profiles_file() -> Path:
 
 
 def load_api_profiles() -> dict:
-    """Load API profiles."""
+    """Load API profiles (apiKey unsealed on the way out, #537)."""
     profiles_file = get_api_profiles_file()
     if profiles_file.exists():
         try:
-            return json.loads(profiles_file.read_text())
+            return unseal_profiles(json.loads(profiles_file.read_text()))
         except json.JSONDecodeError:
             pass
     return {"profiles": [], "activeProfileId": None}
@@ -1997,7 +2040,7 @@ async def update_api_profile(profile_id: str, profile_update: ApiProfileUpdate):
         return {"success": True, "data": updated_profile}
 
     except Exception:
-        logger.exception("Failed to update API profile %s", profile_id)
+        logger.exception("Failed to update API profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to update API profile"}
 
 
@@ -2065,7 +2108,7 @@ async def delete_api_profile(profile_id: str):
         }
 
     except Exception:
-        logger.exception("Failed to delete API profile %s", profile_id)
+        logger.exception("Failed to delete API profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to delete API profile"}
 
 
@@ -2094,7 +2137,7 @@ async def set_active_api_profile(request: dict):
         save_api_profiles(data)
         return {"success": True}
     except Exception:
-        logger.exception("Failed to set active API profile %s", profile_id)
+        logger.exception("Failed to set active API profile %s", sanitize_log(profile_id))
         return {"success": False, "error": "Failed to set active profile"}
 
 
@@ -2109,14 +2152,20 @@ async def test_api_connection(request: TestConnectionRequest):
     import urllib.request
 
     try:
+        # `baseUrl` is caller-supplied. Permissive posture, because the profile
+        # editor's own placeholder offers "https://api.anthropic.com or
+        # http://localhost:8080" — a local proxy is a supported configuration,
+        # so the strict posture would break it. What stays refused in both:
+        # non-http(s) schemes, the cloud metadata addresses, and redirects.
+        models_url = assert_safe_outbound_url(f"{request.baseUrl}/models", allow_private=True)
         req = urllib.request.Request(
-            f"{request.baseUrl}/models",
+            models_url,
             headers={"Authorization": f"Bearer {request.apiKey.get_secret_value()}"},
         )
-        urllib.request.urlopen(req, timeout=10)
+        build_no_redirect_opener().open(req, timeout=10)
         return {"success": True, "data": {"connected": True}}
     except Exception:
-        logger.exception("API connection test failed for %s", request.baseUrl)
+        logger.exception("API connection test failed for %s", sanitize_log(request.baseUrl))
         return {"success": False, "error": "Connection test failed"}
 
 
@@ -2127,16 +2176,20 @@ async def discover_api_models(request: TestConnectionRequest):
     import urllib.request
 
     try:
+        # Same posture as /api-profiles/test above. Refusing redirects matters
+        # doubly here: urllib replays the Authorization header on the hop, so a
+        # 302 to an attacker's host would hand over the API key.
+        models_url = assert_safe_outbound_url(f"{request.baseUrl}/models", allow_private=True)
         req = urllib.request.Request(
-            f"{request.baseUrl}/models",
+            models_url,
             headers={"Authorization": f"Bearer {request.apiKey.get_secret_value()}"},
         )
-        response = urllib.request.urlopen(req, timeout=10)
+        response = build_no_redirect_opener().open(req, timeout=10)
         data = json_module.loads(response.read().decode())
         models = [m.get("id") for m in data.get("data", [])]
         return {"success": True, "data": models}
     except Exception:
-        logger.exception("Failed to discover models from %s", request.baseUrl)
+        logger.exception("Failed to discover models from %s", sanitize_log(request.baseUrl))
         return {"success": False, "error": "Failed to discover models"}
 
 
@@ -2295,11 +2348,21 @@ async def update_source_env(config: SourceEnvUpdate):
     except HTTPException:
         raise
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse existing .env file: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            # JSONDecodeError renders the line/column of the SERVER's .env
+            # file, which is server-side structure, not caller input.
+            detail=error_message(
+                logger, "env parse failed", e, "Failed to parse existing .env file"
+            ),
+        ) from e
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to update source environment: {str(e)}"
-        )
+            status_code=500,
+            detail=error_message(
+                logger, "source env update failed", e, "Failed to update source environment"
+            ),
+        ) from e
 
 
 @router.get("/source-token-check")

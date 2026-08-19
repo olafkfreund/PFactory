@@ -6,11 +6,13 @@ for multiple environment variables, PFactory profiles, Claude Code CLI
 credentials, and SDK environment variable passthrough for custom API endpoints.
 """
 
+import importlib
 import json
 import os
 import platform
 import subprocess
 from pathlib import Path
+from typing import Any
 
 # Priority order for auth token resolution
 # NOTE: We intentionally do NOT fall back to ANTHROPIC_API_KEY.
@@ -117,17 +119,48 @@ def _get_token_from_windows_credential_files() -> str | None:
         ]
 
         for cred_path in cred_paths:
-            if os.path.exists(cred_path):
+            # No exists() check: open() already reports absence, and asking
+            # first collapses "absent" into "unreadable" -- a permission error
+            # on a credential file would read as "no credential here" and this
+            # loop would move on silently. FileNotFoundError is the only
+            # absence; anything else is a real problem worth surfacing.
+            try:
                 with open(cred_path, encoding="utf-8") as f:
                     data = json.load(f)
-                    token = data.get("claudeAiOauth", {}).get("accessToken")
-                    if token and token.startswith("sk-ant-oat01-"):
-                        return token
+            except FileNotFoundError:
+                continue
+            token = data.get("claudeAiOauth", {}).get("accessToken")
+            if token and token.startswith("sk-ant-oat01-"):
+                return token
 
         return None
 
     except (json.JSONDecodeError, KeyError, FileNotFoundError, Exception):
         return None
+
+
+def unseal_profiles(data: dict[str, Any]) -> dict[str, Any]:
+    """Decrypt the sealed OAuth tokens in a claude-profiles.json payload (#537).
+
+    ``server.crypto`` lives in the web-server package, which apps/backend runs
+    alongside in the deployed image. A store written before #537 holds
+    plaintext and passes through untouched.
+
+    Resolved by name rather than imported: a plain import of ``server.*`` from
+    apps/backend is un-gateable here -- at module scope mypy --strict reports
+    import-not-found, and inside the function ruff reports PLC0415.
+
+    If the web-server package is genuinely absent the payload is returned as
+    read; a sealed value is then an ``enc.v1:``-prefixed string that no Claude
+    endpoint accepts, so auth fails visibly instead of silently succeeding with
+    the wrong identity.
+    """
+    try:
+        module = importlib.import_module("server.crypto.secret_field")
+    except ImportError:  # pragma: no cover - web-server package not importable
+        return data
+    unsealed: dict[str, Any] = module.unseal_profiles(data)
+    return unsealed
 
 
 def _get_token_from_pfactory_profiles() -> str | None:
@@ -136,7 +169,7 @@ def _get_token_from_pfactory_profiles() -> str | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text())
+        data = unseal_profiles(json.loads(path.read_text()))
         active_id = data.get("activeProfileId")
         for profile in data.get("profiles", []):
             if profile.get("id") == active_id and profile.get("oauthToken"):

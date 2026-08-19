@@ -21,7 +21,8 @@ from scan_secrets import (
     get_staged_files,
     is_false_positive,
     load_secretsignore,
-    mask_secret,
+    print_results,
+    redacted_fingerprint,
     scan_content,
     scan_files,
     should_skip_file,
@@ -206,23 +207,69 @@ class TestFileSkipping:
 
 
 class TestSecretMasking:
-    """Tests for secret masking."""
+    """Tests for the redaction applied to every reported match.
 
-    def test_masks_long_secret(self):
-        """Masks secrets showing only first few characters."""
-        masked = mask_secret("sk-1234567890abcdefghijklmnop", 8)
-        assert masked == "sk-12345***"
-        assert "abcdef" not in masked
+    The replaced helper (``mask_secret``) had these same three tests, and they
+    asserted the leak rather than catching it: ``masked == "sk-12345***"``
+    pinned the first eight characters of the credential in place, and
+    ``mask_secret("short", 8) == "short"`` pinned a short secret being returned
+    untouched. The assertions below are the inverse -- no span of the input may
+    survive into the output, whatever its length.
+    """
 
-    def test_short_string_not_masked(self):
-        """Short strings are not masked."""
-        masked = mask_secret("short", 8)
-        assert masked == "short"
+    SECRET = "sk-1234567890abcdefghijklmnop"
 
-    def test_custom_visible_chars(self):
-        """Respects custom visible character count."""
-        masked = mask_secret("sk-1234567890abcdefghijklmnop", 4)
-        assert masked == "sk-1***"
+    def _assert_nothing_leaked(self, secret: str, output: str) -> None:
+        """No 4-character window of *secret* may appear in *output*."""
+        for i in range(len(secret) - 3):
+            window = secret[i : i + 4]
+            assert window not in output, f"leaked {window!r} from {secret!r}"
+
+    def test_long_secret_leaves_no_span_behind(self):
+        self._assert_nothing_leaked(self.SECRET, redacted_fingerprint(self.SECRET))
+
+    def test_short_secret_is_not_returned_verbatim(self):
+        """The old helper returned anything <= visible_chars unchanged."""
+        assert "hunter2" not in redacted_fingerprint("hunter2")
+        self._assert_nothing_leaked("hunter2", redacted_fingerprint("hunter2"))
+
+    def test_fingerprint_is_stable_and_distinguishing(self):
+        """What debuggability survives: same input -> same fingerprint."""
+        assert redacted_fingerprint("a" * 24) == redacted_fingerprint("a" * 24)
+        assert redacted_fingerprint("a" * 24) != redacted_fingerprint("b" * 24)
+
+    def test_fingerprint_keeps_the_length(self):
+        """Length distinguishes a 20-char token from a PEM block during triage."""
+        assert "29 chars" in redacted_fingerprint(self.SECRET)
+
+    def test_printed_report_contains_no_span_of_the_secret(self, capsys):
+        """Assert on the operator-facing sink, not just the helper.
+
+        ``print_results`` is what the pre-commit hook writes to the
+        terminal and to CI logs. Unit-testing the helper alone would not have
+        caught a caller that formatted ``match.matched_text`` directly, so this
+        checks the rendered report -- and checks 6-character windows, because a
+        whole-value assertion stays green while a 12-character prefix ships.
+        """
+        secret = "AKIA1234567890ABCDEF"
+        match = SecretMatch(
+            file_path="app/config.py",
+            line_number=7,
+            pattern_name="AWS Access Key ID",
+            matched_text=secret,
+            line_content=f'KEY = "{secret}"',
+        )
+
+        print_results([match])
+        out = capsys.readouterr().out
+
+        # Still triageable: rule, file and line all survive.
+        assert "AWS Access Key ID" in out
+        assert "app/config.py" in out
+        assert "Line 7" in out
+        for i in range(len(secret) - 5):
+            window = secret[i : i + 6]
+            assert window not in out, f"leaked {window!r} to the terminal"
 
 
 class TestSecretsIgnoreFile:

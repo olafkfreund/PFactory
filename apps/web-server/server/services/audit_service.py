@@ -36,6 +36,8 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from factory_common.logsafe import sanitize_log
+
 from ..database import AuditLog
 from ..database.engine import async_session_factory
 
@@ -167,9 +169,9 @@ async def log_audit_event(
     except Exception:
         logger.warning(
             "Failed to write audit log entry: action=%s resource_type=%s resource_id=%s",
-            action,
-            resource_type,
-            resource_id,
+            sanitize_log(action),
+            sanitize_log(resource_type),
+            sanitize_log(resource_id),
             exc_info=True,
         )
 
@@ -219,8 +221,8 @@ async def log_audit_event_bg(
     except Exception:
         logger.warning(
             "Failed to write background audit log entry: action=%s resource_type=%s resource_id=%s",
-            action,
-            resource_type,
-            resource_id,
+            sanitize_log(action),
+            sanitize_log(resource_type),
+            sanitize_log(resource_id),
             exc_info=True,
         )

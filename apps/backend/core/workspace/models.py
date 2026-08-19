@@ -88,7 +88,11 @@ class MergeLock:
                 fd = os.open(
                     str(self.lock_file),
                     os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                    0o644,
+                    # 0o600, not 0o644: the lock file is written and read only
+                    # by the service's own processes, and a world-readable lock
+                    # under a shared workspace root lets any other local user
+                    # read the holder's PID (CodeQL py/overly-permissive-file).
+                    0o600,
                 )
                 os.close(fd)
 
@@ -178,7 +182,11 @@ class SpecNumberLock:
                 fd = os.open(
                     str(self.lock_file),
                     os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                    0o644,
+                    # 0o600, not 0o644: the lock file is written and read only
+                    # by the service's own processes, and a world-readable lock
+                    # under a shared workspace root lets any other local user
+                    # read the holder's PID (CodeQL py/overly-permissive-file).
+                    0o600,
                 )
                 os.close(fd)
 

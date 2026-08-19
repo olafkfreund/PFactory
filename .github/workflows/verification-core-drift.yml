@@ -59,20 +59,38 @@ permissions:
 env:
   # Pinned Factory hub commit carrying the canonical modules. Bump deliberately
   # when re-vendoring (see header).
-  HUB_PIN_SHA: "de50e3fe06af17631cc374c4dbdbd4d34e1ac058"
+  #
+  # Bumped for olafkfreund/Factory#714 (py/tarslip): artifact_store.py now always
+  # extracts with the stdlib `data` filter instead of falling back to an
+  # unfiltered extractall on pre-3.12 runtimes. This is the SQUASH-MERGE commit
+  # on hub `main`, never a PR-branch head (Factory#638).
+  HUB_PIN_SHA: "11834afc75523324d95448ae6ce07eeca907c63b"
 
 jobs:
   drift:
     name: vendored copies match the hub canonical (byte-exact)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Check out this service
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: service
 
+      - name: Assert the hub pin is really on hub main
+        # HUB_PIN_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy. Fork commits are fetchable by SHA from
+        # Factory itself (one shared object store), so without this a fork PR
+        # could pin a canonical tree crafted to match its own drifted vendored
+        # copy and this gate would diff two matching trees and go green
+        # (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: service/.github/scripts/assert-hub-pin-on-main.sh "${HUB_PIN_SHA}" "verification-core-drift HUB_PIN_SHA"
+
       - name: Check out the Factory hub canonical at the pinned SHA
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: olafkfreund/Factory
           ref: ${{ env.HUB_PIN_SHA }}
@@ -83,13 +101,13 @@ jobs:
         # Not at HUB_PIN_SHA: a gate fetched from its own pin cannot ship its
         # own fix. The CANONICAL above stays pinned, so comparisons remain
         # reproducible; only the gate's own logic floats (Factory#405).
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: olafkfreund/Factory
           ref: main
           path: factory-hub-main
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 

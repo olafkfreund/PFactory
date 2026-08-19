@@ -139,7 +139,10 @@ def test_the_token_is_the_environments_and_a_reference_cannot_carry_one(monkeypa
     """A qualification says WHERE the code is. It is not a credential."""
     monkeypatch.setenv("PFACTORY_RECON_TOKEN", _FAKE_TOKEN)
     url = _git_url(_GL_REF)
-    assert url == f"https://x-access-token:{_FAKE_TOKEN}@gitlab.com/platform/pipelines.git"
+    # Username only: since PFactory#615 the token is fed to git via GIT_ASKPASS
+    # rather than embedded here, because this URL becomes an argv element.
+    assert url == "https://x-access-token@gitlab.com/platform/pipelines.git"
+    assert _FAKE_TOKEN not in url
     # Still the tenant's host, not the token's provider — checked on the parsed
     # host, since a credential-bearing URL is exactly where a substring test
     # gives the wrong answer (the userinfo half can carry anything).

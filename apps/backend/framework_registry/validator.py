@@ -28,6 +28,7 @@ from packaging.specifiers import (
     InvalidSpecifier,
     SpecifierSet,
 )
+
 from test_plan.enums import Lane, _parse_lane_str
 
 from .descriptor import FrameworkDescriptor, RuntimeSpec
@@ -77,7 +78,7 @@ class FrameworkDescriptorError(ValueError):
 # ---------------------------------------------------------------------------
 
 
-def _require_str(data: dict, key: str) -> str:
+def _require_str(data: dict[str, Any], key: str) -> str:
     val = data.get(key)
     if val is None:
         raise FrameworkDescriptorError(key, "required field is missing")
@@ -89,7 +90,7 @@ def _require_str(data: dict, key: str) -> str:
     return stripped
 
 
-def _require_list_of_str(data: dict, key: str) -> list[str]:
+def _require_list_of_str(data: dict[str, Any], key: str) -> list[str]:
     val = data.get(key)
     if val is None:
         raise FrameworkDescriptorError(key, "required field is missing")
@@ -103,7 +104,7 @@ def _require_list_of_str(data: dict, key: str) -> list[str]:
     return val
 
 
-def _optional_list_of_str(data: dict, key: str) -> list[str]:
+def _optional_list_of_str(data: dict[str, Any], key: str) -> list[str]:
     val = data.get(key, _OPTIONAL_FIELDS_DEFAULTS.get(key, []))
     if not isinstance(val, list):
         raise FrameworkDescriptorError(key, f"expected list, got {type(val).__name__}")
@@ -223,7 +224,7 @@ def _parse_coverage_strategy(raw: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def validate_descriptor(data: dict) -> FrameworkDescriptor:
+def validate_descriptor(data: dict[str, Any]) -> FrameworkDescriptor:
     """Validate ``data`` (a ``yaml.safe_load`` result) and return a
     :class:`FrameworkDescriptor`.
 

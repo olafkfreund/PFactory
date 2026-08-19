@@ -18,7 +18,16 @@ from plan.review.models import PlanReview
 
 
 class ApprovalError(RuntimeError):
-    """Raised when an approval action violates the gate's preconditions."""
+    """Raised when an approval action violates the gate's preconditions.
+
+    Verified safe to return to the client verbatim (Factory#718): both raise
+    sites here are developer-written literals, never an inner exception. See
+    ``client_errors.client_error``.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 def _utcnow_iso() -> str:

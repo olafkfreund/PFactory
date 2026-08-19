@@ -27,6 +27,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+# auto_fix_service's own import already put apps/backend on sys.path.
+from client_errors import client_error
+from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
+
 from ..services import auto_fix_service
 
 logger = logging.getLogger(__name__)
@@ -96,10 +101,12 @@ async def check_new_issues(projectId: str) -> dict[str, Any]:
     try:
         result = await auto_fix_service.check_new_and_start_all(projectId)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=client_error(e, default="not found")) from e
     except Exception as e:
-        logger.exception("[auto_fix] check_new_issues failed project=%s", projectId)
-        raise HTTPException(status_code=500, detail=f"check failed: {e}")
+        logger.exception("[auto_fix] check_new_issues failed project=%s", sanitize_log(projectId))
+        raise HTTPException(
+            status_code=500, detail=error_message(logger, "check failed", e, "check failed")
+        )
     return result
 
 
@@ -109,11 +116,13 @@ async def start_auto_fix_one(projectId: str, issueNumber: int) -> dict[str, Any]
     try:
         return await auto_fix_service.start_auto_fix(projectId, issueNumber)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=client_error(e, default="not found")) from e
     except Exception as e:
         logger.exception(
-            "[auto_fix] start_auto_fix failed project=%s issue=%d",
-            projectId,
-            issueNumber,
+            "[auto_fix] start_auto_fix failed project=%s issue=%s",
+            sanitize_log(projectId),
+            sanitize_log(issueNumber),
         )
-        raise HTTPException(status_code=500, detail=f"start failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=error_message(logger, "start failed", e, "start failed")
+        )

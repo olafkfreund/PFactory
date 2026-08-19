@@ -11,6 +11,8 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel, Field, SecretStr
 
+from factory_common.logsafe import sanitize_log
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -195,7 +197,7 @@ async def refresh_project_index(projectId: str = Path(...)):
 
         return {"success": True, "data": index}
     except Exception:
-        logger.exception("Failed to refresh project index for %s", projectId)
+        logger.exception("Failed to refresh project index for %s", sanitize_log(projectId))
         return {"success": False, "error": "Failed to refresh project index"}
 
 
@@ -561,8 +563,7 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
                         existing["GIT_TOKEN"] = value
                 else:
                     # Allow removing tokens by setting to empty string
-                    if env_key in existing:
-                        del existing[env_key]
+                    existing.pop(env_key, None)
                     if env_key == "GIT_TOKEN" and "GITHUB_TOKEN" in existing:
                         del existing["GITHUB_TOKEN"]
                     elif env_key == "GITHUB_TOKEN" and "GIT_TOKEN" in existing:
@@ -591,8 +592,7 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
                         existing["GIT_REPO"] = val_strip
                 else:
                     # Allow removing by setting to empty
-                    if env_key in existing:
-                        del existing[env_key]
+                    existing.pop(env_key, None)
                     if env_key == "GIT_REPO" and "GITHUB_REPO" in existing:
                         del existing["GITHUB_REPO"]
                     elif env_key == "GITHUB_REPO" and "GIT_REPO" in existing:
@@ -690,7 +690,9 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
         return {"success": True, "message": "Environment configuration updated successfully"}
 
     except Exception:
-        logger.exception("Failed to update environment config for project %s", projectId)
+        logger.exception(
+            "Failed to update environment config for project %s", sanitize_log(projectId)
+        )
         return {"success": False, "error": "Failed to update environment configuration"}
 
 
@@ -784,7 +786,9 @@ async def invoke_claude_setup(projectId: str = Path(...)):
         }
 
     except Exception:
-        logger.exception("Failed to check Claude setup status for project %s", projectId)
+        logger.exception(
+            "Failed to check Claude setup status for project %s", sanitize_log(projectId)
+        )
         return {"success": False, "error": "Failed to check Claude setup status"}
 
 

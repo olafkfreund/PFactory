@@ -41,6 +41,29 @@ _COMMENT_MAX_PAGES = 10
 _COMMENT_API_VERSION = "7.1-preview.4"
 
 
+def _wiql_literal(value: str) -> str:
+    """Render ``value`` as a WIQL single-quoted string literal.
+
+    WIQL is a query language with no parameter binding: the REST endpoint takes
+    one opaque ``query`` string, so a value that reaches a WHERE clause has to be
+    interpolated. Interpolating it raw is an injection (Factory#721) — the Azure
+    DevOps project name is tenant-supplied configuration (RFC-0020), and a name
+    containing ``'`` closes the literal early and the rest of the name becomes
+    query syntax.
+
+    Escaping is therefore the fix, and WIQL follows T-SQL: a single quote inside
+    a literal is written twice. Doubling every quote leaves no way out of the
+    literal, so the value can only ever be compared as data.
+
+    WIQL has no statement separator and the endpoint accepts exactly one SELECT,
+    so the ceiling on this bug was reading work items the caller's own PAT could
+    already read. It is still an injection and it still gets closed.
+
+    OWASP: A03:2021 Injection.
+    """
+    return "'" + value.replace("'", "''") + "'"
+
+
 @dataclass
 class AzureDevOpsProvider(FanoutCommentsMixin):
     """
@@ -84,7 +107,19 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
     # Helper to construct clients
     # -------------------------------------------------------------------------
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(headers=self._headers, timeout=30.0)
+        # Factory#825: explicit, not inherited from httpx's default. self._headers
+        # carries the Basic-auth PAT, so a 302 from _base_url must not be chased.
+        return httpx.AsyncClient(headers=self._headers, timeout=30.0, follow_redirects=False)
+
+    def _patch_client(self) -> httpx.AsyncClient:
+        """``_client()`` plus the JSON-Patch content type the ADO write paths need.
+
+        Four call sites built this inline. Factory#825 gave each of them a redirect
+        posture to state and the repetition then crossed the hub's clone budget; one
+        factory is also one place for that posture to be right.
+        """
+        headers = {**self._headers, "Content-Type": "application/json-patch+json"}
+        return httpx.AsyncClient(headers=headers, timeout=30.0, follow_redirects=False)
 
     # -------------------------------------------------------------------------
     # Pull Request Operations
@@ -358,7 +393,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
         wiql_query = f"""
         SELECT [System.Id], [System.Title], [System.State]
         FROM workitems
-        WHERE [System.TeamProject] = '{self._proj}'
+        WHERE [System.TeamProject] = {_wiql_literal(self._proj)}
         {state_condition}
         ORDER BY [System.CreatedDate] DESC
         """
@@ -405,10 +440,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
                 {"op": "add", "path": "/fields/System.Tags", "value": "; ".join(labels)}
             )
 
-        headers = self._headers.copy()
-        headers["Content-Type"] = "application/json-patch+json"
-
-        async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+        async with self._patch_client() as client:
             resp = await client.post(url, json=patch)
             resp.raise_for_status()
             return self._parse_work_item(resp.json())
@@ -420,10 +452,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
 
         url = f"{self._base_url}/{self._org}/{self._proj}/_apis/wit/workitems/{number}?api-version=7.1"
         patch = [{"op": "add", "path": "/fields/System.State", "value": "Closed"}]
-        headers = self._headers.copy()
-        headers["Content-Type"] = "application/json-patch+json"
-
-        async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+        async with self._patch_client() as client:
             resp = await client.patch(url, json=patch)
             return resp.status_code == 200
 
@@ -554,9 +583,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
                     "value": "; ".join(all_tags),
                 }
             ]
-            headers = self._headers.copy()
-            headers["Content-Type"] = "application/json-patch+json"
-            async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+            async with self._patch_client() as client:
                 await client.patch(url, json=patch)
         except Exception as e:
             logger.error(f"Error applying labels: {e}")
@@ -576,9 +603,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
                     "value": "; ".join(filtered_tags),
                 }
             ]
-            headers = self._headers.copy()
-            headers["Content-Type"] = "application/json-patch+json"
-            async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+            async with self._patch_client() as client:
                 await client.patch(url, json=patch)
         except Exception as e:
             logger.error(f"Error removing labels: {e}")

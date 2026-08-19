@@ -11,6 +11,7 @@ from pathlib import Path
 from threading import Lock
 
 from ..config import get_settings
+from ..crypto.secret_field import unseal_profiles  # noqa: TID252
 from .session import PTYSession
 
 
@@ -86,7 +87,9 @@ class PTYManager:
 
         if profiles_file.exists():
             try:
-                data = json.loads(profiles_file.read_text())
+                # Unsealed on read (#537); a legacy plaintext store passes
+                # through unchanged.
+                data = unseal_profiles(json.loads(profiles_file.read_text()))
                 profiles = data.get("profiles", [])
                 active_id = data.get("activeProfileId")
 

@@ -31,9 +31,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
+
+from factory_common.logsafe import sanitize_log
 
 from .wrapper import RmuxError, RmuxWrapper
 
@@ -135,9 +137,9 @@ class SessionRegistry:
             )
             logger.info(
                 "rmux session created: spec_id=%s session=%s fifo=%s",
-                spec_id,
-                session_name,
-                fifo_path,
+                sanitize_log(spec_id),
+                sanitize_log(session_name),
+                sanitize_log(fifo_path),
             )
             return fifo_path
 
@@ -159,7 +161,7 @@ class SessionRegistry:
         except RmuxError:
             logger.warning(
                 "rmux kill-session failed during reap (ignored): %s",
-                state.session_name,
+                sanitize_log(state.session_name),
                 exc_info=True,
             )
         try:
@@ -167,14 +169,14 @@ class SessionRegistry:
         except OSError:
             logger.warning(
                 "fifo unlink failed during reap (ignored): %s",
-                state.fifo_path,
+                sanitize_log(state.fifo_path),
                 exc_info=True,
             )
 
         logger.info(
             "rmux session reaped: spec_id=%s session=%s",
-            spec_id,
-            state.session_name,
+            sanitize_log(spec_id),
+            sanitize_log(state.session_name),
         )
 
     # ------------------------------------------------------------------

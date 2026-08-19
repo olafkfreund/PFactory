@@ -8,21 +8,21 @@ Handles file operations for the Monaco editor:
 - Git diff viewing
 """
 
+import logging
 import mimetypes
 import re
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
-import logging
-
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from server.services.git_utils import confine_to_project, confine_to_workspace  # #335, #553
+
 from ..auth import _try_decode_jwt
 from ..config import get_settings
-from ..services.git_utils import confine_to_workspace  # #335
 
 logger = logging.getLogger(__name__)
 
@@ -270,7 +270,10 @@ async def read_file_direct(
 ):
     """Read file contents by absolute path."""
     try:
-        full_path = confine_to_workspace(path)  # #335
+        # #553 strict tier: this returns file CONTENT, so the path must be
+        # inside a REGISTERED project -- not merely under the workspace root,
+        # which would also cover every neighbouring clone.
+        full_path = confine_to_project(path)
     except ValueError:
         return {"success": False, "error": "path outside the allowed workspace", "data": None}
 
@@ -358,8 +361,11 @@ async def serve_project_file(
     if not _validate_serve_token(request, token):
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
+        # #553 strict tier for `root`: the declared project root must be a
+        # REGISTERED project. `path` is then confined to that root by the
+        # relative_to() check below, so the browse tier is enough for it.
         file_path = confine_to_workspace(path)  # #335
-        root_path = confine_to_workspace(root)  # #335
+        root_path = confine_to_project(root)
     except ValueError:
         raise HTTPException(status_code=400, detail="path outside the allowed workspace")
 

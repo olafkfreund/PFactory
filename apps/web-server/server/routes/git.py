@@ -2,18 +2,18 @@
 Git, Ollama, MCP, and utility routes.
 """
 
-import ipaddress
 import json
 import logging
 import shlex
 import shutil
-import socket
 import subprocess
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
+
+from factory_common.logsafe import sanitize_log
+from factory_common.url_safety import assert_safe_outbound_url, build_no_redirect_opener
 
 from ..services.git_utils import (  # #335
     confine_to_workspace,
@@ -128,7 +128,9 @@ async def initialize_git(request: InitGitRequest):
     if not is_git_repo:
         result = run_git_command(["init"], path)
         if not result["success"]:
-            logger.warning("git init failed for %s: %s", path, result.get("error"))
+            logger.warning(
+                "git init failed for %s: %s", sanitize_log(path), sanitize_log(result.get("error"))
+            )
             return {"success": False, "error": "Failed to initialize git repository"}
 
     # Create .gitignore if it doesn't exist
@@ -166,12 +168,24 @@ ollama_router = APIRouter()
 
 
 def check_ollama_running(base_url: str | None = None) -> bool:
-    """Check if Ollama server is running."""
-    import urllib.request
+    """Check if Ollama server is running.
 
-    url = base_url or "http://localhost:11434"
+    ``base_url`` arrives from a query parameter, so it is guarded: a self-hosted
+    Ollama is the point (``allow_private=True``), but ``file://`` and the cloud
+    metadata address are not Ollama and are refused (CodeQL py/partial-ssrf).
+    """
     try:
-        urllib.request.urlopen(f"{url}/api/tags", timeout=5)
+        probe_url = assert_safe_outbound_url(
+            f"{base_url or 'http://localhost:11434'}/api/tags", allow_private=True
+        )
+    except ValueError as exc:
+        # The caller's URL is deliberately NOT echoed: it would put attacker
+        # text straight into the log (py/log-injection). The guard's own
+        # message names the reason, which is what an operator needs.
+        logger.warning("refusing to probe Ollama, unsafe base URL: %s", sanitize_log(exc))
+        return False
+    try:
+        build_no_redirect_opener().open(probe_url, timeout=5)
         return True
     except Exception:
         return False
@@ -259,16 +273,26 @@ async def pull_ollama_model(request: PullModelRequest):
     model_name = request.modelName
 
     try:
+        # `url` comes from the request body: guard it before it becomes an
+        # outbound request (CodeQL py/partial-ssrf). Permissive posture — a
+        # self-hosted Ollama on a private address is the normal case.
+        pull_url = assert_safe_outbound_url(f"{url}/api/pull", allow_private=True)
+    except ValueError as exc:
+        # Same reason as check_ollama_running: the URL is not echoed.
+        logger.warning("refusing to pull from Ollama, unsafe base URL: %s", sanitize_log(exc))
+        return {"success": False, "error": "Refusing to contact that Ollama URL"}
+
+    try:
         # Use Ollama's pull API
         req_data = json.dumps({"name": model_name, "stream": False}).encode()
         req = urllib.request.Request(
-            f"{url}/api/pull",
+            pull_url,
             data=req_data,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         # This is a blocking call - for large models consider background task
-        response = urllib.request.urlopen(req, timeout=600)  # 10 min timeout
+        response = build_no_redirect_opener().open(req, timeout=600)  # 10 min timeout
         result = json.loads(response.read().decode())
 
         # Check if pull was successful
@@ -279,10 +303,10 @@ async def pull_ollama_model(request: PullModelRequest):
             return {"success": False, "error": f"Pull failed: {status}"}
 
     except urllib.error.URLError as e:
-        logger.warning("failed to connect to Ollama at %s: %s", url, e)
+        logger.warning("failed to connect to Ollama at %s: %s", sanitize_log(url), sanitize_log(e))
         return {"success": False, "error": "Failed to connect to Ollama"}
     except Exception:
-        logger.exception("failed to pull Ollama model %s", model_name)
+        logger.exception("failed to pull Ollama model %s", sanitize_log(model_name))
         return {"success": False, "error": "Failed to pull model"}
 
 
@@ -406,7 +430,7 @@ async def install_claude_code():
         node_available = result.returncode == 0
         if node_available:
             steps_completed.append("node-present")
-            log.info(f"Node.js already available: {result.stdout.strip()}")
+            log.info("Node.js already available: %s", sanitize_log(result.stdout.strip()))
     except Exception:
         pass
 
@@ -467,7 +491,7 @@ async def install_claude_code():
                     "success": False,
                     "error": "Node.js installed but not found in PATH after fnm setup",
                 }
-            log.info(f"Node.js verified: {result.stdout.strip()}")
+            log.info("Node.js verified: %s", sanitize_log(result.stdout.strip()))
         except Exception:
             log.exception("Node.js verification failed after install")
             return {
@@ -712,47 +736,24 @@ class UnsafeProbeURLError(ValueError):
     """Raised when a health-probe URL points somewhere we refuse to fetch."""
 
 
-def assert_safe_probe_url(url: str) -> None:
-    """Reject probe URLs that could turn the health check into an SSRF tool.
+def assert_safe_probe_url(url: str) -> str:
+    """Return ``url`` if probing it cannot be turned into an SSRF tool.
 
-    ``check_mcp_health`` fetches a URL supplied in the request body, so without
-    a guard any authenticated caller can make the server issue requests on their
-    behalf (CodeQL py/full-ssrf). Two things are blocked outright:
+    Thin adapter over the shared guard so the MCP health probe and every LLM
+    provider probe enforce one rule. It keeps this name and
+    ``UnsafeProbeURLError`` because ``check_mcp_health`` distinguishes "refused"
+    from "unreachable" in its response, and callers/tests already import both.
 
-    * **Non-HTTP schemes.** ``urllib`` happily opens ``file://``, which turns a
-      "health check" into an arbitrary local-file read.
-    * **Link-local, metadata, reserved and multicast addresses.** 169.254.169.254
-      is the cloud-metadata endpoint; nothing legitimate health-checks it.
-
-    Private and loopback addresses are deliberately ALLOWED: MCP servers in this
-    fleet normally run in-cluster or on the operator's own machine, so blocking
-    RFC-1918 would break the feature's main use. The host is resolved first and
-    every returned address is checked, so a public hostname that resolves to a
-    blocked range cannot slip past.
+    Permissive posture: MCP servers in this fleet normally run in-cluster or on
+    the operator's own machine, so blocking RFC-1918 would break the feature's
+    main use. What the shared guard adds over the copy this replaced is the
+    IPv6 metadata address ``fd00:ec2::254``, which is neither link-local nor
+    reserved and so used to be allowed through.
     """
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https"):
-        raise UnsafeProbeURLError(
-            f"only http/https probe URLs are allowed (got {parts.scheme or 'no'} scheme)"
-        )
-    host = parts.hostname
-    if not host:
-        raise UnsafeProbeURLError("probe URL has no host")
-
     try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-    except OSError as exc:  # fail closed — an unresolvable host is not probed
-        raise UnsafeProbeURLError(f"could not resolve probe host: {host}") from exc
-
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if ip.is_loopback:
-            # Explicitly allowed, and checked first: IPv6 ::1 also satisfies
-            # is_reserved, so without this localhost would be blocked or allowed
-            # depending on whether it resolved to ::1 or 127.0.0.1.
-            continue
-        if ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-            raise UnsafeProbeURLError(f"probe URL resolves to a blocked address range: {ip}")
+        return assert_safe_outbound_url(url, allow_private=True)
+    except ValueError as exc:
+        raise UnsafeProbeURLError(str(exc)) from exc
 
 
 @mcp_router.post("/health")
@@ -762,12 +763,12 @@ async def check_mcp_health(server: McpServerConfig):
         import urllib.request
 
         try:
-            assert_safe_probe_url(server.url)
+            probe_url = assert_safe_probe_url(server.url)
         except UnsafeProbeURLError as exc:
             # The specific reason goes to the log, not the response: it is a
             # curated message today, but a health probe is exactly the kind of
             # endpoint an attacker uses to map what the server can reach.
-            logger.warning("refusing to probe %r: %s", server.url, exc)
+            logger.warning("refusing to probe %r: %s", sanitize_log(server.url), sanitize_log(exc))
             return {
                 "success": True,
                 "data": {
@@ -780,7 +781,7 @@ async def check_mcp_health(server: McpServerConfig):
                 },
             }
         try:
-            req = urllib.request.Request(server.url, method="HEAD")
+            req = urllib.request.Request(probe_url, method="HEAD")
             if server.headers:
                 for key, value in server.headers.items():
                     req.add_header(key, value)
@@ -790,7 +791,9 @@ async def check_mcp_health(server: McpServerConfig):
                 "data": {"serverId": server.id, "status": "healthy", "message": "Server responded"},
             }
         except Exception:
-            logger.warning("MCP health probe failed for %r", server.url, exc_info=True)
+            logger.warning(
+                "MCP health probe failed for %r", sanitize_log(server.url), exc_info=True
+            )
             return {
                 "success": True,
                 "data": {
@@ -927,7 +930,11 @@ async def download_source_update():
         # Check for uncommitted changes
         status_result = run_git_command(["status", "--porcelain"], source_path)
         if not status_result["success"]:
-            logger.warning("git status failed for %s: %s", source_path, status_result.get("error"))
+            logger.warning(
+                "git status failed for %s: %s",
+                sanitize_log(source_path),
+                sanitize_log(status_result.get("error")),
+            )
             return {"success": False, "error": "Failed to check git status"}
 
         has_changes = bool(status_result.get("output", "").strip())
@@ -937,8 +944,8 @@ async def download_source_update():
         if not branch_result["success"]:
             logger.warning(
                 "git branch --show-current failed for %s: %s",
-                source_path,
-                branch_result.get("error"),
+                sanitize_log(source_path),
+                sanitize_log(branch_result.get("error")),
             )
             return {"success": False, "error": "Failed to get current branch"}
 
@@ -953,7 +960,9 @@ async def download_source_update():
         fetch_result = run_git_command(["fetch", "origin"], source_path)
         if not fetch_result["success"]:
             logger.warning(
-                "git fetch origin failed for %s: %s", source_path, fetch_result.get("error")
+                "git fetch origin failed for %s: %s",
+                sanitize_log(source_path),
+                sanitize_log(fetch_result.get("error")),
             )
             return {"success": False, "error": "Failed to fetch updates"}
 
@@ -1004,9 +1013,9 @@ async def download_source_update():
         if not pull_result["success"]:
             logger.warning(
                 "git pull origin %s failed for %s: %s",
-                current_branch,
-                source_path,
-                pull_result.get("error"),
+                sanitize_log(current_branch),
+                sanitize_log(source_path),
+                sanitize_log(pull_result.get("error")),
             )
             return {"success": False, "error": "Failed to pull updates"}
 
@@ -1121,7 +1130,7 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
     except HTTPException:
         raise
     except Exception:
-        logger.exception("failed to load project %s for commit squash", projectId)
+        logger.exception("failed to load project %s for commit squash", sanitize_log(projectId))
         return {"success": False, "error": "Failed to load project"}
 
     # Validate commit count
@@ -1198,7 +1207,9 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
 
     if not reset_result["success"]:
         logger.warning(
-            "git reset --soft failed for %s: %s", project_path, reset_result.get("error")
+            "git reset --soft failed for %s: %s",
+            sanitize_log(project_path),
+            sanitize_log(reset_result.get("error")),
         )
         return {"success": False, "error": "Failed to reset commits"}
 
@@ -1210,8 +1221,8 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
         run_git_command(["reset", "ORIG_HEAD"], project_path)
         logger.warning(
             "git commit failed during squash for %s: %s",
-            project_path,
-            commit_result.get("error"),
+            sanitize_log(project_path),
+            sanitize_log(commit_result.get("error")),
         )
         return {"success": False, "error": "Failed to create squashed commit"}
 
@@ -1293,7 +1304,7 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     except HTTPException:
         raise
     except Exception:
-        logger.exception("failed to load project %s for worktree creation", projectId)
+        logger.exception("failed to load project %s for worktree creation", sanitize_log(projectId))
         return {"success": False, "error": "Failed to load project"}
 
     # Validate worktree name (alphanumeric, dashes, underscores only)
@@ -1341,7 +1352,7 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     try:
         worktrees_base.mkdir(parents=True, exist_ok=True)
     except Exception:
-        logger.exception("failed to create worktree directory %s", worktrees_base)
+        logger.exception("failed to create worktree directory %s", sanitize_log(worktrees_base))
         return {"success": False, "error": "Failed to create worktree directory"}
 
     # Build git worktree add command
@@ -1382,7 +1393,9 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
             pass
 
         logger.warning(
-            "git worktree add failed for %s: %s", project_path, worktree_result.get("error")
+            "git worktree add failed for %s: %s",
+            sanitize_log(project_path),
+            sanitize_log(worktree_result.get("error")),
         )
         return {"success": False, "error": "Failed to create worktree"}
 
@@ -1483,7 +1496,7 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
     except HTTPException:
         raise
     except Exception:
-        logger.exception("failed to load project %s for release creation", projectId)
+        logger.exception("failed to load project %s for release creation", sanitize_log(projectId))
         return {"success": False, "error": "Failed to load project"}
 
     # Ensure version starts with 'v' if not already present (conventional)
@@ -1500,7 +1513,11 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
         )
 
         if not result["success"]:
-            logger.warning("gh release create failed for %s: %s", project_path, result.get("error"))
+            logger.warning(
+                "gh release create failed for %s: %s",
+                sanitize_log(project_path),
+                sanitize_log(result.get("error")),
+            )
             return {"success": False, "error": "Failed to create GitHub release"}
 
         return {
@@ -1512,5 +1529,9 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
         }
 
     except Exception:
-        logger.exception("failed to create GitHub release %s for %s", version_tag, project_path)
+        logger.exception(
+            "failed to create GitHub release %s for %s",
+            sanitize_log(version_tag),
+            sanitize_log(project_path),
+        )
         return {"success": False, "error": "Failed to create GitHub release"}

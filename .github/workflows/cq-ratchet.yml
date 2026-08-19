@@ -79,19 +79,20 @@ jobs:
   ratchet-ruff:
     name: ratchet ruff + mypy (changed files, blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Need history back to the PR base for the diff-scoped ratchet.
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -127,14 +128,50 @@ jobs:
           export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
           apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}" --package apps/web-server --package scripts
 
+      - name: Prove the strict-package gate can fail
+        # BEFORE the verdict, in the same job. The gate below is the one-way
+        # half of the ratchet: packages listed in mypy-strict-packages.txt have
+        # been driven to zero and may never regrow. A gate that has only ever
+        # been seen passing proves nothing (Factory#694/#697), so this plants an
+        # ill-typed module in the first listed package, requires red, removes it,
+        # requires green. Same pattern as security_lint.py --self-test.
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
+          apps/backend/.venv/bin/python scripts/mypy_strict_packages.py --self-test
+
+      - name: Strict-clean packages (whole package, mypy --strict, blocking)
+        # The ratchet above is DIFF-SCOPED: it holds the backlog still but cannot
+        # tell a package at 0 from one at 300, so nothing keeps finished work
+        # finished. This holds every package in mypy-strict-packages.txt at zero
+        # WHOLE, on every PR — including files no diff touched, which is exactly
+        # where a regression would otherwise land unmeasured (PFactory#468).
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
+          apps/backend/.venv/bin/python scripts/mypy_strict_packages.py
+
+      - name: Strict-package count to the run summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(grep -cvE '^\s*(#.*)?$' mypy-strict-packages.txt || echo 0)
+          {
+            echo "## mypy --strict, whole-package gate"
+            echo ""
+            echo "- Packages held at ZERO errors: **${count}**"
+            echo "- The diff-scoped ratchet freezes the backlog; this list shrinks it permanently."
+            echo "- An entry that names a missing directory fails the gate, so the list cannot rot."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   format-check:
     name: ruff format --check (apps/backend + apps/web-server + scripts, blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -147,6 +184,7 @@ jobs:
   config-drift:
     name: config drift (vendored baseline pinned to hub)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # The vendored standards/ copy must match the Factory hub at the pinned SHA
     # (standards/README.md).
     #
@@ -159,7 +197,23 @@ jobs:
     # outage now costs a re-run, which is cheap and visible; the old behaviour
     # cost nothing and told you nothing (Factory#471).
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Assert the hub pin is really on hub main
+        # standards/.hub-sha comes from the PR's own tree and is handed to
+        # raw.githubusercontent as a ref against olafkfreund/Factory. GitHub
+        # serves every fork of a repo from one object store, so a commit that
+        # exists only in a fork of Factory is still fetchable by SHA from
+        # Factory itself -- a fork PR could otherwise pin a standards/ tree
+        # matching its own drifted copy and this gate would diff two matching
+        # trees and go green (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          .github/scripts/assert-hub-pin-on-main.sh \
+            "$(tr -d '[:space:]' < standards/.hub-sha)" "standards/.hub-sha"
 
       - name: Diff vendored baseline against pinned hub
         run: |
@@ -193,6 +247,58 @@ jobs:
             fi
           done
           exit $fail
+
+      # ---------------------------------------------------------------------
+      # Factory#730: the step above (and the two "must extend"/"must not
+      # loosen" checks below) compare FILE BYTES. standards/ruff.toml can be
+      # byte-identical to the hub while the EFFECTIVE config a plain
+      # `ruff check` resolves is not -- a per-file-ignores table that a local
+      # override table replaces rather than merges, or a target-version that
+      # never makes it into the root config, reopen exactly what the vendored
+      # file closes, and no byte diff sees either. This asserts on the
+      # resolved behaviour instead of the file.
+      #
+      # The probe lives under tests/ so it must earn the shared S101/PLR2004
+      # test carve-out (standards/ruff.toml's per-file-ignores), and it sorts
+      # stdlib `tomllib` ahead of a third-party import -- clean only under
+      # target-version >= py311 (tomllib is stdlib since 3.11; an older or
+      # unset target classifies it third-party and demands the opposite
+      # order). The hub baseline is clean on this probe by construction, so
+      # this repo's ORDINARY `ruff check` (no --config override, exactly what
+      # a developer or another CI job gets) must be too.
+      - name: Install ruff (pinned)
+        run: pip install "ruff==${RUFF_VERSION}"
+
+      - name: Effective config matches the hub baseline (not just file bytes)
+        run: |
+          set -euo pipefail
+          probe_dir="tests/__ruff_drift_probe__"
+          probe="${probe_dir}/test_probe.py"
+          mkdir -p "${probe_dir}"
+          cat > "${probe}" <<'PY'
+          import tomllib
+
+          import requests
+
+          assert requests and tomllib
+          PY
+          trap 'rm -rf "${probe_dir}"' EXIT
+
+          repo_verdict="$(ruff check --select S,I,UP --output-format concise "${probe}" 2>&1 || true)"
+          hub_verdict="$(ruff check --select S,I,UP --output-format concise --config /tmp/hub-ruff.toml "${probe}" 2>&1 || true)"
+
+          if [ "${repo_verdict}" != "${hub_verdict}" ]; then
+            echo "::error::Effective ruff config has drifted from the hub baseline (Factory#730)."
+            echo "--- this repo, ordinary \`ruff check\` (no --config override) ---"
+            echo "${repo_verdict}"
+            echo "--- hub baseline (standards/ruff.toml) ---"
+            echo "${hub_verdict}"
+            echo "File bytes can match while the EFFECTIVE config (per-file-ignores reach, target-version)"
+            echo "does not. Fix the root ruff.toml (extend / target-version / per-file-ignores); this is"
+            echo "not a standards/ruff.toml byte diff."
+            exit 1
+          fi
+          echo "Effective config matches the hub baseline for the S101/target-version probe."
 
       # ---------------------------------------------------------------------
       # Tighten-only (#470). The step above pins the VENDORED baseline to the

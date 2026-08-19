@@ -10,19 +10,20 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from .scan_secrets import SecretMatch
 from .validation_models import ValidationResult
 
 logger = logging.getLogger(__name__)
 
 
-def _format_secret_error(matches: list) -> ValidationResult:
+def _format_secret_error(matches: list[SecretMatch]) -> ValidationResult:
     """Format secret scan matches into an actionable error message."""
     try:
-        from scan_secrets import mask_secret
+        from scan_secrets import redacted_fingerprint
     except ImportError:
         return False, "Secrets detected in staged files"
 
-    files_with_secrets: dict[str, list] = {}
+    files_with_secrets: dict[str, list[SecretMatch]] = {}
     for match in matches:
         if match.file_path not in files_with_secrets:
             files_with_secrets[match.file_path] = []
@@ -38,9 +39,9 @@ def _format_secret_error(matches: list) -> ValidationResult:
     for file_path, file_matches in files_with_secrets.items():
         error_lines.append(f"File: {file_path}")
         for match in file_matches:
-            masked = mask_secret(match.matched_text, 12)
+            fingerprint = redacted_fingerprint(match.matched_text)
             error_lines.append(f"  Line {match.line_number}: {match.pattern_name}")
-            error_lines.append(f"    Found: {masked}")
+            error_lines.append(f"    Found: {fingerprint}")
         error_lines.append("")
 
     error_lines.extend(

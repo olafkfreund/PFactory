@@ -13,6 +13,8 @@ Tests the skills_service.py module functionality including:
 - Graceful handling of missing/invalid paths
 """
 
+import json
+import pickle
 import sys
 from pathlib import Path
 
@@ -21,6 +23,7 @@ import pytest
 # Add web-server to path so we can import server modules
 sys.path.insert(0, str(Path(__file__).parent.parent / "apps" / "web-server"))
 
+from server.services import skills_service
 from server.services.skills_service import (
     SkillCategory,
     SkillDetail,
@@ -36,23 +39,32 @@ FIXTURES_PATH = Path(__file__).parent / "fixtures" / "skills"
 class TestSkillsServiceInit:
     """Tests for SkillsService initialisation and index building."""
 
-    def setup_method(self):
-        self.service = SkillsService(skills_base_path=FIXTURES_PATH)
+    @pytest.fixture(autouse=True)
+    def _service(self, tmp_path):
+        self.service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=tmp_path / "skills-cache.json"
+        )
 
     def test_builds_index_from_fixtures(self):
         """Index is populated from the fixture directory."""
         assert self.service._built is True
         assert len(self.service._index) == 3
 
-    def test_missing_skills_path_returns_empty_index(self):
+    def test_missing_skills_path_returns_empty_index(self, tmp_path):
         """Service initialises gracefully when skills path does not exist."""
-        service = SkillsService(skills_base_path=Path("/nonexistent/skills/path"))
+        service = SkillsService(
+            skills_base_path=Path("/nonexistent/skills/path"),
+            cache_path=tmp_path / "skills-cache.json",
+        )
         assert service._built is True
         assert service._index == {}
 
-    def test_missing_skills_path_all_queries_return_empty(self):
+    def test_missing_skills_path_all_queries_return_empty(self, tmp_path):
         """All query methods return empty results when path is missing."""
-        service = SkillsService(skills_base_path=Path("/nonexistent/skills/path"))
+        service = SkillsService(
+            skills_base_path=Path("/nonexistent/skills/path"),
+            cache_path=tmp_path / "skills-cache.json",
+        )
         assert service.list_categories() == []
         assert service.list_skills("frontend") == []
         assert service.search_skills("react") == []
@@ -65,8 +77,11 @@ class TestSkillsServiceInit:
 class TestListCategories:
     """Tests for list_categories()."""
 
-    def setup_method(self):
-        self.service = SkillsService(skills_base_path=FIXTURES_PATH)
+    @pytest.fixture(autouse=True)
+    def _service(self, tmp_path):
+        self.service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=tmp_path / "skills-cache.json"
+        )
 
     def test_returns_all_fixture_categories(self):
         """All three fixture categories are returned."""
@@ -99,8 +114,11 @@ class TestListCategories:
 class TestListSkills:
     """Tests for list_skills(category)."""
 
-    def setup_method(self):
-        self.service = SkillsService(skills_base_path=FIXTURES_PATH)
+    @pytest.fixture(autouse=True)
+    def _service(self, tmp_path):
+        self.service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=tmp_path / "skills-cache.json"
+        )
 
     def test_list_frontend_skills(self):
         """Returns the react skill from the frontend category."""
@@ -144,8 +162,11 @@ class TestListSkills:
 class TestSearchSkills:
     """Tests for search_skills(query, category, limit)."""
 
-    def setup_method(self):
-        self.service = SkillsService(skills_base_path=FIXTURES_PATH)
+    @pytest.fixture(autouse=True)
+    def _service(self, tmp_path):
+        self.service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=tmp_path / "skills-cache.json"
+        )
 
     def test_search_returns_react_for_react_query(self):
         """Searching 'react' returns the react skill."""
@@ -207,8 +228,11 @@ class TestSearchSkills:
 class TestGetSkill:
     """Tests for get_skill(category, name)."""
 
-    def setup_method(self):
-        self.service = SkillsService(skills_base_path=FIXTURES_PATH)
+    @pytest.fixture(autouse=True)
+    def _service(self, tmp_path):
+        self.service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=tmp_path / "skills-cache.json"
+        )
 
     def test_get_react_skill_summary(self):
         """Returns SkillSummary for the react fixture."""
@@ -250,14 +274,20 @@ class TestGetSkill:
         skill = self.service.get_skill("frontend", "react")
         assert skill is not None
         assert skill.source is not None
-        assert "github.com" in skill.source
+        # Whole URL, not a host substring: a substring check passes on any text
+        # mentioning github.com, so it cannot prove the blockquote's link target
+        # was the thing extracted.
+        assert skill.source == "https://github.com/facebook/react"
 
 
 class TestGetSkillContent:
     """Tests for get_skill_content(category, name)."""
 
-    def setup_method(self):
-        self.service = SkillsService(skills_base_path=FIXTURES_PATH)
+    @pytest.fixture(autouse=True)
+    def _service(self, tmp_path):
+        self.service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=tmp_path / "skills-cache.json"
+        )
 
     def test_returns_react_markdown_content(self):
         """Full markdown content is returned for react fixture."""
@@ -297,8 +327,11 @@ class TestGetSkillContent:
 class TestGetSkillDetail:
     """Tests for get_skill_detail(category, name)."""
 
-    def setup_method(self):
-        self.service = SkillsService(skills_base_path=FIXTURES_PATH)
+    @pytest.fixture(autouse=True)
+    def _service(self, tmp_path):
+        self.service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=tmp_path / "skills-cache.json"
+        )
 
     def test_returns_skill_detail_instance(self):
         """Returns a SkillDetail dataclass instance."""
@@ -331,8 +364,11 @@ class TestGetSkillDetail:
 class TestSuggestSkills:
     """Tests for suggest_skills(task_description, max_results)."""
 
-    def setup_method(self):
-        self.service = SkillsService(skills_base_path=FIXTURES_PATH)
+    @pytest.fixture(autouse=True)
+    def _service(self, tmp_path):
+        self.service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=tmp_path / "skills-cache.json"
+        )
 
     def test_suggests_react_for_react_task(self):
         """'Build a React frontend app' suggests the react skill."""
@@ -461,3 +497,63 @@ class TestMetadataExtraction:
         content = "# skill\n\nSome description text without a divider.\n"
         description, source = SkillsService._extract_metadata(content)
         assert "description text" in description
+
+
+class TestCacheIsNotPickle:
+    """The on-disk cache must never be a code-execution primitive (#533)."""
+
+    @staticmethod
+    def _payload(marker: Path) -> bytes:
+        """A benign pickle whose reduce would write ``marker`` on load."""
+
+        class _Reducer:
+            def __reduce__(self):
+                return (Path.write_text, (marker, "executed"))
+
+        return pickle.dumps(_Reducer())
+
+    def test_module_does_not_import_pickle(self):
+        """Regression guard: skills_service must not carry a pickle import."""
+        assert not hasattr(skills_service, "pickle")
+        assert skills_service.DEFAULT_CACHE_PATH.suffix == ".json"
+
+    def test_pickle_payload_at_cache_path_is_rejected_without_executing(self, tmp_path):
+        """A pickle bomb written to the cache path is inert; the index rebuilds."""
+        marker = tmp_path / "pwned.txt"
+        cache_path = tmp_path / "skills-cache.json"
+        cache_path.write_bytes(self._payload(marker))
+
+        service = SkillsService(
+            skills_base_path=FIXTURES_PATH, cache_path=cache_path
+        )
+
+        assert not marker.exists()
+        assert len(service._index) == 3
+
+    def test_stale_pkl_cache_is_ignored_on_cold_start(self, tmp_path):
+        """A pre-existing .pkl from the old format is never opened."""
+        marker = tmp_path / "pwned.txt"
+        legacy = tmp_path / "skills-cache.pkl"
+        legacy.write_bytes(self._payload(marker))
+
+        service = SkillsService(
+            skills_base_path=FIXTURES_PATH,
+            cache_path=tmp_path / "skills-cache.json",
+        )
+
+        assert not marker.exists()
+        assert legacy.read_bytes() != b""  # untouched, just ignored
+        assert len(service._index) == 3
+
+    def test_cache_round_trip_reconstructs_the_index(self, tmp_path):
+        """A saved JSON cache is loaded back into equivalent dataclasses."""
+        cache_path = tmp_path / "skills-cache.json"
+        first = SkillsService(skills_base_path=FIXTURES_PATH, cache_path=cache_path)
+        assert json.loads(cache_path.read_text())["version"] == 2
+
+        second = SkillsService(skills_base_path=FIXTURES_PATH, cache_path=cache_path)
+        assert second._index.keys() == first._index.keys()
+        entry = second._index["frontend"][0]
+        assert isinstance(entry.file_path, Path)
+        assert isinstance(entry.name_tokens, frozenset)
+        assert entry.summary == first._index["frontend"][0].summary

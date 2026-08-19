@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import ClaudeSDKClient
+
 from providers import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
@@ -80,8 +81,8 @@ class ClaudeProvider(BaseLLMProvider):
         model: str = "sonnet",
         agent_type: str = "qa_reviewer",
         max_thinking_tokens: int | None = None,
-        output_format: dict | None = None,
-        agents: dict | None = None,
+        output_format: dict[str, Any] | None = None,
+        agents: dict[str, Any] | None = None,
         betas: list[str] | None = None,
         effort_level: str | None = None,
         fast_mode: bool = False,
@@ -92,7 +93,14 @@ class ClaudeProvider(BaseLLMProvider):
         # Accept working_dir as alias for project_dir
         if project_dir is None and working_dir is not None:
             project_dir = working_dir
-        if spec_dir is None and project_dir is not None:
+        if project_dir is None:
+            # create_client calls project_dir.resolve(); without this the default
+            # construction fails as an AttributeError deep inside the SDK setup.
+            raise ValueError(
+                "ClaudeQAProvider needs project_dir (or working_dir) - "
+                "create_client cannot resolve a None project directory."
+            )
+        if spec_dir is None:
             spec_dir = project_dir
         # Import here to avoid circular imports (core.client imports many things)
         from core.client import create_client

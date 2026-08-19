@@ -47,6 +47,7 @@ import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants + helpers
@@ -82,7 +83,16 @@ def _now_iso() -> str:
 
 
 class SnapshotError(Exception):
-    """Raised when a snapshot fails at a contract boundary (missing source)."""
+    """Raised when a snapshot fails at a contract boundary (missing source).
+
+    Verified safe to return to the client verbatim (Factory#718): the one
+    raise site echoes only the caller's own project_id/spec_id, never the
+    resolved server-side path. See ``client_errors.client_error``.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 @dataclass
@@ -116,7 +126,7 @@ class SnapshotResult:
     aifactory_api_url: str | None = None
     correction_cycle: int = 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         # Group the hand-back target into a single ``aifactory`` envelope so
         # the handback builder (P2) reads ``source["aifactory"]`` as one unit.
@@ -176,10 +186,14 @@ def snapshot_aifactory_spec(
     source_dir = root / "workspaces" / project_id / "specs" / spec_id
 
     if not source_dir.is_dir():
+        # Factory#718: `source_dir` is built from `_aifactory_root()`, a
+        # server-side path the caller doesn't (and shouldn't) know -- naming
+        # it in a caller-facing message leaks the on-disk layout. The
+        # actionable guidance below already says everything a caller needs.
         raise SnapshotError(
-            f"AIFactory spec dir not found: {source_dir}. "
-            "Check project_id/spec_id and that the AIFactory workspace "
-            "is on the same host as PFactory."
+            f"AIFactory spec dir not found for project_id={project_id!r} "
+            f"spec_id={spec_id!r}. Check project_id/spec_id and that the "
+            "AIFactory workspace is on the same host as PFactory."
         )
 
     dest_spec = Path(dest_spec_dir)

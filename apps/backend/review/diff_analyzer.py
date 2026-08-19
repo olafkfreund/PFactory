@@ -83,7 +83,10 @@ def extract_table_rows(content: str, table_header: str) -> list[tuple[str, str, 
         if in_table and line.startswith("|") and line.endswith("|"):
             cells = [c.strip() for c in line.split("|")[1:-1]]
             if len(cells) >= 2:
-                rows.append(tuple(cells[:3]) if len(cells) >= 3 else (*cells, ""))
+                # Spelled out element-by-element rather than sliced: a slice of
+                # a list is `tuple[str, ...]` to mypy, which cannot satisfy the
+                # 3-tuple return type even though the branch guarantees it.
+                rows.append((cells[0], cells[1], cells[2] if len(cells) >= 3 else ""))
 
         # End of table
         elif in_table and not line.startswith("|") and line:

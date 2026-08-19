@@ -149,14 +149,17 @@ def _resolve_last_verdict(test_id: str, verdicts: Any) -> str:
                 verdict = item.get("verdict", "flag")
                 # Normalise to catalog-valid verdicts; unknown -> "flag", never
                 # "accept" (Factory#431): an unreadable verdict is not a pass.
-                if verdict in {"accept", "reject", "flag", "skip"}:
+                # The isinstance is what proves the returned value is a str --
+                # `verdict` comes out of an untyped JSON dict, so membership
+                # alone narrows nothing.
+                if isinstance(verdict, str) and verdict in {"accept", "reject", "flag", "skip"}:
                     return verdict
                 return "flag"
     elif isinstance(verdicts, dict):
         item = verdicts.get(test_id)
         if isinstance(item, dict):
             verdict = item.get("verdict", "flag")
-            if verdict in {"accept", "reject", "flag", "skip"}:
+            if isinstance(verdict, str) and verdict in {"accept", "reject", "flag", "skip"}:
                 return verdict
         elif isinstance(item, str) and item in {"accept", "reject", "flag", "skip"}:
             return item

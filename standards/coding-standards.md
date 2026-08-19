@@ -130,6 +130,51 @@ root ([`standards/.editorconfig`](./.editorconfig)).
 
 3.7 One source of truth for thresholds in this hub; tighten-only overrides.
 
+3.8 **Before fixing anything security-shaped, find every copy.** Search all six
+repos for the file BEFORE editing it, fix the hub canonical where one exists,
+and re-vendor. On 2026-08-13 a single sweep found **seven** fixes that existed
+in one repo while siblings carried the bug: `artifact_store.py` tarslip, the
+SSRF guard, workspace lock `0o644`, `skills_service` pickle-vs-JSON,
+`bump-version.js` fs-race, `mask_secret`, and rule 4.10 of THIS FILE. Scanners
+report per-repo, so an unpropagated fix reads as a clean count next door.
+
+3.9 **A guard is finished when every sink calls it, not when it passes its
+tests.** Count the sinks, not the tests. Twice on 2026-08-13 a correct,
+mutation-checked SSRF guard shipped wired into ONE of fourteen call sites, in
+two repos, by different authors. Every signal was green and the product was
+open. After adding a guard, grep the sink (`httpx`/`requests`/`urlopen`,
+`subprocess`, path joins) and diff that list against the guard's callers.
+
+3.10 **Never validate a URL and then hand the fetch to someone else.** A guard
+on the initial URL is void if the fetcher follows redirects: the dangerous URL
+is the one you never see. Own the fetch with redirects disabled, or re-validate
+every hop against the same guard. Applies equally to an SDK, a subprocess, or a
+library that retries.
+
+3.11 **Test a redaction against windows of the secret, not the whole value.**
+`assert SECRET not in output` passes while the first twelve characters ship.
+Assert no 4- or 6-character window of the credential appears in the RENDERED
+sink (the log record, the response body, the file bytes). On 2026-08-13 a suite
+was green for months with `mask_secret` returning short secrets verbatim -
+because two of its own assertions had pinned the leak as correct behaviour.
+
+3.12 **A test may not read or write outside the repo.** Point every cache, home
+and config path at a tmp fixture. A `SkillsService` suite read the developer's
+real `~/.aifactory/` cache, so a broken parser tested GREEN (the cache
+short-circuited it), and a mutated run POISONED that cache so a later run of
+correct code failed. A suite that can go green from a file outside the repo
+invalidates every other gate that trusts it.
+
+3.13 **A test fixture must not match a real credential pattern.** Secret
+scanners match on SHAPE, so a fabricated `sk-proj-...` in a test file raises a
+real alert and can hard-block a push. On 2026-08-13 a fixture for a
+token-at-rest test paged the operator for a value with 8 distinct characters
+over 48. Build fixtures that cannot match: a clearly-fake prefix, or assemble
+the realistic prefix at runtime (`"sk-" + "ant-"`) when the code branches on it,
+with a comment saying why - or someone will helpfully make it realistic again.
+The cost of getting this wrong is not the alert; it is that the next real one
+gets ignored, and that bypassing push protection becomes a habit.
+
 ## 4. CI / pre-commit enforcement
 
 4.1 `pre-commit` is the single local+CI entrypoint (same config both places).
@@ -185,6 +230,167 @@ it fail; passing on clean input proves nothing, and every "fix" that merely
 made a gate permissive would have passed that half. Each gate leaves behind a
 test for both directions: a change carrying pre-existing debt is accepted, and
 one new violation is rejected.
+
+4.10 **Assert on the artefact, not on the process.** A control that reports
+whether it *ran* cannot distinguish a clean system from one where nothing
+happened. Ask of every gate:
+
+> **If this had done nothing at all, would the output look different?**
+> If no, the control is not evidence.
+
+Factory#642 catalogues **seven** instances, found on 2026-08-07 by three agents
+working separately on unrelated issues. An **eighth** turned up on 2026-08-10
+while wiring the Fides change gate (Factory#619, Factory#541) — also by
+accident, also by someone working on something else, which is the point.
+Different subsystems, one mechanism: **the status channel reported on the
+process rather than on what it produced.** Seven were quiet and sat; the one
+that failed loudly was fixed the same day. The severity ordering was set by
+visibility, not by risk.
+
+The question above is cheap to quote and expensive to apply, so it does not
+travel alone. **What makes it executable is knowing which artefact to read** —
+that knowledge, not the question, is the deliverable:
+
+| Control | Do NOT trust | Read this instead |
+|---|---|---|
+| Signature verify | `unverified image` | the message text: `ghcr.io/token` + `UNAUTHORIZED` is a read failure, not a verdict |
+| Admission webhook | the admit | the `kyverno.io/verify-images` annotation, and that it **names the image** |
+| PolicyReport board | absence of `fail` | the result **count**, and whether the rule produced any row at all |
+| `kyverno test` | the pass | that the case actually **evaluated** — a case with no result scores as a pass |
+| Merged PR | `merged: true` + green CI | `commits:` vs what you pushed, **and** the file bytes on `main` |
+| Patch / script | the success message | the patch's **exit code**, checked before the message prints |
+| ArgoCD selfHeal test | `Synced` | that the field you changed is **git-managed** — an added annotation is never reverted |
+| Installer / fetch step | the step's green | that the thing is **runnable afterwards** (`command -v`), and the download's own exit status |
+
+Three traps carried from the instances, each of which cost an hour or more:
+
+- **`curl … | sh` in CI hides the DOWNLOAD's failure.** The step can still fail —
+  if `sh` exits non-zero it does. What it cannot report is curl failing, and that
+  is the direction that matters, because it fails *open*. A default `run:` on
+  Linux is `bash -e {0}`, with no `pipefail`, so only the last element's status
+  survives; `sh` reading empty stdin exits 0. A 404 installer therefore leaves
+  the step green having installed nothing, and the real failure surfaces later as
+  `command not found`. Setting `shell: bash` explicitly is not cosmetic — it
+  selects `bash --noprofile --norc -eo pipefail {0}`, which would surface this
+  one. Better still: fetch to a file, check the status, then assert the binary
+  runs.
+- **`git merge-base --is-ancestor` is useless in a squash-merge repo.** It
+  returns non-zero for every correctly merged PR. Compare `headRefOid` to the
+  SHA you pushed.
+- **`commits:` and a content read are a pair, not alternatives.** `commits:`
+  catches a commit that never arrived; only a content read catches a commit that
+  arrived having eaten someone else's line during a rebase. **Counts survive a
+  rebase; content does not.**
+
+A corollary for acceptance criteria: **do not phrase one as "X is quiet".**
+Silence is exactly what a control that never ran produces. State what artefact
+must exist and what it must say.
+
+4.11 **Security rules are enforced WHOLE-REPO; only style may be diff-scoped.**
+Diff-scoped enforcement ("legacy is fixed on touch") is correct for style debt
+and wrong for security sinks, because *untouched code is where old
+vulnerabilities live* - "fixed on touch" means never for a file nobody opens.
+On 2026-08-13 a `pickle.load` on a user-writable cache - a live RCE primitive,
+already fixed in a sibling - survived for months although rule 1.4 banned it
+and ruff `S` was enabled: the gate only ever looked at changed files. The
+numbers make the split cheap: 6,436 strict violations repo-wide is unlandable,
+but the high-signal security subset was **103 fleet-wide**. Security rules get a
+blocking whole-repo gate with a per-finding allowlist (path, rule, reason, issue
+ref) that can only ratchet down.
+
+4.12 **An exclusion needs a replacement asking the same question.** Suppressing
+a scanner rule is permitted ONLY when paired with a barrier-aware query covering
+the same sinks; an `exclude:` with no twin is silencing. Prove the replacement
+still reports: build the analysis over the UNFIXED tree and confirm it flags the
+same sites the stock rule does. Never barrier a check that does not establish
+the property - an "the file exists" test says nothing about WHICH file.
+Corollary from 2026-08-12: a scan's breadth is part of its result. Four repos
+reported near-zero because they ran the default suite; levelling to
+`security-and-quality` took the fleet 1,526 to 3,876 with no code change. Never
+compare alert counts across repos without checking the suite.
+
+4.13 **The unfixed-tree check in 4.12 is NOT sufficient. Delete the sanitizer
+and re-run STOCK.** If stock's count collapses to what your barrier reports,
+your barrier IS that deletion in disguise - it silences without fixing. The
+4.12 check passes trivially whenever the helper being barriered did not exist
+on the base tree, which is precisely the common case. Three barriers were
+proposed on 2026-08-13 and all three failed this test, none the old one:
+
+| proposed barrier | what it actually did |
+|---|---|
+| project-registry lookup | matched 93 nodes, cleared **0** alerts (119 -> 119) |
+| `client_error` | cleared 104, and all 104 were the ONE branch that must not be barriered - the two sink lists were byte-identical at 18 |
+| `confine_to_workspace` on registry paths | a **runtime no-op**: `_allowed_roots()` contains the value being checked |
+
+Three corollaries, each earned the same day:
+
+* **"This barrier clears N alerts" is usually counted per SOURCE.** Each sink is
+  reached by many sources; removing one from a sink that has thirteen others
+  leaves the sink reported. One estimate said ~42 and delivered 0.
+* **A guard whose allowlist is derived from the same data it guards cannot
+  reject that data.** Ask what populates the allowlist before trusting it.
+  The fix is TIERS, not a narrower single list. PFactory#553 split
+  `_allowed_roots()` into `browse_roots()` (workspace root + registry, for a
+  path not registered YET) and `registered_project_roots()` (the registry
+  alone, for a path that must ALREADY be a project), then gave each call site
+  the one it needs. AIFactory#1306 landed the same shape independently, so this
+  is two forks converging rather than one opinion. The limit is the part that
+  is easy to get wrong: **splitting a self-authorizing allowlist buys real
+  confinement at the sites fed by a REQUEST, never at the sites fed by the
+  allowlist's own source.** A registry-derived value is inside itself under
+  BOTH tiers, so PFactory's three `py/path-injection-sanitized` alerts in
+  `routes/github.py` stayed open after the split, correctly. The only tier that
+  could reject such a value is workspace-root-only, and measuring the two live
+  registries showed every real project path sits OUTSIDE the workspace root, so
+  that tier would strand every project it was meant to protect. Do the split,
+  then do not assume the registry-fed sites are now confined.
+* **A helper with two branches is not a sanitizer.** Barriering the call node
+  covers the unsafe branch too.
+
+When the honest answer is "the fix is code, not a query", say so and record the
+measurements in `.github/codeql/VALIDATION.md` so the next reader does not
+re-derive it and reach the other answer.
+
+4.14 **Publish prose from a file, then diff the file against what was
+published.** Rules 4.10-4.13 gate code. Nothing gates the sentences that assert
+the code is gated - and those sentences are what people act on. An issue body is
+what someone builds from; a PR description is what a reviewer reads instead of
+the diff; a status report is what a decision gets made on. Code has a check that
+runs whether or not anyone remembers. Prose has a reader who may not exist.
+
+Seven instances in a single session on 2026-08-13, none of them in code
+(Factory#739), on top of the seven in systems that produced 4.10 (Factory#642).
+Both agents failed it while actively discussing it with each other, and the
+worst instance was inside the issue documenting the other six. A discipline two
+people cannot hold for the length of one conversation, while it is the explicit
+topic of that conversation, will not be held by anyone under deadline. So it has
+to be mechanical:
+
+```sh
+gh issue create --body-file body.md ...
+diff body.md <(gh issue view N --json body -q .body)   # trailing newline only
+```
+
+`--body-file` is safe-by-construction against shell mangling AND it leaves a
+source of truth to compare against. `--body "..."` has neither property, and
+leaves nothing to diff, so damage is findable only by reading.
+
+Grepping for the claim you replaced is the weaker fallback, and it must run in
+BOTH directions - old phrase absent, new phrase present - for the same reason an
+empty file passes any "must not contain" test and an alerts endpoint returning
+`[]` means both "clean" and "not analysed yet". A negative result proves nothing
+unless something positive pins it. But grep only finds damage you predicted: the
+instance that forced this rule was two inline-code spans **deleted** before
+publication, and nobody greps for text they did not know had gone. Diff asks the
+strictly stronger question - is the published artefact the thing I wrote? - and
+falls out of a flag you should be using anyway.
+
+Corollary, earned the same day: **a correction is landed when it replaces the
+claim, not when it follows it.** Appending a comment preserves the record and
+feels like the careful choice, but an issue is read as a statement of what is
+true, not as a transcript. Nobody scrolls. The comment is for provenance; the
+body is the claim. Two of the seven were corrections filed as comments under
+bodies that kept the refuted assertion.
 
 ## 5. How to consume the shared baseline
 

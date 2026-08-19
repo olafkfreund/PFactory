@@ -15,6 +15,9 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
 
+from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
+
 from ..services.insights_service import get_insights_service
 
 logger = logging.getLogger(__name__)
@@ -185,9 +188,15 @@ async def clear_insights_session(projectId: str = Path(...)):
         # Re-raise HTTP exceptions (like 404 from _get_project_path)
         raise
     except Exception as e:
-        # Log error and return 500
-        logging.getLogger(__name__).error(f"Failed to clear insights session: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to clear insights session: {e!s}")
+        # error_message logs the exception under a correlation id with
+        # exc_info=exc, which supersedes the manual log this replaced -- same
+        # detail, plus an id the caller can quote back.
+        raise HTTPException(
+            status_code=500,
+            detail=error_message(
+                logger, "clear insights session", e, "Failed to clear insights session"
+            ),
+        ) from e
 
 
 @router.post("/create-task")
@@ -204,7 +213,9 @@ async def create_task_from_insights(projectId: str = Path(...), request: CreateT
         result = await create_task(task_request)
         return {"success": True, "data": result}
     except Exception:
-        logger.exception("create_task_from_insights failed for project_id=%s", projectId)
+        logger.exception(
+            "create_task_from_insights failed for project_id=%s", sanitize_log(projectId)
+        )
         return {"success": False, "error": "Failed to create task from insights."}
 
 
@@ -222,7 +233,9 @@ async def generate_task_from_chat(projectId: str = Path(...), request: GenerateT
         )
         return {"success": True, "data": result}
     except Exception:
-        logger.exception("generate_task_from_chat failed for project_id=%s", projectId)
+        logger.exception(
+            "generate_task_from_chat failed for project_id=%s", sanitize_log(projectId)
+        )
         return {"success": False, "error": "Failed to generate task from chat."}
 
 
@@ -376,9 +389,12 @@ async def clear_files_insights_session(projectId: str):
         raise
     except Exception as e:
         # Log error and return 500
-        logging.getLogger(__name__).error(
-            f"Failed to clear files insights session: {e}", exc_info=True
-        )
         raise HTTPException(
-            status_code=500, detail=f"Failed to clear files insights session: {e!s}"
-        )
+            status_code=500,
+            detail=error_message(
+                logger,
+                "clear files insights session",
+                e,
+                "Failed to clear files insights session",
+            ),
+        ) from e

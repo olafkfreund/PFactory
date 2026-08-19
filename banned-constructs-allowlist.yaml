@@ -1,0 +1,67 @@
+# Grandfathered banned-construct findings for THIS repo.
+#
+# Read by scripts/check_banned_constructs.py. THIS FILE IS NOT AN IGNORE
+# LIST: an entry with no `issue` fails the gate, and an entry matching
+# nothing fails the gate too -- so this list can only ratchet down.
+
+- path: tests/fixtures/demo-scenarios/multi-lane/sut/api_quote.py
+  rule: raw-exception-in-response
+  reason: >-
+    Demo/test fixture (the multi-lane pipeline-breadth demo SUT), not
+    production code. `quote()`'s only raise site is a single developer-written
+    literal ("qty must be non-negative") with no interpolated inner exception
+    -- already safe. The branch is additionally unreachable via the route
+    itself: `qty` is constrained non-negative by FastAPI's `Query(ge=0)`
+    before `quote()` is ever called (see the existing `# pragma: no cover`
+    on the except clause). Left alone rather than pulled into the
+    apps/backend `client_errors` machinery, which would be a needless
+    cross-tree dependency for a fixture whose whole point is staying minimal.
+  issue: Factory#718
+
+
+- path: apps/backend/query_memory.py
+  rule: raw-exception-in-response
+  reason: >-
+    Standalone CLI, no HTTP surface. The flagged lines return
+    {"success": False, "error": f"...: {e}"} to a shell caller, not into a
+    response body. Verified rather than assumed: zero python files import
+    this module in this repo (control run alongside, since a zero from a
+    broken grep looks identical to a real zero), and the module carries
+    `if __name__`, argparse and sys.argv. Its sibling error paths write to
+    sys.stderr, which is the tell.
+
+    Flagged because the Factory#781 interpolation rule anchors on
+    `"error":` -- an ordinary dict return shape with nothing to do with
+    HTTP. Factory#798 tracks tightening that anchor. TFactory reached the
+    same verdict independently on its fork of this file.
+  issue: Factory#785
+
+- path: apps/web-server/server/routes/projects.py
+  rule: raw-exception-in-response
+  reason: >-
+    RESOLVED by PFactory#576/#577, not exempted. `detail=f"Clone failed:
+    {e}"` was a genuine credential disclosure -- GitOperationError
+    interpolated the full git argv, which carries the injected PAT on a
+    credentialed clone. _run_git no longer does that: its message is now
+    either a static string or f"git {subcommand} failed (exit {rc})", and
+    `subcommand` is always args[0], a literal from this module's own code
+    (all 7 call sites checked; the only external importer is its test).
+
+    Kept as an entry rather than dropped so a future re-scanner does not
+    have to re-derive that this line is safe by construction.
+  issue: PFactory#576
+
+- path: scripts/bump-version.js
+  rule: exists-then-read
+  reason: >-
+    The flagged line is a COMMENT explaining why the code avoids this exact
+    pattern: "Deliberately NOT `existsSync(p) && readFileSync(p)`: that is a
+    TOCTOU race ... and, worse, it collapses absent and unreadable into the
+    same answer". The function below it (readIfPresent) does the right
+    thing -- readFileSync, with only ENOENT treated as absence.
+
+    The prose filter added in Factory#762 skips comments and docstrings for
+    .py files only; extending it to JS/TS needs a second parser and would
+    risk hiding real violations, so it was deliberately not done. This is
+    that cost, paid once.
+  issue: Factory#785

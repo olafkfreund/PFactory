@@ -66,7 +66,7 @@ import subprocess
 import sys
 import tomllib
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import cache
 from pathlib import Path
 from types import MappingProxyType
@@ -348,6 +348,62 @@ def interpreter_target() -> str:
     return f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
+def run_mypy(
+    package: str, target: str, mypy_config: str, relax: Sequence[str] = ()
+) -> subprocess.CompletedProcess[str]:
+    """Run ``mypy --strict`` on *target* (relative to *package*) from inside it.
+
+    Extracted from :func:`mypy_errors` so the whole-package strict gate
+    (``scripts/mypy_strict_packages.py``, PFactory#468) invokes mypy through the
+    SAME code path as the per-file ratchet. Two copies of this argv would drift,
+    and then the two gates would disagree about what "clean" means — the gate
+    that keeps a package at zero must measure it exactly the way the ratchet
+    that lets a change through measures it.
+
+    See :func:`mypy_errors` for why the cwd, MYPYPATH and the two
+    ``--explicit-package-bases --namespace-packages`` flags are load-bearing.
+    """
+    pkg = Path(package).resolve()
+    env = dict(os.environ)
+    # The package dir is the import base, mirroring the app's runtime sys.path.
+    # Sibling app packages are appended because the web server imports the
+    # backend at runtime; without them mypy cannot resolve `plan.*` from a
+    # web-server file and reports import-not-found, which is unfixable from the
+    # file itself and would block any NEW file, whose base count is 0. They are
+    # separate trees, so they add no second name for anything under `.`.
+    siblings = [
+        os.path.relpath(p, pkg)
+        for p in sorted(pkg.parent.iterdir())
+        if p.is_dir() and p != pkg and not p.name.startswith(".")
+    ]
+    search = os.pathsep.join([".", *siblings])
+    for var in ("MYPYPATH", "PYTHONPATH"):
+        env[var] = search
+    # The config path is repo-root-relative; the child runs in the package dir.
+    config = os.path.relpath(Path(mypy_config).resolve(), pkg)
+    # CI-controlled argv (see _run); mypy is resolved from PATH (the pinned venv
+    # is put first on PATH by the workflow), matching how the ruff ratchet shells
+    # out to `ruff`.
+    return subprocess.run(  # noqa: S603
+        [  # noqa: S607
+            "mypy",
+            "--config-file",
+            config,
+            "--python-version",
+            interpreter_target(),
+            "--explicit-package-bases",
+            "--namespace-packages",
+            *relax,
+            target,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(pkg),
+        env=env,
+    )
+
+
 def mypy_errors(path: str, package: str, mypy_config: str) -> int:
     """Number of mypy --strict errors attributed to *path*.
 
@@ -373,44 +429,7 @@ def mypy_errors(path: str, package: str, mypy_config: str) -> int:
     pkg = Path(package).resolve()
     rel = os.path.relpath(Path(path).resolve(), pkg)
     relax = MYPY_TEST_RELAX if is_test_file(path) else []
-    env = dict(os.environ)
-    # The package dir is the import base, mirroring the app's runtime sys.path.
-    # Sibling app packages are appended because the web server imports the
-    # backend at runtime; without them mypy cannot resolve `plan.*` from a
-    # web-server file and reports import-not-found, which is unfixable from the
-    # file itself and would block any NEW file, whose base count is 0. They are
-    # separate trees, so they add no second name for anything under `.`.
-    siblings = [
-        os.path.relpath(p, pkg)
-        for p in sorted(pkg.parent.iterdir())
-        if p.is_dir() and p != pkg and not p.name.startswith(".")
-    ]
-    search = os.pathsep.join([".", *siblings])
-    for var in ("MYPYPATH", "PYTHONPATH"):
-        env[var] = search
-    # The config path is repo-root-relative; the child runs in the package dir.
-    config = os.path.relpath(Path(mypy_config).resolve(), pkg)
-    # CI-controlled argv (see _run); mypy is resolved from PATH (the pinned venv
-    # is put first on PATH by the workflow), matching how the ruff ratchet shells
-    # out to `ruff`.
-    res = subprocess.run(  # noqa: S603
-        [  # noqa: S607
-            "mypy",
-            "--config-file",
-            config,
-            "--python-version",
-            interpreter_target(),
-            "--explicit-package-bases",
-            "--namespace-packages",
-            *relax,
-            rel,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=str(pkg),
-        env=env,
-    )
+    res = run_mypy(package, rel, mypy_config, relax)
     target = Path(rel)
     count = 0
     for line in res.stdout.splitlines():

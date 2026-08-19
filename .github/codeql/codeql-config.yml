@@ -8,9 +8,69 @@
 # clean -- but does not follow one imported from services/. Every fix in #335
 # routes through the shared safe_spec_component, so without this the alert
 # count cannot move no matter how much of the traversal is closed.
+# security-and-quality added (Factory#711). The fleet survey found PFactory,
+# TFactory, CFactory and Factory all reporting far fewer alerts than AIFactory
+# purely because they ask narrower questions -- this repo has only ever run
+# CodeQL's DEFAULT suite, and the rules behind most of AIFactory's volume
+# (py/log-injection, py/empty-except, py/unused-import) live in the broader
+# suite only. Both barrier-aware swaps below are untouched, so the sanitized
+# path- and command-injection work still clears organically.
+#
+# Expect the count to rise sharply on the first scan after this lands.
 name: "PFactory CodeQL config"
 queries:
+  - uses: security-and-quality
   - uses: ./.github/codeql/custom-queries
 query-filters:
   - exclude:
       id: py/path-injection
+  # Same swap for command injection (#505). The two critical alerts were on
+  # `git` argv assembled entirely from values validated by
+  # `assert_safe_git_ref`, which lives in services/git_utils.py — imported, so
+  # stock CodeQL does not follow it. py/command-line-injection-sanitized is the
+  # identical query with that validator (and its wrappers) as a barrier.
+  - exclude:
+      id: py/command-line-injection
+  # And for SSRF (#517). `assert_safe_probe_url` resolves the host and checks
+  # every returned address, but it establishes safety by RAISING, which stock
+  # CodeQL does not model — returning the checked value does not help either,
+  # since the function returns its argument and the taint flows through. That
+  # was measured, not assumed: the alert survived that change.
+  - exclude:
+      id: py/full-ssrf
+  # py/partial-ssrf is a DIFFERENT rule id, and the exclusion above never
+  # covered it — which is why ten criticals stayed open on the LLM-provider
+  # probes long after the MCP probe was fixed. Those ten were all REAL: the
+  # Ollama, OpenAI-compatible and API-profile handlers took a caller-supplied
+  # base URL straight into urlopen/httpx with no check at all. They are fixed
+  # in code (factory_common/url_safety.py, guard at every site); this swap exists
+  # only because stock CodeQL still cannot see a raise as a barrier.
+  #
+  # PartialSsrfSanitized.ql is the identical query with that guard modelled.
+  # Measured with the local CLI against this tree, not assumed:
+  #   stock py/partial-ssrf on the FIXED tree: 11 alerts (guard invisible)
+  #   py/partial-ssrf-sanitized on the same tree: 0
+  #   ... with one deliberately unguarded scratch sink added: 1 (that sink)
+  #   ... with the guard removed from fetch_ollama_models: 3 (its callers)
+  # So the swap narrows nothing: unguarded code still reports.
+  - exclude:
+      id: py/partial-ssrf
+paths-ignore:
+  # apps/backend/agents/evidence/*.tmpl.ts (js/syntax-error, 12 alerts closed
+  # here, #574-#585). These are NOT TypeScript source: they are string
+  # templates that agents.evidence.layout.render_playwright_config() renders
+  # into a generated test workspace. Several `@@MARKER@@` placeholders sit in
+  # bare code position (e.g. `outputDir: "@@OUTPUT_DIR@@",@@SNAPSHOT_...@@`,
+  # `use: { ...devices["Desktop Chrome"]@@CHROMIUM_STORAGE_STATE@@ }`) so they
+  # can expand into extra object properties or array elements at render time
+  # -- which makes the file, as committed, invalid TypeScript by design. The
+  # extractor cannot parse it, so it was never contributing coverage; this
+  # exclusion documents that rather than leaving an unexplained parse failure.
+  # The `.tmpl.ts` suffix already signals this convention.
+  #
+  # Nothing lints, typechecks or builds these files today: root package.json's
+  # `lint`/`build` scripts only touch apps/frontend-web, and
+  # tests/test_evidence_capture.py only asserts on substituted substrings, never
+  # parses the rendered output. That gap is unrelated to CodeQL and is not
+  # fixed by this exclusion.
+  - "apps/backend/agents/evidence/*.tmpl.ts"

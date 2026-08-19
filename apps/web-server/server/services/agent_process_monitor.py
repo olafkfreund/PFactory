@@ -22,6 +22,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from factory_common.logsafe import sanitize_log
+
 from .git_utils import safe_spec_component  # #335
 from .task_models import TaskLog, TaskPhase, TaskProgress
 
@@ -163,7 +165,9 @@ class AgentProcessMonitorMixin:
 
             # Log stderr to server logs for debugging
             if is_stderr and line:
-                logger.warning(f"[AgentService] Task {task_id} stderr: {line}")
+                logger.warning(
+                    "[AgentService] Task %s stderr: %s", sanitize_log(task_id), sanitize_log(line)
+                )
                 # Also mirror stderr to a per-spec file so post-mortem
                 # debugging works even when the subprocess dies before
                 # writing its own task_logs.json (#146).
@@ -188,7 +192,9 @@ class AgentProcessMonitorMixin:
             if self._is_rate_limit_line(line):
                 self._task_rate_limits[task_id] = True
                 logger.warning(
-                    f"[AgentService] Rate limit detected for task {task_id} (will attempt failover if enabled)"  # noqa: E501
+                    "[AgentService] Rate limit detected for task %s (will attempt failover if "
+                    "enabled)",
+                    sanitize_log(task_id),
                 )
 
             # Write to task_logs.json for detailed phase logs
@@ -343,7 +349,9 @@ class AgentProcessMonitorMixin:
                                 current_phase = self._task_current_phases.get(task_id)
                                 if current_phase != TaskPhase.PLAN_REVIEW:
                                     logger.info(
-                                        f"[AgentService] Detected review checkpoint for {detected_spec_id} (plan_review.html exists)"  # noqa: E501
+                                        "[AgentService] Detected review checkpoint for %s "
+                                        "(plan_review.html exists)",
+                                        sanitize_log(detected_spec_id),
                                     )
 
                                     # Update plan status to human_review
@@ -365,7 +373,8 @@ class AgentProcessMonitorMixin:
                                     # Mark phase as emitted
                                     self._task_current_phases[task_id] = TaskPhase.PLAN_REVIEW
                                     logger.info(
-                                        f"[AgentService] Emitted PLAN_REVIEW status for {task_id}"
+                                        "[AgentService] Emitted PLAN_REVIEW status for %s",
+                                        sanitize_log(task_id),
                                     )
 
                     # If we detect a rate limit and failover is enabled, don't wait for the process to exit.  # noqa: E501
@@ -380,7 +389,9 @@ class AgentProcessMonitorMixin:
                             and self._should_retry_with_failover()
                         ):
                             logger.warning(
-                                f"[AgentService] Rate limit detected for {task_id} while running; terminating process to trigger profile failover"  # noqa: E501
+                                "[AgentService] Rate limit detected for %s while running; "
+                                "terminating process to trigger profile failover",
+                                sanitize_log(task_id),
                             )
                             rate_limit_forced_restart = True
                             try:  # noqa: SIM105
@@ -405,7 +416,10 @@ class AgentProcessMonitorMixin:
 
             exit_model = self._task_profiles.get(task_id, {}).get("model", "unknown")
             logger.info(
-                f"[AgentService] [Model: {exit_model}] Task {task_id} process exited with code {return_code}"  # noqa: E501
+                "[AgentService] [Model: %s] Task %s process exited with code %s",
+                sanitize_log(exit_model),
+                sanitize_log(task_id),
+                sanitize_log(return_code),
             )
 
             # Early model fallback: if a non-Claude model failed, retry with Sonnet
@@ -420,7 +434,13 @@ class AgentProcessMonitorMixin:
                     and _fb_model not in ("haiku", "sonnet", "opus", "opus-1m")
                 )
                 logger.info(
-                    f"[AgentService] Fallback check: model={_fb_model!r}, attempt={_fb_attempt}, is_non_claude={_fb_is_non_claude}, cmd={'yes' if cmd else 'no'}, env={'yes' if env else 'no'}"  # noqa: E501
+                    "[AgentService] Fallback check: model=%s, attempt=%s, is_non_claude=%s, "
+                    "cmd=%s, env=%s",
+                    sanitize_log(f"{_fb_model!r}"),
+                    sanitize_log(_fb_attempt),
+                    sanitize_log(_fb_is_non_claude),
+                    sanitize_log("yes" if cmd else "no"),
+                    sanitize_log("yes" if env else "no"),
                 )
                 if _fb_is_non_claude and _fb_attempt <= 1:
                     new_proc = await self._retry_task_with_fallback_model(
@@ -463,7 +483,8 @@ class AgentProcessMonitorMixin:
                             )
                         )
                         logger.info(
-                            f"[AgentService] Task {task_id} restarted with fallback model (sonnet)"
+                            "[AgentService] Task %s restarted with fallback model (sonnet)",
+                            sanitize_log(task_id),
                         )
                         return
 
@@ -483,7 +504,10 @@ class AgentProcessMonitorMixin:
                         if spec_dirs:
                             detected_spec_dir = spec_dirs[0]
                             detected_spec_id = detected_spec_dir.name
-                            logger.info(f"[AgentService] Detected created spec: {detected_spec_id}")
+                            logger.info(
+                                "[AgentService] Detected created spec: %s",
+                                sanitize_log(detected_spec_id),
+                            )
 
                             # Check if this spec requires review
                             review_state_file = detected_spec_dir / "review_state.json"
@@ -492,7 +516,8 @@ class AgentProcessMonitorMixin:
                                 if not review_data.get("approved", False):
                                     # Spec creation completed, now waiting for review
                                     logger.info(
-                                        f"[AgentService] Spec {detected_spec_id} requires human review"  # noqa: E501
+                                        "[AgentService] Spec %s requires human review",
+                                        sanitize_log(detected_spec_id),
                                     )
 
                                     # Update plan status to human_review
@@ -522,14 +547,17 @@ class AgentProcessMonitorMixin:
                                     )
 
                                     logger.info(
-                                        f"[AgentService] Spec {detected_spec_id} transitioned to PLAN_REVIEW phase"  # noqa: E501
+                                        "[AgentService] Spec %s transitioned to PLAN_REVIEW phase",
+                                        sanitize_log(detected_spec_id),
                                     )
                                     return  # Exit early - not a failure
 
                             # If we reach here, spec was created but doesn't need review
                             # Auto-start task execution immediately
                             logger.info(
-                                f"[AgentService] Spec {detected_spec_id} created successfully (no review required) — auto-starting execution"  # noqa: E501
+                                "[AgentService] Spec %s created successfully (no review required) "
+                                "— auto-starting execution",
+                                sanitize_log(detected_spec_id),
                             )
 
                             # Clean up tracking data from spec creation
@@ -552,11 +580,14 @@ class AgentProcessMonitorMixin:
                                     auto_continue=True,
                                 )
                                 logger.info(
-                                    f"[AgentService] Task execution auto-started for {detected_spec_id}"  # noqa: E501
+                                    "[AgentService] Task execution auto-started for %s",
+                                    sanitize_log(detected_spec_id),
                                 )
                             except Exception as exec_err:  # noqa: BLE001
                                 logger.error(
-                                    f"[AgentService] Failed to auto-start execution for {detected_spec_id}: {exec_err}"  # noqa: E501
+                                    "[AgentService] Failed to auto-start execution for %s: %s",
+                                    sanitize_log(detected_spec_id),
+                                    sanitize_log(exec_err),
                                 )
                                 # Fall back to human_review status so user can start manually
                                 await self._update_plan_status(
@@ -564,7 +595,9 @@ class AgentProcessMonitorMixin:
                                 )
                             return  # Exit early
                 except Exception as e:  # noqa: BLE001
-                    logger.warning(f"[AgentService] Failed to detect created spec: {e}")
+                    logger.warning(
+                        "[AgentService] Failed to detect created spec: %s", sanitize_log(e)
+                    )
                     # Fall through to normal completion handling
 
             # Check if task is waiting for review (can exit with code 0 or 1)
@@ -581,7 +614,8 @@ class AgentProcessMonitorMixin:
                         if not review_data.get("approved", False):
                             # This is NOT a failure - it's waiting for human review!
                             logger.info(
-                                f"[AgentService] Task {task_id} awaiting human review (not a failure)"  # noqa: E501
+                                "[AgentService] Task %s awaiting human review (not a failure)",
+                                sanitize_log(task_id),
                             )
 
                             # Get actual phase BEFORE cleanup
@@ -644,12 +678,17 @@ class AgentProcessMonitorMixin:
                             )
 
                             logger.info(
-                                f"[AgentService] Task {task_id} transitioned to {emit_phase.value} phase (was {actual_phase.value})"  # noqa: E501
+                                "[AgentService] Task %s transitioned to %s phase (was %s)",
+                                sanitize_log(task_id),
+                                sanitize_log(emit_phase.value),
+                                sanitize_log(actual_phase.value),
                             )
                             return  # Exit early - not a failure
 
                     except (json.JSONDecodeError, OSError) as e:
-                        logger.debug(f"[AgentService] Could not read review_state.json: {e}")
+                        logger.debug(
+                            "[AgentService] Could not read review_state.json: %s", sanitize_log(e)
+                        )
                         # Fall through to treat as actual failure
 
             # Check for early failure and attempt profile failover
@@ -673,13 +712,16 @@ class AgentProcessMonitorMixin:
                     failed_profile_id = profile_info.get("profileId")
                     reason = "rate_limit" if rate_limit_detected else "early_failure"
                     logger.info(
-                        f"[AgentService] {reason.replace('_', ' ')} detected for {task_id}, attempting profile failover"  # noqa: E501
+                        "[AgentService] %s detected for %s, attempting profile failover",
+                        sanitize_log(reason.replace("_", " ")),
+                        sanitize_log(task_id),
                     )
 
                     # Attempt retry with different profile
                     if not failed_profile_id:
                         logger.warning(
-                            f"[AgentService] No failed profile recorded for {task_id}; cannot failover"  # noqa: E501
+                            "[AgentService] No failed profile recorded for %s; cannot failover",
+                            sanitize_log(task_id),
                         )
                         new_proc = None
                     else:
@@ -733,19 +775,23 @@ class AgentProcessMonitorMixin:
                         )
 
                         logger.info(
-                            f"[AgentService] Task {task_id} restarted with alternate profile"
+                            "[AgentService] Task %s restarted with alternate profile",
+                            sanitize_log(task_id),
                         )
                         return  # Exit this monitor instance
                     else:
                         logger.warning(
-                            f"[AgentService] No alternate profile available for task {task_id}, trying model fallback"  # noqa: E501
+                            "[AgentService] No alternate profile available for task %s, trying "
+                            "model fallback",
+                            sanitize_log(task_id),
                         )
 
             # If stop_task() already handled cleanup, skip duplicate processing
             if task_id in self._task_stopped:
                 self._task_stopped.discard(task_id)
                 logger.info(
-                    f"[AgentService] Task {task_id} was stopped by user, skipping _monitor_process cleanup"  # noqa: E501
+                    "[AgentService] Task %s was stopped by user, skipping _monitor_process cleanup",
+                    sanitize_log(task_id),
                 )
                 return
 
@@ -765,7 +811,7 @@ class AgentProcessMonitorMixin:
                     main_log_writer.set_phase_status(spec_id, actual_phase, final_status)
 
                 del self._task_log_writers[task_id]
-                logger.debug(f"[AgentService] Finalized task logs for {task_id}")
+                logger.debug("[AgentService] Finalized task logs for %s", sanitize_log(task_id))
 
             # Auto-continuation: if process exited successfully but subtasks remain,
             # restart execution instead of marking as completed (max 10 continuation rounds)
@@ -793,9 +839,13 @@ class AgentProcessMonitorMixin:
                         if pending_count > 0 and round_num <= 10:  # noqa: PLR2004
                             setattr(self, continuation_key, round_num)
                             logger.info(
-                                f"[AgentService] Auto-continuation round {round_num}: "
-                                f"{completed_count}/{total_count} subtasks done, "
-                                f"{pending_count} remaining for {spec_id}"
+                                "[AgentService] Auto-continuation round %s: %s/%s subtasks done, "
+                                "%s remaining for %s",
+                                sanitize_log(round_num),
+                                sanitize_log(completed_count),
+                                sanitize_log(total_count),
+                                sanitize_log(pending_count),
+                                sanitize_log(spec_id),
                             )
 
                             # Clean up current run tracking
@@ -825,29 +875,39 @@ class AgentProcessMonitorMixin:
                                     auto_continue=True,
                                 )
                                 logger.info(
-                                    f"[AgentService] Auto-continuation started for {spec_id} (round {round_num})"  # noqa: E501
+                                    "[AgentService] Auto-continuation started for %s (round %s)",
+                                    sanitize_log(spec_id),
+                                    sanitize_log(round_num),
                                 )
                                 return  # Exit this monitor — new monitor will take over
                             except Exception as e:  # noqa: BLE001
                                 logger.error(
-                                    f"[AgentService] Auto-continuation failed for {spec_id}: {e}"
+                                    "[AgentService] Auto-continuation failed for %s: %s",
+                                    sanitize_log(spec_id),
+                                    sanitize_log(e),
                                 )
                                 # Fall through to normal completion
                         elif pending_count > 0 and round_num > 10:  # noqa: PLR2004
                             logger.warning(
-                                f"[AgentService] Auto-continuation limit reached (10 rounds) for {spec_id}, "  # noqa: E501
-                                f"{pending_count} subtasks still pending"
+                                "[AgentService] Auto-continuation limit reached (10 rounds) for "
+                                "%s, %s subtasks still pending",
+                                sanitize_log(spec_id),
+                                sanitize_log(pending_count),
                             )
                         else:
                             # All subtasks done — clean up continuation tracker
                             if hasattr(self, continuation_key):
                                 delattr(self, continuation_key)
                             logger.info(
-                                f"[AgentService] All {total_count} subtasks completed for {spec_id}"
+                                "[AgentService] All %s subtasks completed for %s",
+                                sanitize_log(total_count),
+                                sanitize_log(spec_id),
                             )
                     except (json.JSONDecodeError, OSError) as e:
                         logger.warning(
-                            f"[AgentService] Could not check subtask status for auto-continuation: {e}"  # noqa: E501
+                            "[AgentService] Could not check subtask status for auto-continuation: "
+                            "%s",
+                            sanitize_log(e),
                         )
 
             # Update test_plan.json status for frontend display.
@@ -859,7 +919,12 @@ class AgentProcessMonitorMixin:
             if spec_id and project_path:
                 status = "completed" if return_code == 0 else "failed"
                 logger.info(
-                    f"[AgentService._monitor_process] About to call _update_plan_status: spec_id={spec_id}, status={status}, task_id={task_id}, project_path={project_path}"  # noqa: E501
+                    "[AgentService._monitor_process] About to call _update_plan_status: "
+                    "spec_id=%s, status=%s, task_id=%s, project_path=%s",
+                    sanitize_log(spec_id),
+                    sanitize_log(status),
+                    sanitize_log(task_id),
+                    sanitize_log(project_path),
                 )
                 await self._update_plan_status(
                     project_path, spec_id, status, task_id, emit_events=False
@@ -899,7 +964,11 @@ class AgentProcessMonitorMixin:
                     except Exception:  # noqa: BLE001
                         logger.debug("Failed to send task completion notification", exc_info=True)
             else:
-                logger.error(f"[AgentService] Task {task_id} failed with exit code {return_code}")
+                logger.error(
+                    "[AgentService] Task %s failed with exit code %s",
+                    sanitize_log(task_id),
+                    sanitize_log(return_code),
+                )
                 await self._emit_progress(
                     TaskProgress(
                         task_id=task_id,
@@ -933,7 +1002,8 @@ class AgentProcessMonitorMixin:
                 await _rmux_reap(_reap_spec_id)
             except Exception:  # noqa: BLE001
                 logger.warning(
-                    f"[AgentService] rmux reap hook raised (ignored); spec_id={_reap_spec_id}"
+                    "[AgentService] rmux reap hook raised (ignored); spec_id=%s",
+                    sanitize_log(_reap_spec_id),
                 )
 
             # Clean up tracking data AFTER all emissions are complete

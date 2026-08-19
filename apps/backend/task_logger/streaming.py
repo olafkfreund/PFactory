@@ -3,9 +3,10 @@ Streaming marker functionality for real-time UI updates.
 """
 
 import json
+from typing import Any
 
 
-def emit_marker(marker_type: str, data: dict, enabled: bool = True) -> None:
+def emit_marker(marker_type: str, data: dict[str, Any], enabled: bool = True) -> None:
     """
     Emit a streaming marker to stdout for UI consumption.
 

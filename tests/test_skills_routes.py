@@ -39,9 +39,16 @@ FIXTURES_PATH = Path(__file__).parent / "fixtures" / "skills"
 
 
 @pytest.fixture(scope="module")
-def fixture_service() -> SkillsService:
-    """A SkillsService instance backed by the test fixtures directory."""
-    return SkillsService(skills_base_path=FIXTURES_PATH)
+def fixture_service(tmp_path_factory) -> SkillsService:
+    """A SkillsService instance backed by the test fixtures directory.
+
+    ``cache_path`` is pinned to a tmp dir: without it the suite reads and
+    writes the developer's real ``~/.pfactory`` cache (#534).
+    """
+    return SkillsService(
+        skills_base_path=FIXTURES_PATH,
+        cache_path=tmp_path_factory.mktemp("skills") / "skills-cache.json",
+    )
 
 
 @pytest.fixture(scope="module")

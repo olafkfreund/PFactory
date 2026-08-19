@@ -1,0 +1,96 @@
+name: security cleanup gates
+
+# Gate 5 (banned constructs) for this service repo. Factory#786.
+#
+# BLOCKING. A failure here fails the PR.
+#
+# Wired non-blocking in Factory#786 with 16 non-allowlisted findings -- the
+# most in the fleet -- because blocking with that outstanding reddens every
+# unrelated PR, which is how a gate gets deleted rather than met.
+#
+# They are now zero. PFactory#575 and #579/#580 fixed the real error-disclosure
+# sites (52 -> 6 across settings.py, insights.py and projects.py), and
+# Factory#785's remainder was closed here: two genuine exists-then-read sites
+# fixed at the source, and four verified false positives given entries that say
+# what they are rather than "grandfathered at gate rollout".
+#
+# Flipped BECAUSE it passes -- verified rc=0 against the current hub checker
+# before the flip, not in the hope that it would. That is the same order
+# AIFactory, CFactory and TFactory followed.
+#
+# All four service repos now block.
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: security-cleanup-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HUB_REPO: "olafkfreund/Factory"
+  # The CHECKER tracks main, deliberately: a gate fetched from its own pin
+  # cannot ship its own fix (Factory#405). Same split as
+  # factory-github-drift.yml in this repo, which pins the CANONICAL but not the
+  # checker. Factory#782 is an open fix to this gate's precision, and pinning
+  # here would keep it from reaching the repo that needs it.
+  HUB_CHECKER_REF: "main"
+
+jobs:
+  banned-constructs:
+    name: Gate 5 — banned constructs (blocking, Factory#786)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - run: pip install pyyaml
+
+      - name: Fetch the gate from the hub canonical
+        # TWO files, not one: check_banned_constructs.py imports gate_evidence
+        # from its sibling scripts/ directory, so fetching only the checker
+        # fails at import with ModuleNotFoundError. They must land in the SAME
+        # directory. factory-github-drift.yml in this repo fetches its checker
+        # the same way, for the same reason.
+        #
+        # Unpinned by design (see HUB_CHECKER_REF), so record WHAT ran: the
+        # digests go in the job log, which makes a changed checker attributable
+        # after the fact even though it is not prevented beforehand. Integrity
+        # and pinning are separable and this buys the cheaper half.
+        run: |
+          # `set -o pipefail` because a pipeline reports only its LAST stage's
+          # status: `curl ... | tail` exits 0 on a 404. Actions' default shell
+          # does not set it. This bit during development, where an `| tail -1`
+          # printed EXIT=0 for a run that had crashed at import.
+          set -o pipefail
+          mkdir -p /tmp/gate
+          for f in check_banned_constructs.py gate_evidence.py; do
+            curl -fsSL \
+              "https://raw.githubusercontent.com/${HUB_REPO}/${HUB_CHECKER_REF}/scripts/$f" \
+              -o "/tmp/gate/$f"
+            echo "$f sha256: $(sha256sum "/tmp/gate/$f" | cut -d" " -f1)"
+          done
+
+      - name: Prove the gate can fail before trusting a pass
+        # Not ceremony. A gate that is non-blocking AND silently broken is
+        # indistinguishable from one that is passing, and that is exactly the
+        # combination this workflow is in for the next few weeks. --self-test
+        # plants a violation, asserts the gate goes red, removes it, and
+        # asserts it goes green.
+        run: python3 /tmp/gate/check_banned_constructs.py --self-test
+
+      - name: Gate 5
+        run: |
+          python3 /tmp/gate/check_banned_constructs.py \
+            --root . \
+            --allowlist banned-constructs-allowlist.yaml

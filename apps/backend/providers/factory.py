@@ -174,7 +174,9 @@ def _instantiate(module_path: str, class_name: str, **kwargs: Any) -> BaseLLMPro
     except ImportError as exc:
         raise ImportError(f"Failed to import provider module '{module_path}': {exc}") from exc
 
-    provider_cls = getattr(module, class_name)
+    # The alias table names classes this package owns; getattr is Any, so state
+    # the contract the table already guarantees rather than losing the bar here.
+    provider_cls: type[BaseLLMProvider] = getattr(module, class_name)
     return provider_cls(**kwargs)
 
 

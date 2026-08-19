@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
+
 from ..websockets.events import broadcast_event
 from .git_utils import safe_spec_component  # #335
 from .insights_providers import get_provider
@@ -187,7 +190,9 @@ class InsightsService:
             self._sessions[session_id] = session
             return session
         except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Failed to load session {session_id}: {e}")
+            logger.warning(
+                "Failed to load session %s: %s", sanitize_log(session_id), sanitize_log(e)
+            )
             return None
 
     def get_current_session(self, project_path: Path, project_id: str) -> InsightsSession:
@@ -355,7 +360,9 @@ class InsightsService:
         # Route to provider
         provider = get_provider(provider_id)
         logger.info(
-            f"[InsightsService] Routing to provider: {provider_id} (model: {provider_model})"
+            "[InsightsService] Routing to provider: %s (model: %s)",
+            sanitize_log(provider_id),
+            sanitize_log(provider_model),
         )
 
         try:
@@ -382,7 +389,7 @@ class InsightsService:
                 self._save_session(project_path, session)
 
         except asyncio.CancelledError:
-            logger.info(f"[InsightsService] Chat cancelled for project {project_id}")
+            logger.info("[InsightsService] Chat cancelled for project %s", sanitize_log(project_id))
             # Finalize partial content if any
             await broadcast_event(
                 "insights:chunk",
@@ -392,13 +399,15 @@ class InsightsService:
                 },
             )
         except Exception as e:
-            logger.error(f"[InsightsService] Provider error: {e}", exc_info=True)
+            logger.error("[InsightsService] Provider error: %s", sanitize_log(e), exc_info=True)
             await broadcast_event(
                 "insights:chunk",
                 {
                     "projectId": project_id,
                     "type": "error",
-                    "error": str(e),
+                    "error": error_message(
+                        logger, "InsightsService failed", e, "The provider call failed"
+                    ),
                 },
             )
         finally:
@@ -425,7 +434,9 @@ class InsightsService:
         task = self._running_tasks.pop(project_id, None)
         if task and not task.done():
             task.cancel()
-            logger.info(f"[InsightsService] Cancelled running task for project {project_id}")
+            logger.info(
+                "[InsightsService] Cancelled running task for project %s", sanitize_log(project_id)
+            )
             return True
         return False
 
@@ -440,7 +451,6 @@ class InsightsService:
         Runs a lightweight ``claude --print`` call (no tool use,
         no streaming) to produce a JSON ``{title, description}`` object.
         """
-        import os
         import shutil
 
         session = self.get_current_session(project_path, project_id)
@@ -497,11 +507,16 @@ class InsightsService:
             token, _pid, profile_name = provider._resolve_claude_token()
             if token:
                 env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-                logger.info(f"[InsightsService] generate_task using profile: {profile_name}")
+                logger.info(
+                    "[InsightsService] generate_task using profile: %s", sanitize_log(profile_name)
+                )
         except Exception:
             pass
 
-        logger.info(f"[InsightsService] Generating task via claude --print (model={model_value})")
+        logger.info(
+            "[InsightsService] Generating task via claude --print (model=%s)",
+            sanitize_log(model_value),
+        )
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -517,28 +532,39 @@ class InsightsService:
 
             stderr_text = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
             logger.info(
-                f"[InsightsService] generate_task CLI finished: "
-                f"rc={proc.returncode}, stdout_len={len(response)}, "
-                f"stderr_len={len(stderr_text)}"
+                "[InsightsService] generate_task CLI finished: rc=%s, stdout_len=%s, stderr_len=%s",
+                sanitize_log(proc.returncode),
+                len(response),
+                len(stderr_text),
             )
             if stderr_text:
-                logger.info(f"[InsightsService] generate_task stderr: {stderr_text[:500]}")
+                logger.info(
+                    "[InsightsService] generate_task stderr: %s", sanitize_log(stderr_text[:500])
+                )
             if response:
-                logger.info(f"[InsightsService] generate_task stdout: {response[:300]}")
+                logger.info(
+                    "[InsightsService] generate_task stdout: %s", sanitize_log(response[:300])
+                )
 
             if proc.returncode != 0 and not response:
-                logger.error(f"[InsightsService] claude CLI exited {proc.returncode}")
+                logger.error(
+                    "[InsightsService] claude CLI exited %s", sanitize_log(proc.returncode)
+                )
                 return {"title": "", "description": ""}
 
             if response:
                 return _parse_task_json(response)
             return {"title": "", "description": ""}
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("[InsightsService] generate_task_from_chat timed out (120s)")
             return {"title": "", "description": ""}
         except Exception as e:
-            logger.error(f"[InsightsService] generate_task_from_chat failed: {e}", exc_info=True)
+            logger.error(
+                "[InsightsService] generate_task_from_chat failed: %s",
+                sanitize_log(e),
+                exc_info=True,
+            )
             return {"title": "", "description": ""}
 
     def clear_session(self, project_path: Path, project_id: str) -> InsightsSession:

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **Starting a task with auto-continue off no longer crashes it, after the agent
+  has already spawned (#599).** The human-review gate -- `spec_dir`,
+  `require_review`, and the `--force` decision -- sat one indent level too deep,
+  inside `if auto_continue:`. Nothing about reading `task_metadata.json` depends
+  on auto-continue; the block had drifted under the two-line `if` above it.
+  `auto_continue` is a client-supplied API field, so `POST` with
+  `"auto_continue": false` reached a `spec_dir` read ~280 lines later, outside
+  the block, and raised `UnboundLocalError` -- *after* `create_subprocess_exec`
+  had returned. The caller was told the task failed while an orphaned agent
+  process kept running against it. Two quieter casualties shared the block:
+  `--force` was never decided on that path, and `_write_skill_context` never
+  ran, so a task's selected skills were silently dropped.
+- **A credentialed git argv no longer reaches the log files (#599).** `_run_git`
+  logged the full argv on its `not credentialed` branch, and on a credentialed
+  call the argv carries the PAT-bearing fetch URL. Driving the real logging
+  pipeline wrote `https://oauth2:<PAT>@host/...` to a DEBUG line in
+  `server.log`, and this fleet forwards application logs off-host. Reaching it
+  required a call site to pair a credentialed argv with `credentialed=False` --
+  none does today, but the safety of the line depended on seven call sites
+  setting a boolean correctly by hand, twice within three lines of the URL that
+  carries the token. The argv is no longer logged on either branch, and the
+  logged subcommand is now a module constant rather than a value derived from
+  the argv, so the guarantee is a property of the code. The credential is still
+  present in the child process argv (`ps`/`/proc`); removing it entirely is
+  #602.
 - **A plan whose worked example contradicts its own invariant is now blocked
   (#402).** A plan that states an invariant in one section and violates it in the
   worked example three paragraphs down is not a specification, it is two. A human

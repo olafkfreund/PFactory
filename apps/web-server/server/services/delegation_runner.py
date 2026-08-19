@@ -24,10 +24,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from factory_common.logsafe import sanitize_log
 from server.services.git_utils import safe_spec_component
 
 logger = logging.getLogger(__name__)
@@ -92,12 +93,12 @@ async def run_delegation(
     if proc is not None:
         try:
             await asyncio.wait_for(proc.wait(), timeout=PLANNER_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
-                "[delegation_runner] planner timed out after %ds task=%s — "
-                "posting comment with whatever was written so far",
-                PLANNER_TIMEOUT_SECONDS,
-                task_id,
+                "[delegation_runner] planner timed out after %ss task=%s — posting comment with "
+                "whatever was written so far",
+                sanitize_log(PLANNER_TIMEOUT_SECONDS),
+                sanitize_log(task_id),
             )
             try:
                 proc.kill()
@@ -121,10 +122,10 @@ async def run_delegation(
         existing = await _existing_enrichment_comment(provider, issue_number)
         if existing is not None:
             logger.info(
-                "[delegation_runner] enrichment comment already exists on "
-                "issue=%d (id=%s) — skipping re-post",
-                issue_number,
-                existing,
+                "[delegation_runner] enrichment comment already exists on issue=%s (id=%s) — "
+                "skipping re-post",
+                sanitize_log(issue_number),
+                sanitize_log(existing),
             )
             skipped_dup = True
         else:
@@ -132,10 +133,10 @@ async def run_delegation(
             posted = True
     except Exception as e:
         logger.warning(
-            "[delegation_runner] comment post failed project=%s issue=%d err=%s",
-            project_id,
-            issue_number,
-            e,
+            "[delegation_runner] comment post failed project=%s issue=%s err=%s",
+            sanitize_log(project_id),
+            sanitize_log(issue_number),
+            sanitize_log(e),
         )
 
     # ------------------------------------------------------------------
@@ -147,15 +148,15 @@ async def run_delegation(
         assigned = True
     except NotImplementedError:
         logger.warning(
-            "[delegation_runner] provider does not support assign_to_user; "
-            "skipping Copilot assignment (project=%s)",
-            project_id,
+            "[delegation_runner] provider does not support assign_to_user; skipping Copilot "
+            "assignment (project=%s)",
+            sanitize_log(project_id),
         )
 
     # ------------------------------------------------------------------
     # 5. Emit status + broadcast event.
     # ------------------------------------------------------------------
-    delegated_at = datetime.now(timezone.utc).isoformat()
+    delegated_at = datetime.now(UTC).isoformat()
     await emit_task_status(task_id, "delegated")
     await broadcast_event(
         "auto_fix:delegated",
@@ -193,9 +194,9 @@ async def _existing_enrichment_comment(provider: Any, issue_number: int) -> int 
         comments = await provider.api_get(f"/repos/{repo}/issues/{issue_number}/comments")
     except Exception as e:
         logger.debug(
-            "[delegation_runner] could not list comments on issue=%d: %s",
-            issue_number,
-            e,
+            "[delegation_runner] could not list comments on issue=%s: %s",
+            sanitize_log(issue_number),
+            sanitize_log(e),
         )
         return None
     if not isinstance(comments, list):

@@ -34,7 +34,7 @@
 # the runtime stage -- so the base's CVE posture is not part of the attack
 # surface. The runtime stage stays on Chainguard, where it does matter.
 # Digest bumps land via Dependabot PRs (.github/dependabot.yml).
-FROM docker.io/node:26-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73 AS frontend-build
+FROM docker.io/node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS frontend-build
 
 USER root
 WORKDIR /build
@@ -170,7 +170,20 @@ RUN mkdir -p /home/nonroot/.npm-global \
 # Bake the provider coder CLIs into the image so the control-plane boot never
 # npm-installs them (mirrors TFactory #791: the install-clis init container hung
 # 8+ min on a slow registry and stalled the rollout). .npm-global/bin is already
-# on PATH. Versions pinned here (Dependabot tracks the Dockerfile).
+# on PATH.
+#
+# Versions are pinned here and watched by the hub `agent-CLI freshness` job
+# (Factory/scripts/check_cli_freshness.py --open-bump-pr), which proposes bumps
+# as `chore/agent-cli-pins` across all three service repos at once and never
+# merges them, plus factory-gitops/.github/workflows/cli-canary.yml, which
+# asserts every repo pins all three CLIs identically and that each pin installs
+# and launches.
+#
+# NOT Dependabot, whatever an earlier version of this comment claimed
+# (factory-gitops#206). Dependabot's Dockerfile parser reads `FROM` lines only —
+# no package-ecosystem parses shell arguments inside a RUN layer, so it cannot
+# see the `@version` on the npm install below and never could. It does cover the
+# `FROM` lines in this file, and nothing else in it.
 #
 # `install.cjs` is NOT redundant with the npm postinstall (Factory#383). The
 # postinstall downloads the 275 MB platform-native binary correctly, but leaves
@@ -222,6 +235,12 @@ EXPOSE 3114
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:3114/api/health || exit 1
+
+# `apps/backend/client_errors.py` is imported as a top-level module by 14
+# web-server modules (and 10 backend ones). WORKDIR below is apps/web-server,
+# so without this the interpreter cannot see it and `server.main` dies at
+# import with ModuleNotFoundError. See #586.
+ENV PYTHONPATH=/home/projects/MagesticAI/apps/backend
 
 WORKDIR /home/projects/MagesticAI/apps/web-server
 

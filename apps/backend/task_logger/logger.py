@@ -4,6 +4,7 @@ Main TaskLogger class for logging task execution.
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from core.debug import debug, debug_error, debug_info, debug_success, is_debug_enabled
 
@@ -48,7 +49,7 @@ class TaskLogger:
         self.storage = LogStorage(spec_dir)
 
     @property
-    def _data(self) -> dict:
+    def _data(self) -> dict[str, Any]:
         """Get the underlying storage data."""
         return self.storage.get_data()
 
@@ -56,7 +57,7 @@ class TaskLogger:
         """Get current timestamp in ISO format."""
         return datetime.now(UTC).isoformat()
 
-    def _emit(self, marker_type: str, data: dict) -> None:
+    def _emit(self, marker_type: str, data: dict[str, Any]) -> None:
         """Emit a streaming marker to stdout for UI consumption."""
         emit_marker(marker_type, data, self.emit_markers)
 
@@ -70,7 +71,7 @@ class TaskLogger:
         entry_type: LogEntryType = LogEntryType.TEXT,
         phase: str | None = None,
         tool_name: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """
         Output a log entry to the terminal via the debug logging system.
@@ -468,7 +469,8 @@ class TaskLogger:
         stored_detail = detail
         if stored_detail and len(stored_detail) > 10240:
             stored_detail = (
-                stored_detail[:10240] + f"\n\n... [truncated - full output was {len(detail)} chars]"
+                stored_detail[:10240]
+                + f"\n\n... [truncated - full output was {len(stored_detail)} chars]"
             )
 
         entry = LogEntry(
@@ -513,11 +515,11 @@ class TaskLogger:
             else:
                 print(f"   [{status}]", flush=True)
 
-    def get_logs(self) -> dict:
+    def get_logs(self) -> dict[str, Any]:
         """Get all logs."""
         return self._data
 
-    def get_phase_logs(self, phase: LogPhase) -> dict:
+    def get_phase_logs(self, phase: LogPhase) -> dict[str, Any]:
         """Get logs for a specific phase."""
         return self.storage.get_phase_data(phase.value)
 

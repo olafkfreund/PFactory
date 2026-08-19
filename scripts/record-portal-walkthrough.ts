@@ -56,10 +56,17 @@ const TASK_DESCRIPTION = `Append a single line at the very bottom of README.md t
 Just that one block-quoted line. No other changes. No surrounding whitespace beyond a single trailing newline.`;
 
 function loadToken(): string {
-  if (!fs.existsSync(TOKEN_FILE)) {
-    throw new Error(`Token not found at ${TOKEN_FILE}. Start the portal once so it writes the token.`);
+  // No existsSync check: readFileSync already reports absence, and asking
+  // first collapses "absent" into "unreadable" -- a permission error would
+  // print "start the portal once", sending the reader to fix the wrong thing.
+  try {
+    return fs.readFileSync(TOKEN_FILE, 'utf-8').trim();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Token not found at ${TOKEN_FILE}. Start the portal once so it writes the token.`);
+    }
+    throw err;
   }
-  return fs.readFileSync(TOKEN_FILE, 'utf-8').trim();
 }
 
 async function pause(page: Page, ms: number, label: string): Promise<void> {

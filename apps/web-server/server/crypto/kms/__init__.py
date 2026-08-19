@@ -32,6 +32,75 @@ class Backend(Protocol):
 
 _INSTANCE: Backend | None = None
 
+# The default backend. Selecting anything else is an explicit operator
+# statement that credentials must be encrypted at rest (AIFactory#1290).
+DEFAULT_BACKEND = "fernet"
+
+
+def configured_backend_name() -> str:
+    """The backend name from env, normalised. ``fernet`` when unset."""
+    return (
+        (os.environ.get("APP_KMS_BACKEND") or os.environ.get("KMS_BACKEND") or DEFAULT_BACKEND)
+        .strip()
+        .lower()
+    )
+
+
+def encryption_is_required() -> bool:
+    """True when the operator explicitly chose a non-default KMS backend.
+
+    This is the line between "no KMS configured" and "KMS configured and
+    broken" (AIFactory#1290), and callers use it to decide whether degrading to
+    plaintext is honest or a lie:
+
+    - ``fernet`` (the default, and what you get with no env at all) is the
+      documented single-operator posture. A missing key there means nothing
+      was ever provisioned, and writing plaintext with a warning is no worse
+      than before at-rest encryption existed.
+    - Anything else means the operator asked for a KMS. If it cannot be used,
+      they believe credentials are encrypted and they are not — silence there
+      is the actual vulnerability.
+
+    ponytail: fernet-with-a-key-that-later-goes-missing still degrades. Making
+    that strict too would mean boot-failing every dev box that has no Secret.
+    Upgrade path if it matters: promote to strict when KMS_FERNET_KEY is set
+    but unusable.
+    """
+    return configured_backend_name() != DEFAULT_BACKEND
+
+
+def enforce_kms_safety() -> None:
+    """Refuse to start when a selected KMS backend cannot be constructed.
+
+    Called only from the real server entrypoint (``server.main.__main__``), so
+    TestClient never reaches it.
+
+    Deliberately CONSTRUCT-only: every backend's ``from_env()`` reads
+    environment and builds a client, with no network round-trip. So this
+    catches configuration faults — an unset or empty key, an empty Secret, a
+    key the chart never wired — which are permanent and cannot heal at
+    runtime, and it does NOT turn a transient KMS outage during a rolling
+    restart into a CrashLoopBackOff. Operational faults are handled one write
+    at a time instead: ``secret_field.seal`` raises rather than degrading when
+    ``encryption_is_required()``, so a KMS blip fails that single save loudly
+    and retryably without ever writing plaintext.
+
+    A pod that will not start is loud. A pod that writes plaintext is silent.
+    """
+    if not encryption_is_required():
+        return
+    try:
+        get_backend()
+    except Exception as exc:  # every backend raises its own error type
+        raise SystemExit(
+            f"Refusing to start: APP_KMS_BACKEND={configured_backend_name()!r} "
+            f"was selected but the backend could not be constructed ({exc}). "
+            "Credentials would be written to the JSON stores in PLAINTEXT "
+            "while the deployment believes they are encrypted. Provision the "
+            "backend's key/credentials, or unset APP_KMS_BACKEND to run "
+            "unencrypted on purpose."
+        ) from exc
+
 
 def get_backend() -> Backend:
     """Resolve the configured backend. Cached per process.
@@ -46,11 +115,7 @@ def get_backend() -> Backend:
     if _INSTANCE is not None:
         return _INSTANCE
 
-    name = (
-        (os.environ.get("APP_KMS_BACKEND") or os.environ.get("KMS_BACKEND") or "fernet")
-        .strip()
-        .lower()
-    )
+    name = configured_backend_name()
 
     if name == "fernet":
         from .fernet import FernetBackend

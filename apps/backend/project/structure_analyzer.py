@@ -29,8 +29,8 @@ class StructureAnalyzer:
         self.project_dir = Path(project_dir).resolve()
         self.parser = ConfigParser(project_dir)
         self.custom_scripts = CustomScripts()
-        self.custom_commands = set()
-        self.script_commands = set()
+        self.custom_commands: set[str] = set()
+        self.script_commands: set[str] = set()
 
     def analyze(self) -> tuple[CustomScripts, set[str], set[str]]:
         """
@@ -56,12 +56,16 @@ class StructureAnalyzer:
         if pkg and "scripts" in pkg:
             self.custom_scripts.npm_scripts = list(pkg["scripts"].keys())
 
-            # Add commands to run these scripts
-            for script in self.custom_scripts.npm_scripts:
-                self.script_commands.add("npm")
-                self.script_commands.add("yarn")
-                self.script_commands.add("pnpm")
-                self.script_commands.add("bun")
+            # Add commands to run these scripts. This is a membership test,
+            # not a per-script mapping: `script_commands` is the set of RUNNER
+            # names a later allowlist checks (`project/__init__.py`: `if
+            # command in profile.script_commands`), so the presence of any npm
+            # script enables the same four runners. It was written as a loop
+            # over `npm_scripts` that ignored the loop variable and re-added
+            # the same four constants once per script -- same result, N times
+            # the work, and it read as if it mapped script -> command.
+            if self.custom_scripts.npm_scripts:
+                self.script_commands.update(("npm", "yarn", "pnpm", "bun"))
 
     def _detect_makefile_targets(self) -> None:
         """Detect Makefile targets."""

@@ -17,8 +17,11 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..services.git_utils import run_gh_command, safe_spec_component  # #335
+from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
+from server.services.git_base_url import safe_git_base_url  # #610
 
+from ..services.git_utils import run_gh_command, safe_spec_component  # #335
 
 logger = logging.getLogger(__name__)
 
@@ -449,7 +452,11 @@ async def dispatch_to_copilot(request: CopilotDispatchRequest):
     try:
         meta = SERVICE.dispatch(request.repo, request.issueNumber)
     except RuntimeError:
-        logger.exception("Copilot dispatch failed for %s#%s", request.repo, request.issueNumber)
+        logger.exception(
+            "Copilot dispatch failed for %s#%s",
+            sanitize_log(request.repo),
+            sanitize_log(request.issueNumber),
+        )
         return JSONResponse(
             status_code=502, content={"success": False, "error": "Copilot dispatch failed"}
         )
@@ -530,7 +537,7 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
     try:
         pr = json.loads(view["output"])
     except json.JSONDecodeError:
-        logger.exception("failed to parse PR JSON for #%s", pr_number)
+        logger.exception("failed to parse PR JSON for #%s", sanitize_log(pr_number))
         return JSONResponse(
             status_code=502,
             content={"success": False, "error": "failed to parse PR data"},
@@ -549,11 +556,25 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
         # identical while /api/health and other requests stay served.
         await SERVICE.process_async(session.session_id)
     except (PlanServiceError, ValueError) as exc:
-        # PlanServiceError/ValueError here are hand-authored, curated messages
-        # from plan.service (e.g. "process the plan before approving") - safe
-        # to surface to the caller as-is, not an internal leak.
-        logger.warning("Plan review ingest/process failed for PR #%s: %s", pr_number, exc)
-        return JSONResponse(status_code=400, content={"success": False, "error": str(exc)})
+        # PlanServiceError's own text is curated, but the bare `ValueError` arm
+        # catches whatever the whole ingest/process pipeline raises - a json
+        # decode, an int() on a malformed field, a pathlib relative_to - and
+        # those messages carry on-disk paths and library internals. One handler
+        # cannot tell the two apart at the point it must produce a body, so the
+        # detail goes to the log under a correlation id and the caller gets the
+        # id. Costs the curated wording; the operator still has it in one grep.
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": error_message(
+                    logger,
+                    f"plan review ingest/process failed for PR #{pr_number}",
+                    exc,
+                    "the plan could not be reviewed",
+                ),
+            },
+        )
 
     comment_body = _render_plan_review_comment(request.repo, pr_number, session)
 
@@ -772,8 +793,8 @@ async def _monitor_gh_auth(proc: asyncio.subprocess.Process):
                 "success": False,
                 "error": "Authentication flow did not complete. Please try again.",
             }
-            log.warning(f"[GitHub Auth] Process exited with code {proc.returncode}")
-    except asyncio.TimeoutError:
+            log.warning("[GitHub Auth] Process exited with code %s", sanitize_log(proc.returncode))
+    except TimeoutError:
         _gh_auth_status = {
             "complete": True,
             "success": False,
@@ -858,7 +879,7 @@ async def start_github_auth():
                 while True:
                     try:
                         line = await asyncio.wait_for(stream.readline(), timeout=15)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         break
                     if not line:
                         break
@@ -1069,7 +1090,35 @@ project_router = APIRouter()
 
 
 def _resolve_project_path(projectId: str) -> FilePath | None:
-    """Resolve a project ID to its filesystem path."""
+    """Resolve a project ID to its filesystem path.
+
+    CodeQL reports three `py/path-injection-sanitized` sinks downstream of this
+    function (pr_data_service 253/594, pr_review_service 154) with `projectId`
+    as the source. Deliberately NOT wrapped in either confinement helper,
+    because here neither barrier can fail. The value being checked IS a
+    registry entry, and both tiers contain the registry -- `browse_roots()` is
+    the workspace root plus every registered project root, and
+    `registered_project_roots()` is that registry alone -- so `resolved == root`
+    matches on the first iteration whichever one is asked. Calling either would
+    clear the three alerts, since both are registered sanitizers in
+    .github/codeql/custom-queries/PathInjectionSanitized.ql, while changing
+    nothing at runtime: silencing dressed as a fix.
+
+    #553 split the tiers and re-checked this site rather than assuming. The
+    only tier that COULD reject a registry entry is workspace-root-only, and
+    the two live registries measured for #553 hold three non-empty project
+    paths between them, all three outside the workspace root. That tier would
+    strand every project it was meant to protect, so it does not exist.
+
+    What actually confines these paths is above and behind this line:
+    `projectId` is only ever a dict KEY, constrained by the `not in projects`
+    test to the finite set of registered ids, and the `path` VALUE it selects is
+    written solely by `routes/projects.add_project` / `update_project`, both of
+    which do run `confine_to_workspace` on the request-supplied path. No
+    caller-supplied *text* reaches the path expression; the caller only picks
+    which already-confined project to address. See the PR body for the writer
+    enumeration.
+    """
     from .projects import load_projects
 
     projects = load_projects()
@@ -1084,7 +1133,7 @@ def _map_gh_issue(issue: dict, repo_full_name: str = "") -> dict:
     author = issue.get("author", {}) or {}
     assignees = issue.get("assignees", []) or []
     labels = issue.get("labels", []) or []
-    milestone = issue.get("milestone", None)
+    milestone = issue.get("milestone")
 
     return {
         "id": issue.get("number", 0),
@@ -1119,7 +1168,7 @@ def _map_gh_issue(issue: dict, repo_full_name: str = "") -> dict:
         "repoFullName": repo_full_name,
         "createdAt": issue.get("createdAt", ""),
         "updatedAt": issue.get("updatedAt", ""),
-        "closedAt": issue.get("closedAt", None),
+        "closedAt": issue.get("closedAt"),
     }
 
 
@@ -1171,7 +1220,9 @@ def _get_project_provider(projectId: str):
 
     # Map settings fields
     token = settings.get("gitToken")
-    base_url = settings.get("gitBaseUrl")
+    # #610: the stored value steers a credentialed outbound request. Check it here,
+    # at the trust boundary, not in the byte-vendored provider factory.
+    base_url = safe_git_base_url(settings.get("gitBaseUrl"))
     org = settings.get("gitOrg")
     proj_name = settings.get("gitProject")
     repo_name = settings.get("gitRepo")
@@ -1417,7 +1468,7 @@ async def get_project_github_repositories(projectId: str):
                 "isPrivate": repo_info.get("isPrivate", False),
             }
             return {"success": True, "data": [mapped_repo]}
-        except Exception as e:
+        except Exception:
             return {"success": True, "data": []}
 
     result = run_gh_command(
@@ -1473,7 +1524,9 @@ async def check_project_github_connection(projectId: str):
                 },
             }
         except Exception:
-            logger.exception("GitHub connection check failed for project %s", projectId)
+            logger.exception(
+                "GitHub connection check failed for project %s", sanitize_log(projectId)
+            )
             return {
                 "success": True,
                 "data": {
@@ -1729,7 +1782,11 @@ async def investigate_github_issue(projectId: str, issueNumber: int, request: In
                 except Exception:
                     all_comments = []
             except Exception:
-                logger.exception("Failed to fetch issue #%s for project %s", issueNumber, projectId)
+                logger.exception(
+                    "Failed to fetch issue #%s for project %s",
+                    sanitize_log(issueNumber),
+                    sanitize_log(projectId),
+                )
                 return {
                     "success": False,
                     "error": "Failed to fetch issue",
@@ -1805,7 +1862,9 @@ async def investigate_github_issue(projectId: str, issueNumber: int, request: In
             analysis_data = analysis_result
         except Exception:
             # If AI analysis fails, still return the issue data
-            logger.exception("AI analysis failed for issue %s", issue_info.get("number"))
+            logger.exception(
+                "AI analysis failed for issue %s", sanitize_log(issue_info.get("number"))
+            )
             analysis_status = "failed"
             analysis_data = {
                 "error": "AI analysis failed",
@@ -1990,7 +2049,7 @@ async def get_project_github_prs(
             prs = [_map_provider_pr(pr) for pr in prs_raw]
             return {"success": True, "data": prs}
         except Exception:
-            logger.exception("Failed to fetch PRs for project %s", projectId)
+            logger.exception("Failed to fetch PRs for project %s", sanitize_log(projectId))
             return {"success": False, "error": "Failed to fetch pull requests"}
 
     from ..services.pr_data_service import get_pr_data_service
@@ -2180,7 +2239,7 @@ async def post_pr_comment(
             comment_id = await provider.add_comment(prNumber, request.body)
             return {"success": True, "data": {"commentId": comment_id}}
         except Exception:
-            logger.exception("Failed to post PR comment for #%s", prNumber)
+            logger.exception("Failed to post PR comment for #%s", sanitize_log(prNumber))
             return JSONResponse(
                 status_code=500, content={"success": False, "error": "Failed to post PR comment"}
             )
@@ -2223,7 +2282,7 @@ async def approve_pr(
             await provider.post_review(prNumber, review)
             return {"success": True}
         except Exception:
-            logger.exception("Failed to approve PR #%s", prNumber)
+            logger.exception("Failed to approve PR #%s", sanitize_log(prNumber))
             return JSONResponse(
                 status_code=500, content={"success": False, "error": "Failed to approve PR"}
             )
@@ -2266,7 +2325,7 @@ async def merge_pr(
                     status_code=500, content={"success": False, "error": "Failed to merge PR"}
                 )
         except Exception:
-            logger.exception("Failed to merge PR #%s", prNumber)
+            logger.exception("Failed to merge PR #%s", sanitize_log(prNumber))
             return JSONResponse(
                 status_code=500, content={"success": False, "error": "Failed to merge PR"}
             )

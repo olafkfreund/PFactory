@@ -16,14 +16,30 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 # Ensure backend modules are importable when running directly
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.append(str(BACKEND_DIR))
 
-from agents.session import LogPhase, run_agent_session  # noqa: E402
+from agents.session import run_agent_session  # noqa: E402
+from core.auth import unseal_profiles  # noqa: E402
 from core.client import create_client  # noqa: E402
+
+# LogPhase is a task_logger symbol that agents.session merely re-imports; under
+# no_implicit_reexport that is not an export, so take it from its home instead.
+from task_logger import LogPhase  # noqa: E402
+
+
+def _profile_token(profile: dict[str, Any]) -> str | None:
+    """The OAuth/API token on *profile*, or None.
+
+    The isinstance is the narrowing: the profile JSON is untyped, so a
+    non-string value under either key is not a token this function can return.
+    """
+    token = profile.get("oauthToken") or profile.get("token")
+    return token if isinstance(token, str) else None
 
 
 def load_token_from_profiles() -> str | None:
@@ -33,25 +49,24 @@ def load_token_from_profiles() -> str | None:
         return None
 
     try:
-        data = json.loads(profiles_path.read_text())
+        data = unseal_profiles(json.loads(profiles_path.read_text()))
     except json.JSONDecodeError:
         return None
 
-    profiles = data.get("profiles") or []
+    profiles: list[dict[str, Any]] = data.get("profiles") or []
     active_id = data.get("activeProfileId")
 
-    usable = [p for p in profiles if p.get("oauthToken") or p.get("token")]
+    usable = [p for p in profiles if _profile_token(p)]
     if not usable:
         return None
 
     # Prefer active profile if it has a token
     for p in usable:
         if p.get("id") == active_id:
-            return p.get("oauthToken") or p.get("token")
+            return _profile_token(p)
 
     # Fallback to first usable
-    p = usable[0]
-    return p.get("oauthToken") or p.get("token")
+    return _profile_token(usable[0])
 
 
 def resolve_token() -> str:
@@ -73,7 +88,7 @@ def resolve_token() -> str:
     raise RuntimeError("No OAuth token found (env, profiles, or ~/.claude/oauth_token).")
 
 
-async def main():
+async def main() -> None:
     token = resolve_token()
     os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = token  # ensure SDK sees it
 

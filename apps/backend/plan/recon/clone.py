@@ -27,6 +27,7 @@ import contextlib
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from collections.abc import Iterator
@@ -41,6 +42,12 @@ logger = logging.getLogger(__name__)
 _CLONE_TIMEOUT_S = 90
 _MAX_REPO_MB = 500
 _MAX_FILES = 50_000
+
+# Conventional placeholder username for a GitHub PAT. This module's token comes
+# from the process environment, not from the ``git_credentials`` table, so no
+# username is carried alongside it.
+_RECON_USERNAME = "x-access-token"
+_CRED_PREFIX = f"https://{_RECON_USERNAME}@"
 
 
 @dataclass
@@ -75,6 +82,15 @@ def _git_url(repo: str) -> str:
     enables private-repo reconnaissance; without one, public repos still work and
     private repos degrade to greenfield. The QUALIFICATION IS NOT A CREDENTIAL:
     it says where the code lives, and the token is still the environment's.
+
+    The token is deliberately NOT embedded in the URL (PFactory#615, the same
+    shape as #602/#576 and TFactory's fork). This URL becomes an argv element
+    of the ``git clone`` child, and argv is world-readable via
+    ``/proc/<pid>/cmdline`` to every uid on the host for the lifetime of the
+    clone -- an exposure no amount of care on the error path can reach. The URL
+    carries the USERNAME only, which is what makes git ask for a password; the
+    password is supplied out-of-band by :func:`_hardened_env` via
+    ``GIT_ASKPASS``.
     """
     if "://" in repo:
         return repo
@@ -82,24 +98,54 @@ def _git_url(repo: str) -> str:
     host = os.environ.get("PFACTORY_RECON_GIT_HOST", "").strip() or PROVIDER_GIT_HOST.get(
         provider, "github.com"
     )
-    token = (
+    if _recon_token():
+        return f"https://{_RECON_USERNAME}@{host}/{project}.git"
+    return f"https://{host}/{project}.git"
+
+
+def _recon_token() -> str:
+    """The environment's read-only reconnaissance token, if any."""
+    return (
         os.environ.get("PFACTORY_RECON_TOKEN")
         or os.environ.get("GH_TOKEN")
         or os.environ.get("GITHUB_TOKEN")
         or ""
     ).strip()
-    if token:
-        return f"https://x-access-token:{token}@{host}/{project}.git"
-    return f"https://{host}/{project}.git"
 
 
-def _hardened_env(home: str) -> dict[str, str]:
-    """A git env with host config and credential prompts neutralised."""
+# Tiny POSIX askpass helper. git invokes it as ``<script> "<prompt>"`` and reads
+# the answer from stdout. Both values come from the environment -- never argv --
+# so the token never appears in any process command line.
+# ``/proc/<pid>/environ`` is owner-only; ``/proc/<pid>/cmdline`` is
+# world-readable, and that asymmetry is the whole point of the move.
+_GIT_ASKPASS_SCRIPT = """#!/bin/sh
+case "$1" in
+  Username*) printf '%s' "$GIT_USER" ;;
+  *)         printf '%s' "$GIT_PASS" ;;
+esac
+"""
+
+
+def _hardened_env(home: str, token: str = "") -> dict[str, str]:
+    """A git env with host config and credential prompts neutralised.
+
+    When ``token`` is set, an askpass helper is written into ``home`` (the
+    caller's throwaway temp dir, removed with everything else on exit) and the
+    token is passed in ``GIT_PASS`` for it to read. That keeps the credential
+    out of the child's argv (PFactory#615).
+    """
     env = dict(os.environ)
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_TERMINAL_PROMPT"] = "0"  # never block on a credential prompt
     env["GIT_ALLOW_PROTOCOL"] = "https"  # no file://, ext::, ssh shell-outs
     env["HOME"] = home  # isolate from ~/.gitconfig aliases/hooks
+    if token:
+        script = Path(home) / "git-askpass.sh"
+        script.write_text(_GIT_ASKPASS_SCRIPT, encoding="utf-8")
+        script.chmod(stat.S_IRWXU)  # 0700 -- owner-only rwx
+        env["GIT_ASKPASS"] = str(script)
+        env["GIT_USER"] = _RECON_USERNAME
+        env["GIT_PASS"] = token
     return env
 
 
@@ -152,9 +198,15 @@ def clone_for_recon(repo: str, base_ref: str | None = None) -> Iterator[CloneRes
     """
     tmp = tempfile.mkdtemp(prefix="pfactory-recon-")
     work = Path(tmp) / "repo"
-    env = _hardened_env(home=tmp)
+    url = _git_url(repo)
+    # The askpass credential is offered only to a URL this module BUILT (the
+    # ones carrying the ``x-access-token`` username). A caller-supplied full
+    # clone URL still gets no token -- same as before, and it matters more now
+    # that the credential travels in the env rather than in the URL: an
+    # unconditional GIT_PASS would hand the environment's token to whatever
+    # host that URL names.
+    env = _hardened_env(home=tmp, token=_recon_token() if url.startswith(_CRED_PREFIX) else "")
     try:
-        url = _git_url(repo)
         args = ["clone", "--depth", "1", "--single-branch", "--filter=blob:none"]
         if base_ref:
             args += ["--branch", base_ref]
@@ -165,7 +217,10 @@ def clone_for_recon(repo: str, base_ref: str | None = None) -> Iterator[CloneRes
             yield CloneResult(ok=False, error="clone timed out")
             return
         except subprocess.CalledProcessError as exc:
-            # stderr may contain the token-bearing URL; never surface it.
+            # The URL carries no token since PFactory#615, but stderr is still
+            # remote-controlled text (git prints a server's own ``remote:``
+            # lines verbatim) -- it belongs in the operator log, not on the
+            # CloneResult a caller may render.
             yield CloneResult(ok=False, error="clone failed (repo unreachable or ref not found)")
             logger.info("recon clone failed for %s@%s: rc=%s", repo, base_ref, exc.returncode)
             return
