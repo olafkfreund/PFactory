@@ -246,6 +246,33 @@ class GitOperationError(RuntimeError):
     """Raised when a git operation fails or times out."""
 
 
+#: Every git subcommand this module invokes. ``args[0]`` is a hard-coded
+#: literal at all seven ``_run_git`` call sites, but the value that reaches a
+#: log line and an exception message must be provably one of these rather than
+#: "element 0 of a list that also carries the credentialed fetch URL" -- which
+#: is all the code (and all CodeQL) can otherwise say about it.
+_GIT_SUBCOMMANDS = ("clone", "fetch", "checkout", "pull", "remote")
+
+
+def _safe_subcommand(args: list[str]) -> str:
+    """Return ``args[0]`` as one of :data:`_GIT_SUBCOMMANDS`, else ``"unknown"``.
+
+    Returns the matching *constant*, not the caller's string. That is the whole
+    point: the returned object is a literal defined in this module, so no value
+    derived from ``args`` -- which on a credentialed call contains a PAT-bearing
+    URL -- can reach the log sink or the exception message through it.
+
+    ``"unknown"`` rather than echoing an unrecognised value back: a new
+    subcommand added at a call site without being added here should read as
+    unrecognised, not smuggle arbitrary argv text into a log line.
+    """
+    head = args[0] if args else ""
+    for known in _GIT_SUBCOMMANDS:
+        if head == known:
+            return known
+    return "unknown"
+
+
 async def _run_git(args: list[str], *, cwd: Path, timeout: float, credentialed: bool) -> str:
     """Run ``git <args>`` with a timeout. Returns stdout on success.
 
@@ -311,13 +338,16 @@ async def _run_git(args: list[str], *, cwd: Path, timeout: float, credentialed: 
     change (PFactory#576).
     """
     cmd = ["git", *args]
-    subcommand = args[0] if args else "git"
-    if credentialed:
-        logger.debug("[workspace] running: git %s ... (cwd=%s)", subcommand, sanitize_log(cwd))
-    else:
-        logger.debug(
-            "[workspace] running: git %s (cwd=%s)", sanitize_log(" ".join(args)), sanitize_log(cwd)
-        )
+    subcommand = _safe_subcommand(args)
+    # The argv is NEVER logged, on either branch. It used to be, on the
+    # `not credentialed` branch -- which made "is the token in the log?" a
+    # property of a boolean each of the seven call sites sets by hand, three
+    # lines away from the `fetch_url` that carries it, rather than a property
+    # of this code. Driving the real pipeline (setup_logging -> server.log)
+    # with `credentialed=False` and a credentialed argv wrote the full PAT to
+    # a DEBUG line, and this fleet forwards application logs off-host. The
+    # subcommand and cwd identify the operation without the argv.
+    logger.debug("[workspace] running: git %s (cwd=%s)", subcommand, sanitize_log(cwd))
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
