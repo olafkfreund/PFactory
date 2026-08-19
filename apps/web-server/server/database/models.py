@@ -549,7 +549,12 @@ class AuditLog(Base):
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(255), nullable=False)
-    resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # NOT a UUID column despite its neighbours: this is a free-form pointer to a
+    # row in whichever table `resource_type` names, and those keys are not all
+    # UUIDs. The task pipeline's composite "{project_id}:pending-{hex8}" is 53
+    # chars for a GitHub-backed project, which silently failed every audited
+    # task action against the old String(36). Matches resource_type's width.
+    resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     details_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
