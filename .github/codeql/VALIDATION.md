@@ -166,7 +166,11 @@ Both are harmless and are left as documentation of intent. Neither should be
 cited as evidence that a path is guarded.
 
 SSRF: `assert_safe_probe_url` (full), `assert_safe_outbound_url` (partial), each
-on the call and on the guard's own first parameter.
+on the call and on the guard's own first parameter. Both registrations are BY
+NAME, so PFactory#612 -- which moved `assert_safe_outbound_url` from the forked
+`server/services/url_safety.py` to the vendored hub canonical
+`factory_common/url_safety.py` and deleted the fork -- left them matching. No
+barrier was added or removed there.
 
 ## If you add a barrier
 

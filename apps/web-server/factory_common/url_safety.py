@@ -45,6 +45,8 @@ import urllib.parse
 import urllib.request
 from typing import IO
 
+from factory_common.client_errors import InputRejectedError
+
 # Link-local carries the cloud metadata services (169.254.169.254 on AWS/Azure,
 # and GCP's metadata.google.internal resolves into the same /16). Reaching one
 # of these yields instance credentials, so it is refused in BOTH postures --
@@ -81,7 +83,7 @@ def build_no_redirect_opener() -> urllib.request.OpenerDirector:
 
 
 def assert_safe_outbound_url(url: str, *, allow_private: bool = False) -> str:
-    """Raise ``ValueError`` if ``url`` is unsafe to fetch server-side.
+    """Raise :class:`InputRejectedError` if ``url`` is unsafe to fetch server-side.
 
     Returns ``url`` unchanged, so a call site can wrap the value on its way into
     the request rather than checking one string and then fetching another. That
@@ -90,28 +92,40 @@ def assert_safe_outbound_url(url: str, *, allow_private: bool = False) -> str:
     the barrier in ``.github/codeql/custom-queries/SsrfSanitized.ql`` is
     registered on this call, so only the value that flows OUT of it is cleared.
 
+    ``InputRejectedError`` rather than a plain ``ValueError`` (TFactory#1073,
+    landed independently in AIFactory's web-server before this module caught up
+    -- TFactory#1111), and it subclasses ``ValueError``, so every existing
+    ``except ValueError`` around a call site still catches it. What it adds is a
+    mark: these messages are developer-written about the caller's own URL, so a
+    handler may hand them back verbatim, while an unmarked ``ValueError``
+    escaping some library this function calls gets a correlation id instead.
+
+    Note what is NOT blessed: the resolve failure does not interpolate the
+    ``socket.gaierror``. That would be third-party text riding out on a
+    repo-owned exception, which is the shape that made CFactory's
+    ``AdapterError`` leak an upstream host while looking safe. The host is the
+    caller's own input and stays; the inner exception is kept on ``__cause__``.
+
     See the module docstring for what each posture does and does not promise.
     """
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"unsupported URL scheme {parsed.scheme!r} (only http/https)")
+        raise InputRejectedError(f"unsupported URL scheme {parsed.scheme!r} (only http/https)")
     host = parsed.hostname
     if not host:
-        raise ValueError("URL has no host")
+        raise InputRejectedError("URL has no host")
 
     default_port = 443 if parsed.scheme == "https" else 80
     try:
-        infos = socket.getaddrinfo(
-            host, parsed.port or default_port, proto=socket.IPPROTO_TCP
-        )
+        infos = socket.getaddrinfo(host, parsed.port or default_port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
-        raise ValueError(f"cannot resolve host {host!r}: {exc}") from exc
+        raise InputRejectedError(f"cannot resolve host {host!r}") from exc
 
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         # Refused in both postures.
         if any(ip in net for net in _METADATA_NETS):
-            raise ValueError(
+            raise InputRejectedError(
                 f"refusing to fetch link-local/metadata address {ip} — this is the "
                 "cloud instance-credentials endpoint, never a real service URL"
             )
@@ -125,7 +139,7 @@ def assert_safe_outbound_url(url: str, *, allow_private: bool = False) -> str:
             or ip.is_multicast
             or ip.is_unspecified
         ):
-            raise ValueError(f"refusing to fetch non-public address {ip} (SSRF)")
+            raise InputRejectedError(f"refusing to fetch non-public address {ip} (SSRF)")
 
     return url
 
@@ -146,8 +160,9 @@ def fetch_following_safe_redirects(
 ) -> tuple[str, int, bytes]:
     """Fetch ``request``, following redirects only to URLs that pass the guard.
 
-    Returns ``(final_url, status, body)``. Raises ``ValueError`` if any hop --
-    including the first -- fails :func:`assert_safe_outbound_url`.
+    Returns ``(final_url, status, body)``. Raises :class:`InputRejectedError`
+    (a ``ValueError``) if any hop -- including the first -- fails
+    :func:`assert_safe_outbound_url`.
 
     This exists because refusing redirects outright is the right answer only
     when *we* are the one fetching and can simply not follow. Redirects are
@@ -189,4 +204,4 @@ def fetch_following_safe_redirects(
             # _NoRedirect turned the 30x into this HTTPError, which is how the
             # hop is handed back to us unfollowed. Resolve and re-validate.
             url = urllib.parse.urljoin(url, location)
-    raise ValueError(f"too many redirects (>{max_hops})")
+    raise InputRejectedError(f"too many redirects (>{max_hops})")

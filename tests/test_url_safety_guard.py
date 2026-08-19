@@ -29,6 +29,10 @@ pytest.importorskip("httpx")
 
 from pydantic import SecretStr  # noqa: E402
 
+from factory_common.url_safety import (  # noqa: E402
+    assert_safe_outbound_url,
+    build_no_redirect_opener,
+)
 from server.routes import settings as settings_mod  # noqa: E402
 from server.routes.git import (  # noqa: E402
     UnsafeProbeURLError,
@@ -36,10 +40,6 @@ from server.routes.git import (  # noqa: E402
     check_ollama_running,
 )
 from server.services.ollama_utils import fetch_ollama_models  # noqa: E402
-from server.services.url_safety import (  # noqa: E402
-    assert_safe_outbound_url,
-    build_no_redirect_opener,
-)
 
 # 169.254.169.254 is the cloud metadata address. Both postures must refuse it;
 # that is the whole reason the permissive posture is not simply "no check".

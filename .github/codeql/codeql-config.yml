@@ -43,7 +43,7 @@ query-filters:
   # probes long after the MCP probe was fixed. Those ten were all REAL: the
   # Ollama, OpenAI-compatible and API-profile handlers took a caller-supplied
   # base URL straight into urlopen/httpx with no check at all. They are fixed
-  # in code (services/url_safety.py, guard at every site); this swap exists
+  # in code (factory_common/url_safety.py, guard at every site); this swap exists
   # only because stock CodeQL still cannot see a raise as a barrier.
   #
   # PartialSsrfSanitized.ql is the identical query with that guard modelled.

@@ -12,6 +12,12 @@ issue Factory#161):
 - `factory_common.secrets` - the canonical secret-pattern table + `redact()` /
   `scan()` / `contains_secret()`.
 - `factory_common.http` - the Cloudflare-friendly typed `urllib` JSON client.
+- `factory_common.url_safety` - `assert_safe_outbound_url()`, the one SSRF guard
+  for outbound URLs this server fetches on a caller's behalf, plus
+  `build_no_redirect_opener()`.
+- `factory_common.client_errors` - `InputRejectedError`, the exception
+  `assert_safe_outbound_url` raises. It subclasses `ValueError`, so every
+  existing `except ValueError` around a guard call keeps catching it.
 
 It sits beside `server/` rather than inside it because the modules use absolute
 imports (`from factory_common.http import ...`), so the package must be
@@ -53,3 +59,13 @@ across `apps/web-server/server/` (routes, services, websockets, rmux), and via
 `server/error_ref.py` for failures whose detail must not reach the client - see
 `apps/web-server/tests/test_logsafe_vendored.py` and
 `apps/web-server/tests/test_error_ref.py` for the behaviour locks.
+
+`assert_safe_outbound_url` guards every outbound URL the web-server builds from
+caller-supplied input: the Ollama probes and pulls (`server/routes/git.py`,
+`server/services/ollama_utils.py`), the LLM-provider and API-profile probes
+(`server/routes/settings.py`), the MCP health probe's `assert_safe_probe_url`
+adapter (`server/routes/git.py`), and the per-project `gitBaseUrl`
+(`server/services/git_base_url.py`). PFactory#612 deleted the forked copy at
+`server/services/url_safety.py` that those call sites used to import: two
+modules with one public API, only one of them gated, is how the two drift. See
+`tests/test_url_safety_guard.py` and `tests/test_git_provider_base_url_guard.py`.
