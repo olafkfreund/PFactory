@@ -329,6 +329,21 @@ Three corollaries, each earned the same day:
   leaves the sink reported. One estimate said ~42 and delivered 0.
 * **A guard whose allowlist is derived from the same data it guards cannot
   reject that data.** Ask what populates the allowlist before trusting it.
+  The fix is TIERS, not a narrower single list. PFactory#553 split
+  `_allowed_roots()` into `browse_roots()` (workspace root + registry, for a
+  path not registered YET) and `registered_project_roots()` (the registry
+  alone, for a path that must ALREADY be a project), then gave each call site
+  the one it needs. AIFactory#1306 landed the same shape independently, so this
+  is two forks converging rather than one opinion. The limit is the part that
+  is easy to get wrong: **splitting a self-authorizing allowlist buys real
+  confinement at the sites fed by a REQUEST, never at the sites fed by the
+  allowlist's own source.** A registry-derived value is inside itself under
+  BOTH tiers, so PFactory's three `py/path-injection-sanitized` alerts in
+  `routes/github.py` stayed open after the split, correctly. The only tier that
+  could reject such a value is workspace-root-only, and measuring the two live
+  registries showed every real project path sits OUTSIDE the workspace root, so
+  that tier would strand every project it was meant to protect. Do the split,
+  then do not assume the registry-fed sites are now confined.
 * **A helper with two branches is not a sanitizer.** Barriering the call node
   covers the unsafe branch too.
 
