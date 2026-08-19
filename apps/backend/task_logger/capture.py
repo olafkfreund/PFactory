@@ -2,6 +2,9 @@
 Streaming log capture for agent sessions.
 """
 
+from types import TracebackType
+from typing import Any, Literal, Self
+
 from .logger import TaskLogger
 from .models import LogPhase
 
@@ -22,10 +25,15 @@ class StreamingLogCapture:
         self.phase = phase
         self.current_tool: str | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> Literal[False]:
         # End any active tool
         if self.current_tool:
             self.logger.tool_end(self.current_tool, success=exc_type is None, phase=self.phase)
@@ -58,7 +66,7 @@ class StreamingLogCapture:
         if self.current_tool == tool_name:
             self.current_tool = None
 
-    def process_message(self, msg, verbose: bool = False, capture_detail: bool = True) -> None:
+    def process_message(self, msg: Any, verbose: bool = False, capture_detail: bool = True) -> None:
         """
         Process a message from the Claude SDK stream.
 

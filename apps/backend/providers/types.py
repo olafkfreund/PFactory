@@ -16,6 +16,7 @@ See: .pfactory/specs/004-add-alternative-llm-for-qa-rev/abstraction_boundary.md
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Content blocks (items inside top-level messages)
@@ -44,7 +45,7 @@ class ToolUseBlock:
     """
 
     name: str
-    input: dict = field(default_factory=dict)
+    input: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -56,7 +57,7 @@ class ToolResultBlock:
     Accessed via: ``block.is_error``, ``block.content``
     """
 
-    content: str | list
+    content: str | list[Any]
     is_error: bool = False
 
 
@@ -74,7 +75,7 @@ class AssistantMessage:
     Accessed via: ``msg.content`` (list of TextBlock / ToolUseBlock)
     """
 
-    content: list
+    content: list[Any]
 
 
 @dataclass
@@ -86,7 +87,7 @@ class UserMessage:
     Accessed via: ``msg.content`` (list of ToolResultBlock)
     """
 
-    content: list
+    content: list[Any]
 
 
 # ---------------------------------------------------------------------------

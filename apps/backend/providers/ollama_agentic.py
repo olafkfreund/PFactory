@@ -80,7 +80,7 @@ _PATH_CHAT: str = "/api/chat"
 _MAX_TOOL_ARGS_LEN: int = 50_000  # 50 KB safety limit for tool argument strings
 
 
-def _extract_text_tool_calls(text: str) -> list[dict]:
+def _extract_text_tool_calls(text: str) -> list[dict[str, Any]]:
     """Parse tool calls a model emitted as TEXT (a ```json {"name","arguments"}```
     block, or a bare top-level JSON object with those keys) into the native
     ``tool_calls`` shape ``[{"function": {"name", "arguments"}}]``.
@@ -91,7 +91,7 @@ def _extract_text_tool_calls(text: str) -> list[dict]:
     """
     import re
 
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     candidates: list[str] = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
     if not candidates:
         stripped = text.strip()
