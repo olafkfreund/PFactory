@@ -43,13 +43,21 @@ def modules_on_disk(pkg_root: Path, pkg: str) -> set[str]:
 
 
 def declared_modules(pkg: str) -> set[str]:
-    """Module names the package's companion actually registered."""
+    """Module names the package's companion actually registered.
+
+    Both imports go through importlib rather than an import statement. That is
+    what the code genuinely does -- neither package is importable until check()
+    has put ``apps/backend`` on sys.path -- and it is also what lets this file
+    type-check: the ratchet runs mypy per package root, so from ``scripts`` a
+    static ``from factory_invariants import ...`` resolves to nothing and is
+    unfixable from inside this file.
+    """
     import importlib
 
-    from factory_invariants import registry
-
+    registry = importlib.import_module("factory_invariants").registry
     importlib.import_module(f"{pkg}._invariants")
-    return {m for m in registry.registered() if m == pkg or m.startswith(f"{pkg}.")}
+    registered: set[str] = registry.registered()
+    return {m for m in registered if m == pkg or m.startswith(f"{pkg}.")}
 
 
 def check(backend: Path = _BACKEND) -> list[str]:
