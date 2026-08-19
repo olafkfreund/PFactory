@@ -67,7 +67,7 @@ class SecretRef:
     locator: str
     field: str | None = None
     version: str | None = None
-    extra: dict = dataclass_field(default_factory=dict)
+    extra: dict[str, object] = dataclass_field(default_factory=dict)
 
 
 @dataclass(frozen=True)
