@@ -30,6 +30,12 @@ from factory_invariants import registry
 
 _PKG = "pfactory_secrets"
 
+# Band in which the redaction threshold still lets real credentials qualify.
+# Below the floor, ordinary output gets nuked; above the ceiling, register()
+# silently drops everything a caller hands it.
+_THRESHOLD_FLOOR = 3
+_THRESHOLD_CEILING = 64
+
 
 # --------------------------------------------------------------------------
 # Real invariants: modules that own a mutable relation worth watching.
@@ -80,37 +86,53 @@ def _refs_schemes_resolve() -> Iterator[str]:
 
 
 def _redaction_masks_what_it_is_given() -> Iterator[str]:
-    """A Redactor never emits a secret it was asked to hide.
+    """A realistically-sized secret must not survive redact(), and the threshold
+    below which the Redactor silently ignores a value must stay sane.
 
-    Asserted against the redactor's own behaviour rather than its source: the
-    property that matters is what comes OUT, and a rule change that quietly
-    stops matching would leave the source looking correct.
+    Asserted against BEHAVIOUR, not source: the property that matters is what
+    comes out, and a rule change that quietly stopped matching would leave the
+    source looking correct.
+
+    THE PROBE LENGTH IS FIXED, NOT DERIVED FROM ``_MIN_REDACT_LEN``. Deriving it
+    was the first version, and its own mutation test caught the flaw: raising
+    the threshold also lengthened the probe, so the check adapted to the
+    mutation and could not see it. A threshold of 4096 would silently disable
+    redaction for every real credential while this check stayed green. The two
+    assertions are therefore separate -- a real-shaped secret is masked, AND the
+    threshold stays in a band where real secrets qualify.
+
+    Note the trap being watched: ``register()`` returns nothing and silently
+    drops values under the threshold, so a caller cannot tell whether what it
+    handed over will actually be masked.
     """
-    from pfactory_secrets.redaction import Redactor
+    from pfactory_secrets import redaction
 
-    probe = "ghp_INVARIANTPROBE0123456789abcdefghij"
-    red = Redactor([probe]) if _accepts_iterable(Redactor) else None
-    if red is None:
-        return
-    out = red.redact(f"cloning https://oauth2:{probe}@example.invalid/x.git")
-    if probe in out:
-        yield "a registered secret survived redaction unmasked"
+    # Long enough to look like a real credential, obviously synthetic so no
+    # secret scanner reads it as one -- a published RFC test vector tripped
+    # gitleaks in this fleet today for exactly that reason.
+    probe = "INVARIANT-PROBE-NOT-A-REAL-CREDENTIAL-0123456789"
+    red = redaction.Redactor()
+    red.register(probe)
+    if probe in red.redact(f"cloning https://oauth2:{probe}@example.invalid/x.git"):
+        yield "a realistically-sized registered secret survived redact() unmasked"
 
+    # Longest-first ordering: a shorter registered value that is a substring of a
+    # longer one must not consume the longer match and leave its tail exposed.
+    longer = probe + "TAIL"
+    red2 = redaction.Redactor()
+    red2.register(probe)
+    red2.register(longer)
+    if "TAIL" in red2.redact(f"token={longer}"):
+        yield "a shorter registered value pre-empted a longer one, leaving its tail exposed"
 
-def _accepts_iterable(cls: type) -> bool:
-    """True when Redactor(secrets) is the constructor shape this check assumes.
-
-    A signature change should make this check inert and visible, not throw --
-    the registry reports a raising check as a violation, and a constructor
-    rename is not a credential leak.
-    """
-    import inspect
-
-    try:
-        params = list(inspect.signature(cls).parameters)
-    except (TypeError, ValueError):
-        return False
-    return len(params) >= 1
+    # The threshold itself. Too low nukes ordinary output; too high silently
+    # stops registering anything a caller hands over.
+    threshold = redaction._MIN_REDACT_LEN
+    if not _THRESHOLD_FLOOR <= threshold <= _THRESHOLD_CEILING:
+        yield (
+            f"_MIN_REDACT_LEN is {threshold}: outside the band where real "
+            "credentials still qualify for redaction"
+        )
 
 
 def _egress_classes_are_closed() -> Iterator[str]:
