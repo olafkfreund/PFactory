@@ -8,12 +8,13 @@ this fix, `GitOperationError`'s message interpolated the full argv verbatim
 into an HTTPException response. A wrong or revoked token is the most likely
 trigger, since it always exits non-zero.
 
-stderr is withheld too, but as defence in depth rather than a second
-demonstrated leak: measured against git 2.54.0, git redacts userinfo from
-its own composed error text on both auth and connection failures. That is
-not a guarantee this code can rely on -- it is a property of the installed
-git version, does not cover a remote's own verbatim `remote:` lines, and
-`GIT_TRACE`/`GIT_CURL_VERBOSE` bypass it entirely.
+stderr used to be withheld on credentialed calls too, as defence in depth
+against git echoing the token-bearing URL back. PFactory#602 removed the
+cause instead: `_inject_credential` now puts only the USERNAME in the URL and
+the token is fed to git via `GIT_ASKPASS`, so it is not in argv, not in the
+URL, and not in anything git can echo. stderr is therefore logged in full on
+every failure again, credentialed or not -- withholding it cost operators the
+real git error and now buys nothing.
 
 Moving the argv/stderr into a log line was tried first and was not itself a
 fix: this fleet's application logs are forwarded off-host (a scheduled
@@ -57,7 +58,7 @@ async def test_failed_credentialed_clone_does_not_leak_the_embedded_token(tmp_pa
         caplog.at_level(logging.DEBUG, logger="server.services.project_workspace_service"),
         pytest.raises(GitOperationError) as excinfo,
     ):
-        await _run_git(["clone", fetch_url, str(dest)], cwd=tmp_path, timeout=10, credentialed=True)
+        await _run_git(["clone", fetch_url, str(dest)], cwd=tmp_path, timeout=10)
 
     message = str(excinfo.value)
     assert secret not in message
@@ -73,9 +74,11 @@ async def test_failed_credentialed_clone_does_not_leak_the_embedded_token(tmp_pa
     rendered = [r.getMessage() for r in caplog.records]
     assert not any(secret in line for line in rendered)
     assert not any(fetch_url in line for line in rendered)
-    # Proves the credentialed path actually took the withheld-detail branch
-    # rather than happening not to log anything at all.
-    assert any("detail withheld" in line for line in rendered)
+    # Proves the failure was actually logged rather than nothing being
+    # emitted at all -- "the secret is absent" is vacuous otherwise. Since
+    # PFactory#602 the stderr is logged in FULL on this path too, because
+    # there is no credential in the argv for git to echo back.
+    assert any("git clone failed" in line for line in rendered)
 
 
 @pytest.mark.asyncio
@@ -91,9 +94,7 @@ async def test_timeout_on_credentialed_clone_does_not_leak_the_embedded_token(tm
     ):
         # A near-zero timeout forces the TimeoutError branch rather than the
         # (also-covered) non-zero-exit branch.
-        await _run_git(
-            ["clone", fetch_url, str(dest)], cwd=tmp_path, timeout=0.001, credentialed=True
-        )
+        await _run_git(["clone", fetch_url, str(dest)], cwd=tmp_path, timeout=0.001)
 
     message = str(excinfo.value)
     assert secret not in message
@@ -118,40 +119,39 @@ async def test_non_credentialed_failure_still_logs_full_detail(tmp_path, caplog)
             ["clone", "https://127.0.0.1:1/owner/repo.git", str(dest)],
             cwd=tmp_path,
             timeout=10,
-            credentialed=False,
         )
 
     rendered = [r.getMessage() for r in caplog.records]
+    assert any("git clone failed" in line for line in rendered), rendered
     assert not any("detail withheld" in line for line in rendered)
 
 
 @pytest.mark.asyncio
-async def test_credentialed_pull_fetch_failure_does_not_leak_the_token(tmp_path, caplog):
+async def test_credentialed_pull_path_keeps_the_token_out_of_every_argv(tmp_path, caplog):
     """The exact gap review found: `remote set-url` points origin at the
     credentialed URL, then `fetch` (clean argv) runs against THAT origin.
-    This is the site that was left on `credentialed`'s old unsafe default
-    (see the docstring on `_run_git` for why it is marked defensively --
-    NOT because this stderr is demonstrated to carry the token on the git
-    version this repo runs; it constructs a stderr that names the URL
-    purely to prove the withholding is unconditional on THIS call, not
-    contingent on what a real git binary happens to print here).
+
+    Before PFactory#602 the `set-url` argv carried `https://oauth2:TOKEN@...`
+    and the fetch's stderr was withheld to compensate. Now the URL carries the
+    username only and the token rides in `GIT_PASS`, so this asserts the
+    property directly: NO argv on the whole pull path contains the token, and
+    the fetch failure logs its real stderr.
     """
     secret = "ghp_PULLPATHSECRETTOKEN0123456789"  # noqa: S105 (test fixture, not real)
     workspace = tmp_path / "existing-repo"
     (workspace / ".git").mkdir(parents=True)
 
     calls: list[list[str]] = []
+    envs: list[dict[str, str]] = []
 
-    async def fake_create_subprocess_exec(*args, **_kwargs):
+    async def fake_create_subprocess_exec(*args, **kwargs):
         proc = MagicMock()
         git_args = list(args[1:])  # drop the "git" binary itself
         calls.append(git_args)
+        envs.append(dict(kwargs.get("env") or {}))
         if git_args[:2] == ["fetch", "--prune"]:
             proc.returncode = 128
-            stderr = (
-                f"fatal: Authentication failed for "
-                f"'https://oauth2:{secret}@127.0.0.1:1/owner/repo.git'"
-            ).encode()
+            stderr = b"fatal: Authentication failed for 'https://127.0.0.1:1/owner/repo.git'"
 
             async def _communicate():
                 return (b"", stderr)
@@ -178,12 +178,26 @@ async def test_credentialed_pull_fetch_failure_does_not_leak_the_token(tmp_path,
         )
 
     # Confirms the test actually exercised the fetch-failure path, not some
-    # other branch.
+    # other branch, and that the origin really was pointed at a credentialed
+    # URL first -- the site the flag used to guard.
     assert any(c[:2] == ["fetch", "--prune"] for c in calls)
+    set_url = [c for c in calls if c[:3] == ["remote", "set-url", "origin"]]
+    assert set_url, calls
+
+    # The username IS in the URL (that is what makes git ask askpass for a
+    # password); the token is not, anywhere in any argv.
+    assert any("oauth2@127.0.0.1" in c[3] for c in set_url), set_url
+    leaks = [c for c in calls if any(secret in a for a in c)]
+    assert leaks == [], f"token present in a git argv: {leaks}"
+
+    # Not vacuous: the token was genuinely in play, via the environment.
+    assert any(env.get("GIT_PASS") == secret for env in envs)
 
     message = str(excinfo.value)
     assert secret not in message
 
     rendered = [r.getMessage() for r in caplog.records]
     assert not any(secret in line for line in rendered)
-    assert any("detail withheld" in line for line in rendered)
+    # Full operator detail on the credentialed path too, no longer withheld.
+    assert any("Authentication failed" in line for line in rendered), rendered
+    assert not any("detail withheld" in line for line in rendered)
