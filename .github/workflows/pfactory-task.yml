@@ -18,6 +18,7 @@ jobs:
   create-task:
     if: github.event.label.name == 'pfactory:run'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Create PFactory planning task
         env:

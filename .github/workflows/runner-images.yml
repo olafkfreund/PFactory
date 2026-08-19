@@ -58,6 +58,7 @@ jobs:
   build:
     name: build ${{ matrix.runner }} image
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false   # keep building remaining images if one fails
       matrix:
@@ -65,19 +66,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # docker/setup-buildx-action enables BuildKit features (layer caching,
       # multi-platform builds, --check flag). Required for dockerfile:1.7 syntax.
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
 
       # Build the image and load it into the local Docker daemon so the
       # hello-world smoke step below can run it.
       # push: false — nothing reaches the registry until the smoke has passed.
       # load: true  — exports image to local daemon for the smoke test.
       - name: Build pfactory-runner-${{ matrix.runner }}
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
           context: docker/pfactory-runner-${{ matrix.runner }}
           file: docker/pfactory-runner-${{ matrix.runner }}/Dockerfile
@@ -189,7 +190,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -200,7 +201,7 @@ jobs:
       - name: Push pfactory-runner-${{ matrix.runner }} to GHCR
         id: push
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
           context: docker/pfactory-runner-${{ matrix.runner }}
           file: docker/pfactory-runner-${{ matrix.runner }}/Dockerfile
@@ -223,7 +224,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Install cosign
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5  # v3.10.1
 
       - name: Sign pfactory-runner-${{ matrix.runner }}
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -245,3 +246,11 @@ jobs:
             --certificate-identity-regexp "^https://github\.com/${{ github.repository }}/\.github/workflows/runner-images\.yml@refs/heads/main$" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "${IMAGE}@${DIGEST}"
+
+      # Asks the question the CLUSTER asks, not cosign's. Factory#804.
+      - name: Assert the signature is where Kyverno looks — ${{ matrix.runner }}
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: "ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}"
+          DIGEST: "${{ steps.push.outputs.digest }}"
+        run: ./.github/scripts/assert-signature-location.sh "${IMAGE}" "${DIGEST}"

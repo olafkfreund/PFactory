@@ -46,7 +46,20 @@ DOCUMENT_SUFFIXES: frozenset[str] = frozenset({".pdf", ".docx"})
 
 
 class DocumentLoadError(ValueError):
-    """Raised when a document can't be read or yields no extractable text."""
+    """Raised when a document can't be read or yields no extractable text.
+
+    Verified safe to return to the client verbatim (Factory#718): every raise
+    site below now describes only the caller's own filename/type/path, or a
+    static sentence -- none interpolates a caught exception's text (pypdf /
+    python-docx raise a wide, unreviewed variety of messages on malformed
+    input, which is why ``except Exception as exc`` further down deliberately
+    stops at ``type(exc).__name__`` instead of ``exc``). See
+    ``client_errors.client_error``.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 # ── extractors ─────────────────────────────────────────────────────────
@@ -64,7 +77,11 @@ def extract_pdf_text(data: bytes) -> str:
         reader = PdfReader(io.BytesIO(data))
         pages = [(page.extract_text() or "") for page in reader.pages]
     except Exception as exc:  # pypdf raises a variety of read errors
-        raise DocumentLoadError(f"could not read PDF: {exc}") from exc
+        # Factory#718: pypdf's own message is not reviewed for what it reveals
+        # (it can echo internal object state) -- only its class name crosses
+        # the boundary; the full exception is still on `from exc`'s chain for
+        # whatever logs the eventual HTTPException.
+        raise DocumentLoadError(f"could not read PDF ({type(exc).__name__})") from exc
     return "\n".join(pages).strip()
 
 
@@ -86,8 +103,9 @@ def extract_docx_text(data: bytes) -> str:
         ) from exc
     try:
         doc = Document(io.BytesIO(data))
-    except Exception as exc:
-        raise DocumentLoadError(f"could not read DOCX: {exc}") from exc
+    except Exception as exc:  # python-docx raises a variety of read errors
+        # Factory#718: same reasoning as extract_pdf_text -- class name only.
+        raise DocumentLoadError(f"could not read DOCX ({type(exc).__name__})") from exc
 
     lines: list[str] = []
     for para in doc.paragraphs:
@@ -141,7 +159,9 @@ def load_document_text(path: str | Path) -> str:
     try:
         data = p.read_bytes()
     except OSError as exc:
-        raise DocumentLoadError(f"could not read {p}: {exc}") from exc
+        # Factory#718: `p` is the caller's own requested path, safe to echo;
+        # the OSError's own text is not reviewed, so class name only.
+        raise DocumentLoadError(f"could not read {p}: {type(exc).__name__}") from exc
     return extract_text(data, filename=p.name)
 
 

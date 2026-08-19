@@ -13,6 +13,9 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
 
+# git_utils's own import already put apps/backend on sys.path.
+from client_errors import client_error
+from factory_common.logsafe import sanitize_log
 from server.services.git_utils import assert_safe_git_ref, safe_spec_component  # #335
 
 logger = logging.getLogger(__name__)
@@ -42,7 +45,7 @@ def ref(value, field: str) -> str:
     try:
         return assert_safe_git_ref(value, field)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
+        raise HTTPException(status_code=400, detail=client_error(exc)) from None
 
 
 router = APIRouter()
@@ -199,7 +202,11 @@ async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest 
                     }
                 )
             except Exception:
-                logger.exception("Failed to read spec for task %s at %s", task_id, spec_path)
+                logger.exception(
+                    "Failed to read spec for task %s at %s",
+                    sanitize_log(task_id),
+                    sanitize_log(spec_path),
+                )
                 specs.append({"taskId": task_id, "content": None, "error": "Failed to read spec"})
         else:
             # Try finding by glob pattern for numeric prefix
@@ -215,7 +222,11 @@ async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest 
                         }
                     )
                 except Exception:
-                    logger.exception("Failed to read spec for task %s at %s", task_id, matching[0])
+                    logger.exception(
+                        "Failed to read spec for task %s at %s",
+                        sanitize_log(task_id),
+                        sanitize_log(matching[0]),
+                    )
                     specs.append(
                         {"taskId": task_id, "content": None, "error": "Failed to read spec"}
                     )
@@ -335,7 +346,7 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
         package_json = project_path / "package.json"
         if package_json.exists():
             try:
-                with open(package_json, "r") as f:
+                with open(package_json) as f:
                     pkg = json.load(f)
                 pkg["version"] = request.version
                 with open(package_json, "w") as f:
@@ -343,7 +354,7 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
                     f.write("\n")  # Add trailing newline
                 updated_files.append("package.json")
             except Exception as e:
-                logger.warning(f"Failed to update package.json: {e}")
+                logger.warning("Failed to update package.json: %s", sanitize_log(e))
 
         # Detect and update pyproject.toml (Python Poetry projects)
         pyproject_toml = project_path / "pyproject.toml"
@@ -360,7 +371,7 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
                 pyproject_toml.write_text(updated)
                 updated_files.append("pyproject.toml")
             except Exception as e:
-                logger.warning(f"Failed to update pyproject.toml: {e}")
+                logger.warning("Failed to update pyproject.toml: %s", sanitize_log(e))
 
         # Detect and update __init__.py __version__ (Python packages)
         init_py_paths = list(project_path.glob("*/__init__.py"))
@@ -377,7 +388,7 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
                     updated_files.append(str(init_py.relative_to(project_path)))
                     break  # Only update first __init__.py with __version__
             except Exception as e:
-                logger.warning(f"Failed to update {init_py}: {e}")
+                logger.warning("Failed to update %s: %s", sanitize_log(init_py), sanitize_log(e))
 
         return {
             "success": True,
@@ -388,7 +399,7 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
             },
         }
     except Exception:
-        logger.exception("Failed to save changelog for project %s", projectId)
+        logger.exception("Failed to save changelog for project %s", sanitize_log(projectId))
         return {"success": False, "error": "Failed to save changelog"}
 
 
@@ -428,7 +439,7 @@ async def read_existing_changelog(projectId: str = Path(...)):
             "data": {"exists": True, "content": content, "lastVersion": last_version},
         }
     except Exception:
-        logger.exception("Failed to read changelog for project %s", projectId)
+        logger.exception("Failed to read changelog for project %s", sanitize_log(projectId))
         return {"success": True, "data": {"exists": True, "error": "Failed to read changelog"}}
 
 
@@ -543,7 +554,7 @@ async def get_changelog_branches(projectId: str = Path(...)):
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Git command timed out"}
     except Exception:
-        logger.exception("Failed to list git branches for project %s", projectId)
+        logger.exception("Failed to list git branches for project %s", sanitize_log(projectId))
         return {"success": False, "error": "Failed to list git branches"}
 
 
@@ -612,7 +623,7 @@ async def get_changelog_tags(projectId: str = Path(...)):
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Git command timed out"}
     except Exception:
-        logger.exception("Failed to list git tags for project %s", projectId)
+        logger.exception("Failed to list git tags for project %s", sanitize_log(projectId))
         return {"success": False, "error": "Failed to list git tags"}
 
 
@@ -707,7 +718,7 @@ async def get_commits_preview(projectId: str = Path(...), request: CommitsPrevie
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Git command timed out"}
     except Exception:
-        logger.exception("Failed to get commits preview for project %s", projectId)
+        logger.exception("Failed to get commits preview for project %s", sanitize_log(projectId))
         return {"success": False, "error": "Failed to get commits preview"}
 
 
@@ -771,7 +782,9 @@ async def save_changelog_image(projectId: str = Path(...), request: SaveImageReq
         try:
             image_bytes = base64.b64decode(image_data_str)
         except Exception:
-            logger.exception("Failed to decode base64 image data for project %s", projectId)
+            logger.exception(
+                "Failed to decode base64 image data for project %s", sanitize_log(projectId)
+            )
             return {"success": False, "error": "Failed to decode base64 image data"}
 
         # Validate decoded data is not empty
@@ -796,5 +809,5 @@ async def save_changelog_image(projectId: str = Path(...), request: SaveImageReq
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Failed to save image for project %s", projectId)
+        logger.exception("Failed to save image for project %s", sanitize_log(projectId))
         return {"success": False, "error": "Failed to save image"}

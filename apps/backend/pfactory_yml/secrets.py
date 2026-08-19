@@ -14,6 +14,7 @@ AIFactory repo and shared in pull-request diffs without leaking credentials.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 
 class MissingSecretError(RuntimeError):
@@ -99,9 +100,11 @@ def resolve_auth_env_vars(auth: object) -> dict[str, str]:
 
     # Pydantic models expose their fields via model_fields / __dict__.
     # We look for any str-valued attribute whose NAME ends in "_env".
-    try:
-        fields = auth.model_fields  # Pydantic v2
-    except AttributeError:
+    # ``auth`` is typed ``object`` (any auth model), so the attribute is read
+    # with getattr rather than dotted access: same fallback as the previous
+    # try/except AttributeError, but one mypy can see the type of.
+    fields: Mapping[str, object] | None = getattr(auth, "model_fields", None)  # Pydantic v2
+    if fields is None:
         return resolved
 
     for field_name in fields:

@@ -274,7 +274,10 @@ class TestPlaywrightTemplateInstantiation:
         )
         assert _no_unsubstituted(result)
         assert _ts_looks_valid(result)
-        assert "https://example.com" in result
+        # The whole goto() call, not the base URL loose in the file: the loose
+        # check passes even if base_url and login_path are concatenated in the
+        # wrong order, or the path is dropped entirely.
+        assert "page.goto('https://example.com/login')" in result
         assert "dashboard" in result
         # creds are read from injected env vars, not hard-coded (#107 task 5)
         assert "process.env['TEST_USERNAME']" in result

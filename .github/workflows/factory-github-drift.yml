@@ -36,19 +36,31 @@ env:
   # The CANONICAL is pinned (reproducible comparison). The CHECKER is not:
   # a gate fetched from its own pin cannot ship its own fix (Factory#405).
   HUB_CHECKER_REF: "main"
-  HUB_SHA: "084b167de5ff0ebda8bd5364449707fd29d1dafc"
+  HUB_SHA: "6752fe32de59a215c52c3ab198ffbf183f84db33"
 
 jobs:
   drift:
     name: factory-github canonical drift (blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+
+      - name: Assert the hub pin is really on hub main
+        # HUB_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy. codeload serves any commit in the hub's
+        # fork network, so without this a fork PR could pin a canonical tree
+        # crafted to match its own drifted vendored copy and this gate would
+        # diff two matching trees and go green (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/assert-hub-pin-on-main.sh "${HUB_SHA}" "factory-github-drift HUB_SHA"
 
       - name: Fetch hub drift checker (main) + canonical tree (pinned SHA)
         run: |

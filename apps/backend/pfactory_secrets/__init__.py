@@ -20,8 +20,7 @@ backend, e.g. ``env:STAGING_TOKEN`` or ``vault:secret/data/app#token`` — see
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from dataclasses import field as dataclass_field
+from dataclasses import dataclass, field as dataclass_field
 from typing import ClassVar
 
 # Reuse the egress taxonomy the LLM-provider side already uses, so credential
@@ -67,7 +66,7 @@ class SecretRef:
     locator: str
     field: str | None = None
     version: str | None = None
-    extra: dict = dataclass_field(default_factory=dict)
+    extra: dict[str, object] = dataclass_field(default_factory=dict)
 
 
 @dataclass(frozen=True)

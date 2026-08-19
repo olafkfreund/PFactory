@@ -12,6 +12,40 @@ from tests.docker.helpers import DOCKERFILE_PATH, REPO_ROOT
 IN_CI = os.environ.get("CI", "").lower() == "true"
 
 
+def _findings(report: dict, what: str) -> list:
+    """HIGH/CRITICAL vulnerabilities in a Trivy report, having first proved it read something.
+
+    A Trivy run that matches nothing -- a renamed lockfile, a wrong path, an
+    image whose package manifests never reached a scannable layer -- exits 0
+    with an empty ``Results`` and therefore zero vulnerabilities. That is
+    byte-identical to a genuinely clean scan, so the gate cannot tell "no
+    vulnerabilities" from "no scan" (PFactory#595).
+
+    The package count is what separates them. Measured against trivy 0.74.0:
+
+        real package-lock.json      rc=0  Results=1  pkgs=335
+        the same file renamed       rc=0  Results=0  pkgs=0
+        an empty directory          rc=0  Results=0  pkgs=0
+        alpine:3.19 image scan      rc=0  Results=1  pkgs=15
+
+    ``Packages`` is populated without ``--list-all-pkgs`` for both ``fs`` and
+    ``image``, so asserting on it costs nothing and does not weaken the
+    vulnerability assertion that follows.
+    """
+    results = report.get("Results") or []
+    assert results, (
+        f"Trivy returned no Results for {what}. It exited 0 having scanned "
+        "nothing, which is not the same as finding nothing."
+    )
+    packages = sum(len(t.get("Packages") or []) for t in results)
+    assert packages > 0, (
+        f"Trivy resolved 0 packages for {what} across {len(results)} result(s). "
+        "A scan that examined no packages cannot evidence the absence of "
+        "vulnerabilities in them."
+    )
+    return [v for t in results for v in (t.get("Vulnerabilities") or [])]
+
+
 @pytest.mark.docker
 def test_base_images_pinned_by_digest() -> None:
     """P0.7 — every `FROM` line uses `@sha256:...`, not a floating tag."""
@@ -43,9 +77,7 @@ def test_trivy_no_high_critical(built_image: str) -> None:
     )
     assert result.returncode == 0, f"trivy failed: {result.stderr}"
     report = json.loads(result.stdout)
-    findings = []
-    for target in report.get("Results", []) or []:
-        findings.extend(target.get("Vulnerabilities", []) or [])
+    findings = _findings(report, "the runtime image")
     assert not findings, (
         f"Trivy found {len(findings)} HIGH/CRITICAL vulns: "
         f"{[(v.get('VulnerabilityID'), v.get('Severity')) for v in findings[:5]]}"
@@ -99,9 +131,7 @@ def test_frontend_lockfile_no_high_critical() -> None:
     )
     assert result.returncode == 0, f"trivy failed: {result.stderr}"
     report = json.loads(result.stdout)
-    findings = []
-    for target in report.get("Results", []) or []:
-        findings.extend(target.get("Vulnerabilities", []) or [])
+    findings = _findings(report, "the frontend lockfile")
     assert not findings, (
         f"Trivy found {len(findings)} HIGH/CRITICAL vulns in the frontend lockfile: "
         f"{[(v.get('PkgName'), v.get('VulnerabilityID')) for v in findings[:5]]}"

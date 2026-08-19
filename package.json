@@ -17,6 +17,7 @@
     "lint": "cd apps/frontend-web && npm run lint",
     "test": "cd apps/frontend-web && npm test",
     "test:backend": "node scripts/test-backend.js",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "docs:install": "cd docs && npm install",
     "docs:dev": "cd docs && npm start",
     "docs:build": "cd docs && npm run build",

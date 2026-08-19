@@ -65,7 +65,6 @@ from ._github_json import (
     PAGE_SIZE as _GITHUB_PAGE_SIZE,
     collect_comment_pages as _collect_comment_pages,
     group_bulk_comments as _group_bulk_comments,
-    issue_number_from_url as _issue_number_from_url,
     milestone_title as _milestone_title,
     parse_comment as _shared_parse_comment,
     parse_datetime as _parse_datetime,
@@ -74,7 +73,6 @@ from .protocol import (
     IssueComment,
     IssueData,
     IssueFilters,
-    ProviderCommentError,
     ProviderType,
     oldest_first,
     to_iso_utc,
@@ -123,6 +121,9 @@ class HttpGitHubProvider:
                 "X-GitHub-Api-Version": "2022-11-28",
                 "Authorization": f"Bearer {self._token}",
             },
+            # Factory#825: explicit no-redirect posture on a client that carries a
+            # bearer token to an address derived from _base_url.
+            follow_redirects=False,
         )
 
     # ── issues ───────────────────────────────────────────────────────────────

@@ -45,6 +45,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from client_errors import client_error
+
 try:
     from claude_agent_sdk import tool
 
@@ -175,8 +177,15 @@ def _load_status(project_id: str, spec_id: str, root: Path | None = None) -> dic
 
 
 def _format_error(exc: Exception | str) -> dict[str, Any]:
-    """Return the MCP content-block error shape (``isError=True``)."""
-    text = str(exc) if isinstance(exc, Exception) else exc
+    """Return the MCP content-block error shape (``isError=True``).
+
+    Factory#718: most call sites already pass a plain developer-written
+    string. The ones that pass an actual exception are trusted only via
+    ``client_error`` -- an exception type that hasn't opted in with a
+    ``client_message`` (see ``client_errors``) gets a generic fallback here
+    instead of whatever a dependency happened to write into ``args``.
+    """
+    text = client_error(exc, default="internal error") if isinstance(exc, Exception) else exc
     return {
         "content": [{"type": "text", "text": f"Error: {text}"}],
         "isError": True,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -21,7 +21,6 @@ except (ImportError, ValueError, SystemError):
     from gh_client import GHClient
 
 from ._github_json import (
-    COMMENT_MAX_PAGES as _SHARED_COMMENT_MAX_PAGES,
     collect_comment_pages as _collect_comment_pages,
     group_bulk_comments as _group_bulk_comments,
     issue_number_from_url as _shared_issue_number_from_url,
@@ -35,7 +34,6 @@ from .protocol import (
     LabelData,
     PRData,
     PRFilters,
-    ProviderCommentError,
     ProviderType,
     ReviewData,
     fanout_comments,
@@ -47,7 +45,6 @@ from .protocol import (
 # repository-wide fetch (50 x 100 = 5000 comments) rather than paging forever
 # against an unknown history size; hitting it is an error, not a truncation.
 _COMMENT_PAGE_SIZE = 100
-_COMMENT_MAX_PAGES = _SHARED_COMMENT_MAX_PAGES
 
 
 @dataclass
@@ -742,10 +739,6 @@ class GitHubProvider:
     def _parse_datetime(self, dt_str: str | None) -> datetime:
         """Shared with the REST provider — see providers/_github_json.py."""
         return _shared_parse_datetime(dt_str)
-        try:
-            return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
-            return datetime.now(UTC)
 
     def _parse_reviewers(self, review_requests: list | None) -> list[str]:
         """Parse review requests into list of usernames."""

@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from . import env_bootstrap  # noqa: F401  — loads .env into os.environ first
 from .auth import TokenAuthMiddleware
 from .config import get_settings
+from .crypto.kms import enforce_kms_safety
 from .database.engine import init_db
 from .logging_config import setup_logging
 from .routes import (
@@ -28,6 +29,7 @@ from .routes import (
     auth_routes,
     auto_fix,
     capabilities,
+    cli_accounts as cli_accounts_routes,
     cloud,
     context,
     docs_targets,
@@ -37,6 +39,8 @@ from .routes import (
     git,
     git_credentials,
     github,
+    llm_endpoints as llm_endpoints_routes,
+    logs as logs_routes,
     mcp,
     mcp_rpc,
     notifications,
@@ -44,6 +48,7 @@ from .routes import (
     projects,
     provider_runtimes,
     search,
+    settings as settings_routes,
     skills,
     tasks,
     terminal,
@@ -51,15 +56,13 @@ from .routes import (
     visual_inspection,
     well_known,
 )
-from .routes import cli_accounts as cli_accounts_routes
-from .routes import llm_endpoints as llm_endpoints_routes
-from .routes import logs as logs_routes
-from .routes import settings as settings_routes
 from .services.skills_service import init_skills_service
-from .websockets import events as events_ws
-from .websockets import logs as logs_ws
-from .websockets import progress as progress_ws
-from .websockets import terminal as terminal_ws
+from .websockets import (
+    events as events_ws,
+    logs as logs_ws,
+    progress as progress_ws,
+    terminal as terminal_ws,
+)
 
 # v3.0.2 — logging is configured INSIDE create_app() (was at module
 # level until v3.0.1). Module-level setup_logging() was an import-
@@ -295,10 +298,12 @@ def create_app() -> FastAPI:
     )
 
     # Plan Factory — intake channels + the planning pipeline (issues #4, #20).
-    from .routes import contract_events as contract_events_routes
-    from .routes import plan_intake as plan_intake_routes
-    from .routes import plan_meta as plan_meta_routes
-    from .routes import plan_pipeline as plan_pipeline_routes
+    from .routes import (
+        contract_events as contract_events_routes,
+        plan_intake as plan_intake_routes,
+        plan_meta as plan_meta_routes,
+        plan_pipeline as plan_pipeline_routes,
+    )
 
     app.include_router(plan_intake_routes.router)
     app.include_router(plan_pipeline_routes.router)
@@ -507,6 +512,11 @@ if __name__ == "__main__":
     import uvicorn
 
     settings = get_settings()
+
+    # AIFactory#1290: never come up pretending to encrypt. A selected KMS
+    # backend that cannot be constructed would silently write credentials in
+    # PLAINTEXT to the JSON stores.
+    enforce_kms_safety()
 
     # Build uvicorn config
     uvicorn_config = {

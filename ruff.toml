@@ -64,6 +64,12 @@ extend-exclude = [
     # never excluded, so the local formatter could silently break a byte-exact
     # re-vendor (Factory#400).
     "apps/backend/plan/emit/cost_router_core.py",
+    # And for factory_common: a byte-exact mirror of the hub's
+    # shared/factory-common/factory_common/ (the stdlib-only utility layer that
+    # carries sanitize_log). Same reason as above -- the hub formats at 100, the
+    # local formatter at 88, and reformatting here silently breaks byte-exactness
+    # against the pin in apps/web-server/factory_common/.hub-sha.
+    "apps/web-server/factory_common/",
 ]
 
 [lint.per-file-ignores]

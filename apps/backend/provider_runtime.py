@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from client_errors import InputRejectedError
+
 __all__ = [
     "InstallResult",
     "ProviderRuntime",
@@ -109,11 +111,29 @@ def runtimes() -> list[ProviderRuntime]:
     return list(_REGISTRY.values())
 
 
+class _UnknownProviderRuntimeError(KeyError):
+    """``KeyError`` carrying a safe ``client_message`` (Factory#718).
+
+    Route call sites already ``except KeyError``, so the raised type can't
+    change; a subclass preserves that catch while giving ``client_error()``
+    something to trust. Setting the attribute directly on a plain
+    ``KeyError`` instance fails ``mypy --strict`` (no such attribute on the
+    stdlib type) -- a subclass is the typed way to do this, not
+    ``# type: ignore``.
+    """
+
+    def __init__(self, client_message: str) -> None:
+        super().__init__(client_message)
+        self.client_message = client_message
+
+
 def get_runtime(name: str) -> ProviderRuntime:
     try:
         return _REGISTRY[name]
     except KeyError as exc:
-        raise KeyError(f"unknown provider runtime {name!r}; known: {sorted(_REGISTRY)}") from exc
+        # Echoes only the caller's own `name`, safe for client_message.
+        message = f"unknown provider runtime {name!r}; known: {sorted(_REGISTRY)}"
+        raise _UnknownProviderRuntimeError(message) from exc
 
 
 def _parse_version(text: str | None) -> str | None:
@@ -339,7 +359,7 @@ def install_argv(rt: ProviderRuntime, version: str | None = None) -> list[str]:
     ``ValueError`` for runtimes PFactory can't install (binary / unmanaged).
     """
     if not rt.managed:
-        raise ValueError(f"{rt.name} is user-managed; PFactory does not install it")
+        raise InputRejectedError(f"{rt.name} is user-managed; PFactory does not install it")
     if rt.kind == "npm":
         spec = f"{rt.package}@{version or 'latest'}"
         return ["npm", "install", "-g", spec]
@@ -350,7 +370,7 @@ def install_argv(rt: ProviderRuntime, version: str | None = None) -> list[str]:
     if rt.kind == "gh":
         # Copilot is upgraded in place; no version pin via this path.
         return ["copilot", "upgrade"]
-    raise ValueError(f"cannot build an install command for kind {rt.kind!r}")
+    raise InputRejectedError(f"cannot build an install command for kind {rt.kind!r}")
 
 
 @dataclass(frozen=True)

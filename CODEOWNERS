@@ -6,13 +6,13 @@
 # Order matters — later patterns override earlier ones.
 
 # Default — all files
-*                           @dataseeek
+*                           @olafkfreund
 
 # Critical infrastructure (require explicit review)
-/.github/                   @dataseeek
-/docker-compose.yml         @dataseeek
-/Dockerfile                 @dataseeek
-/scripts/                   @dataseeek
-/CODEOWNERS                 @dataseeek
-/SECURITY.md                @dataseeek
-/LICENSE                    @dataseeek
+/.github/                   @olafkfreund
+/docker-compose.yml         @olafkfreund
+/Dockerfile                 @olafkfreund
+/scripts/                   @olafkfreund
+/CODEOWNERS                 @olafkfreund
+/SECURITY.md                @olafkfreund
+/LICENSE                    @olafkfreund

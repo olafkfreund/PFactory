@@ -27,12 +27,20 @@ synthetic legacy key) so handlers can record key_id in audit logs.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from fastapi import HTTPException, Request, status
 
 from ..config import get_settings
 from ..mcp_remote import auth as mcp_remote_auth
+
+_BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from client_errors import client_error  # noqa: E402  (after sys.path insert)
 
 # Re-export the named scopes so callers don't have to know which
 # module owns the constants.
@@ -114,7 +122,7 @@ def require_acw_scope(scope: str):
         except mcp_remote_auth.MCPAuthError as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=str(exc),
+                detail=client_error(exc),
             ) from exc
 
         if not key.has_scope(scope):

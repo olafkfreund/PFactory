@@ -30,6 +30,7 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+from client_errors import client_error  # noqa: E402
 from plan.ingest import channels  # noqa: E402  (after sys.path insert)
 from plan.ingest.document_loaders import DocumentLoadError  # noqa: E402
 from spec_sources import SpecSourceError  # noqa: E402
@@ -55,7 +56,9 @@ async def ingest_text(body: IngestTextRequest) -> dict:
             title=body.title,
         )
     except (SpecSourceError, DocumentLoadError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error(exc)
+        ) from exc
     return plan.model_dump()
 
 
@@ -75,5 +78,7 @@ async def ingest_upload(
             title=title,
         )
     except (SpecSourceError, DocumentLoadError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error(exc)
+        ) from exc
     return plan.model_dump()

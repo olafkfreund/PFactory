@@ -2,6 +2,8 @@
 Utility functions for implementation planner.
 """
 
+from typing import Any
+
 from test_plan import Verification, VerificationType
 
 from .models import PlannerContext
@@ -23,9 +25,9 @@ def extract_feature_name(context: PlannerContext) -> str:
     return "Unnamed Feature"
 
 
-def group_files_by_service(context: PlannerContext) -> dict[str, list[dict]]:
+def group_files_by_service(context: PlannerContext) -> dict[str, list[dict[str, Any]]]:
     """Group files to modify by service."""
-    groups: dict[str, list[dict]] = {}
+    groups: dict[str, list[dict[str, Any]]] = {}
 
     for file_info in context.files_to_modify:
         path = file_info.get("path", "")
@@ -130,7 +132,7 @@ def extract_acceptance_criteria(context: PlannerContext) -> list[str]:
     return criteria
 
 
-def determine_service_order(files_by_service: dict[str, list[dict]]) -> list[str]:
+def determine_service_order(files_by_service: dict[str, list[dict[str, Any]]]) -> list[str]:
     """Determine service order (backend first, then workers, then frontend)."""
     service_order = []
 

@@ -5,11 +5,12 @@ Supports LM Studio, vLLM, LocalAI, Jan — any server exposing
 POST /v1/chat/completions with SSE streaming.
 """
 
-import asyncio
 import json
 import logging
 import time
 from pathlib import Path
+
+from server.error_ref import error_message
 
 from ...websockets.events import broadcast_event
 from .base import ProviderInfo, ProviderModel, ProviderStrategy
@@ -194,7 +195,9 @@ class OpenAICompatProvider(ProviderStrategy):
                 {
                     "projectId": project_id,
                     "type": "error",
-                    "error": str(e),
+                    "error": error_message(
+                        logger, "OpenAICompat failed", e, "The provider call failed"
+                    ),
                 },
             )
             return ""

@@ -11,6 +11,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
+
 from ..config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -44,21 +47,21 @@ class ConflictService:
         backend_path = Path(settings.BACKEND_PATH).resolve()
 
         if not backend_path.exists():
-            logger.error(f"Backend path does not exist: {backend_path}")
+            logger.error("Backend path does not exist: %s", sanitize_log(backend_path))
             raise ValueError(f"Backend path not found: {backend_path}")
 
         # Add backend to PYTHONPATH if not already there
         backend_str = str(backend_path)
         if backend_str not in sys.path:
             sys.path.insert(0, backend_str)
-            logger.debug(f"Added backend to Python path: {backend_str}")
+            logger.debug("Added backend to Python path: %s", sanitize_log(backend_str))
 
         # Load backend .env for OAuth token and other settings
         import os
 
         backend_env = backend_path / ".env"
         if backend_env.exists():
-            logger.debug(f"Loading backend .env from {backend_env}")
+            logger.debug("Loading backend .env from %s", sanitize_log(backend_env))
             with open(backend_env) as f:
                 for line in f:
                     line = line.strip()
@@ -69,7 +72,7 @@ class ConflictService:
                         # Only set if not already in environment
                         if key not in os.environ:
                             os.environ[key] = value
-                            logger.debug(f"Set env var: {key}")
+                            logger.debug("Set env var: %s", sanitize_log(key))
 
         self._backend_imported = True
 
@@ -88,14 +91,14 @@ class ConflictService:
                 enable_ai=True,
                 dry_run=True,  # Preview mode - don't write files
             )
-            logger.info(f"Created MergeOrchestrator for {self.project_path}")
+            logger.info("Created MergeOrchestrator for %s", sanitize_log(self.project_path))
             return self._orchestrator
 
         except ImportError as e:
-            logger.error(f"Failed to import merge modules: {e}")
+            logger.error("Failed to import merge modules: %s", sanitize_log(e))
             raise
         except Exception as e:
-            logger.error(f"Failed to create MergeOrchestrator: {e}")
+            logger.error("Failed to create MergeOrchestrator: %s", sanitize_log(e))
             raise
 
     async def detect_conflicts(
@@ -115,7 +118,7 @@ class ConflictService:
         Returns:
             Dictionary with conflict analysis results
         """
-        logger.info(f"Detecting conflicts for task {task_id}")
+        logger.info("Detecting conflicts for task %s", sanitize_log(task_id))
 
         try:
             # Run in thread pool to avoid blocking
@@ -130,10 +133,10 @@ class ConflictService:
             return result
 
         except Exception as e:
-            logger.error(f"Conflict detection failed: {e}")
+            logger.error("Conflict detection failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
                 "conflicts": [],
                 "stats": {
                     "totalFiles": 0,
@@ -203,7 +206,8 @@ class ConflictService:
 
         except Exception as e:
             logger.warning(
-                f"Semantic conflict detection failed (may be expected for simple merges): {e}"
+                "Semantic conflict detection failed (may be expected for simple merges): %s",
+                sanitize_log(e),
             )
             # Return empty result - semantic detection is optional
             return {
@@ -240,7 +244,11 @@ class ConflictService:
         Returns:
             Dictionary with resolution results
         """
-        logger.info(f"Resolving conflicts for task {task_id} (use_ai={use_ai})")
+        logger.info(
+            "Resolving conflicts for task %s (use_ai=%s)",
+            sanitize_log(task_id),
+            sanitize_log(use_ai),
+        )
 
         try:
             # Run in thread pool to avoid blocking
@@ -256,10 +264,10 @@ class ConflictService:
             return result
 
         except Exception as e:
-            logger.error(f"Conflict resolution failed: {e}")
+            logger.error("Conflict resolution failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
                 "resolved": [],
                 "remaining": [],
             }
@@ -347,7 +355,7 @@ class ConflictService:
             }
 
         except Exception as e:
-            logger.error(f"Resolution sync failed: {e}")
+            logger.error("Resolution sync failed: %s", sanitize_log(e))
             return {
                 "success": False,
                 "resolved": [],
@@ -388,7 +396,7 @@ class ConflictService:
         Returns:
             Dictionary with merged content and success status
         """
-        logger.info(f"AI three-way merge for {file_path}")
+        logger.info("AI three-way merge for %s", sanitize_log(file_path))
 
         try:
             loop = asyncio.get_event_loop()
@@ -405,10 +413,10 @@ class ConflictService:
             return result
 
         except Exception as e:
-            logger.error(f"AI merge failed: {e}")
+            logger.error("AI merge failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
             }
 
     def _ai_merge_three_way_sync(
@@ -425,8 +433,9 @@ class ConflictService:
 
         try:
             # Use the backend's simple client with OAuth authentication
-            from core.simple_client import create_simple_client
             import asyncio
+
+            from core.simple_client import create_simple_client
 
             prompt = f"""You are a code merge expert. Merge the following three versions of a file.
 
@@ -494,10 +503,10 @@ TASK: Intelligently merge both sets of changes into the base.
                 }
 
         except Exception as e:
-            logger.error(f"AI merge sync failed: {e}")
+            logger.error("AI merge sync failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
             }
 
     async def resolve_conflict_markers(
@@ -518,7 +527,7 @@ TASK: Intelligently merge both sets of changes into the base.
         Returns:
             Dictionary with resolved content and success status
         """
-        logger.info(f"Resolving conflict markers in {file_path}")
+        logger.info("Resolving conflict markers in %s", sanitize_log(file_path))
 
         try:
             loop = asyncio.get_event_loop()
@@ -531,10 +540,10 @@ TASK: Intelligently merge both sets of changes into the base.
             return result
 
         except Exception as e:
-            logger.error(f"Conflict marker resolution failed: {e}")
+            logger.error("Conflict marker resolution failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
             }
 
     def _resolve_conflict_markers_sync(
@@ -547,8 +556,9 @@ TASK: Intelligently merge both sets of changes into the base.
 
         try:
             # Use the backend's simple client with OAuth authentication
-            from core.simple_client import create_simple_client
             import asyncio
+
+            from core.simple_client import create_simple_client
 
             # Count conflict blocks for context
             conflict_count = content.count("<<<<<<< ")
@@ -625,7 +635,9 @@ Return ONLY the raw file content."""
                 )
 
                 if markers_remaining:
-                    logger.warning(f"AI resolution still has conflict markers in {file_path}")
+                    logger.warning(
+                        "AI resolution still has conflict markers in %s", sanitize_log(file_path)
+                    )
                     # Return success but let caller handle the markers
                     return {
                         "success": True,
@@ -644,10 +656,10 @@ Return ONLY the raw file content."""
                 }
 
         except Exception as e:
-            logger.error(f"Conflict marker resolution sync failed: {e}")
+            logger.error("Conflict marker resolution sync failed: %s", sanitize_log(e))
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_message(logger, "operation failed", e, "The operation failed"),
             }
 
 

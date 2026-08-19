@@ -15,13 +15,15 @@ Follows the same subprocess + WebSocket pattern as agent_service.py:
 import asyncio
 import json
 import logging
-import os
 import re
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+
+from factory_common.logsafe import sanitize_log
+from server.error_ref import error_reference
 
 from ..config import get_settings
 from ..websockets.events import broadcast_event
@@ -83,7 +85,7 @@ def _load_env_file(env_file: Path, env: dict) -> None:
                     if k not in env:
                         env[k] = v
     except Exception as e:
-        logger.warning(f"Failed to load env file {env_file}: {e}")
+        logger.warning("Failed to load env file %s: %s", sanitize_log(env_file), sanitize_log(e))
 
 
 class PRReviewLogWriter:
@@ -150,7 +152,7 @@ class PRReviewLogWriter:
             self._logs_file.parent.mkdir(parents=True, exist_ok=True)
             self._logs_file.write_text(json.dumps(self._data, indent=2))
         except OSError as e:
-            logger.warning(f"Failed to write review logs: {e}")
+            logger.warning("Failed to write review logs: %s", sanitize_log(e))
 
 
 class PRReviewService:
@@ -218,7 +220,7 @@ class PRReviewService:
         """
         key = self._review_key(project_id, pr_number)
         if key in self.running_reviews:
-            logger.warning(f"PR review already running for {key}")
+            logger.warning("PR review already running for %s", sanitize_log(key))
             return False
 
         settings = get_settings()
@@ -226,7 +228,7 @@ class PRReviewService:
         runner_script = backend_path / "runners" / "github" / "runner.py"
 
         if not runner_script.exists():
-            logger.error(f"GitHub runner not found at {runner_script}")
+            logger.error("GitHub runner not found at %s", sanitize_log(runner_script))
             await self._emit_error(project_id, pr_number, "GitHub runner not found")
             return False
 
@@ -241,7 +243,7 @@ class PRReviewService:
             str(pr_number),
         ]
 
-        logger.info(f"Starting PR review for {key}: {' '.join(cmd)}")
+        logger.info("Starting PR review for %s: %s", sanitize_log(key), sanitize_log(" ".join(cmd)))
 
         # Set up environment — scrub ANTHROPIC_API_KEY (OAuth-only policy).
         from ..utils.subprocess_env import make_subprocess_env
@@ -305,10 +307,16 @@ class PRReviewService:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to start PR review: {e}")
-            log_writer.add_entry(PRReviewPhase.FAILED, f"Failed to start: {e}")
+            logger.error("Failed to start PR review: %s", sanitize_log(e))
+            # _emit_error and the log writer both reach the browser (WebSocket
+            # event / review-log panel), so the exception text cannot go in
+            # either - it names the workspace path and the coder binary (CWE-209).
+            ref = error_reference(logger, f"start PR review for #{pr_number}", e)
+            log_writer.add_entry(PRReviewPhase.FAILED, f"Failed to start (reference {ref})")
             log_writer.finalize("failed")
-            await self._emit_error(project_id, pr_number, str(e))
+            await self._emit_error(
+                project_id, pr_number, f"the review could not be started (reference {ref})"
+            )
             self._cleanup(key)
             return False
 
@@ -323,10 +331,10 @@ class PRReviewService:
             try:
                 proc.terminate()
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
             except Exception as e:
-                logger.error(f"Error cancelling PR review: {e}")
+                logger.error("Error cancelling PR review: %s", sanitize_log(e))
 
         # Finalize logs for cancelled review
         log_writer = self._log_writers.get(key)
@@ -365,7 +373,7 @@ class PRReviewService:
                     line = line_bytes.decode("utf-8", errors="replace").rstrip()
                     if line:
                         stderr_lines.append(line)
-                        logger.debug(f"[{key}] STDERR: {line}")
+                        logger.debug("[%s] STDERR: %s", sanitize_log(key), sanitize_log(line))
 
             # Start stderr reader in background
             stderr_task = asyncio.create_task(read_stderr())
@@ -375,7 +383,7 @@ class PRReviewService:
                 line = line_bytes.decode("utf-8", errors="replace").rstrip()
                 if not line:
                     continue
-                logger.debug(f"[{key}] {line}")
+                logger.debug("[%s] %s", sanitize_log(key), sanitize_log(line))
 
                 # Parse progress from runner output
                 phase, progress, message = self._parse_progress(line)
@@ -421,7 +429,9 @@ class PRReviewService:
                     if stderr_lines
                     else f"PR review failed with exit code {return_code}"
                 )
-                logger.error(f"PR review failed for {key}: {error_msg}")
+                logger.error(
+                    "PR review failed for %s: %s", sanitize_log(key), sanitize_log(error_msg)
+                )
 
                 # Finalize logs on failure
                 if log_writer:
@@ -433,19 +443,26 @@ class PRReviewService:
                 await self._emit_error(project_id, pr_number, error_msg)
 
         except asyncio.CancelledError:
-            logger.info(f"PR review cancelled for {key}")
+            logger.info("PR review cancelled for %s", sanitize_log(key))
             raise
-        except Exception as e:
-            logger.error(f"Error processing PR review output: {e}", exc_info=True)
+        except Exception as e:  # noqa: BLE001
+            # BLE001 exempts a blind except whose body calls logger.exception /
+            # logger.error(exc_info=True), which this one used to do inline.
+            # error_reference does exactly that logging, with the full traceback,
+            # one frame deeper than ruff looks - so the exemption is lost even
+            # though the handler is strictly more diligent than before.
+            ref = error_reference(logger, f"process PR review output for #{pr_number}", e)
 
             # Finalize logs on unexpected error
             if log_writer:
                 current_phase = self._current_phases.get(key, PRReviewPhase.STARTING)
-                log_writer.add_entry(current_phase, f"Unexpected error: {e}")
+                log_writer.add_entry(current_phase, f"Unexpected error (reference {ref})")
                 log_writer.complete_phase(current_phase, "failed")
                 log_writer.finalize("failed")
 
-            await self._emit_error(project_id, pr_number, f"Unexpected error: {str(e)}")
+            await self._emit_error(
+                project_id, pr_number, f"the review failed unexpectedly (reference {ref})"
+            )
         finally:
             self._cleanup(key)
 
@@ -485,7 +502,14 @@ class PRReviewService:
         if progress is None:
             progress = PHASE_PROGRESS.get(phase, 0)
 
-        logger.info(f"[{project_id}:PR#{pr_number}] Phase: {phase.value} ({progress}%) - {message}")
+        logger.info(
+            "[%s:PR#%s] Phase: %s (%s%%) - %s",
+            sanitize_log(project_id),
+            sanitize_log(pr_number),
+            sanitize_log(phase.value),
+            sanitize_log(progress),
+            sanitize_log(message),
+        )
 
         await broadcast_event(
             "pr:review-progress",
@@ -508,7 +532,7 @@ class PRReviewService:
 
         Reads stored review result from disk if available.
         """
-        logger.info(f"[{project_id}:PR#{pr_number}] Review complete")
+        logger.info("[%s:PR#%s] Review complete", sanitize_log(project_id), sanitize_log(pr_number))
 
         # Try to read stored review result JSON from the project's .pfactory directory
         # Runner saves to: .pfactory/github/pr/review_{pr_number}.json
@@ -518,7 +542,7 @@ class PRReviewService:
             try:
                 result_data = json.loads(review_file.read_text())
             except (json.JSONDecodeError, OSError) as e:
-                logger.warning(f"Failed to read review result: {e}")
+                logger.warning("Failed to read review result: %s", sanitize_log(e))
 
         from .pr_data_service import _convert_keys
 
@@ -538,7 +562,12 @@ class PRReviewService:
         error: str,
     ):
         """Emit error event via WebSocket."""
-        logger.error(f"[{project_id}:PR#{pr_number}] Review error: {error}")
+        logger.error(
+            "[%s:PR#%s] Review error: %s",
+            sanitize_log(project_id),
+            sanitize_log(pr_number),
+            sanitize_log(error),
+        )
 
         await broadcast_event(
             "pr:review-error",

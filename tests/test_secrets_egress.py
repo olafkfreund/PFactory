@@ -65,7 +65,11 @@ def test_build_manifest_secret_free(tmp_path):
     assert env_row.egress_class == "local"  # env backend is LOCAL
     md = m.render_markdown()
     # secret-free: no values, just names/backends/destinations
-    assert "api.staging.example.com" in md and "GOOGLE_APPLICATION_CREDENTIALS" in md
+    # The whole destination row, not a bare host substring: the loose check
+    # passes even if the host is rendered without its declared name, which is
+    # what makes the manifest readable.
+    assert "- api → `api.staging.example.com`" in md
+    assert "GOOGLE_APPLICATION_CREDENTIALS" in md
     assert "proj/sa" not in md  # the ref locator is not leaked into the table
 
 

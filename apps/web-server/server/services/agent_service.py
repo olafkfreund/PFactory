@@ -13,6 +13,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from factory_common.logsafe import sanitize_log
 from server.services.git_utils import safe_spec_component
 
 from ..config import get_settings
@@ -33,20 +34,22 @@ from .task_log_writer import TaskLogWriter as TaskLogWriter  # noqa: PLC0414
 # unchanged. The ``X as X`` form is the mypy-standard explicit re-export idiom
 # (satisfies no_implicit_reexport); PLC0414 is suppressed per-line because the
 # rule fires on non-renaming aliases but the pattern IS intentional here.
-from .task_models import PHASE_RANGES as PHASE_RANGES  # noqa: PLC0414
-from .task_models import TaskLog as TaskLog  # noqa: PLC0414
-from .task_models import TaskPhase as TaskPhase  # noqa: PLC0414
-from .task_models import TaskProgress as TaskProgress  # noqa: PLC0414
-from .task_models import _dedup_signature as _dedup_signature  # noqa: PLC0414
-from .task_models import phase_to_review_reason as phase_to_review_reason  # noqa: PLC0414
-from .task_models import phase_to_status as phase_to_status  # noqa: PLC0414
-from .task_models import scale_progress as scale_progress  # noqa: PLC0414
+from .task_models import (
+    PHASE_RANGES as PHASE_RANGES,  # noqa: PLC0414
+    TaskLog as TaskLog,  # noqa: PLC0414
+    TaskPhase as TaskPhase,  # noqa: PLC0414
+    TaskProgress as TaskProgress,  # noqa: PLC0414
+    _dedup_signature as _dedup_signature,  # noqa: PLC0414
+    phase_to_review_reason as phase_to_review_reason,  # noqa: PLC0414
+    phase_to_status as phase_to_status,  # noqa: PLC0414
+    scale_progress as scale_progress,  # noqa: PLC0414
+)
 
 
 class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonitorMixin):
     """Service for executing AI agents on tasks."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.settings = get_settings()
         self.running_tasks: dict[str, asyncio.subprocess.Process] = {}
         self._log_callbacks: dict[str, list[Callable]] = {}
@@ -160,7 +163,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         _logger = logging.getLogger(__name__)
         sig = _dedup_signature(payload)
         if not force and self._last_emitted_task_update.get(task_id) == sig:
-            _logger.debug("[AgentService] dedup-suppressed task:update for %s", task_id)
+            _logger.debug(
+                "[AgentService] dedup-suppressed task:update for %s", sanitize_log(task_id)
+            )
             return
         self._last_emitted_task_update[task_id] = sig
         await emit_task_update(task_id, payload)
@@ -229,7 +234,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                 import logging
 
                 logging.getLogger(__name__).debug(
-                    f"[AgentService] Could not read subtasks for {progress.task_id}: {e}"
+                    "[AgentService] Could not read subtasks for %s: %s",
+                    sanitize_log(progress.task_id),
+                    sanitize_log(e),
                 )
 
             await self._safe_emit_task_update(
@@ -260,7 +267,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         except Exception as e:
             import logging
 
-            logging.getLogger(__name__).warning(f"[AgentService] WebSocket broadcast failed: {e}")
+            logging.getLogger(__name__).warning(
+                "[AgentService] WebSocket broadcast failed: %s", sanitize_log(e)
+            )
 
         # Also emit to local callbacks
         callbacks = self._progress_callbacks.get(progress.task_id, [])
@@ -299,10 +308,18 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         )  # #335: barrier before path use (dominates plan_file)
         plan_file = project_path / ".pfactory" / "specs" / spec_id / "test_plan.json"
         logger.info(
-            f"[AgentService._update_plan_status] CALLED for spec_id={spec_id}, status={status}, task_id={task_id}"
+            "[AgentService._update_plan_status] CALLED for spec_id=%s, status=%s, task_id=%s",
+            sanitize_log(spec_id),
+            sanitize_log(status),
+            sanitize_log(task_id),
         )
-        logger.info(f"[AgentService._update_plan_status] plan_file path: {plan_file}")
-        logger.info(f"[AgentService._update_plan_status] plan_file exists: {plan_file.exists()}")
+        logger.info(
+            "[AgentService._update_plan_status] plan_file path: %s", sanitize_log(plan_file)
+        )
+        logger.info(
+            "[AgentService._update_plan_status] plan_file exists: %s",
+            sanitize_log(plan_file.exists()),
+        )
         if not plan_file.exists():
             logger.warning(
                 "[AgentService._update_plan_status] plan_file does not exist, returning early"
@@ -324,7 +341,8 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             # Don't overwrite if user explicitly marked task as done via kanban
             if plan.get("status") == "done":
                 logger.info(
-                    f"[AgentService._update_plan_status] Plan status is 'done' (user-set), skipping overwrite for {spec_id}"
+                    "[AgentService._update_plan_status] Plan status is 'done' (user-set), skipping overwrite for %s",
+                    sanitize_log(spec_id),
                 )
                 return
 
@@ -332,7 +350,8 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             # A valid plan should have phases and subtasks from spec creation
             if "phases" not in plan or not plan.get("phases"):
                 logger.error(
-                    f"[AgentService] Invalid or minimal implementation plan detected for {spec_id}"
+                    "[AgentService] Invalid or minimal implementation plan detected for %s",
+                    sanitize_log(spec_id),
                 )
                 if emit_events:
                     await self._safe_emit_task_status(task_id, "failed", "invalid_plan")
@@ -346,11 +365,17 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                 plan["status"] = status
 
             logger.info(
-                f"[AgentService._update_plan_status] About to write file with status={plan.get('status')}, reviewReason={plan.get('reviewReason')}"
+                "[AgentService._update_plan_status] About to write file with status=%s, reviewReason=%s",
+                sanitize_log(plan.get("status")),
+                sanitize_log(plan.get("reviewReason")),
             )
             plan_file.write_text(json.dumps(plan, indent=2))
             logger.info("[AgentService._update_plan_status] Successfully wrote plan_file")
-            logger.info(f"[AgentService] Updated plan status to '{plan['status']}' for {spec_id}")
+            logger.info(
+                "[AgentService] Updated plan status to '%s' for %s",
+                sanitize_log(plan["status"]),
+                sanitize_log(spec_id),
+            )
 
             # Extract subtasks for WebSocket broadcast
             subtasks_data = []
@@ -400,7 +425,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                     }
                 await self._safe_emit_task_update(task_id, update_payload)
         except Exception as e:
-            logger.error(f"[AgentService] Failed to update plan status: {e}")
+            logger.error("[AgentService] Failed to update plan status: %s", sanitize_log(e))
             # Still emit status event so frontend updates even if plan file write failed
             if emit_events:
                 try:
@@ -409,7 +434,8 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                     await self._safe_emit_task_status(task_id, fallback_status, fallback_reason)
                 except Exception:
                     logger.error(
-                        f"[AgentService] Failed to emit fallback task:status for {task_id}"
+                        "[AgentService] Failed to emit fallback task:status for %s",
+                        sanitize_log(task_id),
                     )
 
     async def start_spec_creation(
@@ -445,19 +471,20 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             task_metadata_file = spec_dir / "task_metadata.json"
             if task_metadata_file.exists():
                 try:
-                    import json
-
                     metadata = json.loads(task_metadata_file.read_text())
                     if metadata.get("requireReviewBeforeCoding", False):
                         should_auto_approve = False
                         logger.info(
-                            f"[AgentService] Task {task_id} requires manual review - NOT auto-approving spec"
+                            "[AgentService] Task %s requires manual review - NOT auto-approving spec",
+                            sanitize_log(task_id),
                         )
                     # Read spec phase model from auto profile config
                     if metadata.get("isAutoProfile") and metadata.get("phaseModels"):
                         spec_phase_model = metadata["phaseModels"].get("spec")
                 except (json.JSONDecodeError, OSError) as e:
-                    logger.warning(f"[AgentService] Failed to read task_metadata.json: {e}")
+                    logger.warning(
+                        "[AgentService] Failed to read task_metadata.json: %s", sanitize_log(e)
+                    )
 
         # Build command
         cmd = [
@@ -473,11 +500,14 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         if spec_phase_model:
             cmd.extend(["--model", spec_phase_model])
             logger.info(
-                f"[AgentService] [Model: {spec_phase_model}] Starting spec creation for {task_id}"
+                "[AgentService] [Model: %s] Starting spec creation for %s",
+                sanitize_log(spec_phase_model),
+                sanitize_log(task_id),
             )
         else:
             logger.info(
-                f"[AgentService] [Model: sonnet] Starting spec creation for {task_id} (default)"
+                "[AgentService] [Model: sonnet] Starting spec creation for %s (default)",
+                sanitize_log(task_id),
             )
 
         # Fix 1: Only auto-approve if task doesn't require manual review
@@ -504,7 +534,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         # Quick Mode for simple tasks (safety net if simple task reaches spec creation)
         if complexity == "simple":
             env["QUICK_MODE"] = "true"
-            logger.info(f"[AgentService] Quick Mode enabled for spec creation task {task_id}")
+            logger.info(
+                "[AgentService] Quick Mode enabled for spec creation task %s", sanitize_log(task_id)
+            )
 
         # Load backend .env file for graphiti and other settings
         backend_env_file = self.backend_path / ".env"
@@ -522,7 +554,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                                 env[key] = value
                 logger.info("[AgentService] Loaded backend .env for spec creation")
             except Exception as e:
-                logger.warning(f"[AgentService] Failed to load backend .env: {e}")
+                logger.warning("[AgentService] Failed to load backend .env: %s", sanitize_log(e))
 
         # Load project .pfactory/.env for project-level settings (USE_CLAUDE_MD, etc.)
         project_env_file = project_path / ".pfactory" / ".env"
@@ -539,14 +571,16 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                                 env[key] = value
                 logger.info("[AgentService] Loaded project .env for spec creation")
             except Exception as e:
-                logger.warning(f"[AgentService] Failed to load project .env: {e}")
+                logger.warning("[AgentService] Failed to load project .env: %s", sanitize_log(e))
 
         # Get OAuth token with profile tracking
         token, profile_id, profile_name = self._resolve_claude_token()
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
             logger.info(
-                f"[AgentService] Using Claude profile for spec creation: {profile_name} ({profile_id})"
+                "[AgentService] Using Claude profile for spec creation: %s (%s)",
+                sanitize_log(profile_name),
+                sanitize_log(profile_id),
             )
             # Store for potential retry tracking
             self._task_profiles[task_id] = {
@@ -656,67 +690,69 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         if auto_continue:
             cmd.append("--auto-continue")
 
-            # Check if human review before coding is required
-            # If so, don't pass --force to allow the approval gate
-            spec_dir = project_path / ".pfactory" / "specs" / spec_id
-            requirements_file = spec_dir / "requirements.json"
-            task_metadata_file = spec_dir / "task_metadata.json"
-            require_review = False
+        # Check if human review before coding is required
+        # If so, don't pass --force to allow the approval gate
+        spec_dir = project_path / ".pfactory" / "specs" / spec_id
+        requirements_file = spec_dir / "requirements.json"
+        task_metadata_file = spec_dir / "task_metadata.json"
+        require_review = False
 
-            # Sync metadata from requirements.json to task_metadata.json (Bug fix)
-            # Frontend writes to requirements.json, backend reads task_metadata.json
-            # Ensure they stay in sync to prevent requireReviewBeforeCoding mismatches
-            if requirements_file.exists():
-                try:
-                    import json
+        # Sync metadata from requirements.json to task_metadata.json (Bug fix)
+        # Frontend writes to requirements.json, backend reads task_metadata.json
+        # Ensure they stay in sync to prevent requireReviewBeforeCoding mismatches
+        if requirements_file.exists():
+            try:
+                requirements = json.loads(requirements_file.read_text())
+                frontend_metadata = requirements.get("metadata", {})
 
-                    requirements = json.loads(requirements_file.read_text())
-                    frontend_metadata = requirements.get("metadata", {})
-
-                    # Read existing task_metadata or create new
-                    if task_metadata_file.exists():
-                        task_metadata = json.loads(task_metadata_file.read_text())
-                    else:
-                        task_metadata = {}
-
-                    # Sync requireReviewBeforeCoding from frontend to backend
-                    if "requireReviewBeforeCoding" in frontend_metadata:
-                        task_metadata["requireReviewBeforeCoding"] = frontend_metadata[
-                            "requireReviewBeforeCoding"
-                        ]
-
-                    # Save updated task_metadata.json
-                    task_metadata_file.write_text(json.dumps(task_metadata, indent=2))
-
-                    require_review = task_metadata.get("requireReviewBeforeCoding", False)
-                except (json.JSONDecodeError, OSError) as e:
-                    logger.warning(f"[AgentService] Could not sync metadata for {task_id}: {e}")
-            elif task_metadata_file.exists():
-                try:
-                    import json
-
+                # Read existing task_metadata or create new
+                if task_metadata_file.exists():
                     task_metadata = json.loads(task_metadata_file.read_text())
-                    require_review = task_metadata.get("requireReviewBeforeCoding", False)
-                    # Note: Quick Mode no longer forces review - respect requireReviewBeforeCoding setting
-                except (json.JSONDecodeError, OSError):
-                    pass
+                else:
+                    task_metadata = {}
 
-            # Write skill context file based on selectedSkills in task_metadata
-            self._write_skill_context(spec_dir)
+                # Sync requireReviewBeforeCoding from frontend to backend
+                if "requireReviewBeforeCoding" in frontend_metadata:
+                    task_metadata["requireReviewBeforeCoding"] = frontend_metadata[
+                        "requireReviewBeforeCoding"
+                    ]
 
-            # Add --force flag if:
-            # 1. Review is not required OR
-            # 2. Plan was manually approved (force=True from approve_plan endpoint)
-            if not require_review or force:
-                cmd.append("--force")  # Bypass approval check for headless execution
-                if force:
-                    logger.info(
-                        f"[AgentService] Using --force for {task_id} (plan manually approved)"
-                    )
-            else:
-                logger.info(
-                    f"[AgentService] Human review before coding enabled for task {task_id} - not using --force"
+                # Save updated task_metadata.json
+                task_metadata_file.write_text(json.dumps(task_metadata, indent=2))
+
+                require_review = task_metadata.get("requireReviewBeforeCoding", False)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(
+                    "[AgentService] Could not sync metadata for %s: %s",
+                    sanitize_log(task_id),
+                    sanitize_log(e),
                 )
+        elif task_metadata_file.exists():
+            try:
+                task_metadata = json.loads(task_metadata_file.read_text())
+                require_review = task_metadata.get("requireReviewBeforeCoding", False)
+                # Note: Quick Mode no longer forces review - respect requireReviewBeforeCoding setting
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Write skill context file based on selectedSkills in task_metadata
+        self._write_skill_context(spec_dir)
+
+        # Add --force flag if:
+        # 1. Review is not required OR
+        # 2. Plan was manually approved (force=True from approve_plan endpoint)
+        if not require_review or force:
+            cmd.append("--force")  # Bypass approval check for headless execution
+            if force:
+                logger.info(
+                    "[AgentService] Using --force for %s (plan manually approved)",
+                    sanitize_log(task_id),
+                )
+        else:
+            logger.info(
+                "[AgentService] Human review before coding enabled for task %s - not using --force",
+                sanitize_log(task_id),
+            )
 
         if base_branch:
             cmd.extend(["--base-branch", base_branch])
@@ -724,12 +760,15 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         # Skip QA for quick mode (simple tasks) - coder_quick.md validates inline
         if mode == "quick":
             cmd.append("--skip-qa")
-            logger.info(f"[AgentService] Skipping QA for quick mode task {task_id}")
+            logger.info("[AgentService] Skipping QA for quick mode task %s", sanitize_log(task_id))
 
         # Stop after planning for Copilot delegation flow (#94)
         if stop_after_planning:
             cmd.append("--stop-after-planning")
-            logger.info(f"[AgentService] Stop-after-planning for {task_id} (Copilot delegation)")
+            logger.info(
+                "[AgentService] Stop-after-planning for %s (Copilot delegation)",
+                sanitize_log(task_id),
+            )
 
         # Set environment — scrub ANTHROPIC_API_KEY so spawned subprocesses
         # can never silently bill the direct-API account (OAuth-only policy;
@@ -744,7 +783,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         # Quick Mode: Use simplified prompts (~70% fewer tokens)
         if mode == "quick":
             env["QUICK_MODE"] = "true"
-            logger.info(f"[AgentService] Quick Mode enabled for task {task_id}")
+            logger.info("[AgentService] Quick Mode enabled for task %s", sanitize_log(task_id))
 
         # Load backend .env file for graphiti and other settings
         backend_env_file = self.backend_path / ".env"
@@ -760,9 +799,11 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                             # Don't override existing env vars
                             if key not in env:
                                 env[key] = value
-                logger.info(f"[AgentService] Loaded backend .env from {backend_env_file}")
+                logger.info(
+                    "[AgentService] Loaded backend .env from %s", sanitize_log(backend_env_file)
+                )
             except Exception as e:
-                logger.warning(f"[AgentService] Failed to load backend .env: {e}")
+                logger.warning("[AgentService] Failed to load backend .env: %s", sanitize_log(e))
 
         # Load project .pfactory/.env for project-level settings (USE_CLAUDE_MD, etc.)
         project_env_file = project_path / ".pfactory" / ".env"
@@ -779,13 +820,17 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                                 env[key] = value
                 logger.info("[AgentService] Loaded project .env for task execution")
             except Exception as e:
-                logger.warning(f"[AgentService] Failed to load project .env: {e}")
+                logger.warning("[AgentService] Failed to load project .env: %s", sanitize_log(e))
 
         # Get OAuth token with profile tracking
         token, profile_id, profile_name = self._resolve_claude_token()
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-            logger.info(f"[AgentService] Using Claude profile: {profile_name} ({profile_id})")
+            logger.info(
+                "[AgentService] Using Claude profile: %s (%s)",
+                sanitize_log(profile_name),
+                sanitize_log(profile_id),
+            )
             # Store for potential retry — read model from task_metadata.json
             exec_model = "sonnet"  # default
             exec_spec_dir = project_path / ".pfactory" / "specs" / spec_id
@@ -807,9 +852,11 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         exec_model_display = self._task_profiles.get(task_id, {}).get("model", "sonnet")
         logger.info(
-            f"[AgentService] [Model: {exec_model_display}] Starting task execution for {task_id}"
+            "[AgentService] [Model: %s] Starting task execution for %s",
+            sanitize_log(exec_model_display),
+            sanitize_log(task_id),
         )
-        logger.info(f"[AgentService] Command: {' '.join(cmd)}")
+        logger.info("[AgentService] Command: %s", sanitize_log(" ".join(cmd)))
 
         # Claude Code Remote Control (Issue #50 / native --remote-control flag).
         # When enabled per-task, the spawned `claude` registers a session with
@@ -857,13 +904,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
             env.pop("ANTHROPIC_AUTH_TOKEN", None)
             logger.warning(
-                "[AgentService] Remote Control ENABLED for task_id=%s — "
-                "session %r will appear in claude.ai/code. "
-                "Scrubbed CLAUDE_CODE_OAUTH_TOKEN/ANTHROPIC_AUTH_TOKEN — "
-                "agent will fall back to ~/.claude/.credentials.json "
-                "(must be a full-scope token from `claude auth login`).",
-                task_id,
-                _rc_session_name,
+                "[AgentService] Remote Control ENABLED for task_id=%s — session %r will appear in claude.ai/code. Scrubbed CLAUDE_CODE_OAUTH_TOKEN/ANTHROPIC_AUTH_TOKEN — agent will fall back to ~/.claude/.credentials.json (must be a full-scope token from `claude auth login`).",
+                sanitize_log(task_id),
+                sanitize_log(_rc_session_name),
             )
 
         # E2E test mode (Epic #44 R4): when PFACTORY_TEST_AGENT_CMD is
@@ -879,10 +922,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
             cmd = shlex.split(_test_cmd)
             logger.warning(
-                "[AgentService] PFACTORY_TEST_AGENT_CMD active — replacing "
-                "agent command with %r (task_id=%s). MUST NOT be set in prod.",
-                cmd,
-                task_id,
+                "[AgentService] PFACTORY_TEST_AGENT_CMD active — replacing agent command with %r (task_id=%s). MUST NOT be set in prod.",
+                sanitize_log(cmd),
+                sanitize_log(task_id),
             )
 
         # Start subprocess with a pseudo-TTY to prevent "Stream closed" errors
@@ -900,7 +942,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             spec_stderr_log.parent.mkdir(parents=True, exist_ok=True)
             spec_stderr_log.write_text("")  # truncate any previous capture
         except OSError as _e:
-            logger.debug(f"[AgentService] could not prep spawn_stderr.log: {_e}")
+            logger.debug("[AgentService] could not prep spawn_stderr.log: %s", sanitize_log(_e))
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -985,7 +1027,10 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             # Already swallowed inside _rmux_create; this except is a
             # belt-and-suspenders guard so a wrapper bug here cannot
             # take down task execution.
-            logger.warning(f"[AgentService] rmux create hook raised (ignored); spec_id={spec_id}")
+            logger.warning(
+                "[AgentService] rmux create hook raised (ignored); spec_id=%s",
+                sanitize_log(spec_id),
+            )
 
         return proc
 
@@ -996,7 +1041,8 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         logger = logging.getLogger(__name__)
         if task_id not in self.running_tasks:
             logger.info(
-                f"[AgentService] Task {task_id} not in running_tasks (already stopped or never started)"
+                "[AgentService] Task %s not in running_tasks (already stopped or never started)",
+                sanitize_log(task_id),
             )
             return False
 
@@ -1008,7 +1054,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
 
@@ -1026,7 +1072,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             main_log_writer.finalize(spec_id, actual_phase)
             main_log_writer.set_phase_status(spec_id, actual_phase, "failed")
             del self._task_log_writers[task_id]
-            logger.debug(f"[AgentService] Finalized task logs for stopped task {task_id}")
+            logger.debug(
+                "[AgentService] Finalized task logs for stopped task %s", sanitize_log(task_id)
+            )
 
         # Persist failed status to test_plan.json
         if spec_dir:
@@ -1045,7 +1093,8 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             await _rmux_reap(_reap_spec_id)
         except Exception:
             logger.warning(
-                f"[AgentService] rmux reap hook raised in stop_task (ignored); spec_id={_reap_spec_id}"
+                "[AgentService] rmux reap hook raised in stop_task (ignored); spec_id=%s",
+                sanitize_log(_reap_spec_id),
             )
 
         # Use pop with default to handle race condition where _monitor_process

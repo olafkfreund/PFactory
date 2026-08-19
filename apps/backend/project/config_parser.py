@@ -9,6 +9,7 @@ Utilities for reading and parsing project configuration files
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 # tomllib is available in Python 3.11+, use tomli for older versions
 if sys.version_info >= (3, 11):
@@ -35,15 +36,19 @@ class ConfigParser:
         """
         self.project_dir = Path(project_dir).resolve()
 
-    def read_json(self, filename: str) -> dict | None:
+    def read_json(self, filename: str) -> dict[str, Any] | None:
         """Read a JSON file from project root."""
         try:
             with open(self.project_dir / filename) as f:
-                return json.load(f)
+                data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return None
+        # A JSON document whose top level is an array (or a scalar) is not what
+        # this returns. Every caller immediately does `pkg.get(...)`, so leaking
+        # a list here was a latent AttributeError, not a wider return type.
+        return data if isinstance(data, dict) else None
 
-    def read_toml(self, filename: str) -> dict | None:
+    def read_toml(self, filename: str) -> dict[str, Any] | None:
         """Read a TOML file from project root."""
         try:
             with open(self.project_dir / filename, "rb") as f:
@@ -71,9 +76,8 @@ class ConfigParser:
             if "*" in p:
                 if list(self.project_dir.glob(p)):
                     return True
-            else:
-                if (self.project_dir / p).exists():
-                    return True
+            elif (self.project_dir / p).exists():
+                return True
         return False
 
     def glob_files(self, pattern: str) -> list[Path]:

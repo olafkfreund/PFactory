@@ -29,7 +29,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
+const { assertNotOption } = require('./argv-safety.cjs');
 
 // Colors for terminal output
 const colors = {
@@ -92,20 +93,44 @@ function bumpVersion(currentVersion, bumpType) {
   }
 }
 
-// Execute shell command
-function exec(command, options = {}) {
+// Run a command as an argv array -- never as a shell string.
+//
+// The old `exec(command)` built one string and handed it to execSync, i.e. to
+// `sh -c`. Two of its arguments came from outside the script: the requested
+// version (process.argv[2]) and __dirname, which is derived from the
+// interpreter's own path and so from the environment. That is
+// js/indirect-command-line-injection and
+// js/shell-command-injection-from-environment respectively. With execFileSync
+// there is no shell, so no argument is word-split or expanded.
+function run(file, args, options = {}) {
   try {
-    return execSync(command, { encoding: 'utf8', stdio: 'pipe', ...options }).trim();
+    return execFileSync(file, args, { encoding: 'utf8', stdio: 'pipe', ...options }).trim();
   } catch (err) {
-    error(`Command failed: ${command}\n${err.message}`);
+    error(`Command failed: ${file} ${args.join(' ')}\n${err.message}`);
   }
 }
 
 // Check if git working directory is clean
 function checkGitStatus() {
-  const status = exec('git status --porcelain');
+  const status = run('git', ['status', '--porcelain']);
   if (status) {
     error('Git working directory is not clean. Please commit or stash changes first.');
+  }
+}
+
+// Read a file, or return null when it genuinely does not exist.
+//
+// Deliberately NOT `existsSync(p) && readFileSync(p)`: that is a TOCTOU race
+// (CodeQL js/file-system-race) and, worse, it collapses "absent" and
+// "unreadable" into the same answer, so a permission error reads as a missing
+// file and the bump silently skips it. readFileSync already reports absence —
+// only ENOENT is treated as absent, everything else propagates.
+function readIfPresent(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
   }
 }
 
@@ -114,19 +139,20 @@ function updatePackageJson(newVersion) {
   const frontendPath = path.join(__dirname, '..', 'apps', 'frontend-web', 'package.json');
   const rootPath = path.join(__dirname, '..', 'package.json');
 
-  if (!fs.existsSync(frontendPath)) {
+  // Update frontend package.json
+  const frontendRaw = readIfPresent(frontendPath);
+  if (frontendRaw === null) {
     error(`package.json not found at ${frontendPath}`);
   }
-
-  // Update frontend package.json
-  const frontendJson = JSON.parse(fs.readFileSync(frontendPath, 'utf8'));
+  const frontendJson = JSON.parse(frontendRaw);
   const oldVersion = frontendJson.version;
   frontendJson.version = newVersion;
   fs.writeFileSync(frontendPath, JSON.stringify(frontendJson, null, 2) + '\n');
 
   // Update root package.json if it exists
-  if (fs.existsSync(rootPath)) {
-    const rootJson = JSON.parse(fs.readFileSync(rootPath, 'utf8'));
+  const rootRaw = readIfPresent(rootPath);
+  if (rootRaw !== null) {
+    const rootJson = JSON.parse(rootRaw);
     rootJson.version = newVersion;
     fs.writeFileSync(rootPath, JSON.stringify(rootJson, null, 2) + '\n');
   }
@@ -138,12 +164,12 @@ function updatePackageJson(newVersion) {
 function updateBackendInit(newVersion) {
   const initPath = path.join(__dirname, '..', 'apps', 'backend', '__init__.py');
 
-  if (!fs.existsSync(initPath)) {
+  let content = readIfPresent(initPath);
+  if (content === null) {
     warning(`Backend __init__.py not found at ${initPath}, skipping`);
     return false;
   }
 
-  let content = fs.readFileSync(initPath, 'utf8');
   content = content.replace(/__version__\s*=\s*"[^"]*"/, `__version__ = "${newVersion}"`);
   fs.writeFileSync(initPath, content);
   return true;
@@ -153,21 +179,29 @@ function updateBackendInit(newVersion) {
 function checkChangelogEntry(version) {
   const changelogPath = path.join(__dirname, '..', 'CHANGELOG.md');
 
-  if (!fs.existsSync(changelogPath)) {
+  const content = readIfPresent(changelogPath);
+  if (content === null) {
     warning('CHANGELOG.md not found - you will need to create it before releasing');
     return false;
   }
 
-  const content = fs.readFileSync(changelogPath, 'utf8');
+  return changelogHasVersion(content, version);
+}
 
-  // Look for "## X.Y.Z" or "## X.Y.Z -" header
-  const versionPattern = new RegExp(`^## ${version.replace(/\./g, '\\.')}(\\s|-)`, 'm');
-
-  if (versionPattern.test(content)) {
-    return true;
-  }
-
-  return false;
+// Does the changelog carry a "## X.Y.Z" or "## X.Y.Z - date" header?
+//
+// This used to build a RegExp from argv with `version.replace(/\./g, '\\.')`,
+// which escaped dots and nothing else — every other metacharacter stayed live,
+// so `bump-version.js '.*'` matched any header at all (CodeQL js/regex-injection
+// + js/incomplete-sanitization). The match is literal anyway, so compare strings.
+function changelogHasVersion(content, version) {
+  const prefix = `## ${version}`;
+  return content.split('\n').some((line) => {
+    if (!line.startsWith(prefix)) return false;
+    const next = line.charAt(prefix.length);
+    // End of line, whitespace, or the "## X.Y.Z - date" form.
+    return next === '' || next === '-' || /\s/.test(next);
+  });
 }
 
 // Main function
@@ -202,7 +236,12 @@ function main() {
 
   // 4. Validate release (check for branch/tag conflicts)
   info('Validating release...');
-  exec(`node ${path.join(__dirname, 'validate-release.js')} v${newVersion}`);
+  // No `--` here: node does not strip it after the script path, so it would
+  // arrive as validate-release.js's process.argv[2] instead of the version.
+  // assertNotOption is what keeps the script path (derived from __dirname, i.e.
+  // from where the interpreter was invoked) from being read as a node flag.
+  const validateScript = assertNotOption(path.join(__dirname, 'validate-release.js'), 'script path');
+  run(process.execPath, [validateScript, `v${newVersion}`]);
   success('Release validation passed');
 
   // 5. Update all version files
@@ -249,8 +288,8 @@ function main() {
 
   // 7. Create git commit
   info('Creating git commit...');
-  exec('git add apps/frontend-web/package.json package.json apps/backend/__init__.py');
-  exec(`git commit -m "chore: bump version to ${newVersion}"`);
+  run('git', ['add', '--', 'apps/frontend-web/package.json', 'package.json', 'apps/backend/__init__.py']);
+  run('git', ['commit', '-m', `chore: bump version to ${newVersion}`]);
   success(`Created commit: "chore: bump version to ${newVersion}"`);
 
   // Note: Tags are NOT created here anymore. GitHub Actions will create the tag
@@ -284,5 +323,9 @@ function main() {
   log('\n✨ Version bump complete!\n', colors.green);
 }
 
-// Run
-main();
+// Run — unless imported by scripts/bump-version.test.mjs.
+if (require.main === module) {
+  main();
+}
+
+module.exports = { readIfPresent, changelogHasVersion };

@@ -200,7 +200,7 @@ def fix_task(spec_dir: Path, dry_run: bool = False) -> bool:
     return fixed
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Fix stuck tasks in PFactory projects")
     parser.add_argument("project_path", type=Path, help="Path to the project directory")
     parser.add_argument(

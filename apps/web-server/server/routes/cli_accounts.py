@@ -20,6 +20,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, SecretStr
 
+from factory_common.logsafe import sanitize_log
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -202,7 +204,7 @@ def _read_json_file(path: Path) -> dict | None:
         if path.exists():
             return json.loads(path.read_text())
     except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Failed to read {path}: {e}")
+        logger.warning("Failed to read %s: %s", sanitize_log(path), sanitize_log(e))
     return None
 
 
@@ -254,7 +256,9 @@ def _check_latest_version(cli: str) -> str | None:
         if result.returncode == 0:
             return result.stdout.strip()
     except Exception as e:
-        logger.debug(f"Failed to check latest version for {package}: {e}")
+        logger.debug(
+            "Failed to check latest version for %s: %s", sanitize_log(package), sanitize_log(e)
+        )
     return None
 
 
@@ -428,7 +432,7 @@ def _poll_codex_token(mtime_before: float) -> None:
                             _broadcast_cli_auth_event("codex", True)
                             return
         except Exception as e:
-            logger.warning(f"[Codex] Polling error: {e}")
+            logger.warning("[Codex] Polling error: %s", sanitize_log(e))
         time.sleep(2)
     logger.warning("[Codex] Credentials not detected within timeout")
     _broadcast_cli_auth_event("codex", False)
@@ -490,7 +494,7 @@ def _poll_gemini_token(mtime_before: float) -> None:
                     _broadcast_cli_auth_event("gemini", True)
                     return
         except Exception as e:
-            logger.warning(f"[Gemini] Polling error: {e}")
+            logger.warning("[Gemini] Polling error: %s", sanitize_log(e))
         time.sleep(2)
     logger.warning("[Gemini] Credentials not detected within timeout")
     _broadcast_cli_auth_event("gemini", False)
@@ -507,7 +511,7 @@ def _broadcast_cli_auth_event(cli: str, success: bool) -> None:
         )
         loop.close()
     except Exception as e:
-        logger.warning(f"Failed to broadcast cli-account-auth event: {e}")
+        logger.warning("Failed to broadcast cli-account-auth event: %s", sanitize_log(e))
 
 
 # ---------------------------------------------------------------------------
@@ -752,7 +756,7 @@ def install_or_update_cli(cli: str):
                 "error": "Node.js/npm not found. Please install Node.js first.",
             }
     except Exception:
-        logger.exception("[%s] Failed to check Node.js/npm availability", cli)
+        logger.exception("[%s] Failed to check Node.js/npm availability", sanitize_log(cli))
         return {
             "success": False,
             "error": "Failed to check Node.js availability.",
@@ -760,7 +764,7 @@ def install_or_update_cli(cli: str):
 
     # Step 2: Install/update via npm
     try:
-        logger.info(f"[{cli}] Running npm install -g {package}...")
+        logger.info("[%s] Running npm install -g %s...", sanitize_log(cli), sanitize_log(package))
         if cli == "gemini":
             install_result = _run(
                 [
@@ -796,14 +800,14 @@ def install_or_update_cli(cli: str):
                     symlink_path.symlink_to("gemini")
                     logger.info("Successfully created antigravity -> gemini symlink.")
             except Exception as se:
-                logger.error(f"Failed to create symlink: {se}")
+                logger.error("Failed to create symlink: %s", sanitize_log(se))
     except subprocess.TimeoutExpired:
         return {
             "success": False,
             "error": "Installation timed out after 120 seconds.",
         }
     except Exception:
-        logger.exception("[%s] Installation failed", cli)
+        logger.exception("[%s] Installation failed", sanitize_log(cli))
         return {
             "success": False,
             "error": "Installation failed. Check server logs for details.",
@@ -818,7 +822,12 @@ def install_or_update_cli(cli: str):
         }
 
     action = "updated" if was_update else "installed"
-    logger.info(f"[{cli}] Successfully {action}: {new_version}")
+    logger.info(
+        "[%s] Successfully %s: %s",
+        sanitize_log(cli),
+        sanitize_log(action),
+        sanitize_log(new_version),
+    )
 
     return {
         "success": True,

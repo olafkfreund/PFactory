@@ -37,19 +37,20 @@ jobs:
   backend-lint-test:
     name: backend (ruff + pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Need history back to the PR base for the diff-scoped ruff ratchet.
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -96,6 +97,26 @@ jobs:
         # web-server's requirements.txt from the install step above).
         run: apps/backend/.venv/bin/pytest tests/ apps/web-server/tests/ -m "not slow" -q
 
+      - name: Assert the hub pin is really on hub main
+        # HUB_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy, and check_schema_drift.py hands it to
+        # raw.githubusercontent as a ref against olafkfreund/Factory. GitHub
+        # serves every fork of a repo from one object store, so a commit that
+        # exists only in a fork of Factory is still fetchable by SHA from
+        # Factory itself -- a fork PR could otherwise pin a canonical schema
+        # matching its own drifted vendored copy and this guard would compare
+        # two matching schemas and go green (Factory#806).
+        #
+        # `!cancelled()`, matching the step below: without it an earlier
+        # failure in this job SKIPS this assert while the guard it protects
+        # still runs. A step that silently skips is exactly the failure mode
+        # this change exists to close.
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/assert-hub-pin-on-main.sh "${HUB_SHA}" "ci.yml HUB_SHA"
+
       - name: Schema-drift guard (RFC-0010)
         # Fail if the vendored Task Contract schema drifts from the canonical
         # copy in the Factory hub at the PINNED HUB_SHA above. Soft-skips ONLY on
@@ -116,6 +137,7 @@ jobs:
   critical-fast:
     name: critical (fast PR gate)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Fast, hermetic, high-signal subset (pytest -m critical; the curated
     # module list lives in tests/conftest.py CRITICAL_MODULES). Mirrors the
     # full backend job's setup but runs only the critical lane so PRs get a
@@ -123,18 +145,18 @@ jobs:
     # `backend (ruff + pytest)`. Mark this a required check in branch
     # protection so it gates merges.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Need history back to the PR base for the diff-scoped ruff ratchet.
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -174,6 +196,7 @@ jobs:
   postgres-acceptance:
     name: postgres (P1 acceptance, PG ${{ matrix.pg }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -195,15 +218,15 @@ jobs:
     env:
       TEST_POSTGRES_URL: "postgresql+asyncpg://pfactory_test:pfactory_test@localhost:5432/pfactory_test"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -223,6 +246,7 @@ jobs:
   secrets-acceptance:
     name: secrets (P2 acceptance)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # P2 EncryptedString / KMS acceptance. Three services run as
     # sidecars so the integration tests gate every PR:
     #   - postgres   → P2.3 column migration + backfill tests
@@ -279,15 +303,15 @@ jobs:
       VAULT_ADDR: "http://localhost:8200"
       VAULT_TOKEN: "root-test-token"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -307,13 +331,14 @@ jobs:
   oidc-acceptance:
     name: oidc (P3 acceptance)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # P3 OIDC SSO tests. Boots a Keycloak dev-mode container with the
     # `pfactory` realm imported from tests/oidc/fixtures/keycloak-realm.json.
     # Tests that need the IdP read OIDC_ISSUER_URL/CLIENT_ID/SECRET from
     # the job env. Until P3.1 lands real test bodies, the suite collects
     # cleanly with all 6 acceptance tests in skip-pending state.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Start Keycloak (with realm import)
         # Keycloak's official image's `start-dev` mode auto-unseals
@@ -338,12 +363,12 @@ jobs:
           done
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -366,15 +391,16 @@ jobs:
   helm-acceptance:
     name: helm (P4 acceptance)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # P4 Helm chart tests. The harness lands first (P4.0a) with all
     # seven acceptance tests skip-pending; chart templates + lint +
     # kubeconform + kind install arrive in P4.1+. Job is green from
     # day one — same pattern as P2.0a and P3.0a.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
         with:
           version: "3.16.0"
 
@@ -386,19 +412,19 @@ jobs:
           sudo install /tmp/kubeconform /usr/local/bin/
 
       - name: Install kind + kubectl
-        uses: helm/kind-action@v1.10.0
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc  # v1.14.0
         with:
           install_only: true
           version: "v0.24.0"
           kubectl_version: "v1.30.0"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -416,20 +442,21 @@ jobs:
   audit-acceptance:
     name: audit (P5 acceptance)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # P5 audit-hardening tests run entirely in-process against
     # in-memory SQLite — hash chain, retention job, GDPR erasure,
     # and export streaming are all pure-Python. No service container
     # needed. Same TDD-first scaffold as P2.0a/P3.0a/P4.0a.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -449,16 +476,17 @@ jobs:
   obs-acceptance:
     name: obs (P6 acceptance)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -478,12 +506,13 @@ jobs:
   rmux-acceptance:
     name: rmux (R0b acceptance)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Epic #44 / issue #45. R0b ships apps/web-server/server/rmux/wrapper.py
     # — the async subprocess wrapper that every later rmux phase depends
     # on. Tests run against a real rmux daemon installed on the runner.
     # The binary is pinned by SHA-256; see design doc §3.4.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install rmux v0.3.1 (linux-x86_64 gnu, SHA-256 pinned)
         run: |
@@ -508,12 +537,12 @@ jobs:
           rmux -V
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -533,20 +562,21 @@ jobs:
   evidence-acceptance:
     name: evidence (P7 acceptance)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # P7 closes the v1.0 Epic. Tests verify the compliance docs + the
     # three ship-readiness drill scripts exist and have the structural
     # contract auditors expect. No service containers — purely
     # filesystem / subprocess validation.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -564,11 +594,12 @@ jobs:
   frontend-typecheck:
     name: frontend (typecheck)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: "npm"
@@ -583,13 +614,14 @@ jobs:
   frontend-test:
     name: frontend (vitest)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Blocking vitest gate (Factory hub #261): runs the apps/frontend-web
     # component/unit suite so the tests can no longer silently rot.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: "npm"
@@ -604,6 +636,7 @@ jobs:
   frontend-lint:
     name: frontend (eslint, blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Blocking ESLint gate (Factory hub #261): ESLint 9 flat config
     # (typescript-eslint strictTypeChecked + react-hooks + jsx-a11y),
     # mirroring AIFactory. Tuned green at adoption via a warning baseline
@@ -611,10 +644,10 @@ jobs:
     # so net-new ERRORS and net-new WARNINGS over the baseline both fail
     # the build. Ratchet plan: see eslint.config.js TODOs.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: "npm"
@@ -631,12 +664,13 @@ jobs:
   docker-acceptance:
     name: docker (P0 acceptance)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Docker is preinstalled on ubuntu-latest runners. Tests opt-in via
     # `-m docker`; all are skipped until P0.1+ implementations land,
     # so this job is green from day 1 and turns red the moment an
     # implementation chunk lands but its acceptance test doesn't pass.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
         # buildx is needed for `docker buildx imagetools inspect`, used by
@@ -644,23 +678,46 @@ jobs:
         # support both amd64 + arm64 manifests. QEMU is NOT needed here —
         # the test inspects manifests, it doesn't cross-build. Cross-arch
         # building happens in release.yml at tag push time only.
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
 
+      # Trivy is PINNED, not `latest` (Factory#664). `latest` means the scanner
+      # changes without a commit, so a scan verdict is not attributable to
+      # anything in git and a Trivy release can turn the fleet red at once with
+      # no change from us. Bump deliberately, like image digests and CLI pins.
+      #
+      # Installed by the SHA-pinned first-party action rather than by fetching
+      # `contrib/install.sh` and `sh`-ing it (Factory#808). The installer commit
+      # was a workflow-file `env:`, and on a `pull_request` the workflow file is
+      # the PR's own copy; forks share one object store, so a fork PR could point
+      # that URL at its own script and the runner would execute it. A `uses:` ref
+      # is resolved by Actions, not by our shell, so the class is gone - and the
+      # action's own retry/download handling replaces the local retry loop.
+      #
+      # Do NOT add `continue-on-error` - a scan that passes without scanning is
+      # a control that would look identical having done nothing (rule 4.10). The
+      # closing `--version` asserts the binary is runnable, not assumed.
       - name: Install Trivy (for P0.8 CVE scan)
-        uses: aquasecurity/setup-trivy@v0.2.6
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
         with:
-          version: latest
+          version: v0.73.0
+          # The action puts its bin dir on $GITHUB_PATH itself, so no manual
+          # PATH append. `cache: false` - the vulnerability DB is fetched per
+          # scan regardless, caching would only hold the binary.
+          cache: false
+
+      - name: Assert Trivy is runnable
+        run: trivy --version
 
       - name: Install Syft (for P0.9 SBOM generation)
-        uses: anchore/sbom-action/download-syft@v0.17.8
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 
@@ -683,21 +740,22 @@ jobs:
   techdocs:
     name: techdocs (catalog + mkdocs build)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Guards the Backstage integration: validates catalog-info.yaml +
     # openapi.yaml + mkdocs nav, then builds the TechDocs site with
     # --strict. A broken doc must not reach main, where the Backstage
     # instance (https://p510.tail833f7.ts.net/backstage) builds these
     # docs on demand from the repo source (techdocs.builder: local).
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: "latest"
 

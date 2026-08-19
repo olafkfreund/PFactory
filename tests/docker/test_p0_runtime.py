@@ -5,22 +5,24 @@ import pytest
 from tests.docker.helpers import (
     DOCKERFILE_PATH,
     docker_run,
-    wait_for_health,
+    health_or_explain,
 )
 
 
 @pytest.mark.docker
 @pytest.mark.slow
 def test_health_endpoint_responds(built_image: str, container_name: str, free_port: int) -> None:
-    """P0.2 — container starts and `GET /api/health` returns 200 within 30s."""
+    """P0.2 — container starts and `GET /api/health` returns 200 within 60s."""
     docker_run(
         built_image,
         detach=True,
         publish=[f"{free_port}:3114"],
         name=container_name,
     )
-    assert wait_for_health(f"http://localhost:{free_port}/api/health", timeout=60), \
-        "container did not become healthy within 30s"
+    detail = health_or_explain(
+        f"http://localhost:{free_port}/api/health", container_name, timeout=60
+    )
+    assert not detail, "container did not become healthy" + "\n" + detail
 
 
 @pytest.mark.docker
@@ -30,10 +32,10 @@ def test_no_iptables_in_dockerfile() -> None:
     Egress control moves to K8s NetworkPolicy (P4), not in the image.
     """
     content = DOCKERFILE_PATH.read_text()
-    assert "iptables" not in content.lower(), \
+    assert "iptables" not in content.lower(), (
         "Dockerfile still references iptables; egress control belongs in NetworkPolicy"
-    assert "NET_ADMIN" not in content, \
-        "Dockerfile still grants NET_ADMIN"
+    )
+    assert "NET_ADMIN" not in content, "Dockerfile still grants NET_ADMIN"
 
 
 @pytest.mark.docker
@@ -46,8 +48,12 @@ def test_no_net_admin_required(built_image: str, container_name: str, free_port:
         publish=[f"{free_port}:3114"],
         name=container_name,
     )
-    assert wait_for_health(f"http://localhost:{free_port}/api/health", timeout=60), \
-        "container failed without NET_ADMIN; entrypoint still depends on it"
+    detail = health_or_explain(
+        f"http://localhost:{free_port}/api/health", container_name, timeout=60
+    )
+    assert not detail, (
+        "container failed without NET_ADMIN; entrypoint still depends on it" + "\n" + detail
+    )
 
 
 @pytest.mark.docker
@@ -55,8 +61,9 @@ def test_no_net_admin_required(built_image: str, container_name: str, free_port:
 def test_no_entrypoint_shell_script(built_image: str) -> None:
     """P0.3 — the legacy shell entrypoint is absent from the image filesystem."""
     result = docker_run(built_image, "ls", "/usr/local/bin/docker-entrypoint.sh", timeout=10)
-    assert result.returncode != 0, \
+    assert result.returncode != 0, (
         "Image still ships docker-entrypoint.sh; entrypoint should be a direct CMD"
+    )
 
 
 @pytest.mark.docker
@@ -65,8 +72,9 @@ def test_runs_as_uid_65532(built_image: str) -> None:
     """P0.4 — `id -u` inside the container returns 65532 (Chainguard's nonroot)."""
     result = docker_run(built_image, "id", "-u", timeout=10)
     assert result.returncode == 0, f"`id -u` failed: {result.stderr}"
-    assert result.stdout.strip() == "65532", \
+    assert result.stdout.strip() == "65532", (
         f"Container runs as uid {result.stdout.strip()}, expected 65532"
+    )
 
 
 @pytest.mark.docker
@@ -95,8 +103,14 @@ def test_runs_with_read_only_root_fs(built_image: str, container_name: str, free
             "/home/nonroot/.pfactory:size=100m,uid=65532,gid=65532",
         ],
     )
-    assert wait_for_health(f"http://localhost:{free_port}/api/health", timeout=60), \
+    detail = health_or_explain(
+        f"http://localhost:{free_port}/api/health", container_name, timeout=60
+    )
+    assert not detail, (
         "container failed with --read-only; identify writable paths and mount them as tmpfs"
+        + "\n"
+        + detail
+    )
 
 
 @pytest.mark.docker
@@ -111,5 +125,9 @@ def test_dropped_capabilities(built_image: str, container_name: str, free_port: 
         cap_drop=["ALL"],
         security_opt=["no-new-privileges"],
     )
-    assert wait_for_health(f"http://localhost:{free_port}/api/health", timeout=60), \
-        "container failed with --cap-drop ALL; remove any cap-requiring operations"
+    detail = health_or_explain(
+        f"http://localhost:{free_port}/api/health", container_name, timeout=60
+    )
+    assert not detail, (
+        "container failed with --cap-drop ALL; remove any cap-requiring operations" + "\n" + detail
+    )

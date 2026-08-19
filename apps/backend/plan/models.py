@@ -143,7 +143,22 @@ class NormalizedPlan(BaseModel):
         return "\n".join(parts)
 
     def compute_hash(self) -> str:
-        return hashlib.md5(self.canonical_content().encode("utf-8")).hexdigest()
+        # md5 with usedforsecurity=False, deliberately (Factory#726). This is a
+        # CHANGE-DETECTION digest: it decides whether an approved plan is still
+        # the plan that was approved. It is not a signature and nothing trusts
+        # it against a forger — the approval itself is the authority, and a
+        # collision buys an attacker who can already edit the plan nothing they
+        # do not already have.
+        #
+        # The kwarg, not a switch to sha256: the hash is PERSISTED on every
+        # signed plan, and changing the algorithm would invalidate every
+        # existing signature at once. `usedforsecurity=False` leaves the digest
+        # byte-identical while declaring the intent that the linter (S324) and
+        # the next reader were both asking for. It also keeps this working on
+        # FIPS builds, where an undeclared md5 raises.
+        return hashlib.md5(
+            self.canonical_content().encode("utf-8"), usedforsecurity=False
+        ).hexdigest()
 
     def with_hash(self) -> NormalizedPlan:
         """Return a copy with ``content_hash`` set to the current content hash."""

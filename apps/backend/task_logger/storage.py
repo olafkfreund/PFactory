@@ -8,6 +8,7 @@ import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from .models import LogEntry, LogPhase
 
@@ -26,16 +27,22 @@ class LogStorage:
         """
         self.spec_dir = Path(spec_dir)
         self.log_file = self.spec_dir / self.LOG_FILE
-        self._data: dict = self._load_or_create()
+        self._data: dict[str, Any] = self._load_or_create()
 
-    def _load_or_create(self) -> dict:
+    def _load_or_create(self) -> dict[str, Any]:
         """Load existing logs or create new structure."""
         if self.log_file.exists():
             try:
                 with open(self.log_file, encoding="utf-8") as f:
-                    return json.load(f)
+                    loaded = json.load(f)
             except (OSError, json.JSONDecodeError):
                 pass
+            else:
+                # A valid JSON file whose top level is a list or a scalar is not a
+                # log document; every reader here subscripts it. Rebuild instead of
+                # handing callers something that fails on the next line.
+                if isinstance(loaded, dict):
+                    return loaded
 
         return {
             "spec_id": self.spec_dir.name,
@@ -137,13 +144,14 @@ class LogStorage:
         if phase in self._data["phases"]:
             self._data["phases"][phase]["started_at"] = started_at
 
-    def get_data(self) -> dict:
+    def get_data(self) -> dict[str, Any]:
         """Get all log data."""
         return self._data
 
-    def get_phase_data(self, phase: str) -> dict:
+    def get_phase_data(self, phase: str) -> dict[str, Any]:
         """Get data for a specific phase."""
-        return self._data["phases"].get(phase, {})
+        phase_data: dict[str, Any] = self._data["phases"].get(phase, {})
+        return phase_data
 
     def update_spec_id(self, new_spec_id: str) -> None:
         """
@@ -155,7 +163,7 @@ class LogStorage:
         self._data["spec_id"] = new_spec_id
 
 
-def load_task_logs(spec_dir: Path) -> dict | None:
+def load_task_logs(spec_dir: Path) -> dict[str, Any] | None:
     """
     Load task logs from a spec directory.
 
@@ -171,9 +179,12 @@ def load_task_logs(spec_dir: Path) -> dict | None:
 
     try:
         with open(log_file, encoding="utf-8") as f:
-            return json.load(f)
+            loaded = json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
+    # Same reason as _load_or_create: callers immediately do logs.get(...), which
+    # raises AttributeError on a top-level list.
+    return loaded if isinstance(loaded, dict) else None
 
 
 def get_active_phase(spec_dir: Path) -> str | None:
@@ -192,6 +203,6 @@ def get_active_phase(spec_dir: Path) -> str | None:
 
     for phase_name, phase_data in logs.get("phases", {}).items():
         if phase_data.get("status") == "active":
-            return phase_name
+            return str(phase_name)
 
     return None

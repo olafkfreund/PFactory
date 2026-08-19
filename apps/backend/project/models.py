@@ -7,6 +7,7 @@ custom scripts, and security profiles.
 """
 
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -59,7 +60,7 @@ class SecurityProfile:
             self.base_commands | self.stack_commands | self.script_commands | self.custom_commands
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict."""
         return {
             "base_commands": sorted(self.base_commands),
@@ -74,7 +75,7 @@ class SecurityProfile:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "SecurityProfile":
+    def from_dict(cls, data: dict[str, Any]) -> "SecurityProfile":
         """Load from dict."""
         profile = cls(
             base_commands=set(data.get("base_commands", [])),

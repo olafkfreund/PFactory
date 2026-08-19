@@ -18,6 +18,7 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
@@ -32,7 +33,7 @@ async def ingest_event(payload: dict) -> dict:
     try:
         state = REGISTRY.apply(payload)
     except SyncError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=client_error(exc)) from exc
     return state.model_dump()
 
 

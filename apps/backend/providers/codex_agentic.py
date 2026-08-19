@@ -98,7 +98,7 @@ class CodexAgenticProvider(BaseLLMProvider):
             timeout,
         )
 
-    async def _send_message(self, message: dict) -> None:
+    async def _send_message(self, message: dict[str, Any]) -> None:
         """Send a JSON-RPC message to the MCP server via stdin."""
         if not self._proc or not self._proc.stdin:
             raise RuntimeError("MCP server not running")
@@ -106,7 +106,7 @@ class CodexAgenticProvider(BaseLLMProvider):
         self._proc.stdin.write(line.encode("utf-8"))
         await self._proc.stdin.drain()
 
-    async def _read_response(self, expected_id: int) -> dict:
+    async def _read_response(self, expected_id: int) -> dict[str, Any]:
         """Read a JSON-RPC response from the MCP server stdout.
 
         Skips notification messages (no 'id' field) and waits for
@@ -131,6 +131,12 @@ class CodexAgenticProvider(BaseLLMProvider):
                 data = json.loads(text)
             except json.JSONDecodeError:
                 logger.debug("CodexMCP: skipping non-JSON line: %s", text[:200])
+                continue
+            if not isinstance(data, dict):
+                # A well-formed but non-object line (a bare number, `null`, a list)
+                # is not a JSON-RPC message. `"id" not in data` raises TypeError on
+                # a number, so it has to be filtered here, not by the check below.
+                logger.debug("CodexMCP: skipping non-object JSON line: %s", text[:200])
                 continue
 
             # Skip notifications (no id field)

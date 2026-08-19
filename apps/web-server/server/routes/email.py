@@ -8,24 +8,47 @@ Handles:
 - Checking OAuth credential configuration status
 """
 
+import html as html_lib
+import json
 import logging
 import os
 import secrets
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from functools import partial
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import delete, select
 
+from .._get_email_oauth_credentials import get_email_oauth_credentials, get_google_oauth_credentials
 from ..config import get_settings
 from ..database import EmailAccount
 from ..database.engine import async_session_factory
-from .._get_email_oauth_credentials import get_email_oauth_credentials, get_google_oauth_credentials
 
 logger = logging.getLogger(__name__)
+
+
+def _mask_email(address: str | None) -> str:
+    """Return an address safe to write to a log line (PFactory#517).
+
+    The OAuth connect paths logged the full address at INFO alongside the
+    user_id. The user_id is the correlator worth having; the address adds a
+    piece of personal data to every log sink that ever sees these lines, for no
+    operational gain. The domain is kept because "which provider did they
+    connect" is the question the line exists to answer.
+
+    Not reusing the scanner's ``redacted_fingerprint``: that is deliberately
+    non-reversible, and an operator reading these lines needs to be able to
+    tell which provider domain the account belongs to.
+    """
+    if not address or "@" not in address:
+        return "<redacted>"
+    local, _, domain = address.partition("@")
+    return f"{local[0]}***@{domain}" if local else f"***@{domain}"
 
 
 def _get_oauth_redirect_uri(request: Request, provider: str = "outlook") -> str:
@@ -42,20 +65,64 @@ def _get_oauth_redirect_uri(request: Request, provider: str = "outlook") -> str:
     return str(request.base_url).rstrip("/") + f"/api/email/auth/{provider}/callback"
 
 
+def _opener_origin(request: Request) -> str | None:
+    """Origin of the page that started this OAuth flow, or ``None`` if unrecognised.
+
+    The returned value becomes the ``targetOrigin`` of the popup's
+    ``postMessage`` (#541). It is captured at ``/start`` rather than read at
+    ``/callback`` because the callback is a top-level navigation arriving from
+    Microsoft or Google -- by then the only ``Origin`` on the wire is the
+    identity provider's, or none at all.
+
+    ``request.base_url`` is deliberately NOT used as a fallback: that is the
+    API's origin, and the opener is the portal. The two are the same host only
+    when everything is behind one tunnel, so trusting it would send the payload
+    to the wrong origin in exactly the split-origin deployment that makes the
+    wildcard dangerous in the first place.
+    """
+    candidate = request.headers.get("origin")
+    if not candidate:
+        # Same-origin GET does not carry Origin in most browsers; Referer does.
+        # Reduced to scheme://netloc so a path never reaches the comparison.
+        referer = request.headers.get("referer", "")
+        parts = urlsplit(referer)
+        if parts.scheme and parts.netloc:
+            candidate = f"{parts.scheme}://{parts.netloc}"
+    if not candidate:
+        return None
+    # Same "*" filter main.py applies when building the CORS middleware: a
+    # wildcard entry must not re-authorize the wildcard we are removing here.
+    allowed = [o for o in get_settings().CORS_ORIGINS if o != "*"]
+    return candidate if candidate in allowed else None
+
+
 router = APIRouter(prefix="/api/email", tags=["Email"])
 
-# In-memory OAuth state store: state_token -> {user_id, provider, created_at}
-# Entries expire after 10 minutes
-_oauth_states: dict[str, dict] = {}
+# In-memory CSRF-state store for the OAuth connect flow:
+#   state_token -> {user_id, provider, created_at, origin}
+# Entries expire after 10 minutes.
+#
+# Named for what it holds rather than for the protocol it belongs to. It holds
+# no credential -- no access token, no refresh token, no client secret; those
+# never enter this dict, they go straight from the token exchange into the
+# EmailAccount row. The old name (`_oauth_states`) made CodeQL classify every
+# value read out of it as a password by identifier heuristic, which is why
+# `logger.info(... user_id ...)` in both callbacks reported as
+# py/clear-text-logging-sensitive-data while logging nothing but a UUID -- the
+# `_mask_email` fix from #517 could not close it, because the address was never
+# the flagged expression.
+_pending_connect_states: dict[str, dict] = {}
 _STATE_TTL_SECONDS = 600
 
 
 def _cleanup_expired_states() -> None:
     """Remove expired OAuth state entries."""
     now = time.time()
-    expired = [k for k, v in _oauth_states.items() if now - v["created_at"] > _STATE_TTL_SECONDS]
+    expired = [
+        k for k, v in _pending_connect_states.items() if now - v["created_at"] > _STATE_TTL_SECONDS
+    ]
     for k in expired:
-        del _oauth_states[k]
+        del _pending_connect_states[k]
 
 
 def _get_user_id(request: Request) -> str:
@@ -167,7 +234,7 @@ async def send_test_email(account_id: str, request: Request):
 
     from ..services.email_service import email_service
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     subject = "PFactory - Test Email"
     body_html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
@@ -217,10 +284,11 @@ async def start_outlook_oauth(request: Request):
     # Generate state token
     _cleanup_expired_states()
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = {
+    _pending_connect_states[state] = {
         "user_id": user_id,
         "provider": "outlook",
         "created_at": time.time(),
+        "origin": _opener_origin(request),
     }
 
     callback_url = _get_oauth_redirect_uri(request)
@@ -268,7 +336,7 @@ async def outlook_oauth_callback(
 
     # Validate state
     _cleanup_expired_states()
-    state_data = _oauth_states.pop(state, None)
+    state_data = _pending_connect_states.pop(state, None)
     if not state_data:
         return _oauth_result_html(
             success=False,
@@ -276,11 +344,14 @@ async def outlook_oauth_callback(
         )
 
     user_id = state_data["user_id"]
+    # Bound once here rather than threaded through each of the eight exits
+    # below; every call site already passes keyword arguments (#541).
+    _result = partial(_oauth_result_html, target_origin=state_data.get("origin"))
 
     # Get credentials
     creds = get_email_oauth_credentials()
     if not creds:
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="OAuth credentials not configured on server",
         )
@@ -309,7 +380,7 @@ async def outlook_oauth_callback(
                 token_response.status_code,
                 token_response.text[:500],
             )
-            return _oauth_result_html(
+            return _result(
                 success=False,
                 message="Failed to exchange authorization code for tokens",
             )
@@ -317,7 +388,7 @@ async def outlook_oauth_callback(
         token_data = token_response.json()
     except Exception as e:
         logger.error("Outlook token exchange error: %s", e, exc_info=True)
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="Network error during token exchange",
         )
@@ -325,7 +396,7 @@ async def outlook_oauth_callback(
     access_token = token_data["access_token"]
     refresh_token = token_data.get("refresh_token")
     expires_in = token_data.get("expires_in", 3600)
-    token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    token_expiry = datetime.now(UTC) + timedelta(seconds=expires_in)
 
     # Fetch user email from Microsoft Graph
     try:
@@ -336,7 +407,7 @@ async def outlook_oauth_callback(
             )
 
         if me_response.status_code != 200:
-            return _oauth_result_html(
+            return _result(
                 success=False,
                 message="Failed to fetch user profile from Microsoft",
             )
@@ -345,13 +416,13 @@ async def outlook_oauth_callback(
         email_address = me_data.get("mail") or me_data.get("userPrincipalName", "")
     except Exception as e:
         logger.error("Failed to fetch MS Graph /me: %s", e, exc_info=True)
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="Failed to fetch user profile",
         )
 
     if not email_address:
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="Could not determine email address from Microsoft account",
         )
@@ -389,14 +460,14 @@ async def outlook_oauth_callback(
             await session.commit()
     except Exception as e:
         logger.error("Failed to save email account: %s", e, exc_info=True)
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="Failed to save email account to database",
         )
 
-    logger.info("Outlook account connected for user %s: %s", user_id, email_address)
+    logger.info("Outlook account connected for user %s: %s", user_id, _mask_email(email_address))
 
-    return _oauth_result_html(
+    return _result(
         success=True,
         message=f"Connected: {email_address}",
         email=email_address,
@@ -428,10 +499,11 @@ async def start_gmail_oauth(request: Request):
     # Generate state token
     _cleanup_expired_states()
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = {
+    _pending_connect_states[state] = {
         "user_id": user_id,
         "provider": "gmail",
         "created_at": time.time(),
+        "origin": _opener_origin(request),
     }
 
     callback_url = _get_oauth_redirect_uri(request, provider="gmail")
@@ -481,7 +553,7 @@ async def gmail_oauth_callback(
 
     # Validate state
     _cleanup_expired_states()
-    state_data = _oauth_states.pop(state, None)
+    state_data = _pending_connect_states.pop(state, None)
     if not state_data:
         return _oauth_result_html(
             success=False,
@@ -490,11 +562,14 @@ async def gmail_oauth_callback(
         )
 
     user_id = state_data["user_id"]
+    # Bound once here rather than threaded through each of the eight exits
+    # below; every call site already passes keyword arguments (#541).
+    _result = partial(_oauth_result_html, target_origin=state_data.get("origin"))
 
     # Get credentials
     creds = get_google_oauth_credentials()
     if not creds:
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="OAuth credentials not configured on server",
             provider="gmail",
@@ -523,7 +598,7 @@ async def gmail_oauth_callback(
                 token_response.status_code,
                 token_response.text[:500],
             )
-            return _oauth_result_html(
+            return _result(
                 success=False,
                 message="Failed to exchange authorization code for tokens",
                 provider="gmail",
@@ -532,7 +607,7 @@ async def gmail_oauth_callback(
         token_data = token_response.json()
     except Exception as e:
         logger.error("Gmail token exchange error: %s", e, exc_info=True)
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="Network error during token exchange",
             provider="gmail",
@@ -541,7 +616,7 @@ async def gmail_oauth_callback(
     access_token = token_data["access_token"]
     refresh_token = token_data.get("refresh_token")
     expires_in = token_data.get("expires_in", 3600)
-    token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    token_expiry = datetime.now(UTC) + timedelta(seconds=expires_in)
 
     # Fetch user email from Google userinfo
     try:
@@ -552,7 +627,7 @@ async def gmail_oauth_callback(
             )
 
         if userinfo_response.status_code != 200:
-            return _oauth_result_html(
+            return _result(
                 success=False,
                 message="Failed to fetch user profile from Google",
                 provider="gmail",
@@ -562,14 +637,14 @@ async def gmail_oauth_callback(
         email_address = userinfo.get("email", "")
     except Exception as e:
         logger.error("Failed to fetch Google userinfo: %s", e, exc_info=True)
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="Failed to fetch user profile",
             provider="gmail",
         )
 
     if not email_address:
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="Could not determine email address from Google account",
             provider="gmail",
@@ -608,15 +683,15 @@ async def gmail_oauth_callback(
             await session.commit()
     except Exception as e:
         logger.error("Failed to save Gmail account: %s", e, exc_info=True)
-        return _oauth_result_html(
+        return _result(
             success=False,
             message="Failed to save email account to database",
             provider="gmail",
         )
 
-    logger.info("Gmail account connected for user %s: %s", user_id, email_address)
+    logger.info("Gmail account connected for user %s: %s", user_id, _mask_email(email_address))
 
-    return _oauth_result_html(
+    return _result(
         success=True,
         message=f"Connected: {email_address}",
         email=email_address,
@@ -625,25 +700,52 @@ async def gmail_oauth_callback(
 
 
 def _oauth_result_html(
-    success: bool, message: str, email: str = "", provider: str = "outlook"
+    success: bool,
+    message: str,
+    email: str = "",
+    provider: str = "outlook",
+    target_origin: str | None = None,
 ) -> HTMLResponse:
-    """Return HTML that communicates the OAuth result to the opener window and closes itself."""
+    """Return HTML that communicates the OAuth result to the opener window and closes itself.
+
+    ``target_origin`` is the ``postMessage`` targetOrigin -- the origin recorded
+    by :func:`_opener_origin` when the flow started. It used to be the literal
+    ``'*'``, which means "deliver to whatever is loaded in the opener now,
+    whoever that is" (#541). The popup's lifetime spans a full third-party
+    round trip, so the opener can have navigated away in the meantime, and the
+    payload carries the connected address.
+
+    When it is ``None`` the postMessage is omitted entirely rather than falling
+    back to ``'*'``. A fallback that reinstates the wildcard on the unknown path
+    is the wildcard: the unknown path is precisely the one where we cannot name
+    the recipient. The page still renders the outcome and still closes; the
+    opener polls on focus, so the flow completes either way.
+    """
     status_text = "success" if success else "error"
-    html = f"""<!DOCTYPE html>
-<html>
-<head><title>PFactory - Email Connection</title></head>
-<body>
-<p>{message}</p>
-<script>
-  if (window.opener) {{
+    if target_origin:
+        notify = f"""  if (window.opener) {{
     window.opener.postMessage({{
       type: 'email-oauth-callback',
       status: '{status_text}',
       message: {_js_string(message)},
       email: {_js_string(email)},
       provider: {_js_string(provider)}
-    }}, '*');
-  }}
+    }}, {_js_string(target_origin)});
+  }}"""
+    else:
+        logger.warning(
+            "OAuth result for provider %s has no recognised opener origin; "
+            "not posting the result to the opener",
+            provider,
+        )
+        notify = "  // No recognised opener origin - see _opener_origin (#541)."
+    html = f"""<!DOCTYPE html>
+<html>
+<head><title>PFactory - Email Connection</title></head>
+<body>
+<p>{html_lib.escape(message)}</p>
+<script>
+{notify}
   setTimeout(function() {{ window.close(); }}, 2000);
 </script>
 </body>
@@ -652,5 +754,30 @@ def _oauth_result_html(
 
 
 def _js_string(s: str) -> str:
-    """Escape a string for safe embedding in JavaScript."""
-    return "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'"
+    """Encode a string as a JS literal safe inside an inline ``<script>``.
+
+    The hand-rolled quote/backslash/newline escaping this replaced did not touch
+    ``<``, so a value containing ``</script>`` closed the block and everything
+    after it was parsed as HTML - the callback's ``?error=`` query parameter is
+    attacker-supplied and reaches here verbatim (CWE-79, py/reflective-xss).
+
+    ``json.dumps`` is the JS string grammar, so it handles the quoting; the
+    translate table then covers what JSON and JS disagree about:
+
+    * ``<`` -> ``\\u003c`` so no substring of the value can ever spell
+      ``</script>``. Escaping the ``<`` is what makes this safe, not escaping
+      the quote - the HTML tokenizer looks for the tag, not for balanced JS.
+    * U+2028/U+2029 are legal in JSON strings but were line terminators in JS
+      before ES2019, and an old embedded webview is still a syntax error away
+      from executing the tail of the page as its own script.
+    """
+    return json.dumps(s).translate(_JS_LITERAL_ESCAPES)
+
+
+#: Written as ordinals rather than literal characters: U+2028/U+2029 are
+#: invisible in an editor and a reviewer cannot tell them from a space.
+_JS_LITERAL_ESCAPES = {
+    ord("<"): "\\u003c",
+    0x2028: "\\u2028",
+    0x2029: "\\u2029",
+}

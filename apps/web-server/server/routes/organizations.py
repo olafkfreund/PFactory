@@ -19,8 +19,10 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import select, func, delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from factory_common.logsafe import sanitize_log
 
 from ..database import Organization, OrgMember, User
 from ..database.engine import get_db
@@ -273,7 +275,11 @@ async def create_organization(
     await db.refresh(org)
 
     logger.info(
-        f"Organization created: {org.name} (slug={org.slug}, id={org.id}) by user {current_user.id}"
+        "Organization created: %s (slug=%s, id=%s) by user %s",
+        sanitize_log(org.name),
+        sanitize_log(org.slug),
+        sanitize_log(org.id),
+        sanitize_log(current_user.id),
     )
 
     return OrgResponse(
@@ -444,7 +450,7 @@ async def update_organization(
     )
     member_count = count_result.scalar() or 0
 
-    logger.info(f"Organization updated: {org.slug} (id={org.id})")
+    logger.info("Organization updated: %s (id=%s)", sanitize_log(org.slug), sanitize_log(org.id))
 
     return OrgResponse(
         id=org.id,
@@ -490,9 +496,7 @@ async def delete_organization(
     await db.delete(org)
     await db.commit()
 
-    logger.info(f"Organization deleted: {org.slug} (id={org.id})")
-
-    return None
+    logger.info("Organization deleted: %s (id=%s)", sanitize_log(org.slug), sanitize_log(org.id))
 
 
 # ---------------------------------------------------------------------------
@@ -575,8 +579,11 @@ async def invite_member(
     await db.refresh(new_member)
 
     logger.info(
-        f"User {target_user.email} invited to org {org_id} "
-        f"with role '{body.role}' by {current_user.id}"
+        "User %s invited to org %s with role '%s' by %s",
+        sanitize_log(target_user.email),
+        sanitize_log(org_id),
+        sanitize_log(body.role),
+        sanitize_log(current_user.id),
     )
 
     return OrgMemberResponse(
@@ -713,8 +720,12 @@ async def update_member_role(
     target_user = user_result.scalar_one_or_none()
 
     logger.info(
-        f"Member {user_id} role changed from '{old_role}' to '{body.role}' "
-        f"in org {org_id} by {current_user.id}"
+        "Member %s role changed from '%s' to '%s' in org %s by %s",
+        sanitize_log(user_id),
+        sanitize_log(old_role),
+        sanitize_log(body.role),
+        sanitize_log(org_id),
+        sanitize_log(current_user.id),
     )
 
     return OrgMemberResponse(
@@ -805,6 +816,10 @@ async def remove_member(
     await db.commit()
 
     action = "left" if is_self_remove else "removed from"
-    logger.info(f"User {user_id} {action} org {org_id} by {current_user.id}")
-
-    return None
+    logger.info(
+        "User %s %s org %s by %s",
+        sanitize_log(user_id),
+        sanitize_log(action),
+        sanitize_log(org_id),
+        sanitize_log(current_user.id),
+    )

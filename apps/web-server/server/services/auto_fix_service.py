@@ -28,12 +28,13 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
+from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
+from server.services.git_base_url import safe_git_base_url  # #610
 
 # Ensure ``apps/backend`` is on sys.path so ``from runners.github.providers ...``
 # imports resolve.  This must happen at module load time — before any function
@@ -42,6 +43,10 @@ logger = logging.getLogger(__name__)
 _BACKEND_PATH = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(_BACKEND_PATH))
+
+from client_errors import InputRejectedError  # noqa: E402  (after sys.path insert)
+
+logger = logging.getLogger(__name__)
 
 
 # Default AutoFixConfig — matches the AutoFixConfig type at
@@ -195,7 +200,7 @@ def _provider_for(project_id: str):
 
     projects = load_projects()
     if project_id not in projects:
-        raise ValueError(f"Project {project_id} not found")
+        raise InputRejectedError(f"Project {project_id} not found")
     project = projects[project_id]
     settings = project.get("settings") or {}
     provider_type_str = (settings.get("gitProvider") or "github").lower()
@@ -205,7 +210,8 @@ def _provider_for(project_id: str):
     from runners.github.providers.protocol import ProviderType
 
     token = settings.get("gitToken")
-    base_url = settings.get("gitBaseUrl")
+    # #610: same trust boundary as routes/github.py::_get_project_provider.
+    base_url = safe_git_base_url(settings.get("gitBaseUrl"))
     org = settings.get("gitOrg")
     proj_name = settings.get("gitProject")
     repo_name = settings.get("gitRepo")
@@ -335,7 +341,7 @@ async def check_new_issues(project_id: str) -> list[dict[str, Any]]:
 
     projects = load_projects()
     if project_id not in projects:
-        raise ValueError(f"Project {project_id} not found")
+        raise InputRejectedError(f"Project {project_id} not found")
     project_path = Path(projects[project_id]["path"])
     settings = projects[project_id].get("settings") or {}
     provider_type = (settings.get("gitProvider") or "github").lower()
@@ -370,8 +376,8 @@ async def check_new_issues(project_id: str) -> list[dict[str, Any]]:
 
     logger.info(
         "[auto_fix] check_new_issues project=%s provider=%s existing=%d new=%d",
-        project_id,
-        provider_type,
+        sanitize_log(project_id),
+        sanitize_log(provider_type),
         len(existing),
         len(new),
     )
@@ -423,7 +429,7 @@ async def start_auto_fix(project_id: str, issue_number: int) -> dict[str, Any]:
 
     projects = load_projects()
     if project_id not in projects:
-        raise ValueError(f"Project {project_id} not found")
+        raise InputRejectedError(f"Project {project_id} not found")
     project_path = Path(projects[project_id]["path"])
     settings = projects[project_id].get("settings") or {}
     provider_type = (settings.get("gitProvider") or "github").lower()
@@ -439,7 +445,7 @@ async def start_auto_fix(project_id: str, issue_number: int) -> dict[str, Any]:
                 spec_id = d.name
                 break
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     if spec_id is None:
         # Fetch the issue and create the spec
@@ -577,12 +583,12 @@ async def _pull_clone_if_any(project_id: str) -> None:
             slug=project_path.name,
             root=project_path.parent,
         )
-        logger.debug("[auto_fix] pulled %s before poll", project_path)
+        logger.debug("[auto_fix] pulled %s before poll", sanitize_log(project_path))
     except GitOperationError as e:
         logger.warning(
             "[auto_fix] pull-on-poll failed for project=%s: %s — continuing with stale clone",
-            project_id,
-            e,
+            sanitize_log(project_id),
+            sanitize_log(e),
         )
 
 
@@ -601,7 +607,7 @@ async def check_new_and_start_all(project_id: str) -> dict[str, Any]:
     """
     cfg = get_config(project_id)
     if not cfg:
-        raise ValueError(f"Project {project_id} not found")
+        raise InputRejectedError(f"Project {project_id} not found")
 
     # Fast-forward portal-managed clones before we look for new issues.
     await _pull_clone_if_any(project_id)
@@ -616,12 +622,17 @@ async def check_new_and_start_all(project_id: str) -> dict[str, Any]:
             started.append({**iss, **result})
         except Exception as e:  # pragma: no cover — bubble for visibility
             logger.warning(
-                "[auto_fix] start failed project=%s issue=%d err=%s",
-                project_id,
-                iss["number"],
-                e,
+                "[auto_fix] start failed project=%s issue=%s err=%s",
+                sanitize_log(project_id),
+                sanitize_log(iss["number"]),
+                sanitize_log(e),
             )
-            errors.append({"issueNumber": iss["number"], "error": str(e)})
+            errors.append(
+                {
+                    "issueNumber": iss["number"],
+                    "error": error_message(logger, "operation failed", e, "The operation failed"),
+                }
+            )
 
     # Advance any delegated tasks alongside polling for new issues.
     delegation_summary: dict[str, Any] = {}
@@ -630,7 +641,11 @@ async def check_new_and_start_all(project_id: str) -> dict[str, Any]:
 
         delegation_summary = await scan_delegated_tasks(project_id)
     except Exception as e:  # pragma: no cover
-        logger.warning("[auto_fix] delegation tracker failed project=%s err=%s", project_id, e)
+        logger.warning(
+            "[auto_fix] delegation tracker failed project=%s err=%s",
+            sanitize_log(project_id),
+            sanitize_log(e),
+        )
 
     return {
         "checked": len(new_issues),

@@ -17,6 +17,7 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       security-events: write
       packages: read
@@ -26,14 +27,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [python, javascript-typescript]
+        # `actions` added in Factory#711. Until then this repo did not scan its
+        # own workflows at all, so it reported zero GitHub Actions alerts for the
+        # same reason an unrun test reports no failures -- the question was never
+        # asked. The fleet sweep that closed 50 actions alerts across AIFactory
+        # and TFactory recorded this repo as "clean"; it was not. Asking the
+        # question here surfaces 36 third-party actions referenced by mutable
+        # tag, all pinned to immutable SHAs in the same change.
+        #
+        # AIFactory, TFactory, CFactory and factory-gitops all scan this
+        # language; this repo was the last one that did not.
+        language: [python, javascript-typescript, actions]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           languages: ${{ matrix.language }}
           # Swaps stock py/path-injection for the barrier-aware variant so the
@@ -41,9 +52,9 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           category: "/language:${{ matrix.language }}"

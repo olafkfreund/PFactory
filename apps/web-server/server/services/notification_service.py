@@ -31,10 +31,12 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
+
+from factory_common.logsafe import sanitize_log
 
 from ..database import OrgMember
 from ..database.engine import async_session_factory
@@ -59,7 +61,7 @@ class Notification:
     message: str
     data: dict
     read: bool = False
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict:
         """Serialize the notification for API responses and WebSocket payloads."""
@@ -150,8 +152,8 @@ class NotificationService:
         except Exception:
             logger.warning(
                 "Failed to push notification via WebSocket: user_id=%s type=%s",
-                user_id,
-                type,
+                sanitize_log(user_id),
+                sanitize_log(type),
                 exc_info=True,
             )
 
@@ -161,16 +163,16 @@ class NotificationService:
         except Exception:
             logger.warning(
                 "Failed to send email notification: user_id=%s type=%s",
-                user_id,
-                type,
+                sanitize_log(user_id),
+                sanitize_log(type),
                 exc_info=True,
             )
 
         logger.debug(
             "Notification created: user_id=%s type=%s title=%s",
-            user_id,
-            type,
-            title,
+            sanitize_log(user_id),
+            sanitize_log(type),
+            sanitize_log(title),
         )
         return notification
 
@@ -218,7 +220,7 @@ class NotificationService:
         except Exception:
             logger.warning(
                 "Failed to look up org members for notification: org_id=%s",
-                org_id,
+                sanitize_log(org_id),
                 exc_info=True,
             )
             return []
@@ -236,8 +238,8 @@ class NotificationService:
 
         logger.debug(
             "Org notification sent: org_id=%s type=%s recipients=%d",
-            org_id,
-            type,
+            sanitize_log(org_id),
+            sanitize_log(type),
             len(notifications),
         )
         return notifications
@@ -349,7 +351,7 @@ class NotificationService:
         # Send the email
         from .email_service import email_service
 
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
         task_id = data.get("task_id", "")
         project_id = data.get("project_id", "")
 

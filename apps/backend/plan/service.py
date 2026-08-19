@@ -35,43 +35,24 @@ from plan.decompose.models import EpicPlan
 from plan.decompose.planner import decompose
 from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
-from plan.detect.target_classifier import apply as detect_apply
-from plan.detect.target_classifier import classify_plan
+from plan.detect.target_classifier import apply as detect_apply, classify_plan
 from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import NormalizedPlan
-from plan.plan_types import apply as plan_type_apply
-from plan.plan_types import select_for
+from plan.plan_types import apply as plan_type_apply, select_for
 from plan.recon import classify_change_mode, reconnoiter
-from plan.review.approval import approve as approve_review
-from plan.review.approval import reject as reject_review
+from plan.review.approval import approve as approve_review, reject as reject_review
 from plan.review.gates import refresh_readiness, run_gates
 from plan.review.models import PlanReview
 from plan.service_helpers import (
     BoardColumn,
-    board_state,
-)
-from plan.service_helpers import (
     attach_deployment as _attach_deployment,
-)
-from plan.service_helpers import (
+    board_state,
     carry_tier as _carry_tier,
-)
-from plan.service_helpers import (
     default_store_dir as _default_store_dir,
-)
-from plan.service_helpers import (
     knowledge_connector_kwargs as _knowledge_connector_kwargs,
-)
-from plan.service_helpers import (
     load_access_inputs as _load_access_inputs,
-)
-from plan.service_helpers import (
     persist_enabled as _persist_enabled,
-)
-from plan.service_helpers import (
     route_tier as _route_tier,
-)
-from plan.service_helpers import (
     template_findings as _template_findings,
 )
 from plan.synthesize.models import SynthesizedArtifact
@@ -237,7 +218,19 @@ class PlanSession(BaseModel):
 
 
 class PlanServiceError(RuntimeError):
-    """Raised for invalid session ids or out-of-order stage calls."""
+    """Raised for invalid session ids or out-of-order stage calls.
+
+    Verified safe to return to the client verbatim (Factory#718): every raise
+    site in this module passes a developer-written literal, never an inner
+    exception. ``client_message`` opts this type into
+    :func:`client_errors.client_error`, so that trust is enforced by a type
+    check at the read site rather than by every route remembering not to
+    change it.
+    """
+
+    @property
+    def client_message(self) -> str:
+        return str(self)
 
 
 logger = logging.getLogger(__name__)

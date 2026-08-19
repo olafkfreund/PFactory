@@ -219,11 +219,21 @@ kms:
   fernetKeyRef:
     name: pfactory-kms
     key: fernet-key
-  awsKmsKeyId: ""
+  # AIFactory#1290: selecting a backend below without giving it what it
+  # needs used to render a pod that could not encrypt -- and the JSON
+  # credential stores silently fell back to PLAINTEXT. `helm template` now
+  # fails instead. Key IDENTIFIERS (ARNs, vault URLs, key names) are not
+  # secrets and ride the ConfigMap; only real CREDENTIALS (the fernet key,
+  # the Vault token) come from Secret refs -- never a literal in this file.
+  awsKmsKeyId: ""   # required when backend=aws_kms (key ARN, id, or alias)
+  vaultAddr: ""     # required when backend=vault_transit
+  vaultTokenRef:    # required when backend=vault_transit
+    name: ""        # e.g. "pfactory-kms" -- provisioned by ExternalSecret
+    key: vault-token
   vaultTransitKey: "pfactory-root"
-  azureKeyvaultUrl: ""
-  azureKeyvaultKey: ""
-  gcpKmsKeyName: ""
+  azureKeyvaultUrl: ""   # required when backend=azure_kv
+  azureKeyvaultKey: ""   # required when backend=azure_kv
+  gcpKmsKeyName: ""      # required when backend=gcp_kms
 
 # Epic #26 P6 — Prometheus /metrics + Grafana dashboard.
 metrics:

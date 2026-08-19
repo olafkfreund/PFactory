@@ -9,6 +9,11 @@ agents.** The first stage of the Factory line, alongside
 [AIFactory](https://github.com/olafkfreund/AIFactory) (builds) and
 TFactory (verifies): **PFactory plans and governs the work.**
 
+> **What's new (June 2026):** the signed Task Contract can now pin the build
+> model/provider via **`PFACTORY_EXECUTION_MODEL`** (e.g. `gemini-2.5-pro` →
+> antigravity) — so a governed plan drives AIFactory on Gemini (or any provider)
+> end-to-end through the trusted fast path (v0.6.16).
+
 Hand PFactory a request — uploaded as docx / pdf / markdown, or via the MCP
 control plane, a CLI, or a GitHub issue/discussion. PFactory:
 

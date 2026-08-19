@@ -14,6 +14,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from factory_common.logsafe import sanitize_log
+from server.error_ref import error_message
+
+from ...crypto.secret_field import unseal_profiles  # noqa: TID252
 from ...websockets.events import broadcast_event
 from .base import ProviderInfo, ProviderModel, ProviderStrategy
 
@@ -88,7 +92,9 @@ class ClaudeProvider(ProviderStrategy):
 
         if profiles_file.exists():
             try:
-                data = json.loads(profiles_file.read_text())
+                # Unsealed on read (#537); a legacy plaintext store passes
+                # through unchanged.
+                data = unseal_profiles(json.loads(profiles_file.read_text()))
                 profiles = data.get("profiles", [])
                 active_id = data.get("activeProfileId")
                 usable = [p for p in profiles if p.get("oauthToken") or p.get("token")]
@@ -181,11 +187,15 @@ class ClaudeProvider(ProviderStrategy):
         token, profile_id, profile_name = self._resolve_claude_token()
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-            logger.info(f"[ClaudeProvider] Using profile: {profile_name} ({profile_id})")
+            logger.info(
+                "[ClaudeProvider] Using profile: %s (%s)",
+                sanitize_log(profile_name),
+                sanitize_log(profile_id),
+            )
         else:
             logger.warning("[ClaudeProvider] No OAuth token available")
 
-        logger.info(f"[ClaudeProvider] Starting CLI: {' '.join(cmd[:5])}...")
+        logger.info("[ClaudeProvider] Starting CLI: %s...", sanitize_log(" ".join(cmd[:5])))
 
         try:
             await broadcast_event(
@@ -326,11 +336,11 @@ class ClaudeProvider(ProviderStrategy):
             stderr_text = ""
             if stderr_output:
                 stderr_text = stderr_output.decode("utf-8", errors="replace").strip()
-                logger.warning(f"[ClaudeProvider] stderr: {stderr_text}")
+                logger.warning("[ClaudeProvider] stderr: %s", sanitize_log(stderr_text))
 
             if proc.returncode != 0 and not accumulated_content.strip():
                 error_msg = stderr_text or f"Claude CLI exited with code {proc.returncode}"
-                logger.error(f"[ClaudeProvider] CLI failed: {error_msg}")
+                logger.error("[ClaudeProvider] CLI failed: %s", sanitize_log(error_msg))
                 await broadcast_event(
                     "insights:chunk",
                     {
@@ -363,13 +373,15 @@ class ClaudeProvider(ProviderStrategy):
             return accumulated_content
 
         except Exception as e:
-            logger.error(f"[ClaudeProvider] Error: {e}", exc_info=True)
+            logger.error("[ClaudeProvider] Error: %s", sanitize_log(e), exc_info=True)
             await broadcast_event(
                 "insights:chunk",
                 {
                     "projectId": project_id,
                     "type": "error",
-                    "error": str(e),
+                    "error": error_message(
+                        logger, "ClaudeProvider failed", e, "The provider call failed"
+                    ),
                 },
             )
             return ""

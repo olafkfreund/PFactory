@@ -8,20 +8,31 @@ Skills path resolution (first match wins):
 1. APP_SKILLS_PATH env var (explicit override)
 2. <project-root>/skills/  (local copy, works on host and in Docker)
 
-Uses a pickle cache (~/.pfactory/skills-cache.pkl) to avoid re-scanning
+Uses a JSON cache (~/.pfactory/skills-cache.json) to avoid re-scanning
 6,000+ files on every startup.  The cache is invalidated when the skills
 directory's modification time changes.
+
+The cache is JSON, not pickle (#533; AIFactory #324 L1): a server-generated
+cache file is an RCE primitive if its path ever becomes writable or
+traversable, because the version/path guards only run *after* ``pickle.load``
+has already executed arbitrary reduce code.  JSON loads inert data; we
+reconstruct the dataclasses explicitly.
+
+Migration: a pre-existing ``skills-cache.pkl`` is never opened — the cache
+path itself changed, so a stale pickle is inert and the index is rebuilt
+from source on first start.
 """
 
+import contextlib
+import json
 import logging
 import os
-import pickle
 import re
 import string
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +61,11 @@ def _resolve_skills_path() -> Path:
 DEFAULT_SKILLS_PATH = _resolve_skills_path()
 
 # Cache location
-DEFAULT_CACHE_PATH = Path.home() / ".pfactory" / "skills-cache.pkl"
+DEFAULT_CACHE_PATH = Path.home() / ".pfactory" / "skills-cache.json"
 
-# Cache format version — bump when _IndexEntry or SkillSummary fields change
-_CACHE_VERSION = 1
+# Cache format version — bump when _IndexEntry or SkillSummary fields change.
+# Bumped to 2 for the pickle->JSON migration (#533).
+_CACHE_VERSION = 2
 
 # Stop words excluded from keyword search / suggestion scoring
 STOP_WORDS = frozenset(
@@ -224,7 +236,7 @@ class SkillCategory:
 
     name: str
     count: int
-    description: Optional[str] = None
+    description: str | None = None
 
 
 @dataclass
@@ -235,7 +247,7 @@ class SkillSummary:
     name: str  # filename stem (e.g. 'alpine-js')
     category: str  # parent directory name
     description: str  # first prose paragraph after the blockquote
-    source: Optional[str] = None  # extracted from "> Source:" line
+    source: str | None = None  # extracted from "> Source:" line
 
 
 @dataclass
@@ -320,16 +332,16 @@ class SkillsService:
     def _get_dir_mtime(self) -> float:
         """Get the newest mtime across the skills base dir and its category subdirs."""
         newest = os.path.getmtime(self._base_path)
-        try:
+        # Best-effort: a subdir removed mid-scan just means we fall back to
+        # the base dir's mtime.
+        with contextlib.suppress(OSError):
             for entry in os.scandir(self._base_path):
                 if entry.is_dir():
                     newest = max(newest, entry.stat().st_mtime)
-        except OSError:
-            pass
         return newest
 
     def _load_cache(self) -> bool:
-        """Try to load the index from the pickle cache. Returns True on success."""
+        """Try to load the index from the JSON cache. Returns True on success."""
         try:
             if not self._cache_path.exists():
                 logger.info("No skills cache found — will scan directory")
@@ -347,8 +359,8 @@ class SkillsService:
                 return False
 
             t0 = time.monotonic()
-            with open(self._cache_path, "rb") as f:
-                data = pickle.load(f)
+            with open(self._cache_path, encoding="utf-8") as f:
+                data = json.load(f)
 
             if not isinstance(data, dict) or data.get("version") != _CACHE_VERSION:
                 logger.info("Skills cache version mismatch — rebuilding")
@@ -358,7 +370,7 @@ class SkillsService:
                 logger.info("Skills cache base path mismatch — rebuilding")
                 return False
 
-            self._index = data["index"]
+            self._index = self._index_from_json(data["index"])
             self._built = True
             total = sum(len(entries) for entries in self._index.values())
             elapsed = time.monotonic() - t0
@@ -375,19 +387,61 @@ class SkillsService:
             return False
 
     def _save_cache(self) -> None:
-        """Persist the current index to the pickle cache."""
+        """Persist the current index to the JSON cache."""
         try:
             self._cache_path.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 "version": _CACHE_VERSION,
                 "base_path": str(self._base_path),
-                "index": self._index,
+                "index": self._index_to_json(),
             }
-            with open(self._cache_path, "wb") as f:
-                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            # 0600 — the cache is read back at startup; keep it owner-only.
+            with open(self._cache_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            try:
+                self._cache_path.chmod(0o600)
+            except OSError as e:
+                logger.warning("Failed to restrict skills cache permissions to 0600: %s", e)
             logger.info("Skills cache saved to %s", self._cache_path)
         except Exception as exc:
             logger.warning("Failed to save skills cache: %s", exc)
+
+    def _index_to_json(self) -> dict[str, list[dict[str, object]]]:
+        """Serialize the in-memory index to JSON-safe primitives.
+
+        ``frozenset`` token fields become sorted lists; ``Path`` becomes a
+        string; ``SkillSummary`` becomes a plain dict.
+        """
+        out: dict[str, list[dict[str, object]]] = {}
+        for category, entries in self._index.items():
+            out[category] = [
+                {
+                    "summary": asdict(e.summary),
+                    "file_path": str(e.file_path),
+                    "name_tokens": sorted(e.name_tokens),
+                    "description_tokens": sorted(e.description_tokens),
+                }
+                for e in entries
+            ]
+        return out
+
+    @staticmethod
+    def _index_from_json(
+        raw: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, list["_IndexEntry"]]:
+        """Reconstruct the index dataclasses from JSON primitives."""
+        index: dict[str, list[_IndexEntry]] = {}
+        for category, entries in raw.items():
+            index[category] = [
+                _IndexEntry(
+                    summary=SkillSummary(**e["summary"]),
+                    file_path=Path(e["file_path"]),
+                    name_tokens=frozenset(e["name_tokens"]),
+                    description_tokens=frozenset(e["description_tokens"]),
+                )
+                for e in entries
+            ]
+        return index
 
     def _scan_and_build(self) -> None:
         """Full scan of the skills directory (the slow path)."""
@@ -443,7 +497,7 @@ class SkillsService:
         )
 
     @staticmethod
-    def _extract_metadata(content: str) -> tuple[str, Optional[str]]:
+    def _extract_metadata(content: str) -> tuple[str, str | None]:
         """
         Extract (description, source) from skill markdown content.
 
@@ -463,7 +517,7 @@ class SkillsService:
         after the ``---`` divider.  Falls back to an empty string if
         nothing suitable is found.
         """
-        source: Optional[str] = None
+        source: str | None = None
         description = ""
 
         # Extract source URL from the blockquote
@@ -516,7 +570,7 @@ class SkillsService:
     def search_skills(
         self,
         query: str,
-        category: Optional[str] = None,
+        category: str | None = None,
         limit: int = 50,
     ) -> list[SkillSummary]:
         """
@@ -557,12 +611,12 @@ class SkillsService:
         results.sort(key=lambda x: x[0], reverse=True)
         return [s for _, s in results[:limit]]
 
-    def get_skill(self, category: str, name: str) -> Optional[SkillSummary]:
+    def get_skill(self, category: str, name: str) -> SkillSummary | None:
         """Return skill summary for a specific category/name, or None."""
         entry = self._find_entry(category, name)
         return entry.summary if entry else None
 
-    def get_skill_content(self, category: str, name: str) -> Optional[str]:
+    def get_skill_content(self, category: str, name: str) -> str | None:
         """Return the full markdown content of a skill file, or None."""
         entry = self._find_entry(category, name)
         if entry is None:
@@ -573,7 +627,7 @@ class SkillsService:
             logger.warning("Failed to read skill file %s: %s", entry.file_path, exc)
             return None
 
-    def get_skill_detail(self, category: str, name: str) -> Optional[SkillDetail]:
+    def get_skill_detail(self, category: str, name: str) -> SkillDetail | None:
         """Return SkillDetail (summary + full content) for a skill, or None."""
         entry = self._find_entry(category, name)
         if entry is None:
@@ -679,14 +733,14 @@ class SkillsService:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _find_entry(self, category: str, name: str) -> Optional[_IndexEntry]:
+    def _find_entry(self, category: str, name: str) -> _IndexEntry | None:
         """Locate an index entry by category and skill name."""
         for entry in self._index.get(category, []):
             if entry.summary.name == name:
                 return entry
         return None
 
-    def _get_candidates(self, category: Optional[str]) -> list[_IndexEntry]:
+    def _get_candidates(self, category: str | None) -> list[_IndexEntry]:
         """Return all index entries, optionally filtered to a category."""
         if category:
             return self._index.get(category, [])
@@ -727,7 +781,7 @@ class SkillsService:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_skills_service: Optional[SkillsService] = None
+_skills_service: SkillsService | None = None
 
 
 def get_skills_service() -> SkillsService:

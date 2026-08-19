@@ -802,3 +802,43 @@ dependencies:
         assert "flutter" in profile.stack_commands
         assert "dart" in profile.stack_commands
         assert "pub" in profile.stack_commands
+
+
+class TestNpmScriptRunners:
+    """`_detect_npm_scripts` enables the npm-family RUNNERS, not one command
+    per script (CodeQL py/unused-loop-variable).
+
+    The old body looped over `npm_scripts` and added the same four constants
+    on every iteration, ignoring the loop variable -- a disguised `if` that
+    read like a per-script mapping. These pin the behaviour that is actually
+    wanted, so the loop cannot come back as one.
+    """
+
+    def test_any_npm_script_enables_the_npm_family_runners(self, temp_dir: Path):
+        (temp_dir / "package.json").write_text(json.dumps({"scripts": {"build": "tsc"}}))
+
+        profile = get_or_create_profile(temp_dir, force_reanalyze=True)
+
+        assert {"npm", "yarn", "pnpm", "bun"} <= profile.script_commands
+        # The script NAME is not a command -- it is run via a runner.
+        assert "build" not in profile.script_commands
+
+    def test_the_runner_set_does_not_depend_on_how_many_scripts_there_are(
+        self, temp_dir: Path
+    ):
+        (temp_dir / "package.json").write_text(
+            json.dumps({"scripts": {"build": "tsc", "test": "vitest", "lint": "eslint"}})
+        )
+
+        profile = get_or_create_profile(temp_dir, force_reanalyze=True)
+
+        assert profile.custom_scripts.npm_scripts == ["build", "test", "lint"]
+        assert {"npm", "yarn", "pnpm", "bun"} <= profile.script_commands
+
+    def test_no_scripts_block_enables_no_runners(self, temp_dir: Path):
+        (temp_dir / "package.json").write_text(json.dumps({"name": "x"}))
+
+        profile = get_or_create_profile(temp_dir, force_reanalyze=True)
+
+        assert profile.custom_scripts.npm_scripts == []
+        assert not {"npm", "yarn", "pnpm", "bun"} & profile.script_commands

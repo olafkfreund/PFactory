@@ -25,6 +25,7 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+from client_errors import client_error  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import SERVICE, PlanServiceError  # noqa: E402
 
@@ -177,7 +178,7 @@ async def ingest_text(body: IngestTextBody, request: Request) -> dict:
             tenant_id=resolve_tenant(request),  # #308
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     # W4 (#218): register the target repo as a tracked project so it appears in
     # the portal's project dropdown (a plan session otherwise leaves it empty).
     if body.repo:
@@ -211,7 +212,7 @@ async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
             tenant_id=resolve_tenant(request),  # #308
         )
     except ValueError as exc:  # SpecSourceError subclasses ValueError
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     # W4 (#218): register the target repo as a tracked project (see ingest-text).
     from .projects import ensure_tracked_project
 
@@ -242,7 +243,7 @@ async def ingest_upload(
             tenant_id=resolve_tenant(request),  # #308
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     # W4 (#218): register the target repo as a tracked project (see ingest-text).
     if repo:
         from .projects import ensure_tracked_project
@@ -256,7 +257,7 @@ async def get_session(session_id: str, request: Request) -> dict:
     try:
         session = SERVICE.get(session_id)
     except PlanServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=client_error(exc)) from exc
     # Multi-tenancy (#308): another tenant's session is indistinguishable from a
     # missing one (404, not 403 — don't leak existence). Flag off => unchanged.
     if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
@@ -277,7 +278,7 @@ async def audit_pack(session_id: str, format: str = "json"):
     try:
         session = SERVICE.get(session_id)
     except PlanServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=client_error(exc)) from exc
     pack = build_audit_pack(session)
     if format == "markdown":
         return PlainTextResponse(render_markdown(pack), media_type="text/markdown")
@@ -293,7 +294,7 @@ async def process(session_id: str) -> dict:
     try:
         return _session_dict(await SERVICE.process_async(session_id))
     except PlanServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=client_error(exc)) from exc
 
 
 @router.post("/{session_id}/re-gate")
@@ -310,7 +311,7 @@ async def re_gate(session_id: str) -> dict[str, Any]:
     try:
         return _session_dict(SERVICE.re_gate(session_id))
     except PlanServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
 @router.post("/{session_id}/approve")
@@ -320,9 +321,9 @@ async def approve(session_id: str, body: ApproveBody) -> dict:
             SERVICE.approve(session_id, approver=body.approver, feedback=body.feedback)
         )
     except PlanServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except RuntimeError as exc:  # ApprovalError (gates not passed)
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
 
 
 @router.post("/{session_id}/access/approve")
@@ -343,7 +344,7 @@ async def approve_access(session_id: str, body: ApproveAccessBody) -> dict:
             approved_at=body.approved_at,
         )
     except PlanServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
 @router.post("/{session_id}/waive")
@@ -363,7 +364,7 @@ async def waive(session_id: str, body: WaiveBody) -> dict:
             )
         )
     except (PlanServiceError, WaiverError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
 @router.post("/{session_id}/reject")
@@ -373,7 +374,7 @@ async def reject(session_id: str, body: RejectBody) -> dict:
             SERVICE.reject(session_id, approver=body.approver, feedback=body.feedback)
         )
     except PlanServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
 @router.post("/{session_id}/discard")
@@ -389,7 +390,7 @@ async def discard(session_id: str, body: DiscardBody) -> dict:
     try:
         return _session_dict(SERVICE.discard(session_id, actor=body.actor, reason=body.reason))
     except PlanServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
 async def _load_docs_connections(request: Request, db: AsyncSession) -> list[dict] | None:
@@ -442,7 +443,7 @@ async def emit(
             )
         )
     except PlanServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
 @router.post("/{session_id}/emit-contract")
@@ -464,4 +465,4 @@ async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
             )
         )
     except PlanServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc

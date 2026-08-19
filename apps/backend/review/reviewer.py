@@ -98,7 +98,7 @@ def prompt_feedback() -> str | None:
     print(muted("Enter your feedback (press Enter twice to finish, Ctrl+C to cancel):"))
     print()
 
-    lines = []
+    lines: list[str] = []
     try:
         while True:
             line = input()

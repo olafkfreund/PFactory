@@ -43,8 +43,22 @@ const HIDDEN_DIRECTORIES = [
   '.DS_Store', '.idea', '.vscode',
   '__MACOSX', '.mypy_cache', '.pytest_cache',
   '.ruff_cache', '.tox', 'dist', 'build',
-  '.eggs', '*.egg-info'
+  '.eggs'
 ];
+
+// Suffix rules, kept separate from the exact names above. These used to live in
+// the same list as glob strings matched with `hidden.replace('*', '')`, which
+// strips only the FIRST '*' (CodeQL js/incomplete-sanitization) — so a
+// two-star pattern would have been matched against a name that still contained
+// a literal '*' and silently never matched.
+const HIDDEN_DIRECTORY_SUFFIXES = ['.egg-info'];
+
+export function isHiddenDirectory(name: string): boolean {
+  return (
+    HIDDEN_DIRECTORIES.includes(name) ||
+    HIDDEN_DIRECTORY_SUFFIXES.some(suffix => name.endsWith(suffix))
+  );
+}
 
 const ALLOWED_EXTENSIONS = [
   '.md', '.json',
@@ -123,9 +137,7 @@ export function TaskFiles({ task, worktreeSpecsPath }: TaskFilesProps) {
       // Keep visible directories and allowed file types
       const filteredEntries = entries.filter((file) => {
         if (file.type === 'directory') {
-          return !HIDDEN_DIRECTORIES.some(hidden =>
-            hidden.includes('*') ? file.name.endsWith(hidden.replace('*', '')) : file.name === hidden
-          );
+          return !isHiddenDirectory(file.name);
         }
         return ALLOWED_EXTENSIONS.some(ext => file.name.endsWith(ext));
       });
