@@ -79,7 +79,11 @@ def _create_issue_resilient(
             if not _is_retryable(exc) or attempt == attempts - 1:
                 raise
             sleep_fn(backoff_base**attempt)
-    raise last  # pragma: no cover - loop always returns or raises above
+    # `attempts <= 0` skips the loop body entirely and leaves `last` as None.
+    # Bare `raise last` there raises TypeError("exceptions must derive from
+    # BaseException") -- which buries the real fault (a caller passing a
+    # non-positive `attempts`) under a confusing error from this frame.
+    raise last if last is not None else ValueError(f"attempts must be >= 1, got {attempts}")
 
 
 def _dedup(labels: list[str]) -> list[str]:

@@ -11,6 +11,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _BACKEND = Path(__file__).parent.parent / "apps" / "backend"
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
@@ -88,10 +90,11 @@ def test_discovered_block_validates_against_the_schema():
         "phases": [{"phase": 1, "name": "p", "subtasks": [{"id": "t1", "description": "d"}]}],
         "access": block,
     }
-    try:
-        from jsonschema import Draft202012Validator
-    except ImportError:  # pragma: no cover
-        import pytest
-        pytest.skip("jsonschema not installed")
-    errors = [e.message for e in Draft202012Validator(schema).iter_errors(contract)]
+    # importorskip, not try/except ImportError: the old form left
+    # `Draft202012Validator` unbound on the except branch as far as any reader
+    # (and any analyzer) could tell -- it only worked because `pytest.skip`
+    # happens to raise. The idiomatic call says "skip" in one place.
+    jsonschema = pytest.importorskip("jsonschema")
+    validator = jsonschema.Draft202012Validator(schema)
+    errors = [e.message for e in validator.iter_errors(contract)]
     assert errors == [], errors
