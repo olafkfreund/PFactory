@@ -28,20 +28,32 @@ _WEB_SERVER = Path(__file__).parent.parent / "apps" / "web-server"
 if str(_WEB_SERVER) not in sys.path:
     sys.path.insert(0, str(_WEB_SERVER))
 
-from server.services import terminal_worktree_service as mod  # noqa: E402
+from server.services import git_utils  # noqa: E402
 from server.services.terminal_worktree_service import (  # noqa: E402
     TerminalWorktreeService,
 )
 
 
-def _service_with_config(tmp_path: Path, branch: str, monkeypatch):
-    """A service whose config already carries ``branch`` for one worktree.
+def _declare_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``tmp_path`` a registered project so the #553 strict barrier passes.
 
-    ``confine_to_workspace`` is neutralised because a tmp_path is not inside a
-    registered project root. That barrier is a separate control with its own
-    tests; what is under test here is the ref that reaches git argv.
+    The service confines its ``project_path`` through ``confine_to_project``,
+    and a bare tmp_path is inside no registered project, so without this the
+    403 arrives before the ref this file is actually about ever reaches git.
+    Declaring the root lets the barrier RUN and succeed rather than stubbing it
+    out. TWO entries, because with one root "confines to the registered set"
+    and "confines to the first root" are the same observation.
     """
-    monkeypatch.setattr(mod, "confine_to_workspace", lambda p, **_k: Path(p))
+    other = tmp_path.parent / "another-registered-project"
+    other.mkdir(exist_ok=True)
+    monkeypatch.setattr(
+        git_utils, "registered_project_roots", lambda: [other.resolve(), tmp_path.resolve()]
+    )
+
+
+def _service_with_config(tmp_path: Path, branch: str, monkeypatch):
+    """A service whose config already carries ``branch`` for one worktree."""
+    _declare_roots(tmp_path, monkeypatch)
     svc = TerminalWorktreeService(str(tmp_path))
     wt_dir = tmp_path / "wt"
     wt_dir.mkdir(parents=True, exist_ok=True)
@@ -113,3 +125,20 @@ def test_other_option_shaped_refs_are_rejected_too(tmp_path, monkeypatch, hostil
     svc.remove_worktree("demo", delete_branch=True)
 
     assert [c for c in calls if c[:3] == ["git", "branch", "-D"]] == [], calls
+
+
+def test_a_project_path_outside_every_registered_root_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The barrier the helper above satisfies is real, not stubbed (#553).
+
+    Without this, `_declare_roots` would be indistinguishable from neutralising
+    the guard: every test in this file would pass just as happily if
+    `confine_to_project` accepted anything.
+    """
+    _declare_roots(tmp_path, monkeypatch)
+    stranger = tmp_path.parent / "not-a-registered-project"
+    stranger.mkdir(exist_ok=True)
+
+    with pytest.raises(ValueError):
+        TerminalWorktreeService(str(stranger))

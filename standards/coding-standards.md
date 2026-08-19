@@ -320,7 +320,7 @@ proposed on 2026-08-13 and all three failed this test, none the old one:
 |---|---|
 | project-registry lookup | matched 93 nodes, cleared **0** alerts (119 -> 119) |
 | `client_error` | cleared 104, and all 104 were the ONE branch that must not be barriered - the two sink lists were byte-identical at 18 |
-| `confine_to_workspace` on registry paths | a **runtime no-op**: `_allowed_roots()` contains the value being checked |
+| `confine_to_workspace` on registry paths | a **runtime no-op**: the allowlist contains the value being checked |
 
 Three corollaries, each earned the same day:
 
@@ -328,7 +328,15 @@ Three corollaries, each earned the same day:
   reached by many sources; removing one from a sink that has thirteen others
   leaves the sink reported. One estimate said ~42 and delivered 0.
 * **A guard whose allowlist is derived from the same data it guards cannot
-  reject that data.** Ask what populates the allowlist before trusting it.
+  reject that data.** Ask what populates the allowlist before trusting it. The
+  fix is tiers, not a narrower single list: #553 split `_allowed_roots()` into
+  `browse_roots()` (workspace root + registry, for a path that is not
+  registered YET) and `registered_project_roots()` (registry alone, for a path
+  that must ALREADY be a project), and gave each call site the one it needs.
+  Note what that did NOT achieve -- a registry-derived value is still inside
+  itself under both tiers, so the three `routes/github.py` alerts stayed open.
+  Splitting a self-authorizing allowlist buys real confinement at the sites
+  fed by a REQUEST, never at the sites fed by the allowlist's own source.
 * **A helper with two branches is not a sanitizer.** Barriering the call node
   covers the unsafe branch too.
 

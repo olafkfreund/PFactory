@@ -143,18 +143,21 @@ def safe_spec_component(value: object, field: str = "spec_id") -> str:
     return text
 
 
-def _allowed_roots() -> list[Path]:
-    """Resolved filesystem roots the server may legitimately touch: the workspace
-    root (where clone-mode projects live) plus every currently-registered project
-    root. Lazy-imported to keep this leaf module import-cycle free; any lookup
-    failure degrades to fewer roots (fail-closed — nothing is silently allowed)."""
-    roots: list[Path] = []
-    try:
-        from server.services.project_workspace_service import workspace_root
+def registered_project_roots() -> list[Path]:
+    """Resolved roots of the currently-registered projects, and nothing else.
 
-        roots.append(workspace_root().expanduser().resolve())
-    except Exception:
-        pass
+    The STRICT tier (Factory#553, mirroring AIFactory#1306). Use it where the
+    caller names a directory that must ALREADY be a project: reading file
+    content, unlinking session state, launching a worktree. It deliberately
+    omits the workspace root, so a request cannot reach a sibling clone that
+    merely happens to live under the same workspace directory.
+
+    Entries with an empty ``path`` are skipped rather than resolved: a
+    repo-only "tracked" project stores ``""``, and ``Path("").resolve()`` is
+    the server's CWD, which would silently authorise it. Any lookup failure
+    degrades to fewer roots -- fail-closed, nothing is silently allowed.
+    """
+    roots: list[Path] = []
     try:
         from server.routes.projects import load_projects
 
@@ -170,24 +173,39 @@ def _allowed_roots() -> list[Path]:
     return roots
 
 
-def confine_to_workspace(value: object, field: str = "path") -> Path:
-    """Resolve a caller-supplied absolute filesystem path and require it to live
-    under an allowed root (the workspace root or a registered project root).
+def browse_roots() -> list[Path]:
+    """The workspace root (where clone-mode projects land) plus every
+    registered project root.
 
-    The file-browser / project-register endpoints take a full path straight from
-    the request. On a hosted server that is arbitrary-filesystem read/scan — an
-    attacker-supplied ``path`` can reach ``/etc``, secrets, or another tenant's
-    data. This CONFINES it: ``resolve()`` collapses ``..`` and symlinks, then the
-    result must sit inside one of :func:`_allowed_roots`. Containment is checked
-    AFTER ``resolve()`` (like ``_safe_launch_path``), so traversal cannot escape.
-    Returns the resolved, confined path for the caller to use.
+    The PERMISSIVE tier. Use it where a not-yet-registered directory is a
+    legitimate answer -- browsing for a project to add, scanning, registering
+    one, or opening a shell. It has to contain the registry, because that is
+    how a project registered outside the workspace stays reachable at all.
 
-    Raises:
-        ValueError: if the resolved path is outside every allowed root, or if no
-            allowed root could be determined (fail-closed).
+    That containment is also why this tier cannot reject a value that CAME
+    from the registry: such a value matches on the first iteration by
+    construction. That is a property of the tier, not a bug in the caller, and
+    it is the reason the strict tier above exists as a separate helper.
+    """
+    roots: list[Path] = []
+    try:
+        from server.services.project_workspace_service import workspace_root
+
+        roots.append(workspace_root().expanduser().resolve())
+    except Exception:
+        pass
+    roots.extend(registered_project_roots())
+    return roots
+
+
+def _confine(value: object, roots: list[Path], field: str) -> Path:
+    """Resolve ``value`` and require the result to sit inside one of ``roots``.
+
+    ``resolve()`` collapses ``..`` and symlinks FIRST, then containment is
+    checked on the collapsed result (like ``_safe_launch_path``), so traversal
+    cannot escape. An empty ``roots`` rejects everything -- fail-closed.
     """
     resolved = Path(str(value)).expanduser().resolve()
-    roots = _allowed_roots()
     for root in roots:
         if resolved == root or root in resolved.parents:
             return resolved
@@ -196,3 +214,37 @@ def confine_to_workspace(value: object, field: str = "path") -> Path:
     raise InputRejectedError(
         f"invalid {field}: {str(value)[:120]!r} is outside the allowed workspace"
     )
+
+
+def confine_to_workspace(value: object, field: str = "path") -> Path:
+    """Confine a caller-supplied path to :func:`browse_roots` (permissive tier).
+
+    The file-browser / project-register endpoints take a full path straight
+    from the request. On a hosted server that is arbitrary-filesystem
+    read/scan -- an attacker-supplied ``path`` can reach ``/etc``, secrets, or
+    another tenant's data. This confines it and returns the resolved path.
+
+    Reach for :func:`confine_to_project` instead whenever the path must name an
+    already-registered project; this tier admits the whole workspace root.
+
+    Raises:
+        ValueError: if the resolved path is outside every allowed root, or if
+            no allowed root could be determined (fail-closed).
+    """
+    return _confine(value, browse_roots(), field)
+
+
+def confine_to_project(value: object, field: str = "path") -> Path:
+    """Confine a caller-supplied path to :func:`registered_project_roots`.
+
+    The strict tier. Same barrier body as :func:`confine_to_workspace`, one
+    root set narrower: the workspace root alone does not authorise the path,
+    so a caller cannot read out of, or delete inside, a directory that is
+    merely a neighbour of their project under a shared workspace root.
+
+    Raises:
+        ValueError: if the resolved path is inside no registered project. With
+            no projects registered that is every path, which is correct: there
+            is nothing yet to address.
+    """
+    return _confine(value, registered_project_roots(), field)

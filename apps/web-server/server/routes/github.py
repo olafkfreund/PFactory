@@ -1093,13 +1093,21 @@ def _resolve_project_path(projectId: str) -> FilePath | None:
 
     CodeQL reports three `py/path-injection-sanitized` sinks downstream of this
     function (pr_data_service 253/594, pr_review_service 154) with `projectId`
-    as the source. Deliberately NOT wrapped in `confine_to_workspace`, because
-    here that barrier cannot fail: `_allowed_roots()` is the workspace root plus
-    *every registered project root*, and the value being checked IS a registered
-    project root, so `resolved == root` always matches. Calling it would clear
-    the three alerts - it is a registered sanitizer in
-    .github/codeql/custom-queries/PathInjectionSanitized.ql - while changing
-    nothing at runtime, which is silencing dressed as a fix.
+    as the source. Deliberately NOT wrapped in either confinement helper,
+    because here neither barrier can fail. The value being checked IS a
+    registry entry, and both tiers contain the registry -- `browse_roots()` is
+    the workspace root plus every registered project root, and
+    `registered_project_roots()` is that registry alone -- so `resolved == root`
+    matches on the first iteration whichever one is asked. Calling either would
+    clear the three alerts, since both are registered sanitizers in
+    .github/codeql/custom-queries/PathInjectionSanitized.ql, while changing
+    nothing at runtime: silencing dressed as a fix.
+
+    #553 split the tiers and re-checked this site rather than assuming. The
+    only tier that COULD reject a registry entry is workspace-root-only, and
+    the two live registries measured for #553 hold three non-empty project
+    paths between them, all three outside the workspace root. That tier would
+    strand every project it was meant to protect, so it does not exist.
 
     What actually confines these paths is above and behind this line:
     `projectId` is only ever a dict KEY, constrained by the `not in projects`

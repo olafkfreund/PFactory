@@ -10,9 +10,8 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
-from .git_utils import assert_safe_git_ref, confine_to_workspace, safe_spec_component
+from .git_utils import assert_safe_git_ref, confine_to_project, safe_spec_component
 
 
 class TerminalWorktreeService:
@@ -32,7 +31,9 @@ class TerminalWorktreeService:
         """
         # #335 confine the caller-supplied absolute path once; every
         # self.project_path-derived join below is dominated by this barrier.
-        self.project_path = confine_to_workspace(project_path)
+        # #553 strict tier: a worktree is created and git is run here, so the
+        # path must be a registered project rather than any workspace neighbour.
+        self.project_path = confine_to_project(project_path)
         if not self.project_path.is_dir():
             raise ValueError(f"Project path does not exist: {project_path}")
 
@@ -43,10 +44,10 @@ class TerminalWorktreeService:
         self,
         name: str,
         terminal_id: str,
-        task_id: Optional[str],
+        task_id: str | None,
         create_git_branch: bool,
         base_branch: str,
-    ) -> Dict:
+    ) -> dict:
         """Create a new terminal worktree.
 
         Args:
@@ -120,7 +121,7 @@ class TerminalWorktreeService:
 
         return config
 
-    def list_worktrees(self) -> List[Dict]:
+    def list_worktrees(self) -> list[dict]:
         """List all terminal worktrees for this project.
 
         Returns:
@@ -208,19 +209,18 @@ class TerminalWorktreeService:
                 self._run_git_command(["git", "worktree", "prune"])
             except subprocess.CalledProcessError:
                 pass  # Ignore prune errors
-        else:
-            # Just remove the directory if it's not a git worktree
-            if worktree_path.exists():
-                import shutil
+        # Just remove the directory if it's not a git worktree
+        elif worktree_path.exists():
+            import shutil
 
-                shutil.rmtree(worktree_path)
+            shutil.rmtree(worktree_path)
 
         # Remove from config
         self._remove_worktree_from_config(name)
 
         return True
 
-    def get_worktree(self, name: str) -> Optional[Dict]:
+    def get_worktree(self, name: str) -> dict | None:
         """Get a specific worktree config by name.
 
         Args:
@@ -256,7 +256,7 @@ class TerminalWorktreeService:
                 "Worktree name must be lowercase alphanumeric with dashes/underscores only"
             )
 
-    def _load_config(self) -> Dict:
+    def _load_config(self) -> dict:
         """Load terminal-worktrees.json.
 
         Returns:
@@ -266,12 +266,12 @@ class TerminalWorktreeService:
             return {"version": "1.0", "worktrees": []}
 
         try:
-            with open(self.config_file, "r") as f:
+            with open(self.config_file) as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
             return {"version": "1.0", "worktrees": []}
 
-    def _save_config(self, config: Dict):
+    def _save_config(self, config: dict):
         """Save terminal-worktrees.json.
 
         Args:
@@ -283,7 +283,7 @@ class TerminalWorktreeService:
         with open(self.config_file, "w") as f:
             json.dump(config, f, indent=2)
 
-    def _add_worktree_to_config(self, worktree_config: Dict):
+    def _add_worktree_to_config(self, worktree_config: dict):
         """Add a worktree to the config file.
 
         Args:
@@ -332,7 +332,7 @@ class TerminalWorktreeService:
         except subprocess.CalledProcessError:
             return False
 
-    def _run_git_command(self, cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
+    def _run_git_command(self, cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
         """Run a git command in the project directory.
 
         Args:

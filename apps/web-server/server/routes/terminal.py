@@ -16,10 +16,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.services.git_utils import (  # #335, #553
+    confine_to_project,
+    confine_to_workspace,
+    safe_spec_component,
+)
 
 from ..config import get_settings
 from ..pty.manager import get_pty_manager
-from ..services.git_utils import confine_to_workspace, safe_spec_component  # #335
 from ..services.terminal_worktree_service import TerminalWorktreeService
 from .projects import load_projects
 
@@ -281,8 +285,10 @@ async def clear_terminal_sessions(project: str | None = None):
     if project:
         # Clear sessions for a specific project
         # #335: confine the caller-supplied project path before it is joined below.
+        # #553 strict tier: this route UNLINKS files under the joined path, so
+        # the caller must name a registered project, not any workspace neighbour.
         try:
-            project_path = confine_to_workspace(project)
+            project_path = confine_to_project(project)
         except ValueError:
             return {"success": False, "error": "path outside the allowed workspace"}
         if project_path.exists():
