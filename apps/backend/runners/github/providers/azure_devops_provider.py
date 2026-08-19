@@ -107,7 +107,19 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
     # Helper to construct clients
     # -------------------------------------------------------------------------
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(headers=self._headers, timeout=30.0)
+        # Factory#825: explicit, not inherited from httpx's default. self._headers
+        # carries the Basic-auth PAT, so a 302 from _base_url must not be chased.
+        return httpx.AsyncClient(headers=self._headers, timeout=30.0, follow_redirects=False)
+
+    def _patch_client(self) -> httpx.AsyncClient:
+        """``_client()`` plus the JSON-Patch content type the ADO write paths need.
+
+        Four call sites built this inline. Factory#825 gave each of them a redirect
+        posture to state and the repetition then crossed the hub's clone budget; one
+        factory is also one place for that posture to be right.
+        """
+        headers = {**self._headers, "Content-Type": "application/json-patch+json"}
+        return httpx.AsyncClient(headers=headers, timeout=30.0, follow_redirects=False)
 
     # -------------------------------------------------------------------------
     # Pull Request Operations
@@ -428,10 +440,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
                 {"op": "add", "path": "/fields/System.Tags", "value": "; ".join(labels)}
             )
 
-        headers = self._headers.copy()
-        headers["Content-Type"] = "application/json-patch+json"
-
-        async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+        async with self._patch_client() as client:
             resp = await client.post(url, json=patch)
             resp.raise_for_status()
             return self._parse_work_item(resp.json())
@@ -443,10 +452,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
 
         url = f"{self._base_url}/{self._org}/{self._proj}/_apis/wit/workitems/{number}?api-version=7.1"
         patch = [{"op": "add", "path": "/fields/System.State", "value": "Closed"}]
-        headers = self._headers.copy()
-        headers["Content-Type"] = "application/json-patch+json"
-
-        async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+        async with self._patch_client() as client:
             resp = await client.patch(url, json=patch)
             return resp.status_code == 200
 
@@ -577,9 +583,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
                     "value": "; ".join(all_tags),
                 }
             ]
-            headers = self._headers.copy()
-            headers["Content-Type"] = "application/json-patch+json"
-            async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+            async with self._patch_client() as client:
                 await client.patch(url, json=patch)
         except Exception as e:
             logger.error(f"Error applying labels: {e}")
@@ -599,9 +603,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
                     "value": "; ".join(filtered_tags),
                 }
             ]
-            headers = self._headers.copy()
-            headers["Content-Type"] = "application/json-patch+json"
-            async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+            async with self._patch_client() as client:
                 await client.patch(url, json=patch)
         except Exception as e:
             logger.error(f"Error removing labels: {e}")

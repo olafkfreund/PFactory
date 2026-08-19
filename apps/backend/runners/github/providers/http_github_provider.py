@@ -121,6 +121,9 @@ class HttpGitHubProvider:
                 "X-GitHub-Api-Version": "2022-11-28",
                 "Authorization": f"Bearer {self._token}",
             },
+            # Factory#825: explicit no-redirect posture on a client that carries a
+            # bearer token to an address derived from _base_url.
+            follow_redirects=False,
         )
 
     # ── issues ───────────────────────────────────────────────────────────────
