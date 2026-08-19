@@ -40,6 +40,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Hoist the PAT to job env: the `secrets` context is NOT allowed in a
     # step-level `if:` (only env/with/run), so gate the gitops bump on
     # `env.GITOPS_PAT` instead.
@@ -197,6 +198,7 @@ jobs:
   seam-check:
     needs: deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Factory seam harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -79,6 +79,7 @@ jobs:
   ratchet-ruff:
     name: ratchet ruff + mypy (changed files, blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -130,6 +131,7 @@ jobs:
   format-check:
     name: ruff format --check (apps/backend + apps/web-server + scripts, blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -147,6 +149,7 @@ jobs:
   config-drift:
     name: config drift (vendored baseline pinned to hub)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # The vendored standards/ copy must match the Factory hub at the pinned SHA
     # (standards/README.md).
     #
