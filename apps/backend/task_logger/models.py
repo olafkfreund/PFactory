@@ -2,8 +2,9 @@
 Data models for task logging.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class LogPhase(str, Enum):
@@ -48,7 +49,7 @@ class LogEntry:
     )
     collapsed: bool | None = None  # Whether to show collapsed by default in UI
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
         return {k: v for k, v in asdict(self).items() if v is not None}
 
@@ -61,13 +62,9 @@ class PhaseLog:
     status: str  # "pending", "active", "completed", "failed"
     started_at: str | None = None
     completed_at: str | None = None
-    entries: list = None
+    entries: list[Any] = field(default_factory=list)
 
-    def __post_init__(self):
-        if self.entries is None:
-            self.entries = []
-
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "phase": self.phase,
             "status": self.status,

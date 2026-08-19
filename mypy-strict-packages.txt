@@ -47,3 +47,17 @@ apps/backend/workspaces
 apps/backend/factory_invariants
 apps/backend/mcp_server
 apps/backend/templates_pkg
+
+# --- cleaned in PFactory#468 tier 2 (56 errors cleared) ---
+apps/backend/planner_lib
+apps/backend/providers
+apps/backend/task_logger
+
+# NOT LISTED, BLOCKED RATHER THAN SKIPPED: apps/backend/memory (9 errors).
+# memory/graphiti_helpers.py imports `graphiti_memory`, and no module of that
+# name exists anywhere in the tree — the import is kept alive only by a
+# try/ImportError guard, so it fails silently at runtime and reports
+# import-not-found under mypy. That is an import resolving to nothing behind a
+# silent guard (Factory#834/#844), not a typing problem: the package cannot
+# reach zero from here, and pretending otherwise would mean suppressing the one
+# error that is telling the truth.

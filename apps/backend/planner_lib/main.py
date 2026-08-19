@@ -23,6 +23,7 @@ from pathlib import Path
 
 from planner_lib.context import ContextLoader
 from planner_lib.generators import get_plan_generator
+from planner_lib.models import PlannerContext
 from test_plan import ImplementationPlan
 
 
@@ -32,19 +33,17 @@ class ImplementationPlanner:
     def __init__(self, spec_dir: Path):
         self.spec_dir = spec_dir
         self.context_loader = ContextLoader(spec_dir)
-        self.context = None
+        self.context: PlannerContext | None = None
 
-    def load_context(self):
+    def load_context(self) -> PlannerContext:
         """Load all context files from spec directory."""
         self.context = self.context_loader.load_context()
         return self.context
 
     def generate_plan(self) -> ImplementationPlan:
         """Generate the appropriate plan based on workflow type."""
-        if not self.context:
-            self.load_context()
-
-        generator = get_plan_generator(self.context, self.spec_dir)
+        context = self.context or self.load_context()
+        generator = get_plan_generator(context, self.spec_dir)
         return generator.generate()
 
     def save_plan(self, plan: ImplementationPlan) -> Path:
@@ -64,7 +63,7 @@ def generate_test_plan(spec_dir: Path) -> ImplementationPlan:
     return plan
 
 
-def main():
+def main() -> None:
     """CLI entry point."""
     import argparse
 

@@ -86,7 +86,7 @@ class FeaturePlanGenerator(PlanGenerator):
                 )
 
             # Determine dependencies
-            depends_on = []
+            depends_on: list[int] = []
             service_type = (
                 self.context.project_index.get("services", {}).get(service, {}).get("type", "")
             )

@@ -391,9 +391,14 @@ class OpenAICompatibleAgenticProvider(OpenAICompatibleHeadersMixin, BaseLLMProvi
             ) from exc
 
         try:
-            return json.loads(raw.decode("utf-8", errors="replace"))
+            payload = json.loads(raw.decode("utf-8", errors="replace"))
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"OpenAI-compatible API returned invalid JSON: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError(
+                f"OpenAI-compatible API returned a non-object JSON body: {type(payload).__name__}"
+            )
+        return payload
 
     def _verify_connection(self) -> None:
         """Health check via ``GET /v1/models``.  Treat 404/405 as 'reachable'."""
