@@ -15,9 +15,14 @@ Enhanced with Graphiti memory for cross-session context retrieval.
 
 NOTE: This module is now a facade that imports from agents/ submodules.
 All logic has been refactored into focused modules for better maintainability.
+
+This fork removed the coder agent (run_autonomous_agent, run_followup_planner),
+so only the names `agents` actually exports are re-exported here. See
+agents/__init__.py's docstring for what replaces the coder agent.
 """
 
-# Re-export everything from the agents module to maintain backwards compatibility
+# Re-export everything the agents module actually exports, to maintain
+# backwards compatibility with callers of this pre-refactor import path.
 from agents import (
     # Constants
     AUTO_CONTINUE_DELAY_SECONDS,
@@ -34,11 +39,12 @@ from agents import (
     post_session_processing,
     # Session management
     run_agent_session,
-    # Main API
-    run_autonomous_agent,
-    run_followup_planner,
+    run_gen_functional,
+    run_planner,
     save_session_memory,
     save_session_to_graphiti,
+    schedule_gen_functional,
+    schedule_planner,
     sync_plan_to_source,
 )
 
@@ -55,9 +61,11 @@ __all__ = [
     "load_test_plan",
     "post_session_processing",
     "run_agent_session",
-    "run_autonomous_agent",
-    "run_followup_planner",
+    "run_gen_functional",
+    "run_planner",
     "save_session_memory",
     "save_session_to_graphiti",
+    "schedule_gen_functional",
+    "schedule_planner",
     "sync_plan_to_source",
 ]
