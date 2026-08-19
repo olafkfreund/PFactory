@@ -1,7 +1,7 @@
 """
 Agent execution service.
 
-Wraps the existing run.py and spec_runner.py CLI tools as async services,
+Wraps the existing run.py CLI tool as an async service,
 enabling task execution with real-time streaming of logs and progress.
 """
 
@@ -438,6 +438,86 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                         sanitize_log(task_id),
                     )
 
+    def _author_spec_and_plan(
+        self,
+        spec_dir: Path,
+        *,
+        title: str,
+        description: str,
+        complexity: str | None,
+        approve: bool,
+    ) -> None:
+        """Deterministically write spec.md + test_plan.json for a task.
+
+        Replaces the ``runners/spec_runner.py`` subprocess, which has never
+        existed anywhere in this repository's history -- so every spec-creation
+        task in production died with ``exit 2: No such file or directory``
+        before any planning happened. ``run.py`` only ever operates on an
+        EXISTING spec (its own docstring: "Spec created via: claude /spec"),
+        so the spec must be authored first. Ported from TFactory#779, which
+        deleted the identical dead runner rather than writing one.
+
+        A "simple" task gets a single-subtask plan; anything else is decomposed
+        by the deterministic, no-LLM ``planner_lib``. When ``approve`` is set,
+        the plan is marked reviewed so the coding phase (``run.py --force``)
+        is not gated on a human this automated path cannot reach.
+        """
+        # apps/backend on sys.path so `review.*` / `planner_lib.*` / `test_plan.*`
+        # resolve; the backend is a sibling tree, not an installed package, and
+        # its location is `settings.BACKEND_PATH` -- not known until runtime.
+        # Hence the deferred imports: at module-import time these names cannot
+        # resolve at all, so PLC0415 is suppressed with the reason above rather
+        # than "fixed" by an import that would raise on startup.
+        if str(self.backend_path) not in sys.path:
+            sys.path.insert(0, str(self.backend_path))
+        from review.state import ReviewState  # noqa: PLC0415
+        from test_plan.factories import create_feature_plan  # noqa: PLC0415
+
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        spec_file = spec_dir / "spec.md"
+        if not spec_file.exists():
+            spec_file.write_text(f"# {title}\n\n{description}\n", encoding="utf-8")
+
+        plan_file = spec_dir / "test_plan.json"
+
+        def write_single_subtask_plan() -> None:
+            create_feature_plan(
+                feature=title,
+                services=[],
+                phases_config=[
+                    {
+                        "name": "Implementation",
+                        "subtasks": [
+                            {
+                                "id": "1.1",
+                                "description": (
+                                    f"{title}: {description}" if description else title
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            ).save(plan_file)
+
+        if complexity == "simple":
+            write_single_subtask_plan()
+        else:
+            from planner_lib.main import generate_test_plan  # noqa: PLC0415
+
+            generate_test_plan(spec_dir)
+            # planner_lib yields no phases without project context (fresh repo /
+            # no project_index.json). run.py needs at least one actionable
+            # subtask, so fall back to the single-subtask shape rather than
+            # handing it an empty plan that would silently no-op.
+            try:
+                if not json.loads(plan_file.read_text()).get("phases"):
+                    write_single_subtask_plan()
+            except (json.JSONDecodeError, OSError):
+                write_single_subtask_plan()
+
+        if approve:
+            ReviewState().approve(spec_dir, approved_by="auto-inprocess")
+
     async def start_spec_creation(
         self,
         task_id: str,
@@ -455,71 +535,70 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         if task_id in self.running_tasks:
             raise ValueError(f"Task {task_id} is already running")
 
-        # Parse spec_id from task_id (format: "project_id:spec_id")
-        if ":" in task_id:
-            spec_id = safe_spec_component(task_id.split(":", 1)[1])
-            spec_dir = project_path / ".pfactory" / "specs" / spec_id
-        else:
-            # Fallback: no project ID prefix (shouldn't happen in web mode)
-            spec_dir = None
+        # Parse spec_id from task_id (format: "project_id:spec_id"). With no
+        # project prefix (shouldn't happen in web mode) the whole id is the
+        # spec id -- previously that case left spec_dir None and skipped the
+        # metadata read; the spec now always has a home, because it is authored
+        # here rather than by a subprocess.
+        spec_id = safe_spec_component(task_id.split(":", 1)[-1])
+        spec_dir = project_path / ".pfactory" / "specs" / spec_id
 
         # Fix 5: Check if task requires manual review before coding
         # If requireReviewBeforeCoding is true, DON'T auto-approve (let user review the plan)
         should_auto_approve = True  # Default for web mode
         spec_phase_model = None  # Model for spec creation phase
-        if spec_dir:
-            task_metadata_file = spec_dir / "task_metadata.json"
-            if task_metadata_file.exists():
-                try:
-                    metadata = json.loads(task_metadata_file.read_text())
-                    if metadata.get("requireReviewBeforeCoding", False):
-                        should_auto_approve = False
-                        logger.info(
-                            "[AgentService] Task %s requires manual review - NOT auto-approving spec",
-                            sanitize_log(task_id),
-                        )
-                    # Read spec phase model from auto profile config
-                    if metadata.get("isAutoProfile") and metadata.get("phaseModels"):
-                        spec_phase_model = metadata["phaseModels"].get("spec")
-                except (json.JSONDecodeError, OSError) as e:
-                    logger.warning(
-                        "[AgentService] Failed to read task_metadata.json: %s", sanitize_log(e)
+        task_metadata_file = spec_dir / "task_metadata.json"
+        if task_metadata_file.exists():
+            try:
+                metadata = json.loads(task_metadata_file.read_text())
+                if metadata.get("requireReviewBeforeCoding", False):
+                    should_auto_approve = False
+                    logger.info(
+                        "[AgentService] Task %s requires manual review - NOT auto-approving spec",
+                        sanitize_log(task_id),
                     )
+                # Read spec phase model from auto profile config
+                if metadata.get("isAutoProfile") and metadata.get("phaseModels"):
+                    spec_phase_model = metadata["phaseModels"].get("spec")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(
+                    "[AgentService] Failed to read task_metadata.json: %s", sanitize_log(e)
+                )
 
-        # Build command
+        # Author the spec + plan in-process, then hand the ready spec to run.py.
+        # (There is no spec_runner.py to spawn -- see _author_spec_and_plan.)
+        self._author_spec_and_plan(
+            spec_dir,
+            title=title,
+            description=description,
+            complexity=complexity,
+            approve=should_auto_approve,
+        )
+        logger.info(
+            "[AgentService] [Model: %s] Authored spec + plan in-process for %s "
+            "(complexity=%s, auto_approve=%s)",
+            sanitize_log(spec_phase_model or "sonnet"),
+            sanitize_log(task_id),
+            sanitize_log(complexity or "standard"),
+            sanitize_log(should_auto_approve),
+        )
+
+        # Build command -- run.py drives the real pipeline against the spec +
+        # plan just written. --force bypasses the review gate when auto-approved.
         cmd = [
             sys.executable,
-            str(self.backend_path / "runners" / "spec_runner.py"),
-            "--task",
-            f"{title}\n\n{description}",
+            str(self.backend_path / "run.py"),
+            "--spec",
+            spec_id,
             "--project-dir",
             str(project_path),
         ]
+        if should_auto_approve:
+            cmd.append("--force")
 
         # Pass spec phase model if configured (multi-model support)
         if spec_phase_model:
             cmd.extend(["--model", spec_phase_model])
-            logger.info(
-                "[AgentService] [Model: %s] Starting spec creation for %s",
-                sanitize_log(spec_phase_model),
-                sanitize_log(task_id),
-            )
-        else:
-            logger.info(
-                "[AgentService] [Model: sonnet] Starting spec creation for %s (default)",
-                sanitize_log(task_id),
-            )
-
-        # Fix 1: Only auto-approve if task doesn't require manual review
-        if should_auto_approve:
-            cmd.append("--auto-approve")
-
-        # Fix 4: Pass existing spec directory to prevent duplicate task creation
-        if spec_dir:
-            cmd.extend(["--spec-dir", str(spec_dir)])
-
-        if complexity:
-            cmd.extend(["--complexity", complexity])
 
         # Set environment — scrub ANTHROPIC_API_KEY so spawned subprocesses
         # can never silently bill the direct-API account (OAuth-only policy;
