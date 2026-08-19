@@ -54,6 +54,19 @@ import PathInjectionFlow::PathGraph
  *   resolves a caller-supplied absolute path and requires the result to sit
  *   under the workspace root or a registered project root, raising otherwise.
  *   Containment is checked after `resolve()`, so traversal cannot escape.
+ * - `confine_to_project` (#553) is the SAME body against a narrower root set:
+ *   registered projects only, no workspace root. `_confine` is the shared body
+ *   both wrappers delegate to, barriered so the `resolve()` inside it does not
+ *   re-report the flow the wrappers exist to clear.
+ *
+ * Deliberately still NOT registered on `_resolve_project_path`
+ * (routes/github.py, alerts 2022/2113/2141). #553 split the tiers but did not
+ * change that call site's arithmetic: the value being confined IS a registry
+ * entry, and BOTH tiers contain the registry, so neither can reject it.
+ * Wrapping it would clear three alerts and reject nothing -- silencing dressed
+ * as a fix. The tier that could reject it is workspace-root-only, and the live
+ * registries measured for #553 hold three real project paths, all three of them
+ * outside the workspace root. Such a tier would strand every one of them.
  */
 class SpecPathSanitizer extends PathInjection::Sanitizer {
   SpecPathSanitizer() {
@@ -62,7 +75,7 @@ class SpecPathSanitizer extends PathInjection::Sanitizer {
     exists(DataFlow::CallCfgNode call, string name |
       name in [
           "safe_spec_component", "split_task_id", "get_next_spec_id",
-          "_safe_launch_path", "confine_to_workspace"
+          "_safe_launch_path", "confine_to_workspace", "confine_to_project", "_confine"
         ] and
       (
         call.getFunction().asExpr().(Name).getId() = name or
@@ -75,7 +88,7 @@ class SpecPathSanitizer extends PathInjection::Sanitizer {
     // their first parameter so the resolve()/is_dir() probes inside the helper
     // do not re-fire the very alert the barrier exists to clear.
     exists(Function f |
-      f.getName() in ["_safe_launch_path", "confine_to_workspace"] and
+      f.getName() in ["_safe_launch_path", "confine_to_workspace", "confine_to_project", "_confine"] and
       this.(DataFlow::ParameterNode).getParameter() = f.getArg(0)
     )
   }
