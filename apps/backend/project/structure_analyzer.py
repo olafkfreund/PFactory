@@ -29,8 +29,8 @@ class StructureAnalyzer:
         self.project_dir = Path(project_dir).resolve()
         self.parser = ConfigParser(project_dir)
         self.custom_scripts = CustomScripts()
-        self.custom_commands = set()
-        self.script_commands = set()
+        self.custom_commands: set[str] = set()
+        self.script_commands: set[str] = set()
 
     def analyze(self) -> tuple[CustomScripts, set[str], set[str]]:
         """

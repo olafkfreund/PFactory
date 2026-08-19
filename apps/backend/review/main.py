@@ -49,7 +49,7 @@ from review import (
 from ui import print_status
 
 
-def main():
+def main() -> None:
     """CLI entry point for manual review."""
     import argparse
 

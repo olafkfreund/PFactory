@@ -95,9 +95,6 @@ async def bash_security_hook(
     # Split into segments for per-command validation
     segments = split_command_segments(command)
 
-    # Get all allowed commands
-    allowed = profile.get_all_allowed_commands()
-
     # Check each command against the allowlist
     for cmd in commands:
         # Check if command is allowed

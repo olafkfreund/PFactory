@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 # State file name
 REVIEW_STATE_FILE = "review_state.json"
@@ -59,7 +60,7 @@ class ReviewState:
     spec_hash: str = ""
     review_count: int = 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "approved": self.approved,
@@ -71,7 +72,7 @@ class ReviewState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ReviewState":
+    def from_dict(cls, data: dict[str, Any]) -> "ReviewState":
         """Create from dictionary."""
         return cls(
             approved=data.get("approved", False),
@@ -206,7 +207,7 @@ class ReviewState:
             self.save(spec_dir)
 
 
-def get_review_status_summary(spec_dir: Path) -> dict:
+def get_review_status_summary(spec_dir: Path) -> dict[str, Any]:
     """
     Get a summary of the review status for display.
 

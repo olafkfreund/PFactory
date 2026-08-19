@@ -128,6 +128,41 @@ jobs:
           export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
           apps/backend/.venv/bin/python scripts/ratchet_lint.py --base "${{ steps.base.outputs.ref }}" --package "${PACKAGE_DIR}" --package apps/web-server --package scripts
 
+      - name: Prove the strict-package gate can fail
+        # BEFORE the verdict, in the same job. The gate below is the one-way
+        # half of the ratchet: packages listed in mypy-strict-packages.txt have
+        # been driven to zero and may never regrow. A gate that has only ever
+        # been seen passing proves nothing (Factory#694/#697), so this plants an
+        # ill-typed module in the first listed package, requires red, removes it,
+        # requires green. Same pattern as security_lint.py --self-test.
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
+          apps/backend/.venv/bin/python scripts/mypy_strict_packages.py --self-test
+
+      - name: Strict-clean packages (whole package, mypy --strict, blocking)
+        # The ratchet above is DIFF-SCOPED: it holds the backlog still but cannot
+        # tell a package at 0 from one at 300, so nothing keeps finished work
+        # finished. This holds every package in mypy-strict-packages.txt at zero
+        # WHOLE, on every PR — including files no diff touched, which is exactly
+        # where a regression would otherwise land unmeasured (PFactory#468).
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/apps/backend/.venv/bin:${PATH}"
+          apps/backend/.venv/bin/python scripts/mypy_strict_packages.py
+
+      - name: Strict-package count to the run summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(grep -cvE '^\s*(#.*)?$' mypy-strict-packages.txt || echo 0)
+          {
+            echo "## mypy --strict, whole-package gate"
+            echo ""
+            echo "- Packages held at ZERO errors: **${count}**"
+            echo "- The diff-scoped ratchet freezes the backlog; this list shrinks it permanently."
+            echo "- An entry that names a missing directory fails the gate, so the list cannot rot."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   format-check:
     name: ruff format --check (apps/backend + apps/web-server + scripts, blocking)
     runs-on: ubuntu-latest

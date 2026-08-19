@@ -9,8 +9,15 @@ Handles compound commands, pipes, subshells, and various shell constructs.
 import os
 import re
 import shlex
+from collections.abc import Iterator
+from typing import Any
 
-import bashlex
+# bashlex publishes no type stubs and carries no py.typed marker, and no
+# stub package exists on PyPI (see requirements-typestubs.txt: only libraries
+# with a published stub package belong there). Its AST nodes are therefore
+# Any at this boundary no matter what; the ignore records that we know,
+# rather than leaving one permanently-red error in an otherwise clean package.
+import bashlex  # type: ignore[import-untyped]
 
 
 def split_command_segments(command_string: str) -> list[str]:
@@ -48,7 +55,7 @@ _STRICT_PARSING = os.environ.get("PFACTORY_STRICT_COMMAND_PARSING", "").strip().
 _UNPARSEABLE = "\x00unparseable"
 
 
-def _walk_command_nodes(node):
+def _walk_command_nodes(node: Any) -> Iterator[Any]:
     """Yield every bashlex ``command`` node, descending into pipelines, lists,
     compounds and — crucially — command/process substitutions, so a command
     hidden inside ``$(...)``, backticks or ``<(...)`` is surfaced rather than
@@ -63,13 +70,13 @@ def _walk_command_nodes(node):
             yield from _walk_command_nodes(sub)
 
 
-def _command_name(command_node) -> str | None:
+def _command_name(command_node: Any) -> str | None:
     """Base command name of a bashlex command node, skipping leading
     ``VAR=value`` environment assignments and option flags."""
     for part in getattr(command_node, "parts", None) or []:
         if getattr(part, "kind", None) != "word":
             continue
-        word = part.word
+        word: str = part.word
         if "=" in word and word.split("=", 1)[0].isidentifier():
             continue  # environment assignment, not the command
         if word.startswith("-"):

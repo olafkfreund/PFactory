@@ -24,7 +24,7 @@ class FrameworkDetector:
         """
         self.project_dir = Path(project_dir).resolve()
         self.parser = ConfigParser(project_dir)
-        self.frameworks = []
+        self.frameworks: list[str] = []
 
     def detect_all(self) -> list[str]:
         """
