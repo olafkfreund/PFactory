@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.services.git_base_url import safe_git_base_url  # #610
 
 from ..services.git_utils import run_gh_command, safe_spec_component  # #335
 
@@ -1219,7 +1220,9 @@ def _get_project_provider(projectId: str):
 
     # Map settings fields
     token = settings.get("gitToken")
-    base_url = settings.get("gitBaseUrl")
+    # #610: the stored value steers a credentialed outbound request. Check it here,
+    # at the trust boundary, not in the byte-vendored provider factory.
+    base_url = safe_git_base_url(settings.get("gitBaseUrl"))
     org = settings.get("gitOrg")
     proj_name = settings.get("gitProject")
     repo_name = settings.get("gitRepo")
