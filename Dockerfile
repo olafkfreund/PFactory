@@ -91,9 +91,22 @@ RUN apk upgrade --no-cache
 #                   can create the sandbox.
 #   socat         — required alongside bwrap by the SDK sandbox network-proxy
 #                   path; its absence triggers the same warning.
+# Two version floors below are CVE remediation, not preference. `apk upgrade`
+# earlier in this stage does not clear either, because both packages come from
+# the base image layer and must be named explicitly to be pulled forward:
+#   busybox 1.37.0-r61 — CVE-2026-38753 (DoS via crafted AWK in awk_sub) and
+#                        CVE-2026-38754 (heap overflow in ifsbreakup, shell/ash.c),
+#                        both HIGH, both fixed in 1.38.0-r0.
+#   wget    1.25.0-r14 — CVE-2026-58471 and CVE-2026-58472, both HIGH, both
+#                        fixed in 1.25.0-r15.
+# Floors rather than == pins, so the build stays green as Wolfi revs further
+# (1.38.0-r1 and later already exist); drop each once the base digest ships it.
+# Verified present in the Wolfi x86_64 APKINDEX before pinning — a floor above
+# the newest available version fails the build outright.
 RUN apk add --no-cache \
         bash \
         "binutils>2.46-r1" \
+        "busybox>=1.38.0-r0" \
         bubblewrap \
         ca-certificates \
         curl \
@@ -103,7 +116,7 @@ RUN apk add --no-cache \
         nodejs \
         npm \
         socat \
-        wget
+        "wget>=1.25.0-r15"
 
 # Epic #44 R3 — optionally bundle the rmux binary.
 #
