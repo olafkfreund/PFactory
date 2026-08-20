@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Codex models (static fallback list)
 CODEX_MODELS = [
+    ProviderModel(id="gpt-5.6", label="GPT-5.6"),
     ProviderModel(id="gpt-5.5", label="GPT-5.5"),
     ProviderModel(id="gpt-5.4", label="GPT-5.4"),
     ProviderModel(id="gpt-5.4-mini", label="GPT-5.4 Mini"),
