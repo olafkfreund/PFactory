@@ -8,6 +8,7 @@ CLI commands for QA validation (run QA, check status)
 import asyncio
 import sys
 from pathlib import Path
+from typing import Protocol, cast
 
 # Ensure parent directory is in path for imports (before other imports)
 _PARENT_DIR = Path(__file__).parent.parent
@@ -15,6 +16,7 @@ if str(_PARENT_DIR) not in sys.path:
     sys.path.insert(0, str(_PARENT_DIR))
 
 from progress import count_subtasks
+
 # PFactory is the PLANNER and ships no QA loop -- `qa_loop` exists in TFactory
 # (apps/backend/qa_loop.py) and AIFactory (apps/backend/qa/qa_loop.py) but has
 # never existed here. Importing it at module scope made `cli.main` unimportable,
@@ -35,13 +37,46 @@ _QA_UNAVAILABLE = (
 )
 
 
-def _qa_loop():
+class _QaLoopModule(Protocol):
+    """The four names this CLI uses from ``qa_loop``.
+
+    Typed as a Protocol rather than left as the untyped module object: mypy
+    cannot resolve ``qa_loop`` (it genuinely is not here), so an untyped
+    accessor makes every call site ``Any`` and the ratchet counts each one as a
+    net-new strict error. Signatures mirror TFactory's real module
+    (``apps/backend/qa_loop.py``), which is the implementation this would bind
+    to if the fork ever gained one.
+    """
+
+    def is_qa_approved(self, spec_dir: Path) -> bool: ...
+
+    def should_run_qa(self, spec_dir: Path) -> bool: ...
+
+    def print_qa_status(self, spec_dir: Path) -> None: ...
+
+    async def run_qa_validation_loop(
+        self,
+        *,
+        project_dir: Path,
+        spec_dir: Path,
+        model: str,
+        verbose: bool = False,
+    ) -> bool: ...
+
+
+def _qa_loop() -> _QaLoopModule:
     """Import ``qa_loop`` on demand, with a clear error when it is absent."""
     try:
-        import qa_loop  # noqa: PLC0415
+        # type: ignore[import-not-found] -- mypy is right that the module is
+        # absent; that is the condition this function exists to handle. The
+        # cast below binds it to the Protocol above so call sites stay typed
+        # rather than degrading to Any and tripping the strict ratchet.
+        import qa_loop  # type: ignore[import-not-found]  # noqa: PLC0415
     except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
         raise RuntimeError(_QA_UNAVAILABLE) from exc
-    return qa_loop
+    return cast("_QaLoopModule", qa_loop)
+
+
 from review import ReviewState, display_review_status
 from ui import (
     Icons,

@@ -94,6 +94,7 @@ def handle_build_command(
     )
     from phase_config import get_phase_model
     from phase_event import ExecutionPhase, emit_phase
+
     # NOT imported here: `qa_loop` is a TFactory/AIFactory module and has never
     # existed in this fork, so this unconditional import crashed every build --
     # including `run.py --spec <id>`, the command AIFactory invokes. All three
