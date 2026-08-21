@@ -16,9 +16,15 @@ Enhanced with Graphiti memory for cross-session context retrieval.
 NOTE: This module is now a facade that imports from agents/ submodules.
 All logic has been refactored into focused modules for better maintainability.
 
-This fork removed the coder agent (run_autonomous_agent, run_followup_planner),
-so only the names `agents` actually exports are re-exported here. See
-agents/__init__.py's docstring for what replaces the coder agent.
+This fork removed the coder agent (`run_autonomous_agent`), so only the names
+`agents` actually exports are re-exported here. See agents/__init__.py's
+docstring for what replaces it.
+
+`run_followup_planner` was ALSO listed here as removed, and that was wrong: it
+is alive at `agents/planner.py:42` and imports fine. Only its re-export through
+this facade went away. The stale line cost real time during PFactory#607 --
+it reads as "the function is gone", so a wrong-module import looks like a
+missing capability, and the two need opposite fixes.
 """
 
 # Re-export everything the agents module actually exports, to maintain
