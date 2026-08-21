@@ -69,7 +69,7 @@ def test_secret_roundtrips_and_is_ciphertext_at_rest(fernet_key: str) -> None:
 
 @pytest.mark.secrets
 def test_response_model_never_exposes_secret() -> None:
-    from server.routes.test_target_credentials import TestCredentialResponse
+    from server.routes.target_credentials import TestCredentialResponse
 
     fields = set(TestCredentialResponse.model_fields)
     assert "secret" not in fields, "response model must not expose the secret"

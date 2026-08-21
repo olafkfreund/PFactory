@@ -1,0 +1,87 @@
+# Test files in THIS repo that sit outside the paths CI collects.
+#
+# Read by `scripts/check_test_collection.py`, fetched from the hub at the pin in
+# .github/workflows/test-collection.yml. Factory#844 / #846.
+#
+# THIS FILE IS NOT AN IGNORE LIST. The gate enforces four rules:
+#
+#   * An entry matching NOTHING fails the gate (Factory#788). When a file
+#     becomes collected, its entry must be deleted in the same PR, so this list
+#     can only ratchet down.
+#   * `reason` is validated -- placeholders (TODO, TBD, N/A, none, ...) and
+#     one-liners are rejected.
+#   * `issue` is REQUIRED. An uncollected test with no issue is a decision
+#     nobody made.
+#   * Exact paths only, no globs. A glob is how one entry quietly comes to
+#     cover files nobody weighed.
+
+[[allow]]
+path = "apps/backend/agents/test_refactoring.py"
+reason = """
+Collecting this would turn `dev` red on a KNOWN-OPEN defect rather than on a \
+regression. All four of its tests fail today, and they fail correctly: they \
+assert `hasattr(coder, "run_autonomous_agent")` and that the name is in the \
+package's public API, and that function is defined NOWHERE in this repo. \
+That is PFactory#607, and this file is the evidence Factory#844 opened with -- \
+"a test asserting exactly this property exists" and has never run. \
+Whether PFactory should carry a coder at all is the scope question on #607; \
+until it is answered there is no code change here that makes this file green, \
+and wiring a red test into CI to prove a point nobody can act on trains people \
+to ignore the gate. Delete this entry with the fix.
+"""
+issue = "PFactory#607"
+
+[[allow]]
+path = "apps/backend/plan/emit/test_house_standards.py"
+reason = """
+Eleven real tests that need the backend on sys.path: they import `plan.emit...` \
+and the file lives inside `apps/backend`, so a bare `pytest` from the repo root \
+raises ModuleNotFoundError on `plan`. The existing `pytest tests/` invocation \
+supplies that rootdir and this path does not sit under it. Collecting it needs \
+a second pytest invocation rooted at apps/backend, which is the work Factory#844 \
+describes rather than a one-line path addition.
+"""
+issue = "Factory#844"
+
+[[allow]]
+path = "apps/backend/test_quick_improvements.py"
+reason = """
+Same rootdir problem as test_house_standards.py above: four real tests that \
+import backend modules by bare name and pass only when run with apps/backend as \
+the rootdir. Five of the eight tests across this pair already pass that way; the \
+rest fail on imports, not on assertions.
+"""
+issue = "Factory#844"
+
+[[allow]]
+path = "apps/backend/test_quick_improvements_simple.py"
+reason = """
+The companion to test_quick_improvements.py and uncollected for the identical \
+rootdir reason. Listed separately rather than as a glob because the gate rejects \
+globs, deliberately -- one pattern covering two files is how a third arrives \
+later without anyone weighing it.
+"""
+issue = "Factory#844"
+
+[[allow]]
+path = "apps/backend/analysis/test_discovery.py"
+reason = """
+NOT a test file. It is the test-DISCOVERY analyser -- it finds a target repo's \
+test suites -- and its `TestDiscovery`, `TestDiscoveryResult` and \
+`TestFrameworkPattern` classes are production types whose names begin with \
+Test. It defines no `def test_`, and pytest already declines to collect the \
+classes because they carry `__init__`. Renaming it is the honest fix and is \
+deferred only because `analysis.test_discovery` is a published import path with \
+a compat shim at apps/backend/test_discovery.py pointing at it.
+"""
+issue = "Factory#844"
+
+[[allow]]
+path = "apps/backend/test_discovery.py"
+reason = """
+NOT a test file either -- a backward-compatibility shim whose entire body \
+re-exports `analysis.test_discovery`, as its own docstring says. It exists so \
+the old import path keeps working, which is exactly why it cannot be renamed \
+without the same deprecation the module above needs.
+"""
+issue = "Factory#844"

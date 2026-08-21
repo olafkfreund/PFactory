@@ -94,7 +94,13 @@ def handle_build_command(
     )
     from phase_config import get_phase_model
     from phase_event import ExecutionPhase, emit_phase
-    from qa_loop import is_qa_approved, run_qa_validation_loop, should_run_qa
+
+    # NOT imported here: `qa_loop` is a TFactory/AIFactory module and has never
+    # existed in this fork, so this unconditional import crashed every build --
+    # including `run.py --spec <id>`, the command AIFactory invokes. All three
+    # uses below are already behind `not skip_qa`, so the import belongs behind
+    # the same condition rather than ahead of it. See .qa_commands._qa_loop.
+    from .qa_commands import _qa_loop
 
     from .utils import print_banner, validate_environment
 
@@ -260,7 +266,7 @@ def handle_build_command(
         # Run QA validation BEFORE finalization (while worktree still exists)
         # QA must sign off before the build is considered complete
         qa_approved = True  # Default to approved if QA is skipped
-        if not skip_qa and should_run_qa(spec_dir):
+        if not skip_qa and _qa_loop().should_run_qa(spec_dir):
             print("\n" + "=" * 70)
             print("  SUBTASKS COMPLETE - STARTING QA VALIDATION")
             print("=" * 70)
@@ -269,7 +275,7 @@ def handle_build_command(
 
             try:
                 qa_approved = asyncio.run(
-                    run_qa_validation_loop(
+                    _qa_loop().run_qa_validation_loop(
                         project_dir=working_dir,
                         spec_dir=spec_dir,
                         model=model,
@@ -301,7 +307,7 @@ def handle_build_command(
                 print(f"Resume: python pfactory/run.py --spec {spec_dir.name} --qa")
                 qa_approved = False
 
-        elif not skip_qa and is_qa_approved(spec_dir):
+        elif not skip_qa and _qa_loop().is_qa_approved(spec_dir):
             # QA was pre-approved by coder agent - emit phase events for proper logging
             emit_phase(ExecutionPhase.QA_REVIEW, "QA pre-approved by coder agent", progress=100)
 

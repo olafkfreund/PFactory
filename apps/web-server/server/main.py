@@ -50,9 +50,9 @@ from .routes import (
     search,
     settings as settings_routes,
     skills,
+    target_credentials,
     tasks,
     terminal,
-    test_target_credentials,
     visual_inspection,
     well_known,
 )
@@ -263,7 +263,7 @@ def create_app() -> FastAPI:
     app.include_router(git_credentials.router)
 
     # Test-target credentials for "log in then test" (#107)
-    app.include_router(test_target_credentials.router)
+    app.include_router(target_credentials.router)
 
     # Provider runtime version manager (#121)
     app.include_router(provider_runtimes.router)
