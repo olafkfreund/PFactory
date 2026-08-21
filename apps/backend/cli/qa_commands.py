@@ -15,12 +15,33 @@ if str(_PARENT_DIR) not in sys.path:
     sys.path.insert(0, str(_PARENT_DIR))
 
 from progress import count_subtasks
-from qa_loop import (
-    is_qa_approved,
-    print_qa_status,
-    run_qa_validation_loop,
-    should_run_qa,
+# PFactory is the PLANNER and ships no QA loop -- `qa_loop` exists in TFactory
+# (apps/backend/qa_loop.py) and AIFactory (apps/backend/qa/qa_loop.py) but has
+# never existed here. Importing it at module scope made `cli.main` unimportable,
+# which took `run.py` -- the primary entry point, and the one AIFactory invokes
+# as `run.py --spec <id>` -- down with it: `run.py --help` raised
+# ModuleNotFoundError in the repo AND in the deployed image (PFactory#621).
+#
+# Imported lazily so the other eleven subcommands work. The three QA
+# subcommands cannot work in this fork, and each now says so when invoked
+# instead of crashing the whole CLI on import. Deleting them outright was the
+# alternative; a clear message is better than a command that vanishes without
+# explaining where it went.
+_QA_UNAVAILABLE = (
+    "This build of PFactory has no QA loop. `qa_loop` is a TFactory/AIFactory "
+    "module and has never been part of this fork, so `--qa`, `--qa-status` and "
+    "`--review-status` cannot run here. Run QA through TFactory instead. "
+    "See PFactory#621."
 )
+
+
+def _qa_loop():
+    """Import ``qa_loop`` on demand, with a clear error when it is absent."""
+    try:
+        import qa_loop  # noqa: PLC0415
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+        raise RuntimeError(_QA_UNAVAILABLE) from exc
+    return qa_loop
 from review import ReviewState, display_review_status
 from ui import (
     Icons,
@@ -42,7 +63,7 @@ def handle_qa_status_command(spec_dir: Path) -> None:
     """
     print_banner()
     print(f"\nSpec: {spec_dir.name}\n")
-    print_qa_status(spec_dir)
+    _qa_loop().print_qa_status(spec_dir)
 
 
 def handle_review_status_command(spec_dir: Path) -> None:
@@ -92,8 +113,8 @@ def handle_qa_command(
     fix_request_file = spec_dir / "QA_FIX_REQUEST.md"
     has_human_feedback = fix_request_file.exists()
 
-    if not should_run_qa(spec_dir) and not has_human_feedback:
-        if is_qa_approved(spec_dir):
+    if not _qa_loop().should_run_qa(spec_dir) and not has_human_feedback:
+        if _qa_loop().is_qa_approved(spec_dir):
             print("\n✅ Build already approved by QA.")
         else:
             completed, total = count_subtasks(spec_dir)
@@ -106,7 +127,7 @@ def handle_qa_command(
 
     try:
         approved = asyncio.run(
-            run_qa_validation_loop(
+            _qa_loop().run_qa_validation_loop(
                 project_dir=project_dir,
                 spec_dir=spec_dir,
                 model=model,
