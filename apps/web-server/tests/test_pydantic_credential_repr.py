@@ -74,7 +74,7 @@ from server.routes.auth_routes import (  # noqa: E402
 )
 from server.routes.git_credentials import CreateGitCredentialRequest  # noqa: E402
 from server.routes.settings import AppSettings  # noqa: E402
-from server.routes.test_target_credentials import (  # noqa: E402
+from server.routes.target_credentials import (  # noqa: E402
     CreateTestCredentialRequest,
 )
 

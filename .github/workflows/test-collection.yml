@@ -1,0 +1,153 @@
+name: test collection (no orphaned test files)
+
+# Factory#844. A `test_*.py` that sits outside the paths CI actually collects is
+# a test nobody runs, and a green pipeline over one is the fleet's dominant
+# failure mode: absence that looks like presence. The incident that produced
+# this gate had a ten-week fuse -- a test asserting an entry point exists sat in
+# a sibling repo since its fork commit and never once executed, while CI stayed
+# green over the broken entry point it was written to catch (PFactory#607). The
+# fleet-wide sweep found 57 such files across three repos, 421 tests that pass
+# when run by hand and have never once run in CI.
+#
+# This repo is where the incident originated, so it does NOT start at zero. Six
+# files sit outside the 11 collected paths derived from 11 pytest invocations,
+# and each is registered in `uncollected-tests-allowlist.toml` with a written
+# reason and an issue rather than quietly deleted: `test_refactoring.py` holds
+# the four tests that would have caught PFactory#607 on the day it landed, and
+# they still fail, so deleting them would destroy the evidence. The registry is
+# a ratchet -- an entry that stops matching a real uncollected file also fails
+# the gate, so the six can only become five.
+#
+# HOW THE BOUNDARY IS DECIDED. The gate does not read a list of collected paths.
+# It DERIVES them from this repo's own `.github/workflows/*.yml` pytest
+# invocations. A declared list reproduces the exact defect the gate exists to
+# close: the day a workflow's pytest line moves and the list does not, the gate
+# keeps reporting a confident verdict about a boundary that has gone. Deriving
+# cannot disagree with what CI runs, because it IS what CI runs. It also means
+# ci.yml's multi-line `run: |` pytest invocations are read with their `\`
+# continuations joined, because reading only the first line would see no path
+# arguments and conclude the whole repo is collected -- a false clean.
+#
+# WHY FETCHED AND NOT VENDORED. Every other hub-pinned gate here vendors its
+# engine (security-lint/, factory_common/, verification-core, factory-ui) and
+# adds a byte-exact drift workflow beside it, because those engines are also run
+# outside CI. This one is not: it reads workflow files and the tree, and nothing
+# runs it locally. Vendoring it would copy 839 lines into this repo and then
+# require a second workflow whose only job is to prove the copy still matches.
+# Fetching the canonical at a pinned SHA and running it in place has no copy, so
+# it has no drift, so it needs no drift gate.
+# `uncollected-tests-allowlist.toml` at the repo root is the only local state,
+# and it is data, not engine.
+#
+# THE PIN IS EXECUTED, NOT MERELY DIFFED -- read this before changing it.
+# Every other hub fetch in this repo downloads a tree and `diff`s it. This one
+# downloads a Python file and RUNS it, so a pin pointing at a hostile commit is
+# code execution in this job rather than a gate bypass. HUB_PIN_SHA is read from
+# this workflow file, which on a `pull_request` trigger is the PR's own copy, and
+# GitHub serves any commit in the hub's fork network by SHA. The
+# "pinned hub SHA must be on hub main" step below is therefore LOAD-BEARING here
+# in a way it is not elsewhere, and it must stay ahead of the fetch. The job runs
+# on ubuntu-latest with `contents: read`, no secrets and no artifact a privileged
+# workflow later consumes, which bounds the blast radius but does not remove it.
+#
+# WHY raw.githubusercontent AND NOT A SECOND actions/checkout. Checking the hub
+# out at a ref read from the PR's own tree is what raised a net-new
+# `actions/untrusted-checkout` alert on the first version of a sibling gate
+# (TFactory#1052). Fetching the files removes the finding at source: there is no
+# checkout of a PR-controlled ref and no job token left in a .git/config. Same
+# mechanism security-lint.yml already uses here.
+#
+# STALENESS. scripts/check_pin_freshness.py in the hub cannot see this pin: it
+# reports, per service, whether the canonical has moved for the modules that
+# service VENDORS, and this gate vendors nothing. So a hub improvement to
+# check_test_collection.py will not reach this repo until someone bumps
+# HUB_PIN_SHA by hand. That is a known ceiling, filed as Factory#848; the fix is
+# a freshness reading that covers fetch-at-pin gates, not a vendored copy.
+#
+# NO `paths:` FILTER, DELIBERATELY. The thing this gate catches is a test file
+# landing outside the collected paths, which is a Python-file change -- but it is
+# equally caused by a WORKFLOW change that narrows collection. Per Factory#543 a
+# path-filtered workflow reports "no run" rather than "skipped", which wedges a
+# PR the moment this becomes a required check.
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-collection-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The SQUASH-MERGE SHA of Factory#849 (the gate, #846, plus the name-line fix
+  # found wiring it here) on hub main, not that PR's branch head.
+  # The hub squash-merges, so a branch head stops existing the moment its PR
+  # lands and the pin then resolves to nothing -- a gate that cannot run rather
+  # than one that fails honestly (Factory#638).
+  HUB_PIN_SHA: "67733bdb8f1a0382881241f4d885216bf77d0b49"
+
+jobs:
+  collection:
+    name: every test file is inside a collected path
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # 3.11+ for tomllib, which the gate uses to read the registry and any
+          # root pytest config. 3.12 matches this repo's other Python jobs.
+          python-version: "3.12"
+
+      - name: The pinned hub SHA must be on hub main
+        # Ahead of the fetch on purpose: this step is what makes running a
+        # fetched file acceptable at all. See the header.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.github/scripts/assert-hub-pin-on-main.sh "${HUB_PIN_SHA}" "test-collection HUB_PIN_SHA"
+
+      - name: Fetch the gate from the pinned hub canonical
+        # Fails CLOSED (standards rule 4.7): a fetch that cannot reach the hub
+        # has verified nothing, so it is a failure, not a skip. Both files land
+        # in one directory because check_test_collection.py imports
+        # gate_evidence from its own directory.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hub-gate
+          base="https://raw.githubusercontent.com/olafkfreund/Factory/${HUB_PIN_SHA}/scripts"
+          for f in check_test_collection.py gate_evidence.py; do
+            curl -fsSL "${base}/${f}" -o "/tmp/hub-gate/${f}"
+          done
+
+      - name: Prove the gate can fail
+        # Runs BEFORE the verdict, in the same job. A green gate whose ability to
+        # go red was never demonstrated is Factory#694 / #697 again. The
+        # self-test builds a throwaway repo, plants an uncollected test file and
+        # requires red, registers it with a real reason and requires green, then
+        # walks the placeholder, missing-issue and dead-entry cases.
+        run: python3 /tmp/hub-gate/check_test_collection.py --self-test
+
+      - name: Enforce (whole repo, blocking)
+        # Prints the COUNT it examined on every verdict, pass or fail, and exits
+        # 2 rather than 0 if it examined nothing (Factory#832).
+        run: python3 /tmp/hub-gate/check_test_collection.py --root .
+
+      - name: Registry size to the run summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(grep -c '^\[\[allow\]\]' uncollected-tests-allowlist.toml || true)
+          {
+            echo "## Test-collection gate"
+            echo ""
+            echo "- Registered uncollected test files: **${count:-0}**"
+            echo "- Every entry carries a written reason and an issue; the gate fails without them."
+            echo "- An entry that matches nothing also fails, so this number can only go down."
+          } >> "$GITHUB_STEP_SUMMARY"
