@@ -13,7 +13,7 @@ from tests.secrets.helpers import reimport_crypto
 
 
 def test_parse_store_ref() -> None:
-    from server.services.test_credential_resolver import parse_store_ref
+    from server.services.credential_resolver import parse_store_ref
 
     assert parse_store_ref("store:tc_1") == "tc_1"
     assert parse_store_ref("env:NAME") is None
@@ -25,7 +25,7 @@ async def test_resolve_decrypts_and_bumps_last_used(fernet_key: str) -> None:
     reimport_crypto({"KMS_BACKEND": "fernet", "KMS_FERNET_KEY": fernet_key})
 
     from server.database import TestTargetCredential
-    from server.services.test_credential_resolver import (
+    from server.services.credential_resolver import (
         StoreCredentialNotFound,
         resolve_store_credential,
     )
