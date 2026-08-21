@@ -1,0 +1,84 @@
+name: workflow duplication (no wholesale copies)
+
+# Factory#842. jscpd stopped counting `.github/workflows/**` when Factory#836
+# bounded every job with `timeout-minutes`: that one line per job pushed three
+# pairs of Actions PREAMBLE over jscpd's 50-token floor. None of it was a paste
+# anyone chose -- the workflow format requires each line verbatim, and
+# pin-freshness REQUIRES every workflow to name the same action digest, so any
+# two jobs that both check out and both set up Python are byte-identical by
+# policy. Excluding them cost a real capability though: jscpd would have caught
+# somebody duplicating `codeql.yml` into `codeql-2.yml` and editing one line.
+#
+# This gate is the narrow replacement. It compares workflows PAIRWISE within
+# this repo, after discarding lines that appear in three or more files (the
+# shared preamble), and flags a pair only when what remains is 90% identical
+# across at least 8 distinctive lines. So it cannot fire on preamble, which is
+# the whole reason jscpd could not stay.
+#
+# THIS REPO IS CLEAN TODAY -- measured, no wholesale copy among its workflows.
+# Wiring it now is one file; wiring it after the drift is a migration.
+#
+# WHY FETCHED AND NOT VENDORED. The other hub-pinned gates here vendor their
+# engine and add a byte-exact drift workflow beside it, because those engines
+# also run outside CI. This one does not: it reads workflow files and nothing
+# runs it locally. Fetching the canonical at a pinned SHA has no copy, so it has
+# no drift, so it needs no drift gate. The engine imports stdlib only, so the
+# fetch is a single file.
+#
+# THE PIN IS EXECUTED, NOT MERELY DIFFED. Other hub fetches here download a tree
+# and `diff` it; this one downloads a Python file and RUNS it. A pin pointing at
+# a hostile commit would therefore execute, which is why the step below asserts
+# the SHA is reachable from hub `main` before anything is fetched. Bump the pin
+# only to a commit that is already on hub main.
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-duplication-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUB_PIN_SHA: "e83910a18451fb9f52b7ff480a5b556400dabce3"
+
+jobs:
+  duplication:
+    name: no workflow is a wholesale copy of another
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: The pinned hub SHA must be on hub main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.github/scripts/assert-hub-pin-on-main.sh "${HUB_PIN_SHA}" "workflow-duplication HUB_PIN_SHA"
+
+      - name: Fetch the gate from the pinned hub canonical
+        # Fails CLOSED: a fetch that cannot reach the hub has verified nothing,
+        # so it is a failure, not a skip.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hub-gate
+          curl -fsSL \
+            "https://raw.githubusercontent.com/olafkfreund/Factory/${HUB_PIN_SHA}/scripts/check_workflow_duplication.py" \
+            -o /tmp/hub-gate/check_workflow_duplication.py
+
+      - name: Prove the gate can fail
+        # Runs BEFORE the verdict, in the same job. A green gate whose ability to
+        # go red was never demonstrated is Factory#694 / #697 again.
+        run: python3 /tmp/hub-gate/check_workflow_duplication.py --self-test
+
+      - name: Enforce (blocking)
+        # Prints the COUNT of workflows it compared on every verdict, and exits
+        # non-zero rather than 0 if it compared nothing (Factory#832).
+        run: python3 /tmp/hub-gate/check_workflow_duplication.py --root .
