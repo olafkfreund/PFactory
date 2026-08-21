@@ -102,7 +102,7 @@ jobs:
           fi
           echo "Node major aligned: ${declared} (.nvmrc == ${NODE_DOCKERFILE} stage ${NODE_STAGE})"
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
 
       # amd64 only, matching deploy.yml — the p510 k3d cluster is amd64 and the
       # frontend `vite build` fails under QEMU-emulated arm64.

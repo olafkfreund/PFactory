@@ -678,7 +678,7 @@ jobs:
         # support both amd64 + arm64 manifests. QEMU is NOT needed here —
         # the test inspects manifests, it doesn't cross-build. Cross-arch
         # building happens in release.yml at tag push time only.
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
 
       # Trivy is PINNED, not `latest` (Factory#664). `latest` means the scanner
       # changes without a commit, so a scan verdict is not attributable to
