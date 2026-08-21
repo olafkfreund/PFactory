@@ -49,6 +49,18 @@ from .input_handlers import (
 )
 
 
+class BuildNotSupportedError(RuntimeError):
+    """This fork was asked to write code, and has no agent that can.
+
+    Named rather than a bare ``RuntimeError`` so the caller can tell "PFactory
+    does not do this" apart from "PFactory tried and failed". Before
+    PFactory#607 the same situation surfaced as ``ImportError: cannot import
+    name 'run_autonomous_agent'`` from the first statement of
+    :func:`handle_build_command`, which reads as a broken install rather than
+    a deliberate boundary.
+    """
+
+
 def handle_build_command(
     project_dir: Path,
     spec_dir: Path,
@@ -85,7 +97,7 @@ def handle_build_command(
             implementation to GitHub Copilot Coding Agent (#92, #94).
     """
     # Lazy imports to avoid loading heavy modules
-    from agent import run_autonomous_agent, sync_plan_to_source
+    from agent import run_planner, sync_plan_to_source
     from debug import (
         debug,
         debug_info,
@@ -239,16 +251,44 @@ def handle_build_command(
     try:
         debug("run.py", "Starting agent execution")
 
+        # This fork has no coder agent. `core/agent.py` says so outright --
+        # "This fork removed the coder agent (run_autonomous_agent,
+        # run_followup_planner)" -- and `agents/__init__.py` records that its
+        # replacement (Planner, Generators, Executor, Evaluator, Triager) is
+        # "scheduled in Tasks 5-8". The CLI was never pruned to match, so every
+        # build reached `from agent import run_autonomous_agent` and died on
+        # ImportError -- INCLUDING the delegation flow, because the old call
+        # took `stop_after_planning` and ran the planner INSIDE the coder loop,
+        # so planning went down with coding (PFactory#607).
+        #
+        # The planner is the half this fork does own, and it ships: `run_planner`
+        # is in `core.agent.__all__` and emits the same `test_plan.json` the
+        # delegation caller below waits for.
+        # `--remote-control` steered the coder loop's turns. `run_planner` has
+        # no such hook, so honouring the flag is impossible -- and accepting it
+        # silently would mean the flag reads as applied while doing nothing,
+        # which is the failure mode this whole issue is made of.
+        if remote_control_session:
+            raise BuildNotSupportedError(
+                "--remote-control steered the coder agent, which this fork "
+                "removed. The planner has no equivalent hook, so the flag "
+                "cannot be honoured. Re-run without it. PFactory#607."
+            )
+
+        if not stop_after_planning:
+            raise BuildNotSupportedError(
+                "PFactory plans; it does not implement. This fork removed the "
+                "coder agent (see apps/backend/agents/__init__.py), so a build "
+                "that must write code has no runner here. Use the delegation "
+                "flow (--stop-after-planning) and hand implementation to the "
+                "coding agent, or run the build in AIFactory. PFactory#607."
+            )
+
         asyncio.run(
-            run_autonomous_agent(
-                project_dir=working_dir,  # Use worktree if isolated
+            run_planner(
                 spec_dir=spec_dir,
-                model=model,
-                max_iterations=max_iterations,
+                project_dir=working_dir,  # worktree if isolated
                 verbose=verbose,
-                source_spec_dir=source_spec_dir,  # For syncing progress back to main project
-                stop_after_planning=stop_after_planning,
-                remote_control_session=remote_control_session,
             )
         )
         debug_success("run.py", "Agent execution completed")
@@ -341,10 +381,6 @@ def handle_build_command(
             spec_dir=spec_dir,
             project_dir=project_dir,
             worktree_manager=worktree_manager,
-            working_dir=working_dir,
-            model=model,
-            max_iterations=max_iterations,
-            verbose=verbose,
         )
     except Exception as e:
         print(f"\nFatal error: {e}")
@@ -359,10 +395,6 @@ def _handle_build_interrupt(
     spec_dir: Path,
     project_dir: Path,
     worktree_manager,
-    working_dir: Path,
-    model: str,
-    max_iterations: int | None,
-    verbose: bool,
 ) -> None:
     """
     Handle keyboard interrupt during build.
@@ -371,12 +403,12 @@ def _handle_build_interrupt(
         spec_dir: Spec directory path
         project_dir: Project root directory
         worktree_manager: Worktree manager instance (if using isolated mode)
-        working_dir: Current working directory
-        model: Model being used
-        max_iterations: Maximum iterations
-        verbose: Verbose mode flag
+
+    ``working_dir``, ``model``, ``max_iterations`` and ``verbose`` used to be
+    parameters here. They existed only to feed the resume call, which reached
+    the coder agent this fork removed (PFactory#607). Keeping them would mean
+    accepting four arguments and ignoring all four.
     """
-    from agent import run_autonomous_agent
 
     # Print paused banner
     print_paused_banner(spec_dir, spec_dir.name, has_worktree=bool(worktree_manager))
@@ -410,7 +442,12 @@ def _handle_build_interrupt(
                 key="skip",
                 label="Continue without instructions",
                 icon=Icons.SKIP,
-                description="Resume the build as-is",
+                # Was "Resume the build as-is". Resuming means finishing a
+                # build, and this fork has no coder agent to finish one
+                # (PFactory#607), so offering it promised something the code
+                # could never do -- it reached `run_autonomous_agent` and died
+                # on ImportError.
+                description="Save state and exit; PFactory cannot resume a build",
             ),
             MenuOption(
                 key="quit",
@@ -472,14 +509,14 @@ def _handle_build_interrupt(
             print()
             print_status("Resuming build...", "info")
             status_manager.update(state=BuildState.RUNNING)
-            asyncio.run(
-                run_autonomous_agent(
-                    project_dir=working_dir,
-                    spec_dir=spec_dir,
-                    model=model,
-                    max_iterations=max_iterations,
-                    verbose=verbose,
-                )
+            # Same reason as the primary path: resuming means finishing a
+            # build, and this fork has no coder agent to finish it with
+            # (PFactory#607). Raised rather than printed so the caller sees a
+            # named failure instead of an ImportError traceback.
+            raise BuildNotSupportedError(
+                "PFactory cannot resume a build: this fork has no coder agent. "
+                "Re-run with --stop-after-planning to regenerate the plan and "
+                "delegate implementation. PFactory#607."
             )
             # Build completed or was interrupted again - exit
             sys.exit(0)
