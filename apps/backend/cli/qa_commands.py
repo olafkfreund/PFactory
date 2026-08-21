@@ -8,6 +8,7 @@ CLI commands for QA validation (run QA, check status)
 import asyncio
 import sys
 from pathlib import Path
+from typing import Protocol, cast
 
 # Ensure parent directory is in path for imports (before other imports)
 _PARENT_DIR = Path(__file__).parent.parent
@@ -15,12 +16,67 @@ if str(_PARENT_DIR) not in sys.path:
     sys.path.insert(0, str(_PARENT_DIR))
 
 from progress import count_subtasks
-from qa_loop import (
-    is_qa_approved,
-    print_qa_status,
-    run_qa_validation_loop,
-    should_run_qa,
+
+# PFactory is the PLANNER and ships no QA loop -- `qa_loop` exists in TFactory
+# (apps/backend/qa_loop.py) and AIFactory (apps/backend/qa/qa_loop.py) but has
+# never existed here. Importing it at module scope made `cli.main` unimportable,
+# which took `run.py` -- the primary entry point, and the one AIFactory invokes
+# as `run.py --spec <id>` -- down with it: `run.py --help` raised
+# ModuleNotFoundError in the repo AND in the deployed image (PFactory#621).
+#
+# Imported lazily so the other eleven subcommands work. The three QA
+# subcommands cannot work in this fork, and each now says so when invoked
+# instead of crashing the whole CLI on import. Deleting them outright was the
+# alternative; a clear message is better than a command that vanishes without
+# explaining where it went.
+_QA_UNAVAILABLE = (
+    "This build of PFactory has no QA loop. `qa_loop` is a TFactory/AIFactory "
+    "module and has never been part of this fork, so `--qa`, `--qa-status` and "
+    "`--review-status` cannot run here. Run QA through TFactory instead. "
+    "See PFactory#621."
 )
+
+
+class _QaLoopModule(Protocol):
+    """The four names this CLI uses from ``qa_loop``.
+
+    Typed as a Protocol rather than left as the untyped module object: mypy
+    cannot resolve ``qa_loop`` (it genuinely is not here), so an untyped
+    accessor makes every call site ``Any`` and the ratchet counts each one as a
+    net-new strict error. Signatures mirror TFactory's real module
+    (``apps/backend/qa_loop.py``), which is the implementation this would bind
+    to if the fork ever gained one.
+    """
+
+    def is_qa_approved(self, spec_dir: Path) -> bool: ...
+
+    def should_run_qa(self, spec_dir: Path) -> bool: ...
+
+    def print_qa_status(self, spec_dir: Path) -> None: ...
+
+    async def run_qa_validation_loop(
+        self,
+        *,
+        project_dir: Path,
+        spec_dir: Path,
+        model: str,
+        verbose: bool = False,
+    ) -> bool: ...
+
+
+def _qa_loop() -> _QaLoopModule:
+    """Import ``qa_loop`` on demand, with a clear error when it is absent."""
+    try:
+        # type: ignore[import-not-found] -- mypy is right that the module is
+        # absent; that is the condition this function exists to handle. The
+        # cast below binds it to the Protocol above so call sites stay typed
+        # rather than degrading to Any and tripping the strict ratchet.
+        import qa_loop  # type: ignore[import-not-found]  # noqa: PLC0415
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+        raise RuntimeError(_QA_UNAVAILABLE) from exc
+    return cast("_QaLoopModule", qa_loop)
+
+
 from review import ReviewState, display_review_status
 from ui import (
     Icons,
@@ -42,7 +98,7 @@ def handle_qa_status_command(spec_dir: Path) -> None:
     """
     print_banner()
     print(f"\nSpec: {spec_dir.name}\n")
-    print_qa_status(spec_dir)
+    _qa_loop().print_qa_status(spec_dir)
 
 
 def handle_review_status_command(spec_dir: Path) -> None:
@@ -92,8 +148,8 @@ def handle_qa_command(
     fix_request_file = spec_dir / "QA_FIX_REQUEST.md"
     has_human_feedback = fix_request_file.exists()
 
-    if not should_run_qa(spec_dir) and not has_human_feedback:
-        if is_qa_approved(spec_dir):
+    if not _qa_loop().should_run_qa(spec_dir) and not has_human_feedback:
+        if _qa_loop().is_qa_approved(spec_dir):
             print("\n✅ Build already approved by QA.")
         else:
             completed, total = count_subtasks(spec_dir)
@@ -106,7 +162,7 @@ def handle_qa_command(
 
     try:
         approved = asyncio.run(
-            run_qa_validation_loop(
+            _qa_loop().run_qa_validation_loop(
                 project_dir=project_dir,
                 spec_dir=spec_dir,
                 model=model,
