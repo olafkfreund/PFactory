@@ -32,6 +32,7 @@ from __future__ import annotations
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +47,38 @@ from plan.recon import clone as clone_mod  # noqa: E402
 # secret-leak test would be the wrong trade. The repeated word keeps entropy low
 # while the value stays PAT-shaped and unmistakable in a command line.
 _SECRET = "ghp_" + "RECONARGVCANARY" * 2
+
+
+def _published_cmdline(pid: int, timeout: float = 5.0) -> bytes:
+    """``/proc/<pid>/cmdline`` once the kernel has actually published it.
+
+    ``Popen`` returns after the fork, but the child's cmdline only becomes
+    readable after ``execve`` replaces the image -- until then the file exists
+    and reads as ``b""``. Reading immediately therefore returns empty roughly
+    half the time (measured: 13 failures in 25 runs before this poll), and an
+    empty read is indistinguishable from a clean one, so the test failed with
+    ``AssertionError: [b'']`` (PFactory#629).
+
+    Polls until non-empty rather than sleeping a fixed amount: the wait is
+    whatever exec takes on this machine, and a fixed sleep is either flaky on a
+    loaded runner or slow on every run. Returns whatever it last read on
+    timeout -- an empty return then means "the kernel never published one",
+    which the caller's assertion reports as a failure. It must never be
+    smoothed into a pass: this is a security test, and "could not look" and
+    "looked and found nothing" are the two answers it exists to tell apart.
+    """
+    path = Path(f"/proc/{pid}/cmdline")
+    deadline = time.monotonic() + timeout
+    cmdline = b""
+    while time.monotonic() < deadline:
+        try:
+            cmdline = path.read_bytes()
+        except OSError:  # the child exited; nothing more will appear
+            break
+        if cmdline:
+            return cmdline
+        time.sleep(0.01)
+    return cmdline
 
 
 def test_the_recon_clone_url_carries_no_token(monkeypatch):
@@ -86,7 +119,7 @@ def test_the_token_is_absent_from_the_recon_child_argv(monkeypatch):
             stderr=subprocess.PIPE,
         )
         try:
-            cmdline = Path(f"/proc/{proc.pid}/cmdline").read_bytes()
+            cmdline = _published_cmdline(proc.pid)
         finally:
             proc.kill()
             proc.communicate()

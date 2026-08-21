@@ -94,6 +94,9 @@ RUN apk upgrade --no-cache
 # Two version floors below are CVE remediation, not preference. `apk upgrade`
 # earlier in this stage does not clear either, because both packages come from
 # the base image layer and must be named explicitly to be pulled forward:
+#   libssl3 / libcrypto3 3.6.3-r3 — CVE-2026-14456 (HIGH), fixed in 3.6.3-r5.
+#                        Named together because they ship from the same openssl
+#                        origin and apk will not move one without the other.
 #   busybox 1.37.0-r61 — CVE-2026-38753 (DoS via crafted AWK in awk_sub) and
 #                        CVE-2026-38754 (heap overflow in ifsbreakup, shell/ash.c),
 #                        both HIGH, both fixed in 1.38.0-r0.
@@ -107,6 +110,8 @@ RUN apk add --no-cache \
         bash \
         "binutils>2.46-r1" \
         "busybox>=1.38.0-r0" \
+        "libcrypto3>=3.6.3-r5" \
+        "libssl3>=3.6.3-r5" \
         bubblewrap \
         ca-certificates \
         curl \
