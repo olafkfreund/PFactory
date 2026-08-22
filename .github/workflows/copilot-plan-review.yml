@@ -90,3 +90,45 @@ jobs:
               gh pr comment "$PR_NUMBER" \
                 --body "PFactory: set the \`PFACTORY_URL\` secret (or install the Copilot CLI) to run plan-review gates automatically."
           fi
+
+  # Factory#932. `pfactory-plan-review` skips on every PR that is not a trusted
+  # Copilot plan draft, which is the #127/#246 gates working as written -- and
+  # invisible. A skipped job renders beside a passing one in the checks list, so a
+  # review gate whose condition was never met reads, at a glance, like a review
+  # that ran and approved. This job states which condition was unmet instead.
+  #
+  # It reports a reason, never a verdict: it is named "not applicable" and says
+  # outright that nothing was reviewed. Its presence makes the RUN conclude
+  # `success` where it previously concluded `skipped`, so a liveness sweep must
+  # score the `pfactory-plan-review` job, not the run.
+  plan-review-not-applicable:
+    name: plan review not applicable (nothing was reviewed)
+    needs: [pfactory-plan-review]
+    if: always() && needs.pfactory-plan-review.result == 'skipped'
+    # It writes a step summary and nothing else; it needs no token at all.
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Record why no plan review ran
+        env:
+          # Bound into env rather than interpolated into the shell: branch names,
+          # logins and associations are PR-author-controlled text (#127).
+          ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### PFactory plan review: not applicable"
+            echo
+            echo "**Nothing was reviewed. This is not a pass.**"
+            echo
+            echo "This gate reviews only a Copilot plan-draft PR from a trusted author."
+            echo
+            echo "| condition | required | this PR |"
+            echo "|---|---|---|"
+            printf "| author association | OWNER, MEMBER or COLLABORATOR | \`%s\` |\n" "$ASSOCIATION"
+            printf "| Copilot plan draft | head branch \`copilot/...\`, or author Copilot | branch \`%s\`, author \`%s\` |\n" \
+              "$HEAD_REF" "$PR_AUTHOR"
+          } >> "$GITHUB_STEP_SUMMARY"
