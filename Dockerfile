@@ -65,7 +65,16 @@ USER root
 # CVEs. `apk upgrade` clears fixable HIGH/CRITICAL findings between digest bumps;
 # when the snapshot itself lags, bump the digest above to a Chainguard rebuild
 # that ships the fix (what cleared CVE-2026-45447, libcrypto3/libssl3 → 3.6.3-r1).
-RUN apk upgrade --no-cache
+#
+# SECURITY_REFRESH busts THIS layer's cache. CI builds with `cache-from`, so
+# without it the upgrade layer is served from cache and never re-runs -- the
+# image keeps shipping whatever Debian shipped the day the layer was first
+# built. That is how CFactory#440 hit a Trivy failure for CVE-2026-14456 on an
+# image whose Dockerfile already ran `apt-get upgrade`: the upgrade was real,
+# its result was frozen. CI passes the date, so it rebuilds at most daily.
+ARG SECURITY_REFRESH=0
+RUN echo "security refresh: ${SECURITY_REFRESH}" \
+    && apk upgrade --no-cache
 
 # System packages from Wolfi APK index. Build tools come bundled in :latest-dev.
 #   git           — worktree operations

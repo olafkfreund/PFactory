@@ -106,6 +106,13 @@ jobs:
 
       # amd64 only, matching deploy.yml — the p510 k3d cluster is amd64 and the
       # frontend `vite build` fails under QEMU-emulated arm64.
+      # Rebuild the base-security layer at most once a day. Without a
+      # daily-changing build arg the `apt-get upgrade` layer is served from
+      # the build cache indefinitely, so Debian security fixes never reach the
+      # image (CFactory#440).
+      - name: Compute security-refresh token
+        run: echo "SECURITY_REFRESH=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - name: Build root Dockerfile (no push)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
@@ -115,6 +122,8 @@ jobs:
           push: false
           load: true
           tags: ${{ env.TAG }}
+          build-args: |
+            SECURITY_REFRESH=${{ env.SECURITY_REFRESH }}
           cache-from: type=gha,scope=image-build
           cache-to: type=gha,mode=max,scope=image-build
 
