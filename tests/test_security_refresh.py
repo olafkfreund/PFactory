@@ -1,13 +1,19 @@
-"""Every cached build of the root Dockerfile must bust the security layer.
+"""Any image that upgrades packages must be able to re-run that upgrade.
 
-CFactory#440: Trivy failed on CVE-2026-14456 (openssl) in an image whose
-Dockerfile already ran an upgrade. Both workflows build with `cache-from`, so
-that layer was served from cache and never re-ran -- the upgrade was real, its
-result frozen at whatever the distro shipped the day the layer was first built.
+CFactory#440 hit this twice, one level apart:
 
-A build arg that changes daily is what lets the upgrade actually land. This
-test fails if any cached build of the root Dockerfile is missing it, which is
-how the bug would otherwise creep back in via a new workflow.
+1. The backend image ran `apt-get upgrade`, but every workflow built it with
+   `cache-from`, so the layer was served from cache and never re-ran. The
+   upgrade was real; its result was frozen at whatever the distro shipped the
+   day the layer was first built. Trivy failed on CVE-2026-14456 (openssl).
+2. Fixing that left the FRONTEND image still failing -- it had no upgrade
+   layer at all. A guard that only looked at the root Dockerfile could not see
+   it.
+
+So the rule is per-build, not per-repo: follow each cached build step to the
+Dockerfile it names, and if that Dockerfile upgrades packages, require the
+cache-bust arg on both sides. Images with no upgrade layer are out of scope
+here (a separate policy question) rather than silently passing as "fine".
 """
 
 from __future__ import annotations
@@ -18,48 +24,53 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 _WORKFLOWS = _ROOT / ".github/workflows"
 _STEP = re.compile(r"^(\s*)- (?:name|id|uses):.*$", re.M)
-_ROOT_DOCKERFILE = re.compile(r"^\s*file:\s*Dockerfile\s*$", re.M)
+_FILE = re.compile(r"^\s*file:\s*(\S+)\s*$", re.M)
+_UPGRADE = re.compile(r"(apt-get|apk)\s+upgrade")
 
 
-def _cached_root_builds() -> list[tuple[str, int]]:
-    """Return (workflow, line) for every cached build of the root Dockerfile."""
-    found = []
+def _cached_builds():
+    """Yield (workflow, dockerfile_path, step_body) for cached image builds."""
     for wf in sorted(_WORKFLOWS.glob("*.yml")):
         text = wf.read_text()
         steps = list(_STEP.finditer(text))
         for i, m in enumerate(steps):
             end = steps[i + 1].start() if i + 1 < len(steps) else len(text)
             body = text[m.start() : end]
-            if not _ROOT_DOCKERFILE.search(body):
+            fm = _FILE.search(body)
+            if not fm or "cache-from" not in body:
                 continue
-            if "cache-from" not in body:
-                continue  # an uncached build is always fresh
-            if "SECURITY_REFRESH" not in body:
-                found.append((wf.name, text[: m.start()].count("\n") + 1))
-    return found
+            yield wf.name, _ROOT / fm.group(1), body
 
 
-def test_no_cached_root_build_ships_a_frozen_security_layer():
-    unwired = _cached_root_builds()
+def test_every_cached_upgrade_layer_can_be_rebuilt():
+    offenders = []
+    for wf, dockerfile, body in _cached_builds():
+        if not dockerfile.is_file():
+            continue
+        if not _UPGRADE.search(dockerfile.read_text()):
+            continue  # no upgrade layer to freeze
+        if "SECURITY_REFRESH" not in body:
+            offenders.append(f"{wf} -> {dockerfile.relative_to(_ROOT)} (build arg missing)")
 
-    assert not unwired, (
-        "cached build(s) of the root Dockerfile without SECURITY_REFRESH -- the "
-        f"upgrade layer will be served from cache forever: {unwired}"
+    assert not offenders, (
+        "cached build of an image that upgrades packages, with no cache-bust: "
+        f"the upgrade will never re-run: {offenders}"
     )
 
 
-def test_the_dockerfile_consumes_the_arg():
-    """The build arg is inert unless the Dockerfile declares and uses it."""
-    body = (_ROOT / "Dockerfile").read_text()
+def test_the_arg_is_consumed_where_it_is_declared():
+    """Declared but never referenced busts nothing."""
+    inert = []
+    for _wf, dockerfile, _body in _cached_builds():
+        if not dockerfile.is_file():
+            continue
+        body = dockerfile.read_text()
+        if "ARG SECURITY_REFRESH" in body and "${SECURITY_REFRESH}" not in body:
+            inert.append(str(dockerfile.relative_to(_ROOT)))
 
-    assert "ARG SECURITY_REFRESH" in body
-    assert "${SECURITY_REFRESH}" in body, "declared but never referenced -- no cache bust"
+    assert not inert, f"SECURITY_REFRESH declared but never referenced: {inert}"
 
 
-def test_the_detector_can_actually_fail():
-    """Guard against a vacuous pass: the scan must find real build steps."""
-    total = 0
-    for wf in _WORKFLOWS.glob("*.yml"):
-        total += len(_ROOT_DOCKERFILE.findall(wf.read_text()))
-
-    assert total > 0, "no root-Dockerfile builds found at all -- the check is empty"
+def test_the_scan_is_not_vacuous():
+    """A checker that inspects nothing looks identical to one that finds nothing."""
+    assert list(_cached_builds()), "no cached image builds found at all"
