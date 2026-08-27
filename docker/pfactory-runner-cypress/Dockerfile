@@ -50,7 +50,17 @@ FROM cypress/included:13.15.0 AS runner
 # `upgrade` only replaces already-installed packages; it never adds new ones,
 # so the vendored browsers and their pinned versions are untouched.
 ARG SECURITY_REFRESH=0
+# The cypress base ships an UNSIGNED Google Chrome apt source, so a plain
+# `apt-get update` fails outright:
+#   E: The repository 'https://dl.google.com/linux/chrome/deb stable InRelease'
+#      is not signed.
+# Those third-party lists are dropped first. Nothing later in this image
+# installs from them, the browser is already baked in and deliberately pinned
+# (upgrading it is exactly what we do NOT want), and an unsigned repo is a
+# supply-chain risk in its own right. The base distro lists are untouched, so
+# the security upgrade still does its job.
 RUN echo "security refresh: ${SECURITY_REFRESH}" \
+    && rm -f /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get upgrade --yes \
     && rm -rf /var/lib/apt/lists/*
