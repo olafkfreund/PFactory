@@ -98,9 +98,13 @@ def handle_batch_create_command(batch_file: str, project_dir: str) -> bool:
 
     # Show summary
     print(highlight("Next steps:"))
-    print("  1. Generate specs: spec_runner.py --continue <spec_id>")
-    print("  2. Approve specs and build them")
-    print("  3. Run: python run.py --spec <id> to execute")
+    # Step 1 used to read "Generate specs: spec_runner.py --continue <spec_id>".
+    # That script has never existed in this repository (PFactory#627), and the
+    # specs were already written by the loop above -- the line printed right
+    # before this one says how many. So it told the user to run a missing
+    # command to redo work that was already done.
+    print("  1. Review the specs, then approve them")
+    print("  2. Run: python run.py --spec <id> to execute")
 
     return True
 

@@ -327,8 +327,43 @@ def _tar_workspace(src_dir: Path) -> bytes:
         tarfile.open(fileobj=gz, mode="w", format=tarfile.PAX_FORMAT) as tar,
     ):
         for child in sorted(src_dir.rglob("*"), key=lambda p: p.relative_to(src_dir).as_posix()):
+            if _escapes(src_dir, child):
+                continue
             tar.add(child, arcname=child.relative_to(src_dir).as_posix(), recursive=False)
     return buf.getvalue()
+
+
+def _escapes(src_dir: Path, child: Path) -> bool:
+    """True for a symlink whose target lands outside ``src_dir``.
+
+    Packing one is not a security hole -- ``_vet_member`` catches it on the way
+    back out -- but it is a permanent one, because the rejection happens at
+    UNPACK, in the build Job, after the archive is already in object storage. A
+    single such link makes the whole workspace unrecoverable: every later build
+    dies in ``_safe_extract`` before it reads a line of source, and the task is
+    reaped as stranded with no diff and no useful log.
+
+    That is what took a benchmark run's build column to 0/3. An agent CLI wrote
+    ``.antigravitycli/<project>.json`` into the task worktree as an absolute
+    symlink into ``$HOME``, and every run after it inherited the failure.
+    AIFactory#1392 removed the tracked copy and gitignored the directory, which
+    does not fix this: the link is created at RUNTIME inside the worktree, and
+    the packer walks the tree rather than asking git what is tracked.
+
+    Skipping is right rather than merely convenient. The target is by definition
+    outside the workspace, so its content was never going to survive the trip to
+    another machine -- the link would arrive dangling even if it were allowed
+    through. These are agent-local config and credential paths, never build
+    inputs, and a credential path is one this archive should not carry anyway.
+
+    The vetter stays strict on the extract side; this does not replace it. An
+    archive from anywhere else is still untrusted and a hostile one is still
+    rejected. This only stops US from writing an archive we already know cannot
+    be read back.
+    """
+    if not child.is_symlink():
+        return False
+    return not _is_within(src_dir, child.parent / child.readlink())
 
 
 def _is_within(base: Path, target: Path) -> bool:
@@ -651,6 +686,31 @@ def _selftest_safety(req: _Require, tmp: Path) -> None:
     for bad_uri in ("http://x/y", "s3://only-bucket", "s3:///no-bucket"):
         rejects(functools.partial(parse_uri, bad_uri), f"expected ValueError for {bad_uri!r}")
     req(parse_uri("s3://b/a/c") == ("b", "a/c"), "uri parse ok")
+
+    # A workspace holding an escaping symlink still round-trips. The link is
+    # rejected at UNPACK, in the build Job, long after the archive reached
+    # object storage -- so packing one does not fail loudly, it makes the
+    # workspace permanently unbuildable. The assertion is the round trip and not
+    # the member list, because a packer that dropped the WRONG thing would also
+    # produce a shorter list. Both escape shapes are planted: the absolute link
+    # that was observed in the wild, and a relative ../ escape that a naive
+    # "skip absolute symlinks" fix would let straight through.
+    outside = tmp / "outside.json"
+    outside.write_text("{}")
+    src = tmp / "escaping_ws"
+    (src / "sub").mkdir(parents=True)
+    (src / "real.py").write_text("x = 1\n")
+    (src / "cfg").mkdir()
+    (src / "cfg" / "agent.json").symlink_to(outside)
+    (src / "sub" / "rel_escape").symlink_to(Path("..") / ".." / "outside.json")
+    (src / "sub" / "inside_link").symlink_to(Path("..") / "real.py")
+    dest = tmp / "escaping_dest"
+    dest.mkdir()
+    _safe_extract(_tar_workspace(src), dest)
+    req((dest / "real.py").read_text() == "x = 1\n", "real file survived the round trip")
+    req(not (dest / "cfg" / "agent.json").exists(), "absolute escaping link was packed")
+    req(not (dest / "sub" / "rel_escape").exists(), "relative escaping link was packed")
+    req((dest / "sub" / "inside_link").is_symlink(), "an inside-pointing link must survive")
 
 
 if __name__ == "__main__":

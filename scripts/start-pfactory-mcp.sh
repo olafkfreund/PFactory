@@ -9,10 +9,23 @@
 
 set -euo pipefail
 
-ROOT="${CLAUDE_PROJECT_DIR:-}"
-if [ -z "$ROOT" ]; then
-  # Resolve symlinks then walk up from scripts/ to repo root
-  ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# This script lives in THIS repo's scripts/, so its own location is the only
+# reliable answer to "which repo am I in". CLAUDE_PROJECT_DIR is the SESSION's
+# project directory, which in a multi-repo setup -- the Factory hub driving
+# four sibling repos -- is a DIFFERENT repo. Trusting it made the server hunt
+# for its venv inside the hub and exit, which Claude Code surfaces only as
+# CONNECTION_CLOSED, with no hint that the path was wrong.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Honour an explicit override only if it actually looks like this repo, so a
+# stale or unrelated value cannot silently redirect the server.
+if [ ! -x "$ROOT/apps/backend/.venv/bin/python" ]; then
+  for candidate in "${PFACTORY_PROJECT_DIR:-}" "${CLAUDE_PROJECT_DIR:-}"; do
+    if [ -n "$candidate" ] && [ -x "$candidate/apps/backend/.venv/bin/python" ]; then
+      ROOT="$candidate"
+      break
+    fi
+  done
 fi
 
 PYTHON="$ROOT/apps/backend/.venv/bin/python"

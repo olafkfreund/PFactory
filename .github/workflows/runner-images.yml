@@ -65,13 +65,18 @@ jobs:
         runner: [pytest, jest, playwright, vitest, cypress, cloud]
 
     steps:
+      # Rebuild the security layer at most daily; without a changing arg the
+      # `apt-get upgrade` layer is served from the build cache forever.
+      - name: Compute security-refresh token
+        run: echo "SECURITY_REFRESH=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # docker/setup-buildx-action enables BuildKit features (layer caching,
       # multi-platform builds, --check flag). Required for dockerfile:1.7 syntax.
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
 
       # Build the image and load it into the local Docker daemon so the
       # hello-world smoke step below can run it.
@@ -89,6 +94,8 @@ jobs:
             pfactory-runner-${{ matrix.runner }}:latest
           # GHA cache: reuse layer cache across runs scoped per framework image.
           # mode=max: cache all layers, not just the final stage.
+          build-args: |
+            SECURITY_REFRESH=${{ env.SECURITY_REFRESH }}
           cache-from: type=gha,scope=runner-${{ matrix.runner }}
           cache-to: type=gha,mode=max,scope=runner-${{ matrix.runner }}
 
@@ -209,6 +216,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}:latest
+          build-args: |
+            SECURITY_REFRESH=${{ env.SECURITY_REFRESH }}
           cache-from: type=gha,scope=runner-${{ matrix.runner }}
           cache-to: type=gha,mode=max,scope=runner-${{ matrix.runner }}
 

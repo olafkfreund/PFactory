@@ -52,7 +52,7 @@ jobs:
       - id: tags
         run: echo "sha=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
 
       # Prefer a write:packages PAT (secret GHCR_PAT), falling back to
       # GITHUB_TOKEN once the GHCR package is linked to this repo.
@@ -61,6 +61,13 @@ jobs:
           registry: ghcr.io
           username: "${{ github.repository_owner }}"
           password: "${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}"
+      # Rebuild the base-security layer at most once a day. Without a
+      # daily-changing build arg the `apt-get upgrade` layer is served from
+      # the build cache indefinitely, so Debian security fixes never reach the
+      # image (CFactory#440).
+      - name: Compute security-refresh token
+        run: echo "SECURITY_REFRESH=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
 
       - id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
@@ -72,6 +79,8 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ steps.tags.outputs.sha }}
             ${{ env.IMAGE }}:latest
+          build-args: |
+            SECURITY_REFRESH=${{ env.SECURITY_REFRESH }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

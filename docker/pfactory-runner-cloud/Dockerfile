@@ -32,6 +32,20 @@
 
 FROM python:3.12-slim AS runner
 
+# Runner images shipped NO security-upgrade layer, so they carried whatever the
+# pinned base tag was built with, indefinitely. SECURITY_REFRESH changes daily
+# so the layer is not served from the build cache forever -- without it the
+# upgrade would run once and freeze (CFactory#440).
+#
+# `upgrade` only replaces already-installed packages; it never adds new ones,
+# so a pinned toolchain image keeps its pinned tools.
+ARG SECURITY_REFRESH=0
+RUN echo "security refresh: ${SECURITY_REFRESH}" \
+    && apt-get update \
+    && apt-get upgrade --yes \
+    && rm -rf /var/lib/apt/lists/*
+
+
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
 # ── OS-level deps ─────────────────────────────────────────────────────────
