@@ -74,3 +74,38 @@ def test_the_arg_is_consumed_where_it_is_declared():
 def test_the_scan_is_not_vacuous():
     """A checker that inspects nothing looks identical to one that finds nothing."""
     assert list(_cached_builds()), "no cached image builds found at all"
+
+
+# --- runner images -------------------------------------------------------
+# These are built from a MATRIX (`file: docker/...-${{ matrix.runner }}/...`),
+# so the workflow-based checks above cannot resolve them to a real path. They
+# get a direct file-level check instead, rather than being quietly uncovered.
+
+_RUNNERS = sorted((_ROOT / "docker").glob("*/Dockerfile"))
+
+
+def test_apt_based_runner_images_upgrade_their_packages():
+    """These images shipped no upgrade layer at all, so they carried whatever
+    the pinned base tag was built with, indefinitely."""
+    missing = []
+    for f in _RUNNERS:
+        body = f.read_text()
+        if "apt-get" not in body:
+            continue  # not a Debian/Ubuntu base (e.g. nixos/nix)
+        if not _UPGRADE.search(body):
+            missing.append(f.parent.name)
+
+    assert not missing, f"runner image with no security-upgrade layer: {missing}"
+
+
+def test_runner_upgrade_layers_can_be_rebuilt():
+    """An upgrade layer with no cache-bust runs once and then freezes."""
+    frozen = []
+    for f in _RUNNERS:
+        body = f.read_text()
+        if not _UPGRADE.search(body):
+            continue
+        if "ARG SECURITY_REFRESH" not in body or "${SECURITY_REFRESH}" not in body:
+            frozen.append(f.parent.name)
+
+    assert not frozen, f"runner upgrade layer with no cache-bust: {frozen}"

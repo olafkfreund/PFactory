@@ -65,6 +65,11 @@ jobs:
         runner: [pytest, jest, playwright, vitest, cypress, cloud]
 
     steps:
+      # Rebuild the security layer at most daily; without a changing arg the
+      # `apt-get upgrade` layer is served from the build cache forever.
+      - name: Compute security-refresh token
+        run: echo "SECURITY_REFRESH=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -89,6 +94,8 @@ jobs:
             pfactory-runner-${{ matrix.runner }}:latest
           # GHA cache: reuse layer cache across runs scoped per framework image.
           # mode=max: cache all layers, not just the final stage.
+          build-args: |
+            SECURITY_REFRESH=${{ env.SECURITY_REFRESH }}
           cache-from: type=gha,scope=runner-${{ matrix.runner }}
           cache-to: type=gha,mode=max,scope=runner-${{ matrix.runner }}
 
@@ -209,6 +216,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/pfactory-runner-${{ matrix.runner }}:latest
+          build-args: |
+            SECURITY_REFRESH=${{ env.SECURITY_REFRESH }}
           cache-from: type=gha,scope=runner-${{ matrix.runner }}
           cache-to: type=gha,mode=max,scope=runner-${{ matrix.runner }}
 
