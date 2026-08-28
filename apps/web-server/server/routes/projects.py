@@ -246,6 +246,22 @@ def resolve_project_path(project_id: str) -> Path:
     return Path(path)
 
 
+def resolve_project_path_or_error(
+    project_id: str,
+) -> tuple[Path | None, dict[str, object] | None]:
+    """:func:`resolve_project_path`, for routes that answer 200 with an envelope.
+
+    Several route modules report failure as ``{"success": False, "error": ...}``
+    at status 200 -- the portal renders that ``error`` string verbatim -- so they
+    cannot let the resolver's ``HTTPException`` escape without changing their
+    status codes. Translate it here once instead of in each module (#655).
+    """
+    try:
+        return resolve_project_path(project_id), None
+    except HTTPException as exc:
+        return None, {"success": False, "error": str(exc.detail)}
+
+
 def save_projects(projects: dict[str, dict]) -> None:
     """Save projects to disk."""
     projects_file = get_projects_file()

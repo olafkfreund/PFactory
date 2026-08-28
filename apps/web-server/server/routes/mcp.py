@@ -25,6 +25,10 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+# Only the refusal message -- _load_projects below deliberately re-resolves the
+# registry path itself rather than importing projects.load_projects. Imported
+# after the sys.path insert above, like everything else that reaches backend.
+from .projects import NO_LOCAL_CLONE_DETAIL  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +112,15 @@ async def get_mcp_status(project_id: str) -> dict[str, Any]:
     if project_id not in projects:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    project_path = Path(projects[project_id]["path"]).expanduser()
+    # "" is the repo-only sentinel (#655) and Path("").expanduser() is still
+    # Path("."), so marker detection would report on the server's own CWD.
+    raw_path = projects[project_id].get("path") or ""
+    if not raw_path:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=NO_LOCAL_CLONE_DETAIL.format(project_id=project_id),
+        )
+    project_path = Path(raw_path).expanduser()
 
     try:
         from agents.tools_pkg.mcp_catalog import CATALOG

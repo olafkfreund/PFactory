@@ -8,7 +8,6 @@ import base64
 import json
 import logging
 import re
-from pathlib import Path as FilePath
 
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
@@ -170,13 +169,11 @@ async def get_changelog_done_tasks(projectId: str = Path(...), request: DoneTask
 @router.post("/specs")
 async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest = ...):
     """Load spec details for tasks."""
-    from .projects import load_projects
+    from .projects import resolve_project_path_or_error
 
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = resolve_project_path_or_error(projectId)
+    if project_path is None:
+        return error
     specs_dir = project_path / ".pfactory" / "specs"
 
     specs = []
@@ -240,13 +237,9 @@ async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest 
 async def generate_changelog(projectId: str = Path(...), request: ChangelogGenerateRequest = ...):
     """Generate changelog using AI."""
     from ..services.changelog_service import get_changelog_service
-    from .projects import load_projects
+    from .projects import resolve_project_path
 
-    projects = load_projects()
-    if projectId not in projects:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path = resolve_project_path(projectId)
     service = get_changelog_service()
 
     # Check if already running
@@ -299,13 +292,11 @@ async def generate_changelog(projectId: str = Path(...), request: ChangelogGener
 @router.post("/save")
 async def save_changelog(projectId: str = Path(...), request: ChangelogSaveRequest = ...):
     """Save generated changelog and update project version files."""
-    from .projects import load_projects
+    from .projects import resolve_project_path_or_error
 
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = resolve_project_path_or_error(projectId)
+    if project_path is None:
+        return error
     changelog_path = project_path / "CHANGELOG.md"
 
     try:
@@ -418,13 +409,11 @@ async def read_existing_changelog(projectId: str = Path(...)):
     - ## 1.2.3 - Simple semver
     - ## v1.2.3 or ## [v1.2.3] - With 'v' prefix
     """
-    from .projects import load_projects
+    from .projects import resolve_project_path_or_error
 
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = resolve_project_path_or_error(projectId)
+    if project_path is None:
+        return error
     changelog_path = project_path / "CHANGELOG.md"
 
     if not changelog_path.exists():
@@ -737,16 +726,12 @@ async def save_changelog_image(projectId: str = Path(...), request: SaveImageReq
     Returns:
         Success response with the relative path to the saved image
     """
-    from .projects import load_projects
+    from .projects import resolve_project_path
 
     try:
-        # Validate project exists
-        projects = load_projects()
-        if projectId not in projects:
-            raise HTTPException(status_code=404, detail=f"Project {projectId} not found")
-
-        # Get project path
-        project_path = FilePath(projects[projectId]["path"])
+        # Resolves the project id, 404s an unknown one and 409s a repo-only one
+        # whose "" path would otherwise write the asset under the server's CWD.
+        project_path = resolve_project_path(projectId)
 
         # Validate inputs
         if not request.imageData or not request.imageData.strip():

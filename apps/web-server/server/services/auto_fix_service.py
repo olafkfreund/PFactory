@@ -190,6 +190,26 @@ def _slug(title: str) -> str:
     return "".join(c for c in s if c.isalnum() or c == "-") or "untitled"
 
 
+def _project_path(projects: dict[str, dict[str, Any]], project_id: str) -> Path:
+    """The project's local clone directory, or ``InputRejectedError``.
+
+    A repo-only project stores ``""`` for its path (#655), and ``Path("")`` is
+    ``Path(".")`` -- the server's CWD -- so the callers below would read and
+    create specs there instead of in a clone. The route layer refuses this with
+    a 409 via ``resolve_project_path``; this service reports the same refusal in
+    the only shape its callers understand.
+    """
+    if project_id not in projects:
+        raise InputRejectedError(f"Project {project_id} not found")
+    path = projects[project_id].get("path") or ""
+    if not path:
+        raise InputRejectedError(
+            f"Project {project_id} has no local clone on this server "
+            "(it was registered from a repo only)"
+        )
+    return Path(path)
+
+
 def _provider_for(project_id: str):
     """Return the project's configured ``GitProvider`` instance.
 
@@ -340,9 +360,7 @@ async def check_new_issues(project_id: str) -> list[dict[str, Any]]:
     from ..routes.projects import load_projects
 
     projects = load_projects()
-    if project_id not in projects:
-        raise InputRejectedError(f"Project {project_id} not found")
-    project_path = Path(projects[project_id]["path"])
+    project_path = _project_path(projects, project_id)
     settings = projects[project_id].get("settings") or {}
     provider_type = (settings.get("gitProvider") or "github").lower()
 
@@ -428,9 +446,7 @@ async def start_auto_fix(project_id: str, issue_number: int) -> dict[str, Any]:
     from ..websockets.events import broadcast_event
 
     projects = load_projects()
-    if project_id not in projects:
-        raise InputRejectedError(f"Project {project_id} not found")
-    project_path = Path(projects[project_id]["path"])
+    project_path = _project_path(projects, project_id)
     settings = projects[project_id].get("settings") or {}
     provider_type = (settings.get("gitProvider") or "github").lower()
 
@@ -568,7 +584,12 @@ async def _pull_clone_if_any(project_id: str) -> None:
     git_url = proj.get("clonedFrom")
     if not git_url:
         return
-    project_path = Path(proj.get("path", ""))
+    # Path("").is_dir() is True -- it is the server's CWD -- so the repo-only
+    # sentinel would pull the clone into whatever directory the server started
+    # in rather than skipping (#655).
+    if not proj.get("path"):
+        return
+    project_path = Path(proj["path"])
     if not project_path.is_dir():
         return
     try:
