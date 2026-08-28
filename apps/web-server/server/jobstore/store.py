@@ -40,7 +40,7 @@ from concurrent.futures import Future
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import bindparam, func, select, text, update
+from sqlalchemy import bindparam, case, func, select, text, update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -51,11 +51,24 @@ from sqlalchemy.ext.asyncio import (
 from .lifecycle import (
     IN_FLIGHT_LIFECYCLE,
     TERMINAL_LIFECYCLE,
+    TERMINAL_NATIVE_STATUSES,
     lifecycle_state_for,
 )
 from .models import JOB_STATE_SCHEMA_VERSION, JobState
 
 logger = logging.getLogger(__name__)
+
+
+def _rowcount(result: Any) -> int:
+    """Rows affected by an UPDATE, as an int.
+
+    SQLAlchemy's async facade types the return as ``Result[Any]``, which has no
+    declared ``rowcount``, so every call site read as a net-new mypy --strict
+    error. Doing the narrowing once here keeps the three reclaim/renew paths
+    honest instead of spreading identical ignores across them.
+    """
+    return int(result.rowcount or 0)
+
 
 # Fixed key for the admission critical-section advisory lock (Postgres). Any
 # stable 64-bit int works; this one is arbitrary but constant so every replica
@@ -377,7 +390,7 @@ class JobStateStore:
                     )
                     .values(lease_expires_at=self._lease_deadline(ttl_seconds))
                 )
-                return int(res.rowcount or 0) > 0
+                return _rowcount(res) > 0
 
     def reclaim_expired(self) -> int:
         """Reclaim every ``running`` row whose lease has expired; return the count.
@@ -425,11 +438,78 @@ class JobStateStore:
             )
             .execution_options(synchronize_session=False)
         )
-        n = int(res.rowcount or 0)
+        n = _rowcount(res)
         if n:
             logger.warning(
                 "reclaimed %d job_states row(s) whose lease expired: the owning "
                 "replica died mid-plan; their admission slots are now free (#300)",
+                n,
+            )
+        return n + await self._reclaim_leaseless_terminal_on(session)
+
+    async def _reclaim_leaseless_terminal_on(self, session: AsyncSession) -> int:
+        """Reclaim ``running`` rows that hold a slot with NO lease at all.
+
+        The reclaim above only touches rows WITH an expired lease, because an
+        expired lease is what proves the owner died. A row with
+        ``lease_expires_at IS NULL`` is therefore permanently unreclaimable --
+        and only ``try_start`` stamps a lease, so any path that records
+        ``running`` without going through it leaks an admission slot forever.
+        That is not hypothetical: 43 slots leaked over six days when
+        ``discarded`` was missing from the status map, the running-fallback
+        turned a terminal status into ``running``, and nothing could ever
+        release the rows (#360, and the note in lifecycle.py).
+
+        A MISSING LEASE IS NOT EVIDENCE OF DEATH, exactly as a missing
+        heartbeat is not: a row can legitimately sit leaseless for the instant
+        between insert and ``try_start``. So a missing lease alone must never
+        reclaim anything. This requires a SECOND, independent signal -- the
+        service's own status being terminal -- and reclaims only on both.
+
+        Fail-closed on everything else. ``TERMINAL_NATIVE_STATUSES`` contains
+        only statuses the map KNOWS are terminal; an unknown or NULL
+        service_status is absent from it and is left alone, so a status we
+        cannot classify is never reclaimed on the strength of the missing lease.
+        Being unreclaimable is a leaked slot; reclaiming a live row kills a
+        running plan. The first is recoverable and the second is not, so the
+        tie goes to leaving it be.
+
+        Race-free and idempotent by the same argument as the reclaim above: one
+        atomic conditional UPDATE, and the loser's predicate no longer matches.
+        """
+        now = _now()
+        # Map each terminal status to ITS canonical state, rather than writing
+        # `failed` across the board: `emitted` is terminal AND successful, and
+        # recording a plan that emitted as failed would be a false report of
+        # failure -- the row is being released, not condemned.
+        terminal = sorted(TERMINAL_NATIVE_STATUSES)
+        res = await session.execute(
+            update(JobState)
+            .where(
+                JobState.lifecycle_state == "running",
+                JobState.lease_expires_at.is_(None),
+                JobState.service_status.in_(terminal),
+            )
+            .values(
+                lifecycle_state=case(
+                    *[
+                        (JobState.service_status == native, lifecycle_state_for(native))
+                        for native in terminal
+                    ],
+                    else_="failed",
+                ),
+                ended_at=now,
+                lease_expires_at=None,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        n = _rowcount(res)
+        if n:
+            logger.warning(
+                "reclaimed %d job_states row(s) held at 'running' with NO lease "
+                "whose service status was already terminal: they could never "
+                "have been reclaimed by the lease path, and were holding "
+                "admission slots permanently (#360)",
                 n,
             )
         return n

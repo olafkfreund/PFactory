@@ -82,3 +82,16 @@ def lifecycle_state_for(native_status: str | None) -> str:
 def is_terminal(native_status: str | None) -> bool:
     """True when the native status maps to a terminal lifecycle state."""
     return lifecycle_state_for(native_status) in TERMINAL_LIFECYCLE
+
+
+# Native statuses that are PROVABLY terminal, for the leaseless-row reclaim in
+# the store. Derived from the map above rather than hand-listed, so a status
+# added there cannot silently go missing here.
+#
+# Only statuses the map KNOWS are included. An unknown status falls back to
+# `running` and is therefore absent, which is the fail-closed half of the
+# reclaim: a row whose service status we cannot classify is never reclaimed on
+# the strength of a missing lease alone.
+TERMINAL_NATIVE_STATUSES: frozenset[str] = frozenset(
+    native for native, canonical in _NATIVE_TO_LIFECYCLE.items() if canonical in TERMINAL_LIFECYCLE
+)
