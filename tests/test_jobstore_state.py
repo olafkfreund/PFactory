@@ -38,7 +38,6 @@ from server.jobstore import (  # noqa: E402
 )
 from server.jobstore.models import JobState  # noqa: E402
 
-
 # ── fixtures ────────────────────────────────────────────────────────────────
 
 
@@ -470,3 +469,174 @@ def test_every_status_the_service_writes_has_an_explicit_mapping():
         f"statuses PFactory writes but does not map: {missing}. "
         "Unmapped statuses fall back to 'running' and leak an admission slot."
     )
+
+
+# ── leaseless `running` rows (#360, Factory#1004) ────────────────────────────
+#
+# The reclaim above only touches rows WITH an expired lease, because an expired
+# lease is what proves the owner died. That leaves a row at `running` with
+# lease_expires_at IS NULL permanently unreclaimable -- and only try_start
+# stamps a lease, so any path recording `running` without it leaks an admission
+# slot for good. 43 slots leaked over six days exactly this way.
+#
+# A missing lease is NOT evidence of death, the same way a missing heartbeat is
+# not: a row sits leaselessly for the instant between insert and try_start. So
+# the reclaim requires a SECOND independent signal -- a terminal service status
+# -- and the tests below pin both halves. The fail-closed half is the one that
+# matters most: reclaiming a live row kills a running plan, which is not
+# recoverable, where a leaked slot is.
+
+
+def _strand_leaseless(sqlite_url: str, job_id: str, service_status: str) -> None:
+    """Put a row at `running` with NO lease and the given service status.
+
+    Written directly because no store method can now produce this state -- the
+    status-map hole that did has been closed. The state itself remains
+    reachable by any future path that records `running` without try_start,
+    which is precisely what must stay reclaimable.
+    """
+
+    async def _go() -> None:
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        eng = create_async_engine(sqlite_url)
+        async with eng.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE job_states SET lifecycle_state='running', "
+                    "lease_expires_at=NULL, service_status=:s WHERE job_id=:j"
+                ),
+                {"s": service_status, "j": job_id},
+            )
+        await eng.dispose()
+
+    asyncio.run(_go())
+
+
+def _set_service_status(sqlite_url: str, job_id: str, service_status: str) -> None:
+    """Change only the service status, leaving lease and lifecycle untouched."""
+
+    async def _go() -> None:
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        eng = create_async_engine(sqlite_url)
+        async with eng.begin() as conn:
+            await conn.execute(
+                text("UPDATE job_states SET service_status=:s WHERE job_id=:j"),
+                {"s": service_status, "j": job_id},
+            )
+        await eng.dispose()
+
+    asyncio.run(_go())
+
+
+def test_leaseless_running_row_with_terminal_status_is_reclaimed(
+    make_store, sqlite_url
+):
+    """The 43-slot leak: terminal work still holding `running`, with no lease."""
+    store = make_store()
+    store.upsert("leaked", service_status="ingested")
+    _strand_leaseless(sqlite_url, "leaked", "discarded")
+    assert store.running_count() == 1  # the slot is held
+
+    assert store.reclaim_expired() == 1
+
+    row = store.get("leaked")
+    assert row["lifecycle_state"] == "failed"
+    assert row["ended_at"] is not None
+    assert store.running_count() == 0  # slot returned
+
+
+def test_leaseless_running_row_with_live_status_is_left_alone(
+    make_store, sqlite_url
+):
+    """Fail-closed. `processing` is not terminal, so the missing lease alone
+    must not reclaim -- this is the row that is mid-try_start, and killing it
+    would end a running plan."""
+    store = make_store()
+    store.upsert("busy", service_status="ingested")
+    _strand_leaseless(sqlite_url, "busy", "processing")
+
+    assert store.reclaim_expired() == 0
+    assert store.get("busy")["lifecycle_state"] == "running"
+    assert store.running_count() == 1
+
+
+def test_leaseless_running_row_with_unknown_status_is_left_alone(
+    make_store, sqlite_url
+):
+    """Fail-closed on a status we cannot classify.
+
+    An unknown status maps to `running` by the taxonomy fallback, so it is
+    absent from TERMINAL_NATIVE_STATUSES and must not be reclaimed. A status
+    nobody has taught us about is not evidence that the work finished.
+    """
+    store = make_store()
+    store.upsert("mystery", service_status="ingested")
+    _strand_leaseless(sqlite_url, "mystery", "some-future-status")
+
+    assert store.reclaim_expired() == 0
+    assert store.get("mystery")["lifecycle_state"] == "running"
+
+
+def test_leaseless_reclaim_is_idempotent(make_store, sqlite_url):
+    store = make_store()
+    store.upsert("twice", service_status="ingested")
+    _strand_leaseless(sqlite_url, "twice", "emitted")
+
+    assert store.reclaim_expired() == 1
+    assert store.reclaim_expired() == 0  # nothing left to reclaim
+
+
+def test_leaseless_reclaim_records_the_status_it_found(make_store, sqlite_url):
+    """Releasing the slot must not invent a failure.
+
+    `emitted` is terminal AND successful. Writing `failed` across every
+    reclaimed row would turn a plan that emitted into a permanent, false
+    record of failure -- the row is being released, not condemned.
+    """
+    store = make_store()
+    store.upsert("shipped", service_status="ingested")
+    _strand_leaseless(sqlite_url, "shipped", "emitted")
+
+    assert store.reclaim_expired() == 1
+    assert store.get("shipped")["lifecycle_state"] == "done"
+
+    store.upsert("binned", service_status="ingested")
+    _strand_leaseless(sqlite_url, "binned", "discarded")
+
+    assert store.reclaim_expired() == 1
+    assert store.get("binned")["lifecycle_state"] == "failed"
+
+
+def test_leased_row_is_not_touched_by_the_leaseless_path(make_store, sqlite_url):
+    """Scope guard. A row holding a LIVE lease belongs to the lease path, which
+    releases it when the lease expires. Widening this reclaim to leased rows
+    would let it act on work whose owner is still alive and renewing."""
+    store = make_store()
+    store.upsert("held", service_status="ingested")
+    store.try_start("held")  # stamps a live lease
+    _set_service_status(sqlite_url, "held", "emitted")
+
+    assert store.reclaim_expired() == 0
+    assert store.get("held")["lifecycle_state"] == "running"
+
+
+def test_terminal_native_statuses_tracks_the_map():
+    """Derived, not hand-listed: a status added to the map cannot go missing.
+
+    `discarded` is the one that caused the leak, so it is named explicitly.
+    """
+    from server.jobstore.lifecycle import (
+        _NATIVE_TO_LIFECYCLE,
+        TERMINAL_LIFECYCLE,
+        TERMINAL_NATIVE_STATUSES,
+    )
+
+    assert "discarded" in TERMINAL_NATIVE_STATUSES
+    assert "processing" not in TERMINAL_NATIVE_STATUSES
+    assert TERMINAL_NATIVE_STATUSES == {
+        n for n, c in _NATIVE_TO_LIFECYCLE.items() if c in TERMINAL_LIFECYCLE
+    }
