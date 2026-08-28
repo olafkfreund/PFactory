@@ -75,7 +75,7 @@ def test_neither_tier_can_reject_an_already_registered_root(
     three alerts while rejecting nothing.
     """
     outside = Path("/etc")
-    monkeypatch.setattr(projects_mod, "load_projects", lambda: {"p": {"path": str(outside)}})
+    monkeypatch.setattr(git_utils, "load_projects", lambda: {"p": {"path": str(outside)}})
 
     # /etc is outside the workspace by every ordinary reading, and it is
     # accepted anyway - solely because the registry named it.
@@ -97,7 +97,7 @@ def test_strict_tier_rejects_a_workspace_neighbour(
     registered = workspace / "proj"
     neighbour = workspace / "someone-elses-clone"
     neighbour.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(projects_mod, "load_projects", lambda: {"p": {"path": str(registered)}})
+    monkeypatch.setattr(git_utils, "load_projects", lambda: {"p": {"path": str(registered)}})
 
     assert confine_to_workspace(str(neighbour)) == neighbour.resolve()
     with pytest.raises(ValueError):
@@ -116,7 +116,7 @@ def test_strict_tier_accepts_a_registered_project_outside_the_workspace(
     """
     elsewhere = Path(tempfile.mkdtemp()) / "on-another-volume"
     elsewhere.mkdir(parents=True)
-    monkeypatch.setattr(projects_mod, "load_projects", lambda: {"p": {"path": str(elsewhere)}})
+    monkeypatch.setattr(git_utils, "load_projects", lambda: {"p": {"path": str(elsewhere)}})
 
     assert confine_to_project(str(elsewhere / "src")) == (elsewhere / "src").resolve()
 
@@ -126,7 +126,7 @@ def test_strict_tier_ignores_empty_registry_paths(monkeypatch: pytest.MonkeyPatc
     entries in the live cluster registry are exactly that. `Path("").resolve()`
     is the server's CWD, so resolving those entries instead of skipping them
     would quietly authorise the whole working directory."""
-    monkeypatch.setattr(projects_mod, "load_projects", lambda: {"repo-only": {"path": ""}})
+    monkeypatch.setattr(git_utils, "load_projects", lambda: {"repo-only": {"path": ""}})
 
     assert git_utils.registered_project_roots() == []
     with pytest.raises(ValueError):
@@ -139,7 +139,7 @@ def test_strict_tier_rejects_traversal_out_of_a_registered_project(
     """Containment is checked after resolve(), so `..` cannot climb out of a
     registered root into its parent workspace."""
     registered = workspace / "proj"
-    monkeypatch.setattr(projects_mod, "load_projects", lambda: {"p": {"path": str(registered)}})
+    monkeypatch.setattr(git_utils, "load_projects", lambda: {"p": {"path": str(registered)}})
 
     with pytest.raises(ValueError):
         confine_to_project(str(registered / "sub" / ".." / ".." / ".." / "etc"))

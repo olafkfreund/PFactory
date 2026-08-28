@@ -16,11 +16,12 @@ if str(_WEB_SERVER) not in sys.path:
     sys.path.insert(0, str(_WEB_SERVER))
 
 from server.routes import projects as proj  # noqa: E402
+from server.services import project_paths  # noqa: E402
 
 
 def _point_projects_file(monkeypatch, tmp_path):
     f = tmp_path / "projects.json"
-    monkeypatch.setattr(proj, "get_projects_file", lambda: f)
+    monkeypatch.setattr(project_paths, "get_projects_file", lambda: f)
     return f
 
 

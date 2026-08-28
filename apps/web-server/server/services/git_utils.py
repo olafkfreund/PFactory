@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from server.error_ref import error_message
+from server.services.project_paths import load_projects
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -159,8 +160,6 @@ def registered_project_roots() -> list[Path]:
     """
     roots: list[Path] = []
     try:
-        from server.routes.projects import load_projects
-
         for entry in load_projects().values():
             rp = entry.get("path")
             if rp:

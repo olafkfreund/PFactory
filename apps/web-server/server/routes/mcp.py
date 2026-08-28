@@ -11,7 +11,6 @@ servers run.
 
 from __future__ import annotations
 
-import json
 import logging
 import sys
 from pathlib import Path
@@ -25,30 +24,16 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
-# Only the refusal message -- _load_projects below deliberately re-resolves the
-# registry path itself rather than importing projects.load_projects. Imported
-# after the sys.path insert above, like everything else that reaches backend.
-from .projects import NO_LOCAL_CLONE_DETAIL  # noqa: E402
+# Imported after the sys.path insert above, like everything else that reaches
+# backend. project_paths imports no route module, so this cannot cycle.
+from server.services.project_paths import (  # noqa: E402
+    NO_LOCAL_CLONE_DETAIL,
+    load_projects,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["MCP"])
-
-
-def _load_projects() -> dict[str, dict]:
-    """Read the same projects.json the rest of the routes use.
-
-    Importing the loader from projects.py risks a circular import (this
-    module is mounted by main.py alongside projects.py), so we re-resolve
-    the path the same way the projects router does.
-    """
-    from ..config import get_settings
-
-    settings = get_settings()
-    projects_file = Path(settings.PROJECTS_DATA_DIR) / "projects.json"
-    if not projects_file.exists():
-        return {}
-    return json.loads(projects_file.read_text())
 
 
 def _describe_creds_status(provider: str) -> dict[str, Any]:
@@ -108,7 +93,7 @@ async def get_mcp_status(project_id: str) -> dict[str, Any]:
           ]
         }
     """
-    projects = _load_projects()
+    projects = load_projects()
     if project_id not in projects:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
