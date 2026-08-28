@@ -315,8 +315,10 @@ async def clear_terminal_sessions(project: str | None = None):
                     projects_list = projects_data
 
                 for proj in projects_list:
-                    proj_path = Path(proj.get("path", "") if isinstance(proj, dict) else proj)
-                    sessions_dir = proj_path / ".pfactory" / "terminal-sessions"
+                    raw_path = proj.get("path", "") if isinstance(proj, dict) else proj
+                    if not raw_path:
+                        continue  # repo-only sentinel; Path("") is the CWD (#655)
+                    sessions_dir = Path(raw_path) / ".pfactory" / "terminal-sessions"
                     if sessions_dir.exists():
                         dirs_to_clear.append(sessions_dir)
             except (json.JSONDecodeError, KeyError):
@@ -580,11 +582,14 @@ async def save_terminal_buffer(terminal_id: str, request: dict):
         if project_id:
             # Try to get project path from projects.json
             projects = load_projects()
-            if project_id in projects:
-                project_path = Path(projects[project_id]["path"])
-                sessions_dir = project_path / ".pfactory" / "terminal-sessions"
+            # A repo-only project stores "" for its path (#655). Path("") is
+            # Path("."), which would write the saved buffer into whatever
+            # directory the server started in; it has no clone, so it belongs
+            # in the same default location an unknown project already uses.
+            project_path = (projects.get(project_id) or {}).get("path")
+            if project_path:
+                sessions_dir = Path(project_path) / ".pfactory" / "terminal-sessions"
             else:
-                # Project not found, use default location
                 sessions_dir = Path.home() / ".pfactory" / "terminal-sessions"
         else:
             # No project ID, use default location

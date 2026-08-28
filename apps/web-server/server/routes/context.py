@@ -8,7 +8,7 @@ import logging
 import subprocess
 from pathlib import Path as FilePath
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel, Field, SecretStr
 
 from factory_common.logsafe import sanitize_log
@@ -79,17 +79,12 @@ def _project_path(project_id: str) -> tuple[FilePath | None, dict[str, object] |
     dir and ``.env`` under the server's CWD (#647). Route the conversion
     through the canonical resolver so the sentinel is rejected once.
 
-    The resolver signals with ``HTTPException``, but these routes answer 200
-    with ``{"success": False, "error": ...}`` -- the portal renders that
-    ``error`` string verbatim -- so translate rather than let it escape and
-    change every caller's status code.
+    These routes answer 200 with ``{"success": False, "error": ...}``, so they
+    take the resolver's envelope-returning form rather than its raising one.
     """
-    from .projects import resolve_project_path
+    from .projects import resolve_project_path_or_error
 
-    try:
-        return resolve_project_path(project_id), None
-    except HTTPException as exc:
-        return None, {"success": False, "error": str(exc.detail)}
+    return resolve_project_path_or_error(project_id)
 
 
 @project_router.get("/context")

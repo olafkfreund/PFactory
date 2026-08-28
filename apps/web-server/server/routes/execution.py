@@ -6,7 +6,6 @@ Handles starting, stopping, and monitoring task execution.
 
 import json
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -16,7 +15,7 @@ from server.error_ref import error_message
 
 from ..services.agent_service import get_agent_service
 from ..websockets.events import emit_task_status
-from .projects import load_projects
+from .projects import load_projects, resolve_project_path
 from .tasks import split_task_id, sync_worktree_to_main_spec
 
 logger = logging.getLogger(__name__)
@@ -125,15 +124,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
         )
 
     project_id, spec_id = split_task_id(task_id)
-    projects = load_projects()
-
-    if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
-    project_path = Path(projects[project_id]["path"])
+    project_path = resolve_project_path(project_id)
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
 
     if not spec_dir.exists():
@@ -451,7 +442,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
     # Copilot delegation AND the project's git provider is GitHub AND we
     # know which issue this task came from, hand off to the shared
     # delegation runner instead of running the local coder/QA pipeline.
-    settings = projects[project_id].get("settings") or {}
+    settings = (load_projects().get(project_id) or {}).get("settings") or {}
     provider_type = (settings.get("gitProvider") or "github").lower()
     wants_delegation = bool(task_metadata.get("enableDelegation"))
     issue_number = task_metadata.get("githubIssueNumber")
@@ -578,15 +569,7 @@ async def recover_task(task_id: str, request: RecoverTaskRequest = RecoverTaskRe
         )
 
     project_id, spec_id = split_task_id(task_id)
-    projects = load_projects()
-
-    if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
-    project_path = Path(projects[project_id]["path"])
+    project_path = resolve_project_path(project_id)
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
 
     if not spec_dir.exists():
@@ -684,15 +667,7 @@ async def create_and_run_task(
     This is a convenience endpoint that combines task creation
     with spec creation and execution.
     """
-    projects = load_projects()
-
-    if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
-    project_path = Path(projects[project_id]["path"])
+    project_path = resolve_project_path(project_id)
     agent_service = get_agent_service()
 
     # Generate a temporary task ID for spec creation
