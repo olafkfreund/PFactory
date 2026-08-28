@@ -58,6 +58,18 @@ from .models import JOB_STATE_SCHEMA_VERSION, JobState
 
 logger = logging.getLogger(__name__)
 
+
+def _rowcount(result: Any) -> int:
+    """Rows affected by an UPDATE, as an int.
+
+    SQLAlchemy's async facade types the return as ``Result[Any]``, which has no
+    declared ``rowcount``, so every call site read as a net-new mypy --strict
+    error. Doing the narrowing once here keeps the three reclaim/renew paths
+    honest instead of spreading identical ignores across them.
+    """
+    return int(result.rowcount or 0)
+
+
 # Fixed key for the admission critical-section advisory lock (Postgres). Any
 # stable 64-bit int works; this one is arbitrary but constant so every replica
 # (and every grant) contends on the SAME lock. Scoped to pfactory's plan
@@ -378,7 +390,7 @@ class JobStateStore:
                     )
                     .values(lease_expires_at=self._lease_deadline(ttl_seconds))
                 )
-                return int(res.rowcount or 0) > 0
+                return _rowcount(res) > 0
 
     def reclaim_expired(self) -> int:
         """Reclaim every ``running`` row whose lease has expired; return the count.
@@ -426,7 +438,7 @@ class JobStateStore:
             )
             .execution_options(synchronize_session=False)
         )
-        n = int(res.rowcount or 0)
+        n = _rowcount(res)
         if n:
             logger.warning(
                 "reclaimed %d job_states row(s) whose lease expired: the owning "
@@ -491,7 +503,7 @@ class JobStateStore:
             )
             .execution_options(synchronize_session=False)
         )
-        n = int(res.rowcount or 0)
+        n = _rowcount(res)
         if n:
             logger.warning(
                 "reclaimed %d job_states row(s) held at 'running' with NO lease "
