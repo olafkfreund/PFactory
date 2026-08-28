@@ -8,7 +8,7 @@ import logging
 import subprocess
 from pathlib import Path as FilePath
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, Field, SecretStr
 
 from factory_common.logsafe import sanitize_log
@@ -69,18 +69,37 @@ class TestGraphitiRequest(BaseModel):
 project_router = APIRouter()
 
 
+def _project_path(project_id: str) -> tuple[FilePath | None, dict[str, object] | None]:
+    """The project's local clone path, or the error envelope to return instead.
+
+    Every route below builds ``<path>/.pfactory/...`` and several of them write
+    there. They used to do their own ``load_projects()`` lookup and then
+    ``FilePath(projects[projectId]["path"])``, which turned a repo-only
+    project's ``""`` sentinel into ``Path(".")`` and put the index, the specs
+    dir and ``.env`` under the server's CWD (#647). Route the conversion
+    through the canonical resolver so the sentinel is rejected once.
+
+    The resolver signals with ``HTTPException``, but these routes answer 200
+    with ``{"success": False, "error": ...}`` -- the portal renders that
+    ``error`` string verbatim -- so translate rather than let it escape and
+    change every caller's status code.
+    """
+    from .projects import resolve_project_path
+
+    try:
+        return resolve_project_path(project_id), None
+    except HTTPException as exc:
+        return None, {"success": False, "error": str(exc.detail)}
+
+
 @project_router.get("/context")
 async def get_project_context(projectId: str = Path(...)):
     """Get project context including index and memories."""
     import json
 
-    from .projects import load_projects
-
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = _project_path(projectId)
+    if project_path is None:
+        return error
     index_path = project_path / ".pfactory" / "project_index.json"
     specs_dir = project_path / ".pfactory" / "specs"
 
@@ -158,13 +177,10 @@ async def get_project_context(projectId: str = Path(...)):
 @project_router.post("/context/refresh")
 async def refresh_project_index(projectId: str = Path(...)):
     """Refresh/regenerate project index."""
-    from .projects import load_projects
 
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = _project_path(projectId)
+    if project_path is None:
+        return error
 
     # Run a basic project analysis
     try:
@@ -205,13 +221,9 @@ async def refresh_project_index(projectId: str = Path(...)):
 async def get_memory_status(projectId: str = Path(...)):
     """Get memory system status for project."""
 
-    from .projects import load_projects
-
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = _project_path(projectId)
+    if project_path is None:
+        return error
     specs_dir = project_path / ".pfactory" / "specs"
 
     # Count memory files across all specs
@@ -244,13 +256,9 @@ async def search_memories(projectId: str = Path(...), q: str = Query(...)):
     """Search project memories."""
     import json
 
-    from .projects import load_projects
-
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = _project_path(projectId)
+    if project_path is None:
+        return error
     specs_dir = project_path / ".pfactory" / "specs"
 
     results = []
@@ -301,13 +309,9 @@ async def get_recent_memories(projectId: str = Path(...), limit: int = Query(10)
     """Get recent memories for project."""
     import json
 
-    from .projects import load_projects
-
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = _project_path(projectId)
+    if project_path is None:
+        return error
     specs_dir = project_path / ".pfactory" / "specs"
 
     memories = []
@@ -376,13 +380,10 @@ def _extract_memory_summary(data: dict) -> str:
 @project_router.get("/env")
 async def get_project_env(projectId: str = Path(...)):
     """Get project environment configuration."""
-    from .projects import load_projects
 
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    project_path, error = _project_path(projectId)
+    if project_path is None:
+        return error
     env_path = project_path / ".pfactory" / ".env"
 
     config = {
@@ -511,12 +512,11 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
     """
     from .projects import load_projects
 
-    # Validate project exists
-    projects = load_projects()
-    if projectId not in projects:
-        return {"success": False, "error": f"Project {projectId} not found"}
-
-    project_path = FilePath(projects[projectId]["path"])
+    # Validate project exists and has somewhere to write the .env
+    project_path, error = _project_path(projectId)
+    if project_path is None:
+        return error
+    projects = load_projects()  # mirrored into projects.json further down
     env_path = project_path / ".pfactory" / ".env"
 
     try:
