@@ -109,19 +109,16 @@ def _persist_cli_token_to_project(project_id: str) -> bool:
     GITHUB_TOKEN in the project env file with secure 0o600 permissions.
     Returns True on success.
     """
-    from .projects import load_projects
-
     token_result = run_gh_command(["auth", "token"])
     if not token_result["success"] or not token_result["output"]:
         return False
 
     token = token_result["output"]
 
-    projects = load_projects()
-    if project_id not in projects:
+    project_path = _resolve_project_path(project_id)
+    if project_path is None:
         return False
 
-    project_path = FilePath(projects[project_id]["path"])
     env_path = project_path / ".pfactory" / ".env"
 
     try:
@@ -1124,7 +1121,12 @@ def _resolve_project_path(projectId: str) -> FilePath | None:
     projects = load_projects()
     if projectId not in projects:
         return None
-    return FilePath(projects[projectId]["path"])
+    # "" is the repo-only sentinel (#655): the project is registered from a repo
+    # with no local clone. FilePath("") is FilePath("."), so converting it hands
+    # every caller below the server's CWD. "No usable path" is what None already
+    # means here, so the ~20 callers need no change.
+    path = projects[projectId].get("path")
+    return FilePath(path) if path else None
 
 
 def _map_gh_issue(issue: dict, repo_full_name: str = "") -> dict:
@@ -1751,13 +1753,11 @@ async def investigate_github_issue(projectId: str, issueNumber: int, request: In
     """Investigate an issue using AI (supports GitHub, GitLab, Azure DevOps)."""
     try:
         # Load projects and validate project exists
-        from .projects import load_projects
+        from .projects import resolve_project_path_or_error
 
-        projects = load_projects()
-        if projectId not in projects:
-            return {"success": False, "error": f"Project {projectId} not found"}
-
-        project_path = FilePath(projects[projectId]["path"])
+        project_path, error = resolve_project_path_or_error(projectId)
+        if project_path is None:
+            return error
 
         # Provider-aware fetch: GitLab / Azure DevOps / GitHub-with-PAT
         # use the GitProvider abstraction; only gh-CLI-authed GitHub falls
