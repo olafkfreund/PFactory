@@ -207,17 +207,43 @@ def load_projects() -> dict[str, dict]:
     return {}
 
 
+#: Detail returned when a repo-only project is asked for a filesystem path.
+#: Module-level so callers and tests can match it without copying the wording.
+NO_LOCAL_CLONE_DETAIL = (
+    "Project {project_id} has no local clone on this server (it was registered "
+    "from a repo only), so there is no directory to read or write."
+)
+
+
 def resolve_project_path(project_id: str) -> Path:
-    """Resolve a project id to its filesystem path, or raise 404.
+    """Resolve a project id to a usable filesystem path, or raise.
 
     Single source of truth for the ``load_projects() -> 404 -> Path(...)`` idiom
     that several route modules each re-implemented. The 404 detail is kept
     identical to those copies so callers behave exactly as before.
+
+    An empty ``path`` is refused with 409 rather than converted (#647). It is a
+    sentinel, not a location: :func:`ensure_tracked_project` writes ``""`` to
+    mean "repo-only; no local clone yet", and both :func:`analyze_project` and
+    ``git_utils.registered_project_roots`` already read it that way. But
+    ``Path("")`` is ``Path(".")``, so converting it hands the caller a relative
+    path resolved against the server's CWD -- on the read-only container root
+    that surfaces as ``OSError: [Errno 30]`` naming only ``.pfactory``, and on a
+    writable one it would quietly create the project's ``.pfactory`` in whatever
+    directory the server happens to have started in. Absent and "the current
+    directory" are the two meanings riding on the same value; separating them
+    has to happen at the one conversion, or every caller inherits a plausible
+    wrong directory.
     """
     projects = load_projects()
     if project_id not in projects:
         raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
-    return Path(projects[project_id]["path"])
+    path = projects[project_id].get("path") or ""
+    if not path:
+        raise HTTPException(
+            status_code=409, detail=NO_LOCAL_CLONE_DETAIL.format(project_id=project_id)
+        )
+    return Path(path)
 
 
 def save_projects(projects: dict[str, dict]) -> None:
@@ -745,15 +771,11 @@ async def initialize_project(project_id: str):
 
     Returns InitializationResult format expected by frontend.
     """
+    # Raises 404 for an unknown id and 409 for a repo-only project, so the
+    # ".pfactory" below is never built onto a relative path (#647).
+    project_path = resolve_project_path(project_id)
     projects = load_projects()
-    if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
     project_data = projects[project_id]
-    project_path = Path(project_data["path"])
 
     try:
         # Create .pfactory directory structure
@@ -778,15 +800,7 @@ async def initialize_project(project_id: str):
 @router.get("/{project_id}/version")
 async def check_project_version(project_id: str):
     """Check PFactory version info for a project."""
-    projects = load_projects()
-    if project_id not in projects:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
-    project_data = projects[project_id]
-    project_path = Path(project_data["path"])
+    project_path = resolve_project_path(project_id)
     magestic_ai_dir = project_path / ".pfactory"
 
     return {
