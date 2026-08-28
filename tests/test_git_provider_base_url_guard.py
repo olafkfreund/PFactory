@@ -139,6 +139,10 @@ def _project_with_base_url(monkeypatch, provider: str, base_url: str, tmp_path) 
             },
         }
     }
+    # Two bindings, because the two readers no longer share one: routes/github
+    # imports the loader from services.project_paths at module level, while
+    # auto_fix_service still reaches for it through routes.projects.
+    monkeypatch.setattr("server.routes.github.load_projects", lambda: record)
     monkeypatch.setattr(projects_module, "load_projects", lambda: record)
 
 

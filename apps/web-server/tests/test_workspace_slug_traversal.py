@@ -41,7 +41,10 @@ for _p in (str(_WEB_SERVER), str(_BACKEND)):
         sys.path.insert(0, _p)
 
 from server.routes import projects as projects_route  # noqa: E402
-from server.services import project_workspace_service as pws  # noqa: E402
+from server.services import (  # noqa: E402
+    project_paths,
+    project_workspace_service as pws,
+)
 
 # URLs whose path component slugs to a traversing name. ``git@host:..`` covers
 # the scp-like branch, which splits on the colon instead of using urlparse.
@@ -112,7 +115,7 @@ def client(tmp_path, monkeypatch):
     root.mkdir()
     registry = tmp_path / "projects.json"
     monkeypatch.setenv("PROJECT_WORKSPACE_ROOT", str(root))
-    monkeypatch.setattr(projects_route, "get_projects_file", lambda: registry)
+    monkeypatch.setattr(project_paths, "get_projects_file", lambda: registry)
 
     def _mkdir(dest: str) -> None:
         # Split out of the async stub below: ASYNC240 bans pathlib inside an

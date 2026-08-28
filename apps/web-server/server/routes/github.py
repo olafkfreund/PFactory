@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
 from server.services.git_base_url import safe_git_base_url  # #610
+from server.services.project_paths import load_projects, resolve_project_path_or_error
 
 from ..services.git_utils import run_gh_command, safe_spec_component  # #335
 
@@ -1116,8 +1117,6 @@ def _resolve_project_path(projectId: str) -> FilePath | None:
     which already-confined project to address. See the PR body for the writer
     enumeration.
     """
-    from .projects import load_projects
-
     projects = load_projects()
     if projectId not in projects:
         return None
@@ -1185,8 +1184,6 @@ def _get_repo_full_name(project_path: str) -> str:
 
 def _use_provider_api(projectId: str) -> bool:
     """Check if the project is configured to use a custom GitProvider REST API."""
-    from .projects import load_projects
-
     projects = load_projects()
     if projectId not in projects:
         return False
@@ -1204,8 +1201,6 @@ def _get_project_provider(projectId: str):
     backend_path = FilePath(__file__).parent.parent.parent.parent / "backend"
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
-
-    from .projects import load_projects
 
     projects = load_projects()
     if projectId not in projects:
@@ -1753,8 +1748,6 @@ async def investigate_github_issue(projectId: str, issueNumber: int, request: In
     """Investigate an issue using AI (supports GitHub, GitLab, Azure DevOps)."""
     try:
         # Load projects and validate project exists
-        from .projects import resolve_project_path_or_error
-
         project_path, error = resolve_project_path_or_error(projectId)
         if project_path is None:
             return error

@@ -29,6 +29,7 @@ from server.routes import (  # noqa: E402
     context as ctx,
     projects as proj,
 )
+from server.services import project_paths  # noqa: E402
 
 
 def _registry(
@@ -36,7 +37,7 @@ def _registry(
 ) -> None:
     """Point the project registry at a throwaway file holding *projects*."""
     f = tmp_path / "projects.json"
-    monkeypatch.setattr(proj, "get_projects_file", lambda: f)
+    monkeypatch.setattr(project_paths, "get_projects_file", lambda: f)
     proj.save_projects(projects)
 
 

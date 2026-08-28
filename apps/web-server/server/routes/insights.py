@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.services.project_paths import resolve_project_path
 
 from ..services.insights_service import get_insights_service
 
@@ -28,9 +29,6 @@ files_router = APIRouter()
 
 def _get_project_path(project_id: str) -> FilePath:
     """Get project path from project ID (delegates to the canonical resolver)."""
-    # Import here to avoid circular import.
-    from .projects import resolve_project_path
-
     return resolve_project_path(project_id)
 
 
