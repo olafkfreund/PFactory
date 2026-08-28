@@ -69,7 +69,7 @@ class TestGraphitiRequest(BaseModel):
 project_router = APIRouter()
 
 
-def _project_path(projectId: str) -> tuple[FilePath | None, dict[str, object] | None]:
+def _project_path(project_id: str) -> tuple[FilePath | None, dict[str, object] | None]:
     """The project's local clone path, or the error envelope to return instead.
 
     Every route below builds ``<path>/.pfactory/...`` and several of them write
@@ -87,7 +87,7 @@ def _project_path(projectId: str) -> tuple[FilePath | None, dict[str, object] | 
     from .projects import resolve_project_path
 
     try:
-        return resolve_project_path(projectId), None
+        return resolve_project_path(project_id), None
     except HTTPException as exc:
         return None, {"success": False, "error": str(exc.detail)}
 
