@@ -53,7 +53,7 @@ def downgrade() -> None:
     # Refuse rather than truncate: narrowing silently destroys audit references.
     conn = op.get_bind()
     too_long = conn.execute(
-        sa.text("SELECT count(*) FROM audit_logs WHERE char_length(resource_id) > 36")
+        sa.text("SELECT count(*) FROM audit_logs WHERE length(resource_id) > 36")
     ).scalar_one()
     if too_long:
         raise RuntimeError(
