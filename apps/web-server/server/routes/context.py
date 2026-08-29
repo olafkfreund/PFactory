@@ -12,6 +12,11 @@ from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel, Field, SecretStr
 
 from factory_common.logsafe import sanitize_log
+from server.services.project_paths import (
+    load_projects,
+    resolve_project_path_or_error,
+    save_projects,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +87,6 @@ def _project_path(project_id: str) -> tuple[FilePath | None, dict[str, object] |
     These routes answer 200 with ``{"success": False, "error": ...}``, so they
     take the resolver's envelope-returning form rather than its raising one.
     """
-    from .projects import resolve_project_path_or_error
-
     return resolve_project_path_or_error(project_id)
 
 
@@ -505,8 +508,6 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
     Only updates fields that are provided (partial updates supported).
     Sets secure file permissions (0o600) to protect sensitive tokens.
     """
-    from .projects import load_projects
-
     # Validate project exists and has somewhere to write the .env
     project_path, error = _project_path(projectId)
     if project_path is None:
@@ -643,8 +644,6 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
 
         # Also update settings in projects.json
         try:
-            from .projects import save_projects
-
             if "settings" not in projects[projectId]:
                 projects[projectId]["settings"] = {}
 
@@ -711,9 +710,6 @@ async def invoke_claude_setup(projectId: str = Path(...)):
         - success: False if Claude needs setup, with instructions
     """
     try:
-        # Import load_projects to validate project exists
-        from .projects import load_projects
-
         projects = load_projects()
         if projectId not in projects:
             return {"success": False, "error": f"Project {projectId} not found"}

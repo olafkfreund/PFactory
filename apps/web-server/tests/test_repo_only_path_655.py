@@ -41,7 +41,10 @@ from server.routes import (  # noqa: E402
     projects as proj,
     terminal as terminal_routes,
 )
-from server.services import auto_fix_service  # noqa: E402
+from server.services import (  # noqa: E402
+    auto_fix_service,
+    project_paths,
+)
 
 REPO_ONLY = {"repo-only": {"repo": "o/r", "path": ""}}
 
@@ -51,7 +54,7 @@ def _registry(
 ) -> None:
     """Point the project registry at a throwaway file holding *projects*."""
     f = tmp_path / "projects.json"
-    monkeypatch.setattr(proj, "get_projects_file", lambda: f)
+    monkeypatch.setattr(project_paths, "get_projects_file", lambda: f)
     proj.save_projects(projects)
 
 
@@ -237,7 +240,6 @@ async def test_terminal_clear_skips_the_sentinel_but_not_a_dot(monkeypatch, tmp_
 @pytest.mark.asyncio
 async def test_mcp_status_refuses_the_sentinel(monkeypatch, tmp_path):
     _registry(monkeypatch, tmp_path, REPO_ONLY)
-    monkeypatch.setattr(mcp_routes, "_load_projects", proj.load_projects)
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(HTTPException) as exc:
