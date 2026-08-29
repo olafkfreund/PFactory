@@ -16,6 +16,11 @@ from pydantic import BaseModel
 from client_errors import client_error
 from factory_common.logsafe import sanitize_log
 from server.services.git_utils import assert_safe_git_ref, safe_spec_component  # #335
+from server.services.project_paths import (
+    load_projects,
+    resolve_project_path,
+    resolve_project_path_or_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +174,6 @@ async def get_changelog_done_tasks(projectId: str = Path(...), request: DoneTask
 @router.post("/specs")
 async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest = ...):
     """Load spec details for tasks."""
-    from .projects import resolve_project_path_or_error
-
     project_path, error = resolve_project_path_or_error(projectId)
     if project_path is None:
         return error
@@ -237,7 +240,6 @@ async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest 
 async def generate_changelog(projectId: str = Path(...), request: ChangelogGenerateRequest = ...):
     """Generate changelog using AI."""
     from ..services.changelog_service import get_changelog_service
-    from .projects import resolve_project_path
 
     project_path = resolve_project_path(projectId)
     service = get_changelog_service()
@@ -292,8 +294,6 @@ async def generate_changelog(projectId: str = Path(...), request: ChangelogGener
 @router.post("/save")
 async def save_changelog(projectId: str = Path(...), request: ChangelogSaveRequest = ...):
     """Save generated changelog and update project version files."""
-    from .projects import resolve_project_path_or_error
-
     project_path, error = resolve_project_path_or_error(projectId)
     if project_path is None:
         return error
@@ -409,8 +409,6 @@ async def read_existing_changelog(projectId: str = Path(...)):
     - ## 1.2.3 - Simple semver
     - ## v1.2.3 or ## [v1.2.3] - With 'v' prefix
     """
-    from .projects import resolve_project_path_or_error
-
     project_path, error = resolve_project_path_or_error(projectId)
     if project_path is None:
         return error
@@ -459,8 +457,6 @@ async def get_changelog_branches(projectId: str = Path(...)):
     Returns GitBranchInfo objects with {name, isRemote, isCurrent} for frontend dropdown components.
     """
     import subprocess
-
-    from .projects import load_projects
 
     projects = load_projects()
     if projectId not in projects:
@@ -555,8 +551,6 @@ async def get_changelog_tags(projectId: str = Path(...)):
     """
     import subprocess
 
-    from .projects import load_projects
-
     projects = load_projects()
     if projectId not in projects:
         return {"success": False, "error": f"Project {projectId} not found"}
@@ -620,8 +614,6 @@ async def get_changelog_tags(projectId: str = Path(...)):
 async def get_commits_preview(projectId: str = Path(...), request: CommitsPreviewRequest = ...):
     """Get preview of commits for changelog."""
     import subprocess
-
-    from .projects import load_projects
 
     projects = load_projects()
     if projectId not in projects:
@@ -726,8 +718,6 @@ async def save_changelog_image(projectId: str = Path(...), request: SaveImageReq
     Returns:
         Success response with the relative path to the saved image
     """
-    from .projects import resolve_project_path
-
     try:
         # Resolves the project id, 404s an unknown one and 409s a repo-only one
         # whose "" path would otherwise write the asset under the server's CWD.
