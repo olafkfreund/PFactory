@@ -387,9 +387,7 @@ def _service_requirements_covered(
             f"{', '.join(missing)}. The build could pass every stated AC yet "
             "miss them."
         ),
-        remediation=""
-        if ok
-        else f"Add acceptance criteria covering: {', '.join(missing)}.",
+        remediation="" if ok else f"Add acceptance criteria covering: {', '.join(missing)}.",
         evidence={} if ok else {"missing_requirements": missing},
     )
 

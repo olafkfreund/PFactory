@@ -83,20 +83,32 @@ MOBILE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
         "Each runtime permission (location, notifications, camera, contacts) is "
         "requested in context, when the feature needing it is first used, with a "
         "rationale shown.",
-        ("permission prompt", "runtime permission", "request permission",
-         "permission request", "authorization prompt", "permission rationale"),
+        (
+            "permission prompt",
+            "runtime permission",
+            "request permission",
+            "permission request",
+            "authorization prompt",
+            "permission rationale",
+        ),
     ),
     (
         "offline",
         "The app remains usable offline and on a poor network: cached content is "
         "shown and failed actions surface a retry.",
-        ("offline", "poor network", "airplane mode", "no connectivity",
-         "flaky network", "network loss", "low connectivity"),
+        (
+            "offline",
+            "poor network",
+            "airplane mode",
+            "no connectivity",
+            "flaky network",
+            "network loss",
+            "low connectivity",
+        ),
     ),
     (
         "deep-links",
-        "Deep links / universal links open the correct in-app screen, including "
-        "from a cold start.",
+        "Deep links / universal links open the correct in-app screen, including from a cold start.",
         ("deep link", "deeplink", "universal link", "app link"),
     ),
     (
@@ -127,15 +139,27 @@ MOBILE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
         "release-rollout",
         "Releases ship through a release channel with a staged rollout "
         "(TestFlight / Play internal testing, then a percentage rollout).",
-        ("staged rollout", "phased release", "testflight", "release channel",
-         "internal testing", "beta channel"),
+        (
+            "staged rollout",
+            "phased release",
+            "testflight",
+            "release channel",
+            "internal testing",
+            "beta channel",
+        ),
     ),
     (
         "forced-upgrade",
         "A forced-upgrade path exists: a minimum supported app version can be "
         "enforced remotely with an upgrade prompt.",
-        ("forced upgrade", "force update", "forced update", "minimum app version",
-         "min app version", "upgrade prompt"),
+        (
+            "forced upgrade",
+            "force update",
+            "forced update",
+            "minimum app version",
+            "min app version",
+            "upgrade prompt",
+        ),
     ),
 ]
 
@@ -157,7 +181,7 @@ def is_deployable_service(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) 
     return name == "software-service" or (category == "software" and synth_cicd)
 
 
-def is_mobile_app(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) -> bool:
+def is_mobile_app(descriptor: PlanTypeDescriptor) -> bool:
     """True when the plan's type is a mobile application (``category: mobile``)."""
     return (getattr(descriptor, "category", "") or "").lower() == "mobile"
 
@@ -171,7 +195,7 @@ def requirement_set(
     the ``service-requirements-covered`` readiness check all share — adding a
     plan-type-specific list here wires it into all three with no new gate code.
     """
-    if is_mobile_app(plan, descriptor):
+    if is_mobile_app(descriptor):
         return MOBILE_IMPLICIT_REQUIREMENTS
     if is_deployable_service(plan, descriptor):
         return SERVICE_IMPLICIT_REQUIREMENTS

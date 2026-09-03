@@ -211,7 +211,7 @@ def test_requirement_set_selects_by_plan_type() -> None:
     mobile = _mobile_plan()
     d_mobile = select_for(mobile)
     assert d_mobile.name == "mobile-app"
-    assert is_mobile_app(mobile, d_mobile) is True
+    assert is_mobile_app(d_mobile) is True
     assert requirement_set(mobile, d_mobile) is MOBILE_IMPLICIT_REQUIREMENTS
 
     svc = _service_plan()
