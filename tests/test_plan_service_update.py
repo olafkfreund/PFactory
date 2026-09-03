@@ -24,7 +24,7 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
-from plan.service import PlanService, PlanServiceError  # noqa: E402
+from plan.service import PlanInputError, PlanService, PlanServiceError  # noqa: E402
 
 _PLAN = """# Refund API
 Add a REST API endpoint to the payments microservice.
@@ -125,3 +125,34 @@ def test_edit_survives_a_restart(tmp_path):
 
     restarted = PlanService(store_dir=tmp_path, persist=True)
     assert restarted.get(sid).plan.description == "survives a restart"
+
+
+def test_malformed_criterion_is_a_client_error_not_a_KeyError():
+    """A criterion arrives over HTTP; a missing key is input, not a crash.
+
+    Indexing `c["id"]` blind turned a malformed body into a KeyError and a 500
+    (PR #696 review). PlanInputError subclasses PlanServiceError, so the older
+    tests that catch the base type still hold.
+    """
+    svc = PlanService()
+    sid = _processed(svc).session_id
+
+    for bad in ({"text": "no id"}, {"id": "AC#1"}, {}):
+        with pytest.raises(PlanInputError) as caught:
+            svc.update_plan(sid, criteria=[bad])
+        assert "criterion 0 is missing" in str(caught.value)
+
+    # And the plan is untouched by a rejected edit.
+    assert [c.text for c in svc.get(sid).plan.criteria] != ["no id"]
+
+
+def test_input_errors_are_distinguishable_from_a_missing_session():
+    """The route answers 400 vs 404 off these types, so the split must hold."""
+    svc = PlanService()
+    sid = _processed(svc).session_id
+
+    with pytest.raises(PlanInputError):
+        svc.update_plan(sid, title="  ")
+    with pytest.raises(PlanServiceError) as unknown:
+        svc.update_plan("no-such-session", title="fine")
+    assert not isinstance(unknown.value, PlanInputError)
