@@ -11,6 +11,14 @@ generated from this manifest at consumption time by the shared
 ``nix_provisioner`` (the consumer has the repo checkout); keeping it declarative
 here means the manifest stays the one source of truth.
 
+Language resolution reads the tfactory block's ``language`` field, which
+:mod:`plan.emit.tfactory_block` now always sets. The old inference here was
+``"python" if unit_fw == "pytest" else "typescript"`` — a binary that silently
+labelled EVERY non-pytest plan (Swift, Kotlin, Java, ...) as TypeScript, so a
+native-mobile contract shipped a Node environment. Descriptor-declared
+languages (``plan/languages/*.yaml``, RFC-0005 paved road) carry their own lane
+commands, proof command and network class.
+
 No-op (block omitted) when the contract carries no ``tfactory`` lanes.
 """
 
@@ -32,6 +40,54 @@ _NODE_LANE_CMD = {
 }
 
 
+def _descriptor_environment(
+    tf: dict[str, Any], lanes: list[str], baseline: dict[str, Any]
+) -> dict[str, Any] | None:
+    """The environment manifest for a descriptor-declared language, or None.
+
+    Lane commands come from the descriptor's ``available: true`` lanes only —
+    an unavailable lane contributes NOTHING here (its reason already travels on
+    the tfactory block's ``unavailable_lanes``), so nothing unrunnable can leak
+    into ``verify_commands`` and read as a verdict downstream.
+    """
+    from plan.language_descriptors import load_languages  # noqa: PLC0415
+
+    language = str(tf.get("language") or "").lower()
+    descriptor = load_languages().get(language) if language else None
+    if descriptor is None:
+        return None
+
+    verify_commands: list[str] = []
+    for lane_key in lanes:
+        lane = descriptor.lane(lane_key)
+        if lane is not None and lane.available and lane.command not in verify_commands:
+            # Deduped: kotlin's unit and api lanes share one `gradle test`
+            # invocation; running it twice would double the wall clock for
+            # zero extra evidence.
+            verify_commands.append(lane.command)
+
+    env: dict[str, Any] = {
+        "language": (baseline.get("languages") or [descriptor.name])[0],
+        "verify_commands": verify_commands,
+        "system_packages": [],
+        "provisioning": {"method": "nix", "ref": "flake.nix", "generated": True},
+        # The descriptor states the toolchain's own minimum (gradle fetches
+        # plugins + deps at run time; SPM resolves over git). A lane that
+        # exercises a running app needs egress anyway, so take the wider need.
+        "network": (
+            "restricted"
+            if descriptor.network == "restricted" or ("api" in lanes or "integration" in lanes)
+            else "none"
+        ),
+    }
+    if descriptor.proof_command:
+        env["proof"] = {"verify": [descriptor.proof_command]}
+    versions = baseline.get("versions") or {}
+    if versions:
+        env["toolchain"] = dict(versions)
+    return env
+
+
 def derive_environment(contract: dict) -> dict | None:
     """Derive an RFC-0005 environment manifest from the contract's tfactory block.
 
@@ -42,11 +98,33 @@ def derive_environment(contract: dict) -> dict | None:
     if not lanes:
         return None
     frameworks: dict[str, str] = dict(tf.get("frameworks") or {})
+    baseline = contract.get("baseline") or {}
+
+    descriptor_env = _descriptor_environment(tf, lanes, baseline)
+    if descriptor_env is not None:
+        return descriptor_env
 
     unit_fw = frameworks.get("unit", "pytest")
-    # The test-framework language drives the lane commands + proof (pytest→python,
-    # jest→node); this is what TFactory actually runs.
-    lane_language = "python" if unit_fw == "pytest" else "typescript"
+    # The test-framework language drives the lane commands + proof. Prefer the
+    # tfactory block's explicit language (always set since the descriptor work);
+    # the framework inference remains only for blocks emitted by older code.
+    lane_language = str(
+        tf.get("language") or ("python" if unit_fw == "pytest" else "typescript")
+    ).lower()
+    if lane_language not in ("python", "typescript", "javascript"):
+        # FAIL CLOSED. Reaching here means the tfactory block names a language
+        # (swift, kotlin, ...) that _descriptor_environment could not resolve —
+        # i.e. the vendored plan/languages/ descriptors are missing or broken.
+        # Falling back to the framework binary would silently emit a
+        # python/typescript environment for a native plan, which is EXACTLY the
+        # defect this module used to have (any non-pytest plan labelled
+        # TypeScript). One loud refusal at emit time beats a plausible-but-
+        # wrong toolchain failing hours downstream.
+        raise ValueError(
+            f"tfactory block names language {lane_language!r} but no "
+            "plan/languages/ descriptor is vendored for it; refusing to emit a "
+            "python/typescript environment for a plan in another language"
+        )
     browser = "browser" in lanes
 
     lane_cmd = _PY_LANE_CMD if lane_language == "python" else _NODE_LANE_CMD
@@ -69,7 +147,6 @@ def derive_environment(contract: dict) -> dict | None:
     # RFC-0010: report the repo's actual primary language + pinned versions when
     # reconnaissance grounded the plan (the manifest's source of truth), else the
     # framework-derived language.
-    baseline = contract.get("baseline") or {}
     reported_language = (baseline.get("languages") or [lane_language])[0]
 
     env: dict[str, Any] = {

@@ -1,0 +1,60 @@
+# Language descriptor: Kotlin (RFC-0005 paved-road language onboarding).
+#
+# Canonical location: Factory hub contracts/languages/ (reachable from
+# scripts/language_descriptors.py via the scripts/languages symlink). Vendored
+# to consumers beside their language_descriptors.py copy; governed by the
+# verification-core drift gate. Schema: see language_descriptors.py.
+#
+# Every nix attr below was evaluated against DEFAULT_NIXPKGS 567a49d1 on
+# 2026-09-03: kotlin-2.4.0, gradle-8.14.4, openjdk-21.0.12+2. The lanes were
+# then RUN, not assumed: a minimal Gradle module's JUnit suite passed and
+# (mutated) failed inside `nix develop` on x86_64-linux; `gradle pitest` was
+# exercised the same way. Android builds are Linux-native, so the JVM lanes
+# genuinely run here.
+name: kotlin
+aliases: [kotlin, android, kts]
+detect_weight: 1
+proof_command: kotlinc -version
+# Gradle fetches its plugins and dependencies from the Gradle plugin portal and
+# Maven Central at run time. NOTE for in-cluster Jobs: build-Job egress is
+# currently allowlisted to apk + npm CDNs only, so these fetches stall there
+# until the Maven/Gradle hosts are allowlisted - the lane is proven on the
+# docker-host substrate.
+network: restricted
+nix:
+  packages: [kotlin, gradle, jdk21]
+lanes:
+  unit:
+    available: true
+    tool: junit
+    command: gradle test --no-daemon --console=plain
+  api:
+    available: true
+    tool: junit
+    command: gradle test --no-daemon --console=plain
+    notes: >-
+      API tests are JUnit tests (RestAssured/MockMvc) inside the same gradle
+      test task - the java row's convention; there is no separate runner.
+  browser:
+    available: false
+    reason: >-
+      native Android app surface; a Kotlin-served web UI is exercised by the
+      TypeScript browser lane (playwright), not a Kotlin one.
+  integration:
+    available: false
+    reason: >-
+      testcontainers-jvm needs a container runtime; TFactory verify Jobs have
+      none in-pod.
+  mutation:
+    available: true
+    tool: pit
+    command: gradle pitest --no-daemon --console=plain
+    notes: >-
+      requires the SUT's build.gradle to apply the info.solidsoft.pitest
+      plugin with junit5PluginVersion set; the plan's CI/CD synthesis must
+      emit that block when it enables this lane.
+  ui:
+    available: false
+    reason: >-
+      Espresso/Compose UI tests need an Android emulator; none is provisioned
+      in the fleet.
