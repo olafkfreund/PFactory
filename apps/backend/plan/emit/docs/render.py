@@ -18,6 +18,78 @@ if TYPE_CHECKING:  # avoid import cycles / heavy imports at module load
 # output (the feedback-loop guard from the design §6/§7).
 GENERATED_BY = "pfactory"
 
+# The signature format's own version. Bump when a field's MEANING changes, so a
+# consumer reading an old file is not silently misinterpreting it.
+SIGNATURE_SCHEMA = 1
+
+
+def _run_signature(
+    session: PlanSession, *, correlation_key: str, pfactory_version: str
+) -> dict[str, Any]:
+    """The provenance record for one planner run (#700).
+
+    Answers, from a checkout and with no server: which planner run produced this
+    page, from exactly which text, under which template, and what the review
+    made of it. ``content_hash`` is the join key — re-running the planner over
+    an unchanged plan reproduces it, so a changed hash is the signal that the
+    document on disk is stale.
+
+    Pure, like the rest of this module: every value is read off the session, a
+    module constant, or an injected argument. No clock — ``created_at`` is the
+    session's own stamp, so two renders of the same session agree byte-for-byte,
+    and ``pfactory_version`` is passed in for the same reason ``updated_at`` is.
+    """
+    plan = session.plan
+    review = session.review
+    lenses: dict[str, Any] = {}
+    findings_by_severity: dict[str, int] = {}
+    if review is not None:
+        for lens in review.lenses:
+            lenses[lens.lens] = lens.score
+            for finding in lens.findings:
+                sev = str(finding.severity)
+                findings_by_severity[sev] = findings_by_severity.get(sev, 0) + 1
+
+    annotation = session.annotation
+    return {
+        "signature_schema": SIGNATURE_SCHEMA,
+        "generated_by": GENERATED_BY,
+        "pfactory_version": pfactory_version or "unknown",
+        # ── identity ────────────────────────────────────────────────
+        "session_id": session.session_id,
+        "plan_id": plan.plan_id,
+        "correlation_key": correlation_key,
+        "tenant_id": session.tenant_id,
+        "created_at": session.created_at,
+        # ── what was planned ────────────────────────────────────────
+        "title": plan.title,
+        "content_hash": plan.content_hash,
+        "target_kind": plan.target_kind,
+        "plan_type": plan.plan_type,
+        "source_format": plan.source_format,
+        "source_channel": plan.source_channel,
+        "original_filename": session.original_filename,
+        "selected_category": session.selected_category,
+        "selected_template": session.selected_template,
+        "criteria_count": len(plan.criteria),
+        "repo": session.repo,
+        "base_ref": session.base_ref,
+        # ── what the run produced ───────────────────────────────────
+        "status": session.status,
+        "board_state": session.board_state(),
+        "children": len(session.epic.children) if session.epic else 0,
+        "suggestions": len(annotation.suggestions) if annotation else 0,
+        # ── the verdict ─────────────────────────────────────────────
+        "gates_passed": review.gates_passed if review else None,
+        "aggregate_score": review.aggregate_score if review else None,
+        "lens_scores": lenses,
+        "findings_by_severity": findings_by_severity,
+        "injection_scan": (session.injection_scan or {}).get("verdict", "not-run"),
+        # Zero tokens means the deterministic path ran — NOT that nothing ran.
+        "tokens": session.usage.model_dump() if session.usage else {},
+        "emitted_issue_number": session.emitted_issue_number,
+    }
+
 
 def _h(level: int, text: str) -> str:
     return f"{'#' * level} {text}\n"
@@ -190,8 +262,15 @@ def _render_markdown(session: PlanSession, deps: list[str]) -> str:
     return "".join(parts)
 
 
-def render_plan_docs(session: PlanSession) -> DocBundle:
-    """Render the plan session into a :class:`DocBundle` (pure)."""
+def render_plan_docs(session: PlanSession, *, pfactory_version: str = "unknown") -> DocBundle:
+    """Render the plan session into a :class:`DocBundle` (pure).
+
+    ``pfactory_version`` is injected by the caller (see ``updated_at`` in the
+    module docstring for why): resolving it means reading a file, and a
+    plausible-looking wrong version would defeat the field's only purpose.
+    Callers that cannot determine it should leave the default, which records the
+    honest "unknown".
+    """
     plan = session.plan
     ck = _correlation_key(session)
     deps = _dependencies(session)
@@ -209,6 +288,10 @@ def render_plan_docs(session: PlanSession) -> DocBundle:
         "dependencies": deps,
         "content_hash": plan.content_hash,
         "generated_by": GENERATED_BY,
+        # Enough of the verdict to scan the index without opening each run file.
+        "status": session.status,
+        "gates_passed": session.review.gates_passed if session.review else None,
+        "signature_file": f"{slug}.run.json",
     }
 
     return DocBundle(
@@ -219,4 +302,7 @@ def render_plan_docs(session: PlanSession) -> DocBundle:
         content_hash=plan.content_hash,
         markdown=markdown,
         registry_entry=registry_entry,
+        run_signature=_run_signature(
+            session, correlation_key=ck, pfactory_version=pfactory_version
+        ),
     )

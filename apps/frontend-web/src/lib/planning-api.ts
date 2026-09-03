@@ -301,6 +301,24 @@ export function updateAndProcess(
   );
 }
 
+/** POST /api/plan/sessions/{id}/suggestions/apply — accept suggestions (#701). */
+export interface ApplySuggestionsRequest {
+  accepted: Array<{ id: string; replacement?: string }>;
+  reprocess?: boolean;
+}
+
+export function applySuggestions(
+  sessionId: string,
+  body: ApplySuggestionsRequest,
+  options: FetchOptions = {},
+): Promise<PlanSession> {
+  return _post<PlanSession>(
+    `${PLAN_PREFIX}/sessions/${sessionId}/suggestions/apply`,
+    body,
+    options,
+  );
+}
+
 // ── Meta ──────────────────────────────────────────────────────────────
 
 export interface RegistryResponse {
