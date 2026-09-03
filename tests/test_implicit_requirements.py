@@ -52,22 +52,22 @@ def _non_service_plan() -> NormalizedPlan:
 
 
 def _epic(children: list[ChildIssue]) -> EpicPlan:
-    return EpicPlan(
-        plan_id="001-svc", epic_title="Task board", children=children, summary="x"
-    )
+    return EpicPlan(plan_id="001-svc", epic_title="Task board", children=children, summary="x")
 
 
 def _bare_service_epic() -> EpicPlan:
     # A feature child whose only AC is a stated one — no implicit runtime ACs.
-    return _epic([
-        ChildIssue(
-            key="C1",
-            title="Task CRUD API",
-            kind="feature",
-            acceptance_criteria=["A task can be created and listed"],
-        ),
-        ChildIssue(key="C2", title="Tests", kind="testing"),
-    ])
+    return _epic(
+        [
+            ChildIssue(
+                key="C1",
+                title="Task CRUD API",
+                kind="feature",
+                acceptance_criteria=["A task can be created and listed"],
+            ),
+            ChildIssue(key="C2", title="Tests", kind="testing"),
+        ]
+    )
 
 
 # ── is_deployable_service ────────────────────────────────────────────────
@@ -109,14 +109,16 @@ def test_inject_is_idempotent() -> None:
 
 def test_inject_skips_a_requirement_the_user_already_wrote() -> None:
     plan = _service_plan()
-    epic = _epic([
-        ChildIssue(
-            key="C1",
-            title="API",
-            kind="feature",
-            acceptance_criteria=["Exposes a /health endpoint returning 200"],
-        )
-    ])
+    epic = _epic(
+        [
+            ChildIssue(
+                key="C1",
+                title="API",
+                kind="feature",
+                acceptance_criteria=["Exposes a /health endpoint returning 200"],
+            )
+        ]
+    )
     injected = inject_into_epic(plan, epic, select_for(plan))
     # health already covered → only the other three injected
     assert len(injected) == 3
@@ -227,9 +229,17 @@ def test_inject_adds_all_mobile_acs_to_feature_child() -> None:
     assert len(injected) == len(MOBILE_IMPLICIT_REQUIREMENTS) == 10
     acs = " ".join(epic.children[0].acceptance_criteria).lower()
     for token in (
-        "store listing", "permission", "offline", "deep links", "crash",
-        "minimum supported os", "voiceover", "talkback", "battery",
-        "staged rollout", "forced-upgrade",
+        "store listing",
+        "permission",
+        "offline",
+        "deep links",
+        "crash",
+        "minimum supported os",
+        "voiceover",
+        "talkback",
+        "battery",
+        "staged rollout",
+        "forced-upgrade",
     ):
         assert token in acs, token
     # and the SERVICE health-check AC was NOT injected into a mobile plan
@@ -239,9 +249,7 @@ def test_inject_adds_all_mobile_acs_to_feature_child() -> None:
 def test_inject_skips_mobile_requirement_the_user_already_wrote() -> None:
     plan = _mobile_plan()
     epic = _bare_mobile_epic()
-    epic.children[0].acceptance_criteria.append(
-        "The feed works offline from a local cache"
-    )
+    epic.children[0].acceptance_criteria.append("The feed works offline from a local cache")
     injected = inject_into_epic(plan, epic, select_for(plan))
     assert len(injected) == len(MOBILE_IMPLICIT_REQUIREMENTS) - 1
     assert not any("usable offline" in i for i in injected)
@@ -256,7 +264,6 @@ def test_min_os_and_forced_upgrade_overlap_phrasing() -> None:
     # every mobile brief — and silently disable min-os injection everywhere.
     # So min-os is still injected here: the cost is a near-duplicate AC, not a
     # false gate failure, because injection runs before the lens and check.
-    plan = _mobile_plan()
     epic = _bare_mobile_epic()
     epic.children[0].acceptance_criteria.append(
         "We support iOS 16 and above and prompt users on older versions to update"

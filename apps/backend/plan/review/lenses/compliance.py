@@ -349,12 +349,30 @@ def processes_personal_data(plan: NormalizedPlan) -> bool:
     return any(p.search(text) for p in (_PERSONAL_RE, _LOCATION_RE, _PROFILING_RE, _CONTACT_RE))
 
 
+def has_jurisdictions_section(plan: NormalizedPlan) -> bool:
+    """True when the plan carries a jurisdictions/markets heading.
+
+    Structural only. A heading is NOT a declaration: see
+    :func:`declared_jurisdictions`, which is what the gates read.
+    """
+    return bool(_JURISDICTION_SECTION_RE.search(scan_text(plan)))
+
+
 def declared_jurisdictions(plan: NormalizedPlan) -> list[str]:
-    """Target markets the plan names (section heading or market names)."""
+    """Target markets the plan actually NAMES.
+
+    Returns market names only. An earlier version also appended a
+    ``"jurisdictions-section"`` marker when it saw the heading, and every caller
+    treats a non-empty list as "declared" — so an empty ``## Jurisdictions``
+    heading satisfied the blocking compliance finding AND the hard
+    ``jurisdictions-declared`` readiness check, and the marker leaked into the
+    emitted contract as though it were a market. A heading with nothing under it
+    read as compliance: the exact pass-shaped-empty failure this lens exists to
+    catch, inside the lens. Section presence is now
+    :func:`has_jurisdictions_section`, recorded as evidence, never as a market.
+    """
     text = scan_text(plan)
     found: list[str] = []
-    if _JURISDICTION_SECTION_RE.search(text):
-        found.append("jurisdictions-section")
     found.extend(m.group(0) for m in _MARKET_NAME_RE.finditer(text))
     found.extend(m.group(0) for m in _MARKET_ACRONYM_RE.finditer(text))
     # De-duplicate case-insensitively, preserving first-seen order.
