@@ -18,6 +18,8 @@ import {
   ingestText,
   ingestFile,
   processSession,
+  updateAndProcess,
+  type UpdateAndProcessRequest,
   approveSession,
   rejectSession,
   emitSession,
@@ -56,7 +58,8 @@ interface PlanState {
     category?: string,
     template?: string,
   ) => Promise<PlanSession>;
-  processCurrentSession: () => Promise<void>;
+  /** Re-run the pipeline, optionally applying human edits first (#692). */
+  processCurrentSession: (updates?: UpdateAndProcessRequest) => Promise<void>;
   approveCurrentSession: (body: ApproveRequest) => Promise<void>;
   rejectCurrentSession: (body: RejectRequest) => Promise<void>;
   emitCurrentSession: (body: EmitRequest) => Promise<void>;
@@ -188,13 +191,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     }
   },
 
-  async processCurrentSession() {
+  async processCurrentSession(updates?: UpdateAndProcessRequest) {
     const { currentSession, fetchFn } = get();
     if (!currentSession) return;
     const opts: FetchOptions = { fetchFn };
     set({ sessionLoading: true, error: null });
     try {
-      const updated = await processSession(currentSession.session_id, opts);
+      const updated = updates
+        ? await updateAndProcess(currentSession.session_id, updates, opts)
+        : await processSession(currentSession.session_id, opts);
       set((state) => ({
         sessionLoading: false,
         currentSession: updated,

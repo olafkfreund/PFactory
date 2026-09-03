@@ -195,7 +195,12 @@ export function PipelinePanel({ session }: Props) {
             )}
           </div>
           {plan.description && (
-            <p className="text-sm text-foreground/80 leading-relaxed">{plan.description}</p>
+            <div className="text-sm text-foreground/80">
+              {/* A bare <p> collapsed the description's newlines to spaces and
+                  showed ## / ** literally — this file already renders markdown
+                  through MarkdownBody twice (child bodies, artifact docs). */}
+              <MarkdownBody source={plan.description} />
+            </div>
           )}
           {plan.criteria.length > 0 && (
             <div>
