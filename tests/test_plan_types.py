@@ -128,3 +128,38 @@ def test_apply_sets_plan_type_and_rehashes():
     out = apply(plan)
     assert out.plan_type == "software-service"
     assert out.hash_matches()
+def test_platform_does_not_score_as_form():
+    # PFactory#673: substring matching let feature's `form` keyword score
+    # inside "platform" ("cross-platform framework", "on each platform") — and
+    # a fabricated point can decide a scoring tie, which gates pipeline stages.
+    # With word-boundary matching this spec has ZERO keyword hits, so it must
+    # fall back to software-service; under the bug, feature scored 1 and won.
+    plan = _plan(
+        desc="Ship it natively on each platform, with no cross-platform framework.",
+        kind="software",
+    )
+    assert select_for(plan).name == "software-service"
+
+
+def test_markets_plural_still_scores_for_product_planning():
+    # The audit half of PFactory#673: "market" only ever matched "Markets at
+    # launch" via the substring bug. The plural is now an explicit keyword.
+    plan = _plan(desc="Markets at launch: the UK, the EU, and the US.",
+                 kind="non-software")
+    assert select_for(plan).name == "product-planning"
+
+
+def test_ui_does_not_score_inside_ordinary_words():
+    # "ui" as a substring matched "requires", "quite", "guide", "suitable" —
+    # phantom software-service points on prose with no UI at all.
+    plan = _plan(desc="This requires quite a suitable guide for building it.",
+                 kind="software")
+    d = select_for(plan)
+    assert d.name == "software-service"  # via fallback (score 0), not a ui hit
+    # Prove it is the fallback, not a keyword win: an actual keyword elsewhere
+    # must beat it outright.
+    kafka = _plan(desc="This requires quite a suitable guide to Kafka ingestion.",
+                  kind="software")
+    assert select_for(kafka).name == "data-pipeline"
+
+

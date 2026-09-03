@@ -2,7 +2,9 @@ name: product-planning
 title: Product planning
 category: product
 applies_to: [non-software, undetermined]
-match_keywords: [roadmap, prd, vision, persona, gtm, pricing, market, okrs, milestone, strategy]
+# Plurals are explicit: matching is word-boundary (PFactory#673), so "market"
+# no longer rides inside "Markets at launch" and "okrs" no longer implies "okr".
+match_keywords: [roadmap, prd, vision, persona, gtm, pricing, market, markets, okr, okrs, milestone, strategy]
 stages:
   decompose: true
   synthesize_testing: false
