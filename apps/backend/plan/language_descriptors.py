@@ -165,7 +165,14 @@ def _parse_descriptor(path: Path) -> LanguageDescriptor:
     # stay dependency-free; only actually LOADING descriptors needs PyYAML.
     import yaml  # noqa: PLC0415
 
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        # A corrupt descriptor must surface as THIS module's failure type, or
+        # it leaks past every boundary that catches DescriptorError (and past
+        # nix_provisioner's ProvisionError translation, which wraps only
+        # DescriptorError - AIFactory#1475 review).
+        raise DescriptorError(f"{path.name}: not valid YAML: {exc}") from exc
     _require(isinstance(data, dict), path, "descriptor must be a mapping")
     unknown = set(data) - _ALLOWED_TOP_KEYS
     _require(not unknown, path, f"unknown top-level keys {sorted(unknown)}")
@@ -399,7 +406,29 @@ def _self_test() -> None:
         expect_error("must match the filename stem")
         (d / "mismatch.yaml").unlink()
 
-        # 6. An empty directory is a broken vendoring, not a clean registry.
+        # 6. Two descriptors claiming one alias make resolution glob-order
+        # dependent - refused, naming BOTH files.
+        write(
+            "grab.yaml",
+            "name: grab\naliases: [grab, faketest]\nnix: {packages: [x]}\n"
+            "lanes:\n  unit: {available: true, tool: t, command: c}\n",
+        )
+        try:
+            load_languages(d)
+        except DescriptorError as exc:
+            message = str(exc)
+            assert "faketest" in message, message  # noqa: S101
+            assert "grab.yaml" in message and "fake.yaml" in message, message  # noqa: S101
+        else:
+            raise AssertionError("expected DescriptorError for a shared alias")
+        (d / "grab.yaml").unlink()
+
+        # 7. A corrupt YAML surfaces as DescriptorError, not yaml.YAMLError.
+        write("broken.yaml", "name: broken\naliases: [\n")
+        expect_error("not valid YAML")
+        (d / "broken.yaml").unlink()
+
+        # 8. An empty directory is a broken vendoring, not a clean registry.
         (d / "fake.yaml").unlink()
         expect_error("no *.yaml descriptors")
 
