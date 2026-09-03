@@ -30,6 +30,13 @@ from fastapi import HTTPException  # noqa: E402
 from plan.service import PlanService  # noqa: E402
 from server.routes import plan_pipeline as pp  # noqa: E402
 
+
+class _Request:
+    """`process` takes a Request now, for the tenant guard (#308)."""
+
+    headers: dict[str, str] = {}
+
+
 _PLAN = """# Refund API
 Add a REST API endpoint to the payments microservice.
 ## Acceptance Criteria
@@ -57,6 +64,7 @@ def test_process_applies_the_update_body(service):
     result = asyncio.run(
         pp.process(
             sid,
+            _Request(),
             updates=pp.PlanUpdateBody(
                 title="Refund API v2",
                 description="Lawful basis: contract.",
@@ -77,7 +85,7 @@ def test_process_without_a_body_re_runs_unchanged(service):
     sid = _seed(service)
     before = service.get(sid).plan.title
 
-    result = asyncio.run(pp.process(sid))
+    result = asyncio.run(pp.process(sid, _Request()))
 
     assert result["status"] == "processed"
     assert service.get(sid).plan.title == before
@@ -88,7 +96,7 @@ def test_review_returned_describes_the_submitted_text(service):
     sid = _seed(service)
 
     result = asyncio.run(
-        pp.process(sid, updates=pp.PlanUpdateBody(description="revised wording"))
+        pp.process(sid, _Request(), updates=pp.PlanUpdateBody(description="revised wording"))
     )
 
     assert result["review"] is not None
@@ -102,7 +110,7 @@ def test_a_malformed_criterion_is_400_not_500(service):
 
     with pytest.raises(HTTPException) as caught:
         asyncio.run(
-            pp.process(sid, updates=pp.PlanUpdateBody(criteria=[{"text": "no id"}]))
+            pp.process(sid, _Request(), updates=pp.PlanUpdateBody(criteria=[{"text": "no id"}]))
         )
 
     assert caught.value.status_code == 400
@@ -113,9 +121,9 @@ def test_an_empty_title_is_400_and_an_unknown_session_is_404(service):
     sid = _seed(service)
 
     with pytest.raises(HTTPException) as bad_input:
-        asyncio.run(pp.process(sid, updates=pp.PlanUpdateBody(title="   ")))
+        asyncio.run(pp.process(sid, _Request(), updates=pp.PlanUpdateBody(title="   ")))
     assert bad_input.value.status_code == 400
 
     with pytest.raises(HTTPException) as missing:
-        asyncio.run(pp.process("no-such-session", updates=pp.PlanUpdateBody(title="x")))
+        asyncio.run(pp.process("no-such-session", _Request(), updates=pp.PlanUpdateBody(title="x")))
     assert missing.value.status_code == 404
