@@ -116,8 +116,11 @@ def test_every_change_requesting_finding_carries_a_resolvable_citation() -> None
     assert score.findings
     for f in score.findings:
         assert f.citations, f"finding without citations: {f.title}"
+        assert any(c.uri.startswith("https://") for c in f.citations), (
+            f"no resolvable https uri on {f.title}"
+        )
         for c in f.citations:
-            assert c.uri.startswith("https://"), f"non-resolvable uri on {f.title}: {c.uri!r}"
+            assert c.uri, f"citation with empty uri on {f.title}"
             assert c.why, f"citation without a why on {f.title}"
 
 
@@ -179,6 +182,100 @@ def test_declared_jurisdictions_names_and_section() -> None:
 def test_lowercase_prose_never_counts_as_a_market_acronym() -> None:
     plan = _plan(description="let us build the profile page for eu users")
     assert declared_jurisdictions(plan) == []
+
+
+# ── constitution grounding: the customer's own enforceable clauses ─────────
+
+# The seven enforceable clauses of the pfactory-friends-demo constitution,
+# abridged (each bullet must be one physical line for parse_constitution) but
+# keeping the operative wording each clause classifies on.
+DEMO_CONSTITUTION = """# Engineering constitution
+
+- **P1 (enforceable):** anything stored about a person states how long it is kept.
+- **P2 (enforceable):** a person can delete their account from inside the app.
+- **P3 (enforceable):** features reachable by someone under 18 state age assurance.
+- **P4 (enforceable):** location only with explicit consent at minimum precision.
+- **P5 (enforceable):** person-to-person surfaces ship blocking and reporting.
+- **P6 (enforceable):** a plan processing personal data names its markets.
+- **P7 (enforceable):** an unrun verification lane is never reported as passed.
+"""
+
+
+def test_enforceable_clause_upgrades_finding_to_blocking() -> None:
+    """A silent plan under an enforceable retention clause: blocking, citing P1."""
+    constitution = "- **P1 (enforceable):** state how long personal data is kept.\n"
+    plan = _plan(
+        description="Users create an account with a personal profile.",
+        constitution_md=constitution,
+    )
+    score = _run(plan)
+    retention = next(f for f in score.findings if "retention" in f.title.lower())
+    assert retention.blocking is True
+    assert retention.severity == "high"
+    assert "P1" in retention.detail
+    assert retention.citations[0].source.startswith("constitution:")
+    assert retention.citations[0].uri == ".factory/constitution.md"
+    # The generic regulation citation still rides along, resolvable.
+    assert any(c.uri.startswith("https://") for c in retention.citations)
+
+
+def test_addressed_clause_produces_no_finding() -> None:
+    """A plan that satisfies the clause is not flagged for it."""
+    constitution = "- **P1 (enforceable):** state how long personal data is kept.\n"
+    plan = _plan(
+        description=(
+            "Users create an account with a personal profile. Data retention "
+            "is 12 months with erasure on request."
+        ),
+        constitution_md=constitution,
+    )
+    score = _run(plan)
+    assert not any("retention" in f.title.lower() for f in score.findings)
+
+
+def test_unmapped_enforceable_clause_is_surfaced_not_dropped() -> None:
+    constitution = (
+        "- **P7 (enforceable):** a verification lane that could not run is "
+        "reported as not run, never as passed.\n"
+    )
+    plan = _plan(constitution_md=constitution)
+    score = _run(plan)
+    note = next(f for f in score.findings if "not machine-checked" in f.title)
+    assert note.severity == "info"
+    assert not note.blocking
+    assert "P7" in note.detail
+
+
+def test_demo_constitution_all_seven_clauses_against_silent_social_plan() -> None:
+    """The demo scenario: six clauses produce blocking findings, P7 is surfaced."""
+    score = _run(_plan(constitution_md=DEMO_CONSTITUTION))
+    by_title = {f.title: f for f in score.findings}
+    constitution_backed = [
+        "No retention or deletion policy stated",  # P1
+        "Store distribution without in-app account deletion",  # P2
+        "No age assurance stated",  # P3
+        "Location data handling not specified",  # P4
+        "User-to-user contact without trust and safety controls",  # P5
+        "No target jurisdiction stated - applicable law cannot be determined",  # P6
+    ]
+    for title in constitution_backed:
+        f = by_title[title]
+        assert f.blocking, f"clause-backed finding not blocking: {title}"
+        assert f.severity == "high"
+        assert f.citations[0].source.startswith("constitution:"), title
+    note = by_title["Enforceable constitution clauses not machine-checked at plan time"]
+    assert "P7" in note.detail
+    assert score.blocking
+    assert score.score == 0.0
+
+
+def test_without_constitution_behaviour_is_unchanged() -> None:
+    """No constitution: the fixed table alone decides severity/blocking."""
+    score = _run(_plan())
+    retention = next(f for f in score.findings if "retention" in f.title.lower())
+    assert retention.severity == "medium"
+    assert not retention.blocking
+    assert not any("not machine-checked" in f.title for f in score.findings)
 
 
 # ── wiring: registry + default lens order + the gate actually runs it ─────

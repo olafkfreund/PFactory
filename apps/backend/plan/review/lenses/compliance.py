@@ -9,10 +9,23 @@ transparency, trust and safety, age assurance, retention/erasure, in-app
 account deletion, and — blocking — a plan that processes personal data but
 names no target jurisdiction, so applicable law cannot be determined.
 
+When the plan carries a project constitution (RFC-0015,
+``plan.constitution_md``), its ENFORCEABLE clauses are classified to these
+obligation topics and checked too: a customer whose policy demands age
+assurance and whose plan is silent gets a blocking finding citing their own
+clause, not only the generic regulation. Clauses that classify to no plan-time
+topic are surfaced in an info finding rather than silently dropped. This is
+the only plan-time execution of the constitution: the default pipeline is
+deterministic (no LLM prompt injection runs) and the downstream
+standards_conformance gate proves linter-class tooling ran, not that an
+obligation was considered.
+
 Every finding that asks for a change carries at least one
 :class:`~plan.review.models.Citation` with a real, resolvable ``uri`` —
 honouring the house rule stated on ``Citation``: PFactory helps, never
-overrides; say WHY and point at a source the engineer can read.
+overrides; say WHY and point at a source the engineer can read. (A
+constitution citation's ``uri`` is the repo path ``.factory/constitution.md``;
+such findings always also carry a regulation citation with an https URI.)
 
 IMPORTANT — this lens is a *descriptive obligations signpost*, not legal
 advice. The article/guideline references are navigational labels indicating
@@ -355,6 +368,90 @@ def declared_jurisdictions(plan: NormalizedPlan) -> list[str]:
     return unique
 
 
+# ── constitution grounding (RFC-0015) ──────────────────────────────────────
+#
+# When the plan carries a project constitution (captured during recon as
+# plan.constitution_md), its ENFORCEABLE clauses are read and checked against
+# the plan. A customer whose policy says "P3 (enforceable): age assurance
+# required" and whose plan is silent gets a BLOCKING finding that cites their
+# own P3, not only a generic COPPA reference. This matters because at plan
+# time nothing else executes the constitution: the default pipeline is fully
+# deterministic (decompose_method: heuristic — the LLM prompt injection point
+# never runs), and the downstream standards_conformance gate proves
+# linter-class tooling ran, not that a retention period was considered.
+#
+# Each enforceable clause is classified to one of the lens's obligation topics
+# by keywords in the clause text; first match wins, most specific first. A
+# clause that classifies to no topic is surfaced in an info finding rather
+# than silently dropped — a clause reaching no check must never look enforced.
+
+_CLAUSE_TOPICS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("jurisdiction", re.compile(r"(?i)\b(jurisdictions?|markets?)\b")),
+    ("age", re.compile(r"(?i)\b(age|minors?|under[\s-]?18|child(?:ren)?)\b")),
+    ("location", re.compile(r"(?i)\b(location|precision|geofenc\w+)\b")),
+    (
+        "user-contact",
+        re.compile(
+            r"(?i)\b(block(?:ing)?|report(?:ing)?|moderat\w+|response\s+path|"
+            r"person[\s-]to[\s-]person)\b"
+        ),
+    ),
+    (
+        "store-account-deletion",
+        re.compile(r"(?i)\baccounts?\b.*\bdelet\w+|\bdelet\w+\b.*\baccounts?\b", re.DOTALL),
+    ),
+    ("retention", re.compile(r"(?i)\b(retention|retain\w*|how\s+long|kept|storage\s+period)\b")),
+    ("profiling", re.compile(r"(?i)\b(profil\w+|automated\s+decision|recommend\w+|matching)\b")),
+    ("personal-profile", re.compile(r"(?i)\b(lawful\s+basis|purpose\s+limitation)\b")),
+)
+
+_CLAUSE_EXCERPT_LEN = 200
+
+
+def enforceable_clauses(plan: NormalizedPlan) -> list[dict[str, str]]:
+    """The constitution's enforceable principles, or [] when none. Never raises."""
+    text = getattr(plan, "constitution_md", None)
+    if not text:
+        return []
+    try:
+        # Lazy: keep the emit stage out of the review import graph (the same
+        # seam plan.review.gates uses for the readiness constitution block).
+        from plan.emit.constitution import parse_constitution  # noqa: PLC0415
+
+        return [
+            {"id": str(p["id"]), "text": str(p["text"])}
+            for p in parse_constitution(text)
+            if p.get("enforceable")
+        ]
+    except Exception:  # noqa: BLE001 — constitution grounding is best-effort, never breaks review
+        return []
+
+
+def _classify_clause(text: str) -> str | None:
+    for topic, pattern in _CLAUSE_TOPICS:
+        if pattern.search(text):
+            return topic
+    return None
+
+
+def _clause_citation(clause: dict[str, str]) -> Citation:
+    return Citation(
+        why=clause["text"][:_CLAUSE_EXCERPT_LEN],
+        uri=".factory/constitution.md",
+        title=f"Project constitution {clause['id']} (enforceable)",
+        source="constitution:.factory/constitution.md",
+    )
+
+
+def _clause_prefix(clause: dict[str, str] | None) -> str:
+    if clause is None:
+        return ""
+    return (
+        f"The project constitution ({clause['id']}, enforceable) makes this "
+        f"mandatory: {clause['text'][:_CLAUSE_EXCERPT_LEN]!r}. "
+    )
+
+
 # ── the lens ───────────────────────────────────────────────────────────────
 
 
@@ -368,6 +465,18 @@ class ComplianceLens:
         personal = processes_personal_data(plan)
         is_social = bool(_CONTACT_RE.search(text))
 
+        # The customer's own enforceable policy, classified to this lens's
+        # obligation topics. A clause on a topic upgrades the topic's finding
+        # to high + blocking and cites the clause itself.
+        clause_for_topic: dict[str, dict[str, str]] = {}
+        unmapped_clauses: list[dict[str, str]] = []
+        for clause in enforceable_clauses(plan):
+            topic = _classify_clause(clause["text"])
+            if topic is None:
+                unmapped_clauses.append(clause)
+            elif topic not in clause_for_topic:
+                clause_for_topic[topic] = clause
+
         findings: list[Finding] = []
         for rule in _RULES:
             if rule.signal is None:
@@ -377,24 +486,31 @@ class ComplianceLens:
                 continue
             if rule.addressed.search(text):
                 continue
+            rule_clause = clause_for_topic.get(rule.key)
             findings.append(
                 Finding(
                     title=rule.title,
-                    detail=f"{rule.detail} {DISCLAIMER}",
-                    severity=rule.severity,
+                    detail=f"{_clause_prefix(rule_clause)}{rule.detail} {DISCLAIMER}",
+                    severity="high" if rule_clause else rule.severity,
                     source=self.name,
-                    citations=list(rule.citations),
+                    blocking=rule_clause is not None,
+                    citations=([_clause_citation(rule_clause)] if rule_clause else [])
+                    + list(rule.citations),
                 )
             )
 
         # Age assurance: personal data + no age gate stated. On a social app
-        # (user-to-user contact) this is high + blocking; otherwise medium.
+        # (user-to-user contact), or under an enforceable constitution clause,
+        # this is high + blocking; otherwise medium.
         if personal and not _AGE_OK_RE.search(text):
+            age_clause = clause_for_topic.get("age")
+            age_blocking = is_social or age_clause is not None
             findings.append(
                 Finding(
                     title="No age assurance stated",
                     detail=(
-                        "The plan processes personal data but states no age "
+                        _clause_prefix(age_clause)
+                        + "The plan processes personal data but states no age "
                         "gate, age assurance, or children's-data handling. "
                         "State the minimum age, how it is checked, and how "
                         "under-age users are handled. "
@@ -405,21 +521,24 @@ class ComplianceLens:
                         )
                         + DISCLAIMER
                     ),
-                    severity="high" if is_social else "medium",
+                    severity="high" if age_blocking else "medium",
                     source=self.name,
-                    blocking=is_social,
-                    citations=[_CITE_COPPA, _CITE_UK_AADC, _CITE_GDPR_8],
+                    blocking=age_blocking,
+                    citations=([_clause_citation(age_clause)] if age_clause else [])
+                    + [_CITE_COPPA, _CITE_UK_AADC, _CITE_GDPR_8],
                 )
             )
 
         # Jurisdiction: without target markets, applicable law cannot be
         # determined at all — so every other obligation is unresolvable. Blocking.
         if personal and not declared_jurisdictions(plan):
+            juris_clause = clause_for_topic.get("jurisdiction")
             findings.append(
                 Finding(
                     title="No target jurisdiction stated - applicable law cannot be determined",
                     detail=(
-                        "The plan processes personal data but names no target "
+                        _clause_prefix(juris_clause)
+                        + "The plan processes personal data but names no target "
                         "market, so which regulations apply cannot be "
                         "determined. Add a '## Jurisdictions' section naming "
                         "the target markets (e.g. UK, EU, US-California). " + DISCLAIMER
@@ -427,7 +546,29 @@ class ComplianceLens:
                     severity="high",
                     source=self.name,
                     blocking=True,
-                    citations=[_CITE_GDPR_6],
+                    citations=([_clause_citation(juris_clause)] if juris_clause else [])
+                    + [_CITE_GDPR_6],
+                )
+            )
+
+        # Enforceable clauses this lens cannot check at plan time are surfaced,
+        # never silently dropped: a clause reaching no check must not look
+        # enforced. Info only — it reports, it does not request a change.
+        if unmapped_clauses:
+            ids = ", ".join(c["id"] for c in unmapped_clauses)
+            findings.append(
+                Finding(
+                    title="Enforceable constitution clauses not machine-checked at plan time",
+                    detail=(
+                        f"Clause(s) {ids} are marked enforceable but classify to "
+                        "no plan-time obligation this lens checks (e.g. a "
+                        "verification-stage rule). They are surfaced here so the "
+                        "approver knows they rely on downstream gates or human "
+                        "review, not on this lens. " + DISCLAIMER
+                    ),
+                    severity="info",
+                    source=self.name,
+                    citations=[_clause_citation(c) for c in unmapped_clauses],
                 )
             )
 

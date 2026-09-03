@@ -66,7 +66,7 @@ def test_block_carries_the_lens_findings_with_citations() -> None:
     assert any(o["blocking"] for o in block["obligations"])
     for o in block["obligations"]:
         assert o["citations"], f"obligation without citations: {o['title']}"
-        assert all(c["uri"].startswith("https://") for c in o["citations"])
+        assert any(c["uri"].startswith("https://") for c in o["citations"])
     assert "not legal advice" in block["disclaimer"]
     assert "personal-profile" in block["data_classes"]
     assert "location" in block["data_classes"]
