@@ -565,7 +565,7 @@ class PlanService:
         *,
         title: str | None = None,
         description: str | None = None,
-        criteria: list[dict] | None = None,
+        criteria: list[dict[str, str]] | None = None,
     ) -> PlanSession:
         """Apply a human's edits to the plan's authored fields (#692).
 

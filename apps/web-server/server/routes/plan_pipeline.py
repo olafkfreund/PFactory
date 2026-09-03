@@ -295,7 +295,7 @@ class PlanUpdateBody(BaseModel):
 
     title: str | None = None
     description: str | None = None
-    criteria: list[dict] | None = None
+    criteria: list[dict[str, str]] | None = None
 
 
 @router.post("/{session_id}/process")
