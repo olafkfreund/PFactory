@@ -33,7 +33,7 @@
       "category": "review",
       "effect": "read-only",
       "enabled": true,
-      "description": "RFC-0015 §4 D1 adversarial spec-review lens: pre-planning lens that tries to break the spec (ambiguous/contradictory/missing ACs, infeasible constraints, wrong-language mismatch). Blocking at/above the RFC-0014 risk threshold. Enabled after behavioural verification against mobile/social plans: it blocks a sloppy spec, passes a well-formed one at 1.0, and a single vague-word AC costs 0.15 without failing the gate.",
+      "description": "RFC-0015 §4 D1 adversarial spec-review lens: pre-planning lens that tries to break the spec (ambiguous/contradictory/missing ACs, infeasible constraints, wrong-language mismatch). Blocking at/above the RFC-0014 risk threshold. Enabled after behavioral verification against mobile/social plans: it blocks a sloppy spec, passes a well-formed one at 1.0, and a single vague-word AC costs 0.15 without failing the gate.",
       "owner_service": "pfactory"
     },
     {
