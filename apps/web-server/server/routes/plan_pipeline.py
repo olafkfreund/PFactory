@@ -285,13 +285,40 @@ async def audit_pack(session_id: str, format: str = "json"):
     return pack.model_dump()
 
 
+class PlanUpdateBody(BaseModel):
+    """Human edits applied immediately before a re-process (#692).
+
+    Optional so a bare ``POST /process`` (the re-run-unchanged case) keeps
+    working exactly as before — an absent field means "leave it alone", which
+    is why every field defaults to ``None`` rather than to an empty value.
+    """
+
+    title: str | None = None
+    description: str | None = None
+    criteria: list[dict] | None = None
+
+
 @router.post("/{session_id}/process")
-async def process(session_id: str) -> dict:
+async def process(session_id: str, updates: PlanUpdateBody | None = None) -> dict:
     # RFC-0016 (#217): offload the blocking pipeline (recon clone, decompose,
     # gates) off the event loop into a worker thread, under an admission cap, so
     # /api/health and other sessions keep being served while this runs. Behaviour
     # and return are unchanged — we still await the offloaded call.
     try:
+        # Edit-then-rerun is ONE call so the two cannot separate: a plan is never
+        # left edited-but-unreviewed, and the review returned always describes
+        # the text that was just submitted.
+        if updates is not None and (
+            updates.title is not None
+            or updates.description is not None
+            or updates.criteria is not None
+        ):
+            SERVICE.update_plan(
+                session_id,
+                title=updates.title,
+                description=updates.description,
+                criteria=updates.criteria,
+            )
         return _session_dict(await SERVICE.process_async(session_id))
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc

@@ -37,7 +37,7 @@ from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply, classify_plan
 from plan.ingest.channels import ingest_bytes, ingest_text
-from plan.models import NormalizedPlan
+from plan.models import Criterion, NormalizedPlan
 from plan.plan_types import apply as plan_type_apply, select_for
 from plan.recon import classify_change_mode, reconnoiter
 from plan.review.approval import approve as approve_review, reject as reject_review
@@ -558,6 +558,50 @@ class PlanService:
             return self._sessions[session_id]
         except KeyError:
             raise PlanServiceError(f"unknown session '{session_id}'") from None
+
+    def update_plan(
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        criteria: list[dict] | None = None,
+    ) -> PlanSession:
+        """Apply a human's edits to the plan's authored fields (#692).
+
+        The revise loop: process surfaces gaps, a human fixes the wording, the
+        plan is re-processed and re-reviewed. Only the three fields a human
+        authors are editable — everything else on the plan is derived by the
+        pipeline and would be overwritten by the next process() anyway.
+
+        Editing INVALIDATES sign-off. A review (and an approval) attests to the
+        text that was reviewed; letting either survive an edit would let approved
+        wording be swapped for unapproved wording while still reading "approved".
+        So the session drops back to `ingested` with its review cleared, and the
+        caller must process and re-approve. `_save` persists, so a crash between
+        the edit and the re-process cannot leave a stale approval behind.
+        """
+        session = self.get(session_id)
+        if session.status in {"emitted", "discarded"}:
+            raise PlanServiceError(
+                f"session '{session_id}' is {session.status}; edits no longer apply"
+            )
+        if title is not None:
+            if not title.strip():
+                raise PlanServiceError("title cannot be empty")
+            session.plan.title = title
+        if description is not None:
+            session.plan.description = description
+        if criteria is not None:
+            if not criteria:
+                raise PlanServiceError("a plan needs at least one acceptance criterion")
+            session.plan.criteria = [
+                Criterion(id=str(c["id"]), text=str(c["text"])) for c in criteria
+            ]
+        session.review = None
+        session.status = "ingested"
+        self._save(session)
+        return session
 
     # ── process (the pipeline core) ────────────────────────────────────
 
