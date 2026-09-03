@@ -64,7 +64,7 @@ env:
   # extracts with the stdlib `data` filter instead of falling back to an
   # unfiltered extractall on pre-3.12 runtimes. This is the SQUASH-MERGE commit
   # on hub `main`, never a PR-branch head (Factory#638).
-  HUB_PIN_SHA: "f29204a5dc5de366a90bf6b8cb5681c76b875777"
+  HUB_PIN_SHA: "f00b1539d043b68c73fc91d7ebe49d32401866cc"
 
 jobs:
   drift:
