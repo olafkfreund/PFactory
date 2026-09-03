@@ -247,6 +247,34 @@ def test_inject_skips_mobile_requirement_the_user_already_wrote() -> None:
     assert not any("usable offline" in i for i in injected)
 
 
+def test_min_os_and_forced_upgrade_overlap_phrasing() -> None:
+    # "We support iOS 16 and above and prompt users on older versions to
+    # update" reads as covering BOTH min-os-versions and forced-upgrade. With
+    # substring matching it covers forced-upgrade ("versions to update"); the
+    # OS floor cannot be detected without a keyword like "support ios", which
+    # would also match "supports iOS and Android" — a phrase in essentially
+    # every mobile brief — and silently disable min-os injection everywhere.
+    # So min-os is still injected here: the cost is a near-duplicate AC, not a
+    # false gate failure, because injection runs before the lens and check.
+    plan = _mobile_plan()
+    epic = _bare_mobile_epic()
+    epic.children[0].acceptance_criteria.append(
+        "We support iOS 16 and above and prompt users on older versions to update"
+    )
+    missing = {k for k, _t in missing_requirements(epic, MOBILE_IMPLICIT_REQUIREMENTS)}
+    assert "forced-upgrade" not in missing
+    assert "min-os-versions" in missing
+
+
+def test_supports_ios_and_android_does_not_cover_min_os() -> None:
+    # Guard against a future keyword like "support ios": naming the platforms
+    # is not declaring an OS floor, and must not suppress min-os injection.
+    epic = _bare_mobile_epic()
+    epic.children[0].acceptance_criteria.append("The app supports iOS and Android.")
+    missing = {k for k, _t in missing_requirements(epic, MOBILE_IMPLICIT_REQUIREMENTS)}
+    assert "min-os-versions" in missing
+
+
 def test_mobile_inject_is_idempotent() -> None:
     plan, epic = _mobile_plan(), _bare_mobile_epic()
     first = inject_into_epic(plan, epic, select_for(plan))

@@ -121,7 +121,17 @@ MOBILE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
         "min-os-versions",
         "Minimum supported OS versions are declared for iOS and Android, and the "
         "app installs and runs on those versions.",
-        ("minimum os", "min sdk", "minsdk", "deployment target", "os version", "api level"),
+        (
+            "minimum os",
+            "min sdk",
+            "minsdk",
+            "deployment target",
+            "os version",
+            "api level",
+            "minimum ios",
+            "minimum android",
+            "minimum api",
+        ),
     ),
     (
         "accessibility",
@@ -159,6 +169,9 @@ MOBILE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
             "minimum app version",
             "min app version",
             "upgrade prompt",
+            "prompt to update",
+            "update prompt",
+            "versions to update",
         ),
     ),
 ]
