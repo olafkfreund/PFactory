@@ -21,6 +21,7 @@ from plan.review.lenses.base import default_lenses
 from plan.review.lenses.compliance import (
     ComplianceLens,
     declared_jurisdictions,
+    has_jurisdictions_section,
     processes_personal_data,
 )
 
@@ -171,12 +172,19 @@ def test_processes_personal_data_detection() -> None:
     )
 
 
-def test_declared_jurisdictions_names_and_section() -> None:
+def test_declared_jurisdictions_returns_markets_only_never_the_section_marker() -> None:
+    """The heading is structure; only named markets count as a declaration.
+
+    An earlier version appended a "jurisdictions-section" marker to this list,
+    and every caller reads a non-empty list as "declared" — so an empty heading
+    satisfied the blocking finding and the hard readiness gate (#690 review).
+    """
     plan = _plan(description=SOCIAL_SPEC + "\n\n## Jurisdictions\nUK and the European Union.")
     found = declared_jurisdictions(plan)
-    assert "jurisdictions-section" in found
+    assert "jurisdictions-section" not in found
     assert "UK" in found
     assert any(j.lower() == "european union" for j in found)
+    assert has_jurisdictions_section(plan) is True
 
 
 def test_lowercase_prose_never_counts_as_a_market_acronym() -> None:

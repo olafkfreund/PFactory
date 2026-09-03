@@ -948,6 +948,7 @@ def _jurisdictions_declared(
     """
     from plan.review.lenses.compliance import (  # noqa: PLC0415 - lazy: keep the lens import out of the readiness import graph
         declared_jurisdictions,
+        has_jurisdictions_section,
         processes_personal_data,
     )
 
@@ -961,6 +962,9 @@ def _jurisdictions_declared(
             waivable=True,
         )
     markets = declared_jurisdictions(plan)
+    # Section presence is evidence, never a market: a heading with nothing under
+    # it must not satisfy a hard gate.
+    section = has_jurisdictions_section(plan)
     if markets:
         return ReadinessCheckResult(
             check_id="jurisdictions-declared",
@@ -969,7 +973,7 @@ def _jurisdictions_declared(
             detail=f"Declared: {', '.join(markets)}.",
             hard=True,
             waivable=True,
-            evidence={"jurisdictions": markets},
+            evidence={"jurisdictions": markets, "jurisdictions_section": section},
         )
     return ReadinessCheckResult(
         check_id="jurisdictions-declared",
@@ -979,14 +983,20 @@ def _jurisdictions_declared(
         hard=True,
         waivable=True,
         detail=(
-            "The plan processes personal data but names no target market, so "
+            "The plan has a jurisdictions section but names no market in it, so "
+            "the applicable law cannot be determined."
+            if section
+            else "The plan processes personal data but names no target market, so "
             "the applicable law cannot be determined."
         ),
         remediation=(
-            "Add a '## Jurisdictions' section naming the target markets "
+            "Name the target markets under the existing jurisdictions heading "
+            "(e.g. UK, EU, US-California) — an empty heading declares nothing."
+            if section
+            else "Add a '## Jurisdictions' section naming the target markets "
             "(e.g. UK, EU, US-California), or record a deliberate waiver."
         ),
-        evidence={"jurisdictions": []},
+        evidence={"jurisdictions": [], "jurisdictions_section": section},
     )
 
 
