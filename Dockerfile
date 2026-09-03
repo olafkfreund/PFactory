@@ -236,9 +236,29 @@ RUN npm install -g \
 # agent_service.py's sys.executable expectations)
 RUN python3 -m venv /home/projects/MagesticAI/.venv
 
+# pip is removed from the venv in the same layer that finishes using it, and
+# the base copies are apk-deleted below (PFactory#679). The two HIGH findings
+# this clears are NOT project dependencies — nothing in either requirements
+# file needs msgpack or constrains setuptools. Both live inside pip 26.2.1's
+# own vendored tree (`pip/_vendor/vendor.txt`: msgpack==1.1.2,
+# GHSA-6v7p-g79w-8964; setuptools==70.3.0, CVE-2025-47273), so a requirements
+# pin cannot touch them, and no pip upgrade clears them either: 26.2.1 IS the
+# latest release, and pip main still vendors setuptools 70.3.0. pip is
+# build-time-only here — runtime never installs packages (and cluster egress
+# allows apk + npm only, so an in-pod `pip install` could not reach PyPI
+# anyway). test_pip_absent_from_final_image pins the absence so a future base
+# image cannot silently reintroduce a vulnerable pip.
 RUN /home/projects/MagesticAI/.venv/bin/pip install --no-cache-dir \
         -r /home/projects/MagesticAI/apps/web-server/requirements.txt \
-        -r /home/projects/MagesticAI/apps/backend/requirements.txt
+        -r /home/projects/MagesticAI/apps/backend/requirements.txt \
+ && /home/projects/MagesticAI/.venv/bin/pip uninstall -y pip
+
+# Remove the base image's pip too (same PFactory#679 findings, second copy).
+# py3-pip-wheel is ensurepip's bundled wheel — only needed by `python -m venv`,
+# which has already run. Verified: the venv imports its stack fine afterwards.
+USER root
+RUN apk del --no-cache py3.14-pip py3.14-pip-base py3-pip-wheel
+USER nonroot
 
 # Git identity for in-container worktree operations
 RUN git config --global user.name "PFactory" \
