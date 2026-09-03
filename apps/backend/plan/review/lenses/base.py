@@ -52,6 +52,7 @@ def default_lenses() -> list[Lens]:
         architecture,
         best_practices,
         completeness,
+        compliance,
         feasibility,
         security,
     )
@@ -60,6 +61,7 @@ def default_lenses() -> list[Lens]:
         "feasibility",
         "architecture",
         "security",
+        "compliance",
         "best-practices",
         "completeness",
     ]
@@ -69,20 +71,37 @@ def default_lenses() -> list[Lens]:
     # an operator opts in via env). Until then it is absent, so it costs nothing.
     from plan.review.extension_registry import is_enabled  # noqa: PLC0415
 
-    red_team_on = is_enabled("red-team-review")
-    if red_team_on:
+    if is_enabled("red-team-review"):
         from plan.review.lenses import red_team  # noqa: F401, PLC0415
 
         order.append("red-team")
 
     seen = list(order)
-    # Any other registered lens (e.g. a test-injected one) tails the list, but the
-    # gated red-team lens is excluded unless explicitly enabled above — once its
-    # module is imported it lives in _REGISTRY, and we must not leak it back in.
+    # Any other registered lens (e.g. a test-injected one) tails the list — but
+    # the tail must fail CLOSED for gated lenses (PFactory#676): before this
+    # rule, ANY registered lens was admitted and only a hardcoded red-team
+    # exception kept the gated lens out, so a second gated lens would have run
+    # while its registry entry still said enabled: false.
     for n in _REGISTRY:
-        if n in order:
+        if n in order or _gated_off(n):
             continue
-        if n == "red-team" and not red_team_on:
-            continue  # gated lens never leaks back in via the registry tail
         seen.append(n)
     return [_REGISTRY[n] for n in seen if n in _REGISTRY]
+
+
+def _gated_off(lens_name: str) -> bool:
+    """True when the declarative registry gates lens ``lens_name`` OFF.
+
+    Gating is declarative (RFC-0015 §4 D3): a lens is governed by the extension
+    named ``<lens_name>-review`` when such an entry exists. Present and disabled
+    => excluded, however the lens got registered. Enabled or absent => admitted —
+    absent covers the mandatory built-ins and test-injected lenses, which have
+    no gate to fail. ``is_enabled`` also honours the operator env override
+    (``PFACTORY_<NAME>``), so an opt-in still admits a registry-disabled lens.
+    """
+    from plan.review.extension_registry import get_extension, is_enabled  # noqa: PLC0415
+
+    extension = f"{lens_name}-review"
+    if get_extension(extension) is None:
+        return False
+    return not is_enabled(extension)
