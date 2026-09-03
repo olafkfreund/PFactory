@@ -732,6 +732,17 @@ jobs:
       - name: Docker version
         run: docker version
 
+      - name: Docker build (P0 image)
+        # Build in its OWN step so an aborted build and a genuine acceptance
+        # failure are distinct red ticks (PFactory#679: a glibc break in the
+        # build hid a Trivy CVE finding behind the same failing check for
+        # days — "failing" and "failing for the reason you assume" are
+        # different states and nothing distinguished them). Same tag, same
+        # no-build-args invocation as tests/docker/conftest.py's built_image
+        # fixture, so the fixture's own build is a pure cache hit and the
+        # tests keep owning every assertion.
+        run: docker build -t pfactory:p0-test .
+
       - name: Pytest docker acceptance
         env:
           CI: "true"

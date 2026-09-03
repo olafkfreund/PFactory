@@ -48,6 +48,27 @@ def test_empty_or_neutral_is_undetermined():
     assert classify_text("Make things better for everyone.").kind == "undetermined"
 
 
+def test_classifies_mobile_spec_as_software():
+    # A mobile spec written in product language — no api/backend/database words.
+    # Before ios/android/swift/kotlin joined the lexicon this fell in the
+    # undetermined band and never reached plan-type selection.
+    text = (
+        "MyFriends: a native iOS and Android app, written in Swift and Kotlin, "
+        "for finding nearby people open to new friends. Published to the App "
+        "Store and Play Store."
+    )
+    r = classify_text(text)
+    assert r.kind == "software"
+    assert {"ios", "android", "swift", "kotlin"} <= set(r.matched)
+
+
+def test_swift_the_adjective_alone_stays_undetermined():
+    # "swift" weighs 1 (it is also an English adjective): prose using it must
+    # not flip a non-technical plan to software on its own.
+    r = classify_text("Ensure a swift response to customer complaints.")
+    assert r.kind != "software"
+
+
 def test_classify_plan_reads_all_fields():
     plan = NormalizedPlan(
         plan_id="001-x",

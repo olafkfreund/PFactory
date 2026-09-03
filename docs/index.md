@@ -46,7 +46,7 @@ nav_order: 1
 </video>
 
 <p style="opacity:0.8;margin-top:0.75rem;">
-  <em>Ingest a plan → process → review across architecture · security · best-practice · feasibility lenses →
+  <em>Ingest a plan → process → review across architecture · security · compliance · best-practice · feasibility · completeness lenses →
   red-team / adversarial pass → board → approve →
   <strong>emit tagged GitHub epics + issues</strong>. Captured from the live portal.</em>
 </p>
@@ -95,7 +95,7 @@ AI velocity **with** human-grade governance, grounded in your real infrastructur
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 240ms">
     <h3>Govern, then hand off</h3>
-    <p>Mandatory <strong>architecture / security / best-practice / feasibility</strong> lenses, a <strong>hard readiness gate</strong> (hash-bound waivers) honouring your SpecKit <strong>constitution</strong>, and one human approval — then emit a <strong>signed Task Contract</strong> + governed issues for AIFactory.</p>
+    <p>Mandatory <strong>architecture / security / compliance / best-practice / feasibility / completeness</strong> lenses, a <strong>hard readiness gate</strong> (hash-bound waivers) honouring your SpecKit <strong>constitution</strong>, and one human approval — then emit a <strong>signed Task Contract</strong> + governed issues for AIFactory.</p>
   </li>
 </ul>
 

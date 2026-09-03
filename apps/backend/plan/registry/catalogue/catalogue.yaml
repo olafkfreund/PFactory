@@ -26,3 +26,22 @@ entries:
     title: GCP project (scaffold + policy)
     capabilities: [scaffold, policy, gcp]
     enabled: true
+  # Skills (kind: skill) — the first entries in this lane. The skill files
+  # themselves are auto-indexed from skills/<category>/ by the skills service
+  # (/api/pfactory/skills and the .well-known agent-skills manifest); these
+  # rows make them discoverable over /api/plan/registry alongside providers
+  # and templates. config.path locates the file for any future consumer.
+  - id: skill:privacy-and-regulatory
+    kind: skill
+    title: Privacy and regulatory implementation
+    capabilities: [privacy, gdpr, retention, age-assurance, compliance-block]
+    enabled: true
+    config:
+      path: skills/engineering/privacy-and-regulatory.md
+  - id: skill:mobile-native
+    kind: skill
+    title: Native mobile engineering
+    capabilities: [mobile, ios, android, store-review, accessibility, release]
+    enabled: true
+    config:
+      path: skills/engineering/mobile-native.md

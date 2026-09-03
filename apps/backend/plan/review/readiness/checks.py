@@ -356,25 +356,26 @@ def _service_requirements_covered(
     """
     from plan import plan_types
     from plan.decompose.implicit_requirements import (
-        is_deployable_service,
         missing_requirements,
+        requirement_set,
     )
 
     descriptor = plan_types.select_for(plan)
-    if not is_deployable_service(plan, descriptor):
+    requirements = requirement_set(plan, descriptor)
+    if not requirements:
         return ReadinessCheckResult(
             check_id="service-requirements-covered",
-            title="Deployable service covers implicit runtime requirements",
+            title="Plan covers its implicit requirements",
             status="not_applicable",
-            detail="Not a deployable software service — runtime ACs don't apply.",
+            detail="This plan type carries no implicit requirements.",
             hard=True,
             waivable=True,
         )
-    missing = [key for key, _text in missing_requirements(epic)]
+    missing = [key for key, _text in missing_requirements(epic, requirements)]
     ok = not missing
     return ReadinessCheckResult(
         check_id="service-requirements-covered",
-        title="Deployable service covers implicit runtime requirements",
+        title="Plan covers its implicit requirements",
         status="pass" if ok else "fail",
         severity="info" if ok else "high",
         hard=True,
@@ -382,13 +383,11 @@ def _service_requirements_covered(
         detail=""
         if ok
         else (
-            "Implicit service requirements with no acceptance criterion: "
+            "Implicit requirements with no acceptance criterion: "
             f"{', '.join(missing)}. The build could pass every stated AC yet "
-            "not run."
+            "miss them."
         ),
-        remediation=""
-        if ok
-        else "Add ACs for: boots, declares dependencies, health check, deployable.",
+        remediation="" if ok else f"Add acceptance criteria covering: {', '.join(missing)}.",
         evidence={} if ok else {"missing_requirements": missing},
     )
 
@@ -926,6 +925,78 @@ def _criteria_self_consistent(
             "implementation can satisfy both."
         ),
         evidence={"contradictions": problems},
+    )
+
+
+@check("jurisdictions-declared")
+def _jurisdictions_declared(
+    plan: NormalizedPlan,
+    epic: EpicPlan,  # noqa: ARG001 - uniform check signature
+    ctx: ReadinessContext,  # noqa: ARG001 - uniform check signature
+) -> ReadinessCheckResult:
+    """A plan that processes personal data must name its target markets.
+
+    Without a stated jurisdiction, which regulations apply (GDPR, UK-GDPR,
+    CCPA-CPRA, COPPA, DSA, ...) cannot be determined, so every downstream
+    obligation the compliance lens surfaces is unresolvable. Hard, because the
+    gap makes the compliance review meaningless; waivable, because a customer
+    may consciously accept planning without a declared market — the waiver is
+    then recorded (readiness/waiver.py) and lands in the audit pack.
+
+    Plans that show no personal-data signal are not_applicable: a docs or infra
+    change has no market to declare.
+    """
+    from plan.review.lenses.compliance import (  # noqa: PLC0415 - lazy: keep the lens import out of the readiness import graph
+        declared_jurisdictions,
+        has_jurisdictions_section,
+        processes_personal_data,
+    )
+
+    if not processes_personal_data(plan):
+        return ReadinessCheckResult(
+            check_id="jurisdictions-declared",
+            title="Target jurisdictions declared for personal data",
+            status="not_applicable",
+            detail="No personal-data signal in the plan — no market to declare.",
+            hard=True,
+            waivable=True,
+        )
+    markets = declared_jurisdictions(plan)
+    # Section presence is evidence, never a market: a heading with nothing under
+    # it must not satisfy a hard gate.
+    section = has_jurisdictions_section(plan)
+    if markets:
+        return ReadinessCheckResult(
+            check_id="jurisdictions-declared",
+            title="Target jurisdictions declared for personal data",
+            status="pass",
+            detail=f"Declared: {', '.join(markets)}.",
+            hard=True,
+            waivable=True,
+            evidence={"jurisdictions": markets, "jurisdictions_section": section},
+        )
+    return ReadinessCheckResult(
+        check_id="jurisdictions-declared",
+        title="Target jurisdictions declared for personal data",
+        status="fail",
+        severity="high",
+        hard=True,
+        waivable=True,
+        detail=(
+            "The plan has a jurisdictions section but names no market in it, so "
+            "the applicable law cannot be determined."
+            if section
+            else "The plan processes personal data but names no target market, so "
+            "the applicable law cannot be determined."
+        ),
+        remediation=(
+            "Name the target markets under the existing jurisdictions heading "
+            "(e.g. UK, EU, US-California) — an empty heading declares nothing."
+            if section
+            else "Add a '## Jurisdictions' section naming the target markets "
+            "(e.g. UK, EU, US-California), or record a deliberate waiver."
+        ),
+        evidence={"jurisdictions": [], "jurisdictions_section": section},
     )
 
 

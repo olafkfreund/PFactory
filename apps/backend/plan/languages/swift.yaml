@@ -1,0 +1,59 @@
+# Language descriptor: Swift (RFC-0005 paved-road language onboarding).
+#
+# Canonical location: Factory hub contracts/languages/ (reachable from
+# scripts/language_descriptors.py via the scripts/languages symlink). Vendored
+# to consumers beside their language_descriptors.py copy; governed by the
+# verification-core drift gate. Schema: see language_descriptors.py.
+#
+# Every nix attr below was evaluated against DEFAULT_NIXPKGS 567a49d1 on
+# 2026-09-03: swift-wrapper-5.10.1, swiftpm-5.10.1, swift-corelibs-xctest-5.10.1.
+# The lanes were then RUN, not assumed: a minimal SPM package built and its
+# XCTest suite passed and (mutated) failed inside `nix develop` on x86_64-linux.
+name: swift
+aliases: [swift, spm, swiftpm, xcode, ios]
+detect_weight: 1
+proof_command: swift --version
+# SPM resolves package dependencies over git at build time.
+network: restricted
+nix:
+  packages: [swift, swiftpm, swiftPackages.XCTest]
+  # swiftpm's manifest-compile helper and the built test runner link the
+  # corelibs at RUN time; without these on LD_LIBRARY_PATH `swift test` dies
+  # with "libdispatch.so: cannot open shared object file" before it ever reads
+  # Package.swift (proven on this substrate 2026-09-03).
+  shell_env:
+    LD_LIBRARY_PATH: "${pkgs.swiftPackages.Dispatch}/lib:${pkgs.swiftPackages.Foundation}/lib"
+lanes:
+  unit:
+    available: true
+    tool: xctest
+    command: swift test
+    notes: >-
+      nixpkgs swift 5.10 ships no libIndexStore.so, so swiftpm's AUTOMATIC test
+      discovery fails (NixOS/nixpkgs#379859). The package must carry an explicit
+      Tests/LinuxMain.swift + XCTestManifests.swift (the pre-5.4 convention);
+      with them `swift test` builds, runs and reports failures correctly. A test
+      missing from XCTestManifests silently does not run - generators must emit
+      the manifest alongside every test they write.
+  api:
+    available: false
+    reason: >-
+      no Swift HTTP test harness is provisioned on Linux; server-side Swift
+      (Vapor et al.) is untested on this substrate and the unit lane's XCTest
+      only covers library surface.
+  browser:
+    available: false
+    reason: native app, no browser surface.
+  integration:
+    available: false
+    reason: >-
+      testcontainers needs a container runtime; TFactory verify Jobs have none
+      in-pod, and no Swift testcontainers binding is provisioned.
+  mutation:
+    available: false
+    reason: >-
+      muter, the Swift mutation tool, requires Xcode tooling and macOS; no
+      macOS runner exists in the fleet.
+  ui:
+    available: false
+    reason: XCUITest needs macOS and Xcode; no macOS runner exists in the fleet.
