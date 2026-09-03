@@ -292,6 +292,11 @@ export interface SuggestedEdit {
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   source: string;
   citation: FindingCitation | null;
+  /** Stable within one annotation; what the apply call sends back (#701). */
+  id: string;
+  /** Drafted replacement text. Empty with mode 'manual' = no honest draft. */
+  replacement: string;
+  mode: 'insert_section' | 'append_tag' | 'replace_criterion' | 'manual';
 }
 
 export interface PlanAnnotation {

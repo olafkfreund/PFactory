@@ -5,9 +5,12 @@
  */
 
 import { useState } from 'react';
-import { FileText, Lightbulb, Link as LinkIcon } from 'lucide-react';
+import { FileText, Lightbulb, Link as LinkIcon, RefreshCw } from 'lucide-react';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Textarea } from '../ui/textarea';
 import { cn } from '../../lib/utils';
+import { usePlanStore } from '../../stores/plan-store';
 import type { PlanSession, SuggestedEdit } from '../../shared/types/plan';
 
 const sevTone: Record<string, string> = {
@@ -18,15 +21,42 @@ const sevTone: Record<string, string> = {
   info: 'bg-muted text-muted-foreground',
 };
 
-function SuggestionRow({ s }: { s: SuggestedEdit }) {
+function SuggestionRow({
+  s,
+  checked,
+  draft,
+  onToggle,
+  onDraftChange,
+}: {
+  s: SuggestedEdit;
+  checked: boolean;
+  draft: string;
+  onToggle: (checked: boolean) => void;
+  onDraftChange: (text: string) => void;
+}) {
+  // A suggestion with no drafted text cannot be accepted mechanically. Say so
+  // and disable it rather than offering a button that would apply nothing.
+  const applicable = s.mode !== 'manual';
+
   return (
     <div className="rounded-lg border border-border bg-card/40 px-3 py-2">
       <div className="flex items-start gap-2">
-        <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+        {applicable ? (
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={(e) => { onToggle(e.target.checked); }}
+            aria-label={`Accept: ${s.suggestion}`}
+            data-testid={`accept-${s.id}`}
+            className="mt-1 h-3.5 w-3.5 shrink-0 accent-primary"
+          />
+        ) : (
+          <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+        )}
         <div className="flex-1 space-y-1">
           <p className="text-xs font-medium leading-snug">{s.suggestion}</p>
           <p className="text-[11px] text-muted-foreground">
-            {s.anchor_line ? `line ${s.anchor_line}` : 'whole document'}
+            {s.anchor_line ? `line ${String(s.anchor_line)}` : 'whole document'}
             {s.original_excerpt && <span className="opacity-80"> — “{s.original_excerpt}”</span>}
           </p>
           {s.why && <p className="text-[11px] opacity-90"><span className="font-medium">Why:</span> {s.why}</p>}
@@ -41,6 +71,27 @@ function SuggestionRow({ s }: { s: SuggestedEdit }) {
               {s.citation.title || s.citation.source || s.citation.uri}
             </a>
           )}
+          {applicable ? (
+            checked && (
+              <div className="pt-1">
+                <p className="pb-1 text-[11px] font-medium text-muted-foreground">
+                  Proposed text — edit before accepting:
+                </p>
+                <Textarea
+                  value={draft}
+                  onChange={(e) => { onDraftChange(e.target.value); }}
+                  rows={draft.split('\n').length > 6 ? 12 : 4}
+                  aria-label={`Proposed text for ${s.suggestion}`}
+                  data-testid={`draft-${s.id}`}
+                  className="resize-y font-mono text-[11px] leading-relaxed"
+                />
+              </div>
+            )
+          ) : (
+            <p className="text-[11px] italic text-muted-foreground">
+              No automatic draft — this one needs a judgement call. Edit the plan directly.
+            </p>
+          )}
         </div>
         <Badge className={cn('shrink-0 text-[10px]', sevTone[s.severity])}>{s.severity}</Badge>
       </div>
@@ -51,6 +102,24 @@ function SuggestionRow({ s }: { s: SuggestedEdit }) {
 export function AnnotationPanel({ session }: { session: PlanSession }) {
   const annotation = session.annotation ?? null;
   const [showDraft, setShowDraft] = useState(false);
+  const store = usePlanStore();
+  const { sessionLoading, error } = store;
+  const [accepted, setAccepted] = useState<Record<string, string>>({});
+
+  const acceptedIds = Object.keys(accepted);
+
+  const handleApply = async () => {
+    store.clearError();
+    try {
+      await store.applyAcceptedSuggestions({
+        accepted: acceptedIds.map((id) => ({ id, replacement: accepted[id] })),
+        reprocess: true,
+      });
+      setAccepted({});
+    } catch {
+      // surfaced via store.error
+    }
+  };
 
   if (!annotation || (annotation.suggestions.length === 0 && !annotation.improved_markdown)) {
     return (
@@ -75,7 +144,47 @@ export function AnnotationPanel({ session }: { session: PlanSession }) {
       </div>
 
       <div className="space-y-2">
-        {annotation.suggestions.map((s, i) => <SuggestionRow key={i} s={s} />)}
+        {annotation.suggestions.map((s, i) => (
+          <SuggestionRow
+            key={s.id || i}
+            s={s}
+            checked={s.id in accepted}
+            draft={accepted[s.id] ?? s.replacement}
+            onToggle={(on) => {
+              setAccepted((prev) =>
+                on
+                  ? { ...prev, [s.id]: s.replacement }
+                  : Object.fromEntries(Object.entries(prev).filter(([k]) => k !== s.id)),
+              );
+            }}
+            onDraftChange={(text) => { setAccepted((prev) => ({ ...prev, [s.id]: text })); }}
+          />
+        ))}
+      </div>
+
+      {error && (
+        <div role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {/* Applying re-runs the pipeline, so the verdict you see next describes the
+          text you just accepted — that is the whole point of the loop. */}
+      <div className="flex items-center justify-end gap-3">
+        <span className="text-[11px] text-muted-foreground">
+          {acceptedIds.length === 0
+            ? 'Select the suggestions to accept.'
+            : `${String(acceptedIds.length)} selected · applying clears the current review and any approval`}
+        </span>
+        <Button
+          onClick={() => void handleApply()}
+          disabled={acceptedIds.length === 0 || sessionLoading}
+          data-testid="apply-suggestions-btn"
+          aria-label="Apply accepted suggestions and re-process"
+        >
+          <RefreshCw className={cn('mr-2 h-4 w-4', sessionLoading && 'animate-spin')} aria-hidden />
+          Accept {acceptedIds.length > 0 ? `${String(acceptedIds.length)} ` : ''}&amp; re-process
+        </Button>
       </div>
 
       {annotation.improved_markdown && (

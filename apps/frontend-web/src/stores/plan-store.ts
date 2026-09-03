@@ -19,6 +19,8 @@ import {
   ingestFile,
   processSession,
   updateAndProcess,
+  applySuggestions,
+  type ApplySuggestionsRequest,
   type UpdateAndProcessRequest,
   approveSession,
   rejectSession,
@@ -60,6 +62,8 @@ interface PlanState {
   ) => Promise<PlanSession>;
   /** Re-run the pipeline, optionally applying human edits first (#692). */
   processCurrentSession: (updates?: UpdateAndProcessRequest) => Promise<void>;
+  /** Apply accepted suggestions and re-run the pipeline (#701). */
+  applyAcceptedSuggestions: (body: ApplySuggestionsRequest) => Promise<void>;
   approveCurrentSession: (body: ApproveRequest) => Promise<void>;
   rejectCurrentSession: (body: RejectRequest) => Promise<void>;
   emitCurrentSession: (body: EmitRequest) => Promise<void>;
@@ -187,6 +191,22 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       set({ loading: false, error: message });
+      throw err;
+    }
+  },
+
+  async applyAcceptedSuggestions(body: ApplySuggestionsRequest) {
+    const { currentSession, fetchFn } = get();
+    if (!currentSession) return;
+    set({ sessionLoading: true, error: null });
+    try {
+      const updated = await applySuggestions(currentSession.session_id, body, { fetchFn });
+      set({ sessionLoading: false, currentSession: updated });
+    } catch (err) {
+      set({
+        sessionLoading: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
       throw err;
     }
   },

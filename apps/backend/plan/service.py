@@ -15,9 +15,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -231,6 +233,12 @@ class PlanServiceError(RuntimeError):
     @property
     def client_message(self) -> str:
         return str(self)
+
+
+def _criterion_id(title: str) -> str:
+    """The ``AC#N`` a suggestion's title names, or "" when it names none."""
+    match = re.search(r"AC#\d+", title or "")
+    return match.group(0) if match else ""
 
 
 class PlanInputError(PlanServiceError):
@@ -621,6 +629,81 @@ class PlanService:
         session.status = "ingested"
         self._save(session)
         return session
+
+    def apply_suggestions(
+        self, session_id: str, accepted: list[dict[str, Any]]
+    ) -> tuple[PlanSession, list[dict[str, Any]]]:
+        """Apply the suggestions a human accepted, then hand back what changed (#701).
+
+        ``accepted`` is ``[{"id": ..., "replacement": ...}]``. The client sends
+        only the id and the (possibly human-edited) text; HOW to apply it is
+        resolved here from the stored annotation, so a client cannot ask for a
+        criterion to be rewritten by claiming a different mode.
+
+        Applying does not re-process — the caller decides — but it does go
+        through :meth:`update_plan`, so the review and any approval are
+        invalidated exactly as a hand edit would invalidate them.
+
+        Returns ``(session, applied)`` where ``applied`` records each change for
+        the audit trail. Raises :class:`PlanInputError` for an unknown id, an
+        empty replacement, or a criterion that no longer exists — never silently
+        skips, because a suggestion the human accepted and that quietly did not
+        land is the worst outcome available here.
+        """
+        session = self.get(session_id)
+        annotation = session.annotation
+        if annotation is None or not annotation.suggestions:
+            raise PlanInputError(f"session '{session_id}' has no suggestions to apply")
+
+        by_id = {s.id: s for s in annotation.suggestions if s.id}
+        description = session.plan.description
+        criteria = [c.model_copy() for c in session.plan.criteria]
+        applied: list[dict[str, Any]] = []
+
+        for item in accepted:
+            sid = str(item.get("id") or "")
+            suggestion = by_id.get(sid)
+            if suggestion is None:
+                raise PlanInputError(f"unknown suggestion id '{sid}'")
+            replacement = str(item.get("replacement") or suggestion.replacement or "").strip()
+            if not replacement:
+                raise PlanInputError(
+                    f"suggestion '{sid}' has no replacement text to apply; "
+                    "edit it first or leave it unselected"
+                )
+
+            if suggestion.mode == "replace_criterion":
+                target = _criterion_id(suggestion.suggestion)
+                match = next((c for c in criteria if c.id == target), None)
+                if match is None:
+                    raise PlanInputError(
+                        f"suggestion '{sid}' rewrites criterion '{target}', "
+                        "which is no longer in this plan"
+                    )
+                match.text = replacement
+            else:
+                # append_tag, insert_section and anything a human hand-drafted
+                # all land in the description. Blank-line separated so an
+                # appended `key: value` tag stays on its own line, which is what
+                # the template tag scan needs to see it.
+                description = (
+                    f"{description.rstrip()}\n\n{replacement}\n" if description else replacement
+                )
+            applied.append(
+                {
+                    "id": sid,
+                    "mode": suggestion.mode,
+                    "suggestion": suggestion.suggestion,
+                    "source": suggestion.source,
+                }
+            )
+
+        session = self.update_plan(
+            session_id,
+            description=description,
+            criteria=[{"id": c.id, "text": c.text} for c in criteria],
+        )
+        return session, applied
 
     # ── process (the pipeline core) ────────────────────────────────────
 
