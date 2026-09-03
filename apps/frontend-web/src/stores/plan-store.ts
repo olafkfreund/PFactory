@@ -201,7 +201,20 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ sessionLoading: true, error: null });
     try {
       const updated = await applySuggestions(currentSession.session_id, body, { fetchFn });
-      set({ sessionLoading: false, currentSession: updated });
+      set((state) => ({
+        sessionLoading: false,
+        currentSession: updated,
+        sessions: state.sessions.map((s) =>
+          s.session_id === updated.session_id
+            ? {
+                ...s,
+                status: updated.status,
+                gates_passed: updated.review?.gates_passed ?? null,
+                children: updated.epic?.children.length ?? s.children,
+              }
+            : s,
+        ),
+      }));
     } catch (err) {
       set({
         sessionLoading: false,

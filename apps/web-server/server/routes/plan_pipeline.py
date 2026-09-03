@@ -298,12 +298,33 @@ class PlanUpdateBody(BaseModel):
     criteria: list[dict[str, str]] | None = None
 
 
+def _guard_tenant(session_id: str, request: Request) -> None:
+    """404 unless *session_id* belongs to the caller's tenant (#308).
+
+    Extracted because the two MUTATING routes below forgot it: a cross-tenant
+    caller could rewrite and re-process another tenant's plan by session id.
+    Read routes had the check inline; the write routes shipped without it.
+
+    404, never 403 — matching ``get_session``, so a wrong tenant cannot use the
+    status code to learn that a session id exists.
+    """
+    if not multi_tenant_enabled():
+        return
+    try:
+        session = cast(PlanService, SERVICE).get(session_id)
+    except PlanServiceError:
+        return  # the route's own handler reports the missing session
+    if session.tenant_id != resolve_tenant(request):
+        raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
+
+
 @router.post("/{session_id}/process")
-async def process(session_id: str, updates: PlanUpdateBody | None = None) -> dict:
+async def process(session_id: str, request: Request, updates: PlanUpdateBody | None = None) -> dict:
     # RFC-0016 (#217): offload the blocking pipeline (recon clone, decompose,
     # gates) off the event loop into a worker thread, under an admission cap, so
     # /api/health and other sessions keep being served while this runs. Behaviour
     # and return are unchanged — we still await the offloaded call.
+    _guard_tenant(session_id, request)
     try:
         # Edit-then-rerun is ONE call so the two cannot separate: a plan is never
         # left edited-but-unreviewed, and the review returned always describes
@@ -352,8 +373,11 @@ class ApplySuggestionsBody(BaseModel):
 
 
 @router.post("/{session_id}/suggestions/apply")
-async def apply_suggestions(session_id: str, body: ApplySuggestionsBody) -> dict[str, Any]:
+async def apply_suggestions(
+    session_id: str, body: ApplySuggestionsBody, request: Request
+) -> dict[str, Any]:
     """Apply accepted suggestions and (by default) re-run the pipeline (#701)."""
+    _guard_tenant(session_id, request)
     try:
         service = cast(PlanService, SERVICE)
         _, applied = service.apply_suggestions(

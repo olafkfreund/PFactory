@@ -134,6 +134,25 @@ describe('<AnnotationPanel>', () => {
     expect(screen.getByText(/no automatic draft/i)).toBeInTheDocument();
   });
 
+  it('refreshes the sessions list, not just the open session', async () => {
+    // Apply re-processes, so status/gates/children all move. Updating only
+    // currentSession left the SessionList showing the pre-apply verdict.
+    const { fetchFn } = makeFetch();
+    usePlanStore.setState({
+      fetchFn,
+      sessions: [{ session_id: 'sess-001', status: 'ingested', gates_passed: false, children: 0 }] as never,
+    });
+    render(<AnnotationPanel session={mockSession as never} />);
+
+    fireEvent.click(screen.getByTestId('accept-S1'));
+    fireEvent.click(screen.getByTestId('apply-suggestions-btn'));
+
+    await waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(usePlanStore.getState().sessions[0].status).toBe('processed');
+    });
+  });
+
   it('warns that applying clears the review and approval', () => {
     render(<AnnotationPanel session={mockSession as never} />);
     fireEvent.click(screen.getByTestId('accept-S1'));
