@@ -257,8 +257,31 @@ def load_languages(directory: Path | None = None) -> dict[str, LanguageDescripto
 
 def _load_dir(directory: Path) -> dict[str, LanguageDescriptor]:
     out: dict[str, LanguageDescriptor] = {}
+    # alias (lowercased) -> the filename that claimed it. Aliases must be
+    # unique ACROSS descriptors, or resolve_language() becomes ambiguous and
+    # the winner is whatever `sorted(glob(...))` yields first — stable enough
+    # to look deliberate, arbitrary enough to be wrong, and silent either way.
+    # (Duplicate NAMES cannot happen here: name must equal the filename stem,
+    # and one directory cannot hold two files with the same stem — but the
+    # claim is asserted rather than assumed, so a future loosening of the
+    # stem rule cannot quietly reopen the hole.)
+    claimed: dict[str, str] = {}
     for path in sorted(directory.glob("*.yaml")):
         descriptor = _parse_descriptor(path)
+        if descriptor.name in out:
+            raise DescriptorError(
+                f"{path.name}: language {descriptor.name!r} is already declared by "
+                f"{descriptor.name}.yaml — two descriptors for one language would "
+                "make the registry depend on glob order"
+            )
+        for alias in descriptor.aliases:
+            if alias in claimed:
+                raise DescriptorError(
+                    f"{path.name}: alias {alias!r} is already claimed by {claimed[alias]} — "
+                    "aliases must be unique across descriptors or resolve_language() "
+                    "is ambiguous (which language wins would depend on filename sort order)"
+                )
+            claimed[alias] = path.name
         out[descriptor.name] = descriptor
     if not out:
         raise DescriptorError(
