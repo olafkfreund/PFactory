@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from plan.models import NormalizedPlan, TargetKind
 
@@ -112,6 +113,25 @@ _NON_SOFTWARE_SIGNALS: dict[str, int] = {
     "stakeholder": 1,
 }
 
+
+@lru_cache(maxsize=1)
+def _software_signals() -> dict[str, int]:
+    """The static lexicon extended by the language descriptors (RFC-0005).
+
+    Every alias a ``plan/languages/*.yaml`` descriptor declares (swift, spm,
+    xcode, ios, kotlin, android, ...) scores as a software signal at the
+    descriptor's ``detect_weight`` — so onboarding a language teaches the
+    classifier with no edit here. The hand-curated lexicon wins on collisions
+    (e.g. ``rust`` already carries a curated weight).
+    """
+    signals = dict(_SOFTWARE_SIGNALS)
+    from plan.language_descriptors import detect_signals  # noqa: PLC0415 — keeps import cheap
+
+    for alias, weight in detect_signals().items():
+        signals.setdefault(alias, weight)
+    return signals
+
+
 # Score thresholds for the decision bands.
 _MIN_SCORE = 2  # below this on both sides → undetermined
 _DOMINANCE = 1.5  # winning side must beat the other by this ratio
@@ -146,7 +166,7 @@ def _score(text: str, lexicon: dict[str, int]) -> tuple[int, list[str]]:
 
 def classify_text(text: str) -> ClassificationResult:
     """Classify free text as software / non-software / undetermined."""
-    sw, sw_hits = _score(text, _SOFTWARE_SIGNALS)
+    sw, sw_hits = _score(text, _software_signals())
     nw, nw_hits = _score(text, _NON_SOFTWARE_SIGNALS)
 
     if sw < _MIN_SCORE and nw < _MIN_SCORE:

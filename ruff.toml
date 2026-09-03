@@ -64,6 +64,11 @@ extend-exclude = [
     # never excluded, so the local formatter could silently break a byte-exact
     # re-vendor (Factory#400).
     "apps/backend/plan/emit/cost_router_core.py",
+    # RFC-0005 paved road: the declarative language-descriptor loader, vendored
+    # byte-exact from the hub canonical (scripts/language_descriptors.py)
+    # together with apps/backend/plan/languages/*.yaml (the descriptors it
+    # globs). Hub width (100); same drift-gate terms as the modules above.
+    "apps/backend/plan/language_descriptors.py",
     # And for factory_common: a byte-exact mirror of the hub's
     # shared/factory-common/factory_common/ (the stdlib-only utility layer that
     # carries sanitize_log). Same reason as above -- the hub formats at 100, the
