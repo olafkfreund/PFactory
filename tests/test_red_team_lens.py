@@ -10,7 +10,10 @@ Run: apps/backend/.venv/bin/pytest tests/test_red_team_lens.py
 
 from __future__ import annotations
 
+import json
+
 import pytest
+
 from plan.decompose.models import EpicPlan
 from plan.models import Criterion, NormalizedPlan
 from plan.recon.models import RepoMap
@@ -51,9 +54,36 @@ def _run(plan):
 # ── gating ────────────────────────────────────────────────────────────────────
 
 
-def test_inert_when_disabled(monkeypatch):
+def _registry_with_red_team_disabled(tmp_path):
+    """A registry file declaring red-team-review gated OFF.
+
+    The vendored registry now ships red-team-review enabled, and a nonexistent
+    PFACTORY_EXTENSION_REGISTRY override falls back to it — so simulating the
+    disabled state needs a real registry that says enabled: false.
+    """
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps(
+            {
+                "extensions": [
+                    {
+                        "name": "red-team-review",
+                        "category": "review",
+                        "effect": "read-only",
+                        "enabled": False,
+                        "owner_service": "pfactory",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def test_inert_when_disabled(monkeypatch, tmp_path):
     monkeypatch.delenv("PFACTORY_RED_TEAM_REVIEW", raising=False)
-    monkeypatch.setenv("PFACTORY_EXTENSION_REGISTRY", "/nonexistent/registry.json")
+    monkeypatch.setenv("PFACTORY_EXTENSION_REGISTRY", _registry_with_red_team_disabled(tmp_path))
     extension_registry.reset_cache()
     score = _run(_plan(criteria=[]))  # would normally flag "missing ACs"
     assert score.score == 1.0
@@ -164,8 +194,8 @@ def test_red_team_in_default_lenses_when_enabled():
     assert any(getattr(lens, "name", "") == "red-team" for lens in default_lenses())
 
 
-def test_red_team_absent_from_default_lenses_when_disabled(monkeypatch):
+def test_red_team_absent_from_default_lenses_when_disabled(monkeypatch, tmp_path):
     monkeypatch.delenv("PFACTORY_RED_TEAM_REVIEW", raising=False)
-    monkeypatch.setenv("PFACTORY_EXTENSION_REGISTRY", "/nonexistent/registry.json")
+    monkeypatch.setenv("PFACTORY_EXTENSION_REGISTRY", _registry_with_red_team_disabled(tmp_path))
     extension_registry.reset_cache()
     assert not any(getattr(lens, "name", "") == "red-team" for lens in default_lenses())

@@ -928,6 +928,68 @@ def _criteria_self_consistent(
     )
 
 
+@check("jurisdictions-declared")
+def _jurisdictions_declared(
+    plan: NormalizedPlan,
+    epic: EpicPlan,  # noqa: ARG001 - uniform check signature
+    ctx: ReadinessContext,  # noqa: ARG001 - uniform check signature
+) -> ReadinessCheckResult:
+    """A plan that processes personal data must name its target markets.
+
+    Without a stated jurisdiction, which regulations apply (GDPR, UK-GDPR,
+    CCPA-CPRA, COPPA, DSA, ...) cannot be determined, so every downstream
+    obligation the compliance lens surfaces is unresolvable. Hard, because the
+    gap makes the compliance review meaningless; waivable, because a customer
+    may consciously accept planning without a declared market — the waiver is
+    then recorded (readiness/waiver.py) and lands in the audit pack.
+
+    Plans that show no personal-data signal are not_applicable: a docs or infra
+    change has no market to declare.
+    """
+    from plan.review.lenses.compliance import (  # noqa: PLC0415 - lazy: keep the lens import out of the readiness import graph
+        declared_jurisdictions,
+        processes_personal_data,
+    )
+
+    if not processes_personal_data(plan):
+        return ReadinessCheckResult(
+            check_id="jurisdictions-declared",
+            title="Target jurisdictions declared for personal data",
+            status="not_applicable",
+            detail="No personal-data signal in the plan — no market to declare.",
+            hard=True,
+            waivable=True,
+        )
+    markets = declared_jurisdictions(plan)
+    if markets:
+        return ReadinessCheckResult(
+            check_id="jurisdictions-declared",
+            title="Target jurisdictions declared for personal data",
+            status="pass",
+            detail=f"Declared: {', '.join(markets)}.",
+            hard=True,
+            waivable=True,
+            evidence={"jurisdictions": markets},
+        )
+    return ReadinessCheckResult(
+        check_id="jurisdictions-declared",
+        title="Target jurisdictions declared for personal data",
+        status="fail",
+        severity="high",
+        hard=True,
+        waivable=True,
+        detail=(
+            "The plan processes personal data but names no target market, so "
+            "the applicable law cannot be determined."
+        ),
+        remediation=(
+            "Add a '## Jurisdictions' section naming the target markets "
+            "(e.g. UK, EU, US-California), or record a deliberate waiver."
+        ),
+        evidence={"jurisdictions": []},
+    )
+
+
 @check("access-verified")
 def _access_verified(
     plan: NormalizedPlan, epic: EpicPlan, ctx: ReadinessContext
