@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from plan.emit.access_block import attach_access
+from plan.emit.compliance_block import attach_compliance
 from plan.emit.constitution import attach_constitution
 from plan.emit.contract_builder import build_task_contract
 from plan.emit.cost_router import apply_cost_routing
@@ -183,6 +184,12 @@ def assemble_contract(
     # HARD checks. Additive to house_standards; best-effort, never raises;
     # available=false when the repo carries no constitution.
     attach_constitution(contract, plan)
+    # Carry the compliance lens's cited obligations onto the contract so they
+    # reach AIFactory as build constraints and TFactory as evidence demands —
+    # the difference between a review flag and a control. Additive (top-level
+    # additionalProperties is true); best-effort, never raises; available=false
+    # when no compliance lens ran, so "never ran" != "found nothing".
+    attach_compliance(contract, plan, review)
     # RFC-0007: access requirements discovered from .pfactory.yml (#84) + recorded
     # human-verified curation applied (#86).
     attach_access(contract, config, spec_text, approvals=approvals)

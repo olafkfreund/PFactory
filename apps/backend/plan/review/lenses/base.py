@@ -52,6 +52,7 @@ def default_lenses() -> list[Lens]:
         architecture,
         best_practices,
         completeness,
+        compliance,
         feasibility,
         security,
     )
@@ -60,6 +61,7 @@ def default_lenses() -> list[Lens]:
         "feasibility",
         "architecture",
         "security",
+        "compliance",
         "best-practices",
         "completeness",
     ]

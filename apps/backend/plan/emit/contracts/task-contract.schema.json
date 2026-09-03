@@ -659,6 +659,9 @@
     },
     "routing": {
       "$ref": "#/$defs/routing"
+    },
+    "compliance": {
+      "$ref": "#/$defs/compliance"
     }
   },
   "$defs": {
@@ -1565,6 +1568,99 @@
         "available": {
           "type": "boolean",
           "description": "false when the constitution could not be retrieved (no .factory/constitution.md, Backstage unreachable). The gate then scores it not_applicable — never a false pass."
+        }
+      }
+    },
+    "compliance": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Compliance obligations surfaced by PFactory's compliance review lens, carried onto the contract so they reach AIFactory as build constraints and TFactory as things that must be evidenced. A descriptive obligations signpost with sourced citations, explicitly NOT legal advice and not a compliance determination — the disclaimer travels with the block. available=false => no compliance lens ran for this plan (distinguishable from available=true with empty obligations: the lens ran and found nothing). Additive and OPTIONAL; absent => the contract predates the feature.",
+      "properties": {
+        "available": {
+          "type": "boolean",
+          "description": "false when no compliance lens ran during review; true means the obligations list is the lens's actual output (possibly empty)."
+        },
+        "source": {
+          "type": "string",
+          "description": "Producer of the block, e.g. 'pfactory:compliance-lens'."
+        },
+        "disclaimer": {
+          "type": "string",
+          "description": "The not-legal-advice disclaimer; consumers rendering the block MUST carry it."
+        },
+        "jurisdictions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Target markets the plan declared (e.g. 'UK', 'European Union'), or empty when none were stated."
+        },
+        "data_classes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Data-class signals detected in the plan text (e.g. 'personal-profile', 'location', 'profiling', 'user-contact', 'store-distribution')."
+        },
+        "obligations": {
+          "type": "array",
+          "description": "One entry per compliance finding, citations included, so downstream stages can evidence each obligation.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "title",
+              "severity",
+              "blocking"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "The obligation headline, e.g. 'No retention or deletion policy stated'."
+              },
+              "detail": {
+                "type": "string",
+                "description": "What the plan is missing and what to state; ends with the disclaimer."
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "info",
+                  "low",
+                  "medium",
+                  "high",
+                  "critical"
+                ],
+                "description": "Finding severity as the lens scored it."
+              },
+              "blocking": {
+                "type": "boolean",
+                "description": "true when the finding hard-failed the review gate (e.g. no jurisdiction stated on a personal-data plan)."
+              },
+              "citations": {
+                "type": "array",
+                "description": "Sources backing the obligation (why + a resolvable uri). Every change-requesting obligation carries at least one.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "why": {
+                      "type": "string"
+                    },
+                    "uri": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
