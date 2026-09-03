@@ -12,6 +12,7 @@ to discover/rebuild (``catalog/refresh`` + ``techdocs/sync``).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -93,6 +94,17 @@ class BackstageTarget:
                     bundle.markdown,
                     f"docs(plan): {bundle.plan_id}",
                 )
+                # run signature (#700). The registry row this target upserts
+                # names `<slug>.run.json`, so not writing it here would leave a
+                # committed registry pointing at a file that does not exist —
+                # and this git-write path IS the "plans in the repo" lane, so
+                # the dangling pointer would be the normal case, not an edge.
+                if bundle.run_signature:
+                    writer.put_file(
+                        f"{base}/{bundle.slug}.run.json",
+                        json.dumps(bundle.run_signature, indent=2, sort_keys=True) + "\n",
+                        f"docs(plan): run signature {bundle.plan_id}",
+                    )
                 # registry round-trip (read existing → upsert → write)
                 existing = reg.parse_registry(writer.get_file(f"{base}/{reg.REGISTRY_FILE}"))
                 plans = reg.upsert(existing, bundle.registry_entry)
@@ -108,6 +120,7 @@ class BackstageTarget:
                 )
                 detail["wrote"] = [
                     f"{base}/{bundle.slug}.md",
+                    *([f"{base}/{bundle.slug}.run.json"] if bundle.run_signature else []),
                     f"{base}/{reg.REGISTRY_FILE}",
                 ]
             else:

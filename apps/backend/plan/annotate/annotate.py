@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from plan.annotate import remediate
 from plan.annotate.models import AnnotationResult, SuggestedEdit
 
 if TYPE_CHECKING:
@@ -95,6 +96,7 @@ def annotate_plan(plan: NormalizedPlan, review: PlanReview | None) -> Annotation
         why = (citation.why if citation and citation.why else f.detail) or f.title
         suggestions.append(
             SuggestedEdit(
+                id=f"S{len(suggestions) + 1}",
                 anchor=anchor,
                 anchor_line=line_no,
                 original_excerpt=excerpt,
@@ -113,6 +115,11 @@ def annotate_plan(plan: NormalizedPlan, review: PlanReview | None) -> Annotation
                 "citation_uri": citation.uri if citation else "",
             }
         )
+
+    # Draft a concrete replacement for each suggestion so it can be ACCEPTED,
+    # not merely read (#701). Deterministic; a finding with no curated
+    # remediation stays ``mode="manual"`` with an empty replacement.
+    suggestions = remediate.with_replacements(suggestions)
 
     improved = _render_improved(original, suggestions)
     return AnnotationResult(

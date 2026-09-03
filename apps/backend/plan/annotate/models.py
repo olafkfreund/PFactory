@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
-from plan.review.models import Citation, Severity
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+from plan.review.models import Citation, Severity
+
+# How an accepted suggestion is applied to the plan (#701).
+#   insert_section    - append `replacement` to the description as a new section
+#   append_tag        - append a `key: value` line the tag check scans for
+#   replace_criterion - swap the criterion the suggestion is anchored to
+#   manual            - nothing could be drafted honestly; a human writes it
+ApplyMode = Literal["insert_section", "append_tag", "replace_criterion", "manual"]
 
 
 class SuggestedEdit(BaseModel):
@@ -23,6 +33,14 @@ class SuggestedEdit(BaseModel):
     severity: Severity = "info"
     source: str = ""  # the originating finding's source
     citation: Citation | None = None
+    # ── acceptance (#701) ───────────────────────────────────────────────
+    # ``id`` is stable within one annotation so the UI can send back exactly
+    # which suggestions the human accepted. ``replacement`` is the drafted text;
+    # empty with ``mode="manual"`` means no draft could be made honestly, which
+    # the UI shows rather than papering over with a stub.
+    id: str = ""
+    replacement: str = ""
+    mode: ApplyMode = "manual"
 
 
 class AnnotationResult(BaseModel):

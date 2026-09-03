@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +27,27 @@ if TYPE_CHECKING:
     from plan.service import PlanSession
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _app_version() -> str:
+    """The release version, read the same way the web server reads it (#700).
+
+    ``apps/backend/__init__.py`` is what ``scripts/bump-version.js`` updates, and
+    it is READ rather than imported for the reason ``server/main.py`` documents:
+    importing it from inside the package gives that module two names and breaks
+    the strict-typing gates. Any failure yields the literal "unknown" — a
+    plausible-looking wrong version would defeat the field's only purpose, which
+    is identifying which build produced a render.
+    """
+    try:
+        init = Path(__file__).resolve().parents[3] / "__init__.py"
+        match = re.search(
+            r'__version__\s*=\s*["\']([^"\']+)["\']', init.read_text(encoding="utf-8")
+        )
+        return match.group(1) if match else "unknown"
+    except Exception:  # noqa: BLE001 - metadata must never break an emit
+        return "unknown"
 
 
 def _truthy(name: str) -> bool:
@@ -137,7 +160,7 @@ def emit_docs(
     """
     updated_at = datetime.now(UTC).isoformat()
     try:
-        bundle = render_plan_docs(session)
+        bundle = render_plan_docs(session, pfactory_version=_app_version())
     except Exception as exc:  # noqa: BLE001 — a render bug must not break emit
         logger.warning("plan docs render failed for %s: %s", session.session_id, exc)
         return [{"target": "render", "status": "error", "detail": {"error": str(exc)}}]

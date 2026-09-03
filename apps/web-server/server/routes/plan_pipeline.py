@@ -335,6 +335,42 @@ async def process(session_id: str, updates: PlanUpdateBody | None = None) -> dic
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc
 
 
+class AcceptedSuggestion(BaseModel):
+    """One suggestion the human accepted, with the text they approved (#701)."""
+
+    id: str
+    # Optional: the human may have edited the draft. Omitted means "apply the
+    # drafted text as-is". HOW to apply it is never taken from the client.
+    replacement: str | None = None
+
+
+class ApplySuggestionsBody(BaseModel):
+    accepted: list[AcceptedSuggestion]
+    # Applying alone leaves the plan edited but unreviewed, so re-processing is
+    # the default: the point of accepting a suggestion is to see a new verdict.
+    reprocess: bool = True
+
+
+@router.post("/{session_id}/suggestions/apply")
+async def apply_suggestions(session_id: str, body: ApplySuggestionsBody) -> dict[str, Any]:
+    """Apply accepted suggestions and (by default) re-run the pipeline (#701)."""
+    try:
+        service = cast(PlanService, SERVICE)
+        _, applied = service.apply_suggestions(
+            session_id,
+            [{"id": a.id, "replacement": a.replacement} for a in body.accepted],
+        )
+        if body.reprocess:
+            session = await service.process_async(session_id)
+        else:
+            session = service.get(session_id)
+    except PlanInputError as exc:
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
+    except PlanServiceError as exc:
+        raise HTTPException(status_code=404, detail=client_error(exc)) from exc
+    return {**_session_dict(session), "applied": applied}
+
+
 @router.post("/{session_id}/re-gate")
 async def re_gate(session_id: str) -> dict[str, Any]:
     """Recompute the readiness verdicts alone, without re-running planning (#450).
