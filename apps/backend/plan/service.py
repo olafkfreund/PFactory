@@ -37,7 +37,7 @@ from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply, classify_plan
 from plan.ingest.channels import ingest_bytes, ingest_text
-from plan.models import NormalizedPlan
+from plan.models import Criterion, NormalizedPlan
 from plan.plan_types import apply as plan_type_apply, select_for
 from plan.recon import classify_change_mode, reconnoiter
 from plan.review.approval import approve as approve_review, reject as reject_review
@@ -231,6 +231,15 @@ class PlanServiceError(RuntimeError):
     @property
     def client_message(self) -> str:
         return str(self)
+
+
+class PlanInputError(PlanServiceError):
+    """A human's edit was rejected: bad shape or empty required field (#692).
+
+    Split from the base so the route can answer 400 for "you sent something
+    invalid" while still answering 404 for "no such session". Both carry a
+    developer-written literal, so both stay safe to return verbatim.
+    """
 
 
 logger = logging.getLogger(__name__)
@@ -558,6 +567,60 @@ class PlanService:
             return self._sessions[session_id]
         except KeyError:
             raise PlanServiceError(f"unknown session '{session_id}'") from None
+
+    def update_plan(
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        criteria: list[dict[str, str]] | None = None,
+    ) -> PlanSession:
+        """Apply a human's edits to the plan's authored fields (#692).
+
+        The revise loop: process surfaces gaps, a human fixes the wording, the
+        plan is re-processed and re-reviewed. Only the three fields a human
+        authors are editable — everything else on the plan is derived by the
+        pipeline and would be overwritten by the next process() anyway.
+
+        Editing INVALIDATES sign-off. A review (and an approval) attests to the
+        text that was reviewed; letting either survive an edit would let approved
+        wording be swapped for unapproved wording while still reading "approved".
+        So the session drops back to `ingested` with its review cleared, and the
+        caller must process and re-approve. `_save` persists, so a crash between
+        the edit and the re-process cannot leave a stale approval behind.
+        """
+        session = self.get(session_id)
+        if session.status in {"emitted", "discarded"}:
+            raise PlanServiceError(
+                f"session '{session_id}' is {session.status}; edits no longer apply"
+            )
+        if title is not None:
+            if not title.strip():
+                raise PlanInputError("title cannot be empty")
+            session.plan.title = title
+        if description is not None:
+            session.plan.description = description
+        if criteria is not None:
+            if not criteria:
+                raise PlanInputError("a plan needs at least one acceptance criterion")
+            # A criterion arrives from an HTTP client, so a missing key is
+            # input, not a bug: indexing blind turned a malformed body into a
+            # KeyError and a 500 (PR #696 review).
+            parsed = []
+            for i, c in enumerate(criteria):
+                missing = [k for k in ("id", "text") if k not in c]
+                if missing:
+                    raise PlanInputError(
+                        f"criterion {i} is missing {' and '.join(missing)}; "
+                        "each criterion needs an 'id' and a 'text'"
+                    )
+                parsed.append(Criterion(id=str(c["id"]), text=str(c["text"])))
+            session.plan.criteria = parsed
+        session.review = None
+        session.status = "ingested"
+        self._save(session)
+        return session
 
     # ── process (the pipeline core) ────────────────────────────────────
 

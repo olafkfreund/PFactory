@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Plus, X, RefreshCw, Save } from 'lucide-react';
+import { Plus, X, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
@@ -53,7 +53,7 @@ export function PlanEditor({ session, onUpdated }: Props) {
   const handleReprocess = async () => {
     store.clearError();
     try {
-      await store.processCurrentSession();
+      await store.processCurrentSession({ title, description, criteria });
       const updated = store.currentSession;
       if (updated) {
         setDirty(false);
@@ -83,13 +83,20 @@ export function PlanEditor({ session, onUpdated }: Props) {
         <label htmlFor="edit-description" className="text-sm font-medium text-foreground">
           Description
         </label>
+        {/*
+          The description carries the whole plan document — business rules, open
+          questions, MVP scope — kilobytes of markdown, not a summary line. At
+          rows=4 it was a 3-line porthole onto it. Monospace + resize-y so the
+          markdown structure is legible and the reader can size it themselves.
+        */}
         <Textarea
           id="edit-description"
           value={description}
           onChange={(e) => { setDescription(e.target.value); markDirty(); }}
-          rows={4}
+          rows={24}
           aria-label="Plan description"
           data-testid="edit-description"
+          className="min-h-[20rem] resize-y font-mono text-xs leading-relaxed"
         />
       </div>
 
@@ -155,7 +162,7 @@ export function PlanEditor({ session, onUpdated }: Props) {
           role="status"
           className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning"
         >
-          Unsaved changes. Re-running process will invalidate the current review and approval.
+          Unsaved changes. Re-process saves them and re-runs review — which clears the current review and any approval.
         </div>
       )}
 

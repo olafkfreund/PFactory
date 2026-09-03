@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -27,7 +27,7 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
-from plan.service import SERVICE, PlanServiceError  # noqa: E402
+from plan.service import SERVICE, PlanInputError, PlanService, PlanServiceError  # noqa: E402
 
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
 
@@ -285,14 +285,52 @@ async def audit_pack(session_id: str, format: str = "json"):
     return pack.model_dump()
 
 
+class PlanUpdateBody(BaseModel):
+    """Human edits applied immediately before a re-process (#692).
+
+    Optional so a bare ``POST /process`` (the re-run-unchanged case) keeps
+    working exactly as before — an absent field means "leave it alone", which
+    is why every field defaults to ``None`` rather than to an empty value.
+    """
+
+    title: str | None = None
+    description: str | None = None
+    criteria: list[dict[str, str]] | None = None
+
+
 @router.post("/{session_id}/process")
-async def process(session_id: str) -> dict:
+async def process(session_id: str, updates: PlanUpdateBody | None = None) -> dict:
     # RFC-0016 (#217): offload the blocking pipeline (recon clone, decompose,
     # gates) off the event loop into a worker thread, under an admission cap, so
     # /api/health and other sessions keep being served while this runs. Behaviour
     # and return are unchanged — we still await the offloaded call.
     try:
+        # Edit-then-rerun is ONE call so the two cannot separate: a plan is never
+        # left edited-but-unreviewed, and the review returned always describes
+        # the text that was just submitted.
+        if updates is not None and (
+            updates.title is not None
+            or updates.description is not None
+            or updates.criteria is not None
+        ):
+            # `plan.service.SERVICE` is a PEP 562 lazy attribute, so mypy types
+            # it `object` and every access is an attr-defined error (most of this
+            # module's mypy baseline). The runtime type is genuinely PlanService,
+            # so a cast states what is true rather than suppressing a finding.
+            # Cast HERE, not once at module level: a module-level handle binds the
+            # singleton at import and silently defeats the
+            # `monkeypatch.setattr(pp, "SERVICE", ...)` seam every test uses.
+            cast(PlanService, SERVICE).update_plan(
+                session_id,
+                title=updates.title,
+                description=updates.description,
+                criteria=updates.criteria,
+            )
         return _session_dict(await SERVICE.process_async(session_id))
+    except PlanInputError as exc:
+        # Before PlanServiceError below: a rejected edit is the caller's input,
+        # not a missing session, and 404 told them the opposite (PR #696 review).
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc
 
