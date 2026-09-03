@@ -150,3 +150,45 @@ def test_publishing_twice_is_idempotent(tmp_path, processed):
     target.publish(bundle)
 
     assert len([r for r in _rows(tmp_path) if r["plan_id"] == bundle.plan_id]) == 1
+
+
+def test_the_git_write_target_commits_the_signature_too(processed):
+    """A registry row naming a file the target never wrote is a dangling pointer.
+
+    `registry_entry` carries `signature_file` for every target, and Backstage's
+    git-write path is the "plans in the repo" lane — so if it committed the
+    registry without the signature, the dangling pointer would be the NORMAL
+    case. Found in review on PR #700.
+    """
+    from plan.emit.docs.targets.backstage import BackstageTarget
+
+    written: dict[str, str] = {}
+
+    class _Writer:
+        def get_file(self, path: str) -> str | None:
+            return written.get(path)
+
+        def put_file(self, path: str, content: str, message: str) -> dict:
+            written[path] = content
+            return {"path": path}
+
+    bundle = render_plan_docs(processed, pfactory_version="0.6.17")
+    target = BackstageTarget(
+        base_url="http://backstage.example",
+        repo="olafkfreund/PFactory",
+        docs_subdir="techdocs/plans",
+        git_write=True,
+        writer=_Writer(),
+    )
+
+    result = target.publish(bundle)
+
+    assert result.status != "error", result.detail
+    sig_path = f"techdocs/plans/{bundle.slug}.run.json"
+    assert sig_path in written, f"signature not committed; wrote {sorted(written)}"
+    assert json.loads(written[sig_path]) == bundle.run_signature
+
+    # And the committed registry's pointer resolves to something committed.
+    registry = json.loads(written["techdocs/plans/registry.json"])
+    row = next(r for r in registry["plans"].values() if r["plan_id"] == bundle.plan_id)
+    assert f"techdocs/plans/{row['signature_file']}" in written
