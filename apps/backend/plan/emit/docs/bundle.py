@@ -21,6 +21,11 @@ class DocBundle:
     content_hash: str
     markdown: str
     registry_entry: dict[str, Any]
+    # The run signature (#700): who/what/when produced THIS render, plus the
+    # review verdict it was produced from. Written beside the page as
+    # ``<slug>.run.json`` so a checkout can answer "which planner run wrote
+    # this, against which text, and did it pass?" without a server round-trip.
+    run_signature: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
