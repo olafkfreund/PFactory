@@ -9,11 +9,13 @@ path (testing + CI/CD + code gates) is enabled by data, not inline conditionals.
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
 from plan.models import NormalizedPlan, TargetKind
+from plan.recon.language_reconcile import boundary
 from pydantic import BaseModel, Field
 
 _DESCRIPTOR_DIR = Path(__file__).parent
@@ -73,12 +75,25 @@ _FALLBACK: dict[str, str] = {
 }
 
 
+@lru_cache(maxsize=256)
+def _keyword_pattern(keyword: str) -> re.Pattern[str]:
+    """Word-boundary pattern for a match keyword (PFactory#673).
+
+    Bare substring matching fabricated points: ``form`` scored inside
+    "platform" and ``market`` inside "Markets at launch", and a fabricated
+    point can decide a scoring tie — plan type gates which pipeline stages
+    run. Same defect class as #397 ("rust" inside "untrusted"), so the same
+    fix: :func:`~plan.recon.language_reconcile.boundary`.
+    """
+    return re.compile(boundary(keyword.lower()))
+
+
 def select_for(plan: NormalizedPlan) -> PlanTypeDescriptor:
     """Pick the best-matching plan type for a (classified) plan.
 
     Among descriptors that apply to the plan's ``target_kind``, choose the one
-    with the most keyword hits in the plan text; ties / no hits fall back to the
-    kind's default descriptor.
+    with the most whole-word keyword hits in the plan text; ties / no hits fall
+    back to the kind's default descriptor.
     """
     descriptors = load_descriptors()
     text = _plan_text(plan)
@@ -87,7 +102,7 @@ def select_for(plan: NormalizedPlan) -> PlanTypeDescriptor:
     best: PlanTypeDescriptor | None = None
     best_score = -1
     for d in candidates:
-        score = sum(1 for kw in d.match_keywords if kw.lower() in text)
+        score = sum(1 for kw in d.match_keywords if _keyword_pattern(kw).search(text))
         if score > best_score:
             best, best_score = d, score
 
