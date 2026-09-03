@@ -14,9 +14,13 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 
 from plan.decompose.implicit_requirements import (  # noqa: E402
+    MOBILE_IMPLICIT_REQUIREMENTS,
+    SERVICE_IMPLICIT_REQUIREMENTS,
     inject_into_epic,
     is_deployable_service,
+    is_mobile_app,
     missing_requirements,
+    requirement_set,
 )
 from plan.decompose.models import ChildIssue, EpicPlan  # noqa: E402
 from plan.models import Criterion, NormalizedPlan  # noqa: E402
@@ -170,3 +174,136 @@ def test_readiness_service_requirements_not_applicable_for_non_service() -> None
     epic = _epic([ChildIssue(key="C1", title="Draft", kind="task")])
     rep = run_readiness(plan, epic)
     assert rep.result("service-requirements-covered").status == "not_applicable"
+
+
+# ── mobile-app implicit requirements ─────────────────────────────────────
+
+
+def _mobile_plan() -> NormalizedPlan:
+    return NormalizedPlan(
+        plan_id="003-mob",
+        title="MyFriends mobile app",
+        description="A native iOS and Android app (Swift / Kotlin) for finding "
+        "nearby people open to new friends, via the App Store and Play Store.",
+        source_format="markdown",
+        target_kind="software",
+        criteria=[Criterion(id="AC#1", text="Nearby open-to-friends users are listed")],
+    ).with_hash()
+
+
+def _bare_mobile_epic(plan_id: str = "003-mob") -> EpicPlan:
+    return EpicPlan(
+        plan_id=plan_id,
+        epic_title="MyFriends",
+        summary="x",
+        children=[
+            ChildIssue(
+                key="C1",
+                title="Nearby list",
+                kind="feature",
+                acceptance_criteria=["Nearby open-to-friends users are listed"],
+            )
+        ],
+    )
+
+
+def test_requirement_set_selects_by_plan_type() -> None:
+    mobile = _mobile_plan()
+    d_mobile = select_for(mobile)
+    assert d_mobile.name == "mobile-app"
+    assert is_mobile_app(d_mobile) is True
+    assert requirement_set(mobile, d_mobile) is MOBILE_IMPLICIT_REQUIREMENTS
+
+    svc = _service_plan()
+    assert requirement_set(svc, select_for(svc)) is SERVICE_IMPLICIT_REQUIREMENTS
+
+    non = _non_service_plan()
+    assert requirement_set(non, select_for(non)) == []
+
+
+def test_inject_adds_all_mobile_acs_to_feature_child() -> None:
+    plan, epic = _mobile_plan(), _bare_mobile_epic()
+    injected = inject_into_epic(plan, epic, select_for(plan))
+    assert len(injected) == len(MOBILE_IMPLICIT_REQUIREMENTS) == 10
+    acs = " ".join(epic.children[0].acceptance_criteria).lower()
+    for token in (
+        "store listing", "permission", "offline", "deep links", "crash",
+        "minimum supported os", "voiceover", "talkback", "battery",
+        "staged rollout", "forced-upgrade",
+    ):
+        assert token in acs, token
+    # and the SERVICE health-check AC was NOT injected into a mobile plan
+    assert "health-check endpoint" not in acs
+
+
+def test_inject_skips_mobile_requirement_the_user_already_wrote() -> None:
+    plan = _mobile_plan()
+    epic = _bare_mobile_epic()
+    epic.children[0].acceptance_criteria.append(
+        "The feed works offline from a local cache"
+    )
+    injected = inject_into_epic(plan, epic, select_for(plan))
+    assert len(injected) == len(MOBILE_IMPLICIT_REQUIREMENTS) - 1
+    assert not any("usable offline" in i for i in injected)
+
+
+def test_min_os_and_forced_upgrade_overlap_phrasing() -> None:
+    # "We support iOS 16 and above and prompt users on older versions to
+    # update" reads as covering BOTH min-os-versions and forced-upgrade. With
+    # substring matching it covers forced-upgrade ("versions to update"); the
+    # OS floor cannot be detected without a keyword like "support ios", which
+    # would also match "supports iOS and Android" — a phrase in essentially
+    # every mobile brief — and silently disable min-os injection everywhere.
+    # So min-os is still injected here: the cost is a near-duplicate AC, not a
+    # false gate failure, because injection runs before the lens and check.
+    plan = _mobile_plan()
+    epic = _bare_mobile_epic()
+    epic.children[0].acceptance_criteria.append(
+        "We support iOS 16 and above and prompt users on older versions to update"
+    )
+    missing = {k for k, _t in missing_requirements(epic, MOBILE_IMPLICIT_REQUIREMENTS)}
+    assert "forced-upgrade" not in missing
+    assert "min-os-versions" in missing
+
+
+def test_supports_ios_and_android_does_not_cover_min_os() -> None:
+    # Guard against a future keyword like "support ios": naming the platforms
+    # is not declaring an OS floor, and must not suppress min-os injection.
+    epic = _bare_mobile_epic()
+    epic.children[0].acceptance_criteria.append("The app supports iOS and Android.")
+    missing = {k for k, _t in missing_requirements(epic, MOBILE_IMPLICIT_REQUIREMENTS)}
+    assert "min-os-versions" in missing
+
+
+def test_mobile_inject_is_idempotent() -> None:
+    plan, epic = _mobile_plan(), _bare_mobile_epic()
+    first = inject_into_epic(plan, epic, select_for(plan))
+    second = inject_into_epic(plan, epic, select_for(plan))
+    assert first and second == []
+    assert not missing_requirements(epic, MOBILE_IMPLICIT_REQUIREMENTS)
+
+
+def test_completeness_lens_enforces_mobile_requirements() -> None:
+    lens = CompletenessLens()
+    plan, epic = _mobile_plan(), _bare_mobile_epic()
+
+    before = lens.evaluate(plan, epic)
+    assert before.score < 1.0
+    flagged = {f.title for f in before.findings if "not covered" in f.title}
+    assert len(flagged) == len(MOBILE_IMPLICIT_REQUIREMENTS)
+
+    inject_into_epic(plan, epic, select_for(plan))
+    after = lens.evaluate(plan, epic)
+    assert after.score == 1.0
+
+
+def test_readiness_mobile_requirements_fail_then_pass_after_inject() -> None:
+    plan, epic = _mobile_plan(), _bare_mobile_epic()
+    rep = run_readiness(plan, epic)
+    res = rep.result("service-requirements-covered")
+    assert res.status == "fail" and res.hard
+    assert "store-listing" in res.evidence.get("missing_requirements", [])
+
+    inject_into_epic(plan, epic, select_for(plan))
+    rep2 = run_readiness(plan, epic)
+    assert rep2.result("service-requirements-covered").status == "pass"

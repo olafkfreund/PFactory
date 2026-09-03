@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING
 
 from plan import plan_types
 from plan.decompose.implicit_requirements import (
-    is_deployable_service,
     missing_requirements,
+    requirement_set,
 )
 from plan.review.lenses.base import register_lens
 from plan.review.models import Finding, LensScore
@@ -38,35 +38,37 @@ class CompletenessLens:
 
     def evaluate(self, plan: NormalizedPlan, epic: EpicPlan) -> LensScore:
         descriptor = plan_types.select_for(plan)
-        if not is_deployable_service(plan, descriptor):
-            # Not a deployable service — the implicit runtime requirements don't
-            # apply. Clean pass, no findings.
+        requirements = requirement_set(plan, descriptor)
+        if not requirements:
+            # This plan type carries no implicit requirements — nothing to
+            # enforce. Clean pass, no findings.
             return LensScore(lens=self.name, score=1.0, findings=[])
 
-        missing = missing_requirements(epic)
+        missing = missing_requirements(epic, requirements)
         findings: list[Finding] = []
         score = 1.0
         for key, text in missing:
             score -= _PENALTY_PER_MISSING
             findings.append(
                 Finding(
-                    title=f"Implicit service requirement not covered: {key}",
+                    title=f"Implicit requirement not covered: {key}",
                     detail=(
-                        f"A deployable service must satisfy: {text} "
+                        f"A {descriptor.title} must satisfy: {text} "
                         "No child acceptance criterion covers it, so the build "
-                        "could pass every stated AC yet not actually run."
+                        "could pass every stated AC yet miss it."
                     ),
                     severity="high",
                     source=self.name,
                 )
             )
         if not missing:
+            covered = ", ".join(key for key, _text, _kw in requirements)
             findings.append(
                 Finding(
-                    title="Implicit service requirements covered",
+                    title="Implicit requirements covered",
                     detail=(
-                        "Boots, declares dependencies, health check, and "
-                        "deployable are all demanded by an acceptance criterion."
+                        f"All implicit requirements for this plan type "
+                        f"({covered}) are demanded by an acceptance criterion."
                     ),
                     severity="info",
                     source=self.name,
