@@ -1,0 +1,11 @@
+name: mobile-app
+title: Mobile application (iOS / Android)
+category: mobile
+applies_to: [software]
+match_keywords: [mobile, ios, android, swift, kotlin, app store, play store, react native, flutter, expo, push notification, mobile app]
+stages:
+  decompose: true
+  synthesize_testing: true
+  synthesize_cicd: true
+  code_gates: true
+  review: true

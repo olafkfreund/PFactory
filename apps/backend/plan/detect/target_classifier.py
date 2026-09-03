@@ -51,6 +51,12 @@ _SOFTWARE_SIGNALS: dict[str, int] = {
     "unit test": 2,
     "integration test": 2,
     "pull request": 2,
+    "ios": 2,
+    "android": 2,
+    "kotlin": 2,
+    "mobile app": 2,
+    "app store": 2,
+    "play store": 2,
     # softer
     "service": 1,
     "server": 1,
@@ -72,6 +78,7 @@ _SOFTWARE_SIGNALS: dict[str, int] = {
     "typescript": 1,
     "golang": 1,
     "rust": 1,
+    "swift": 1,  # weight 1: also an English adjective ("swift delivery")
     "config": 1,
     "environment": 1,
     "release": 1,

@@ -71,6 +71,29 @@ def test_non_software_gets_generic_no_code_stages():
     assert d.stages.decompose is True
 
 
+def test_mobile_app_selected_for_mobile_spec():
+    # Both directions matter: a mobile spec must WIN over software-service,
+    # and a plain backend spec must still select software-service.
+    mobile = _plan(
+        title="MyFriends mobile app",
+        desc="A native iOS and Android app (Swift / Kotlin) for finding nearby "
+        "people open to new friends, distributed via the App Store and Play Store.",
+        kind="software",
+    )
+    d = select_for(mobile)
+    assert d.name == "mobile-app"
+    assert d.category == "mobile"
+    # all five stages on — mobile apps get the full software deep path
+    assert d.stages.synthesize_testing and d.stages.synthesize_cicd
+    assert d.stages.code_gates and d.stages.decompose and d.stages.review
+
+    backend = _plan(
+        desc="A REST API backend service with endpoints and a webhook.",
+        kind="software",
+    )
+    assert select_for(backend).name == "software-service"
+
+
 def test_apply_sets_plan_type_and_rehashes():
     plan = _plan(desc="Add a REST API endpoint.", kind="software").with_hash()
     out = apply(plan)
