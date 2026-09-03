@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from tests.docker.helpers import DOCKERFILE_PATH, REPO_ROOT
+from tests.docker.helpers import DOCKERFILE_PATH, REPO_ROOT, docker_run
 
 IN_CI = os.environ.get("CI", "").lower() == "true"
 
@@ -212,3 +212,36 @@ def test_release_workflow_signs_with_cosign() -> None:
 
     assert "cosign attest" in content, \
         "release.yml does not attach an SBOM attestation"
+
+
+@pytest.mark.docker
+def test_pip_absent_from_final_image(built_image: str) -> None:
+    """PFactory#679 — pip must not ship in the runtime image.
+
+    The two HIGH Trivy findings this pins (msgpack 1.1.2 GHSA-6v7p-g79w-8964,
+    setuptools 70.3.0 CVE-2025-47273) were pip 26.2.1's own vendored copies
+    (``pip/_vendor/vendor.txt``), not project dependencies — no requirements
+    pin can reach them and no released pip clears them. pip is build-time-only
+    in this image, so the remediation is removal, and this test is the pin
+    that stops a future base-image bump silently reintroducing it.
+    """
+    probe = (
+        "pips=$(find /usr/lib /home/projects/MagesticAI/.venv "
+        "-maxdepth 4 -name 'pip' -type d 2>/dev/null | wc -l); "
+        'echo "pip_dirs=$pips"; '
+        "/home/projects/MagesticAI/.venv/bin/python -m pip --version 2>&1; "
+        'echo "venv_pip_rc=$?"'
+    )
+    result = docker_run(built_image, "sh", "-c", probe, timeout=30)
+    assert result.returncode == 0, f"probe container failed: {result.stderr}"
+    # The probe must have measured something: both markers present, or the
+    # shell died and this test would otherwise pass on empty output.
+    assert "pip_dirs=" in result.stdout and "venv_pip_rc=" in result.stdout, (
+        f"probe produced no measurement:\n{result.stdout}\n{result.stderr}"
+    )
+    assert "pip_dirs=0" in result.stdout, (
+        f"a pip package directory still ships in the image:\n{result.stdout}"
+    )
+    assert "venv_pip_rc=0" not in result.stdout, (
+        f"`python -m pip` still works in the venv:\n{result.stdout}"
+    )

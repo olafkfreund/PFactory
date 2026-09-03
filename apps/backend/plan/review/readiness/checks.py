@@ -356,25 +356,26 @@ def _service_requirements_covered(
     """
     from plan import plan_types
     from plan.decompose.implicit_requirements import (
-        is_deployable_service,
         missing_requirements,
+        requirement_set,
     )
 
     descriptor = plan_types.select_for(plan)
-    if not is_deployable_service(plan, descriptor):
+    requirements = requirement_set(plan, descriptor)
+    if not requirements:
         return ReadinessCheckResult(
             check_id="service-requirements-covered",
-            title="Deployable service covers implicit runtime requirements",
+            title="Plan covers its implicit requirements",
             status="not_applicable",
-            detail="Not a deployable software service — runtime ACs don't apply.",
+            detail="This plan type carries no implicit requirements.",
             hard=True,
             waivable=True,
         )
-    missing = [key for key, _text in missing_requirements(epic)]
+    missing = [key for key, _text in missing_requirements(epic, requirements)]
     ok = not missing
     return ReadinessCheckResult(
         check_id="service-requirements-covered",
-        title="Deployable service covers implicit runtime requirements",
+        title="Plan covers its implicit requirements",
         status="pass" if ok else "fail",
         severity="info" if ok else "high",
         hard=True,
@@ -382,13 +383,11 @@ def _service_requirements_covered(
         detail=""
         if ok
         else (
-            "Implicit service requirements with no acceptance criterion: "
+            "Implicit requirements with no acceptance criterion: "
             f"{', '.join(missing)}. The build could pass every stated AC yet "
-            "not run."
+            "miss them."
         ),
-        remediation=""
-        if ok
-        else "Add ACs for: boots, declares dependencies, health check, deployable.",
+        remediation="" if ok else f"Add acceptance criteria covering: {', '.join(missing)}.",
         evidence={} if ok else {"missing_requirements": missing},
     )
 

@@ -50,7 +50,7 @@ _LANGUAGE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
-def _boundary(needle: str) -> str:
+def boundary(needle: str) -> str:
     r"""Escape ``needle``, anchoring only the ends that are word characters.
 
     ``\b`` asserts a word/non-word transition, so appending it to a needle that
@@ -67,7 +67,7 @@ def _boundary(needle: str) -> str:
 
 
 _SIGNAL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    (lang, re.compile("|".join(_boundary(n) for n in needles)))
+    (lang, re.compile("|".join(boundary(n) for n in needles)))
     for lang, needles in _LANGUAGE_SIGNALS
 ]
 
