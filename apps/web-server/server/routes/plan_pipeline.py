@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -28,6 +28,9 @@ if str(_BACKEND_DIR) not in sys.path:
 from client_errors import client_error  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import SERVICE, PlanServiceError  # noqa: E402
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from plan.service import PlanService
 
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
 
@@ -313,7 +316,14 @@ async def process(session_id: str, updates: PlanUpdateBody | None = None) -> dic
             or updates.description is not None
             or updates.criteria is not None
         ):
-            SERVICE.update_plan(
+            # `plan.service.SERVICE` is a PEP 562 lazy attribute, so mypy types
+            # it `object` and every access is an attr-defined error (most of this
+            # module's mypy baseline). The runtime type is genuinely PlanService,
+            # so a cast states what is true rather than suppressing a finding.
+            # Cast HERE, not once at module level: a module-level handle binds the
+            # singleton at import and silently defeats the
+            # `monkeypatch.setattr(pp, "SERVICE", ...)` seam every test uses.
+            cast("PlanService", SERVICE).update_plan(
                 session_id,
                 title=updates.title,
                 description=updates.description,
