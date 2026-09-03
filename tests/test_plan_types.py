@@ -94,6 +94,35 @@ def test_mobile_app_selected_for_mobile_spec():
     assert select_for(backend).name == "software-service"
 
 
+def test_mobile_app_beats_feature_on_the_real_brief_shape():
+    # Measured baseline (session 011-myfriends, pfactory 0.6.16): the real
+    # MyFriends brief resolved to plan_type=feature, NOT software-service — its
+    # prose hits "feature" / "acceptance criteria" / "form" (substring, via
+    # "platform"). So the control case for mobile selection is `feature`. This
+    # condenses the brief's actual signal profile: feature keywords present AND
+    # "exposes" present ("expo" was dropped from the mobile keywords because the
+    # loader substring-matches — it must NOT score here).
+    brief = _plan(
+        title="MyFriends",
+        desc="A mobile app for finding people nearby open to new friends. "
+        "The distinguishing feature is the open-to-new-friends toggle. "
+        "Native on both platforms: iOS (Swift, SwiftUI) and Android (Kotlin, "
+        "Jetpack Compose). The backend exposes discovery over an authenticated "
+        "API. Acceptance criteria: a person can create a profile.",
+        kind="software",
+    )
+    assert select_for(brief).name == "mobile-app"
+
+    # Other direction: a feature spec with no mobile signals still selects
+    # feature — mobile-app must not leech points from "exposes" or "platform".
+    feature = _plan(
+        desc="Add a feature: a user story for the checkout flow. The service "
+        "exposes the new endpoint on our platform behind a flag.",
+        kind="software",
+    )
+    assert select_for(feature).name == "feature"
+
+
 def test_apply_sets_plan_type_and_rehashes():
     plan = _plan(desc="Add a REST API endpoint.", kind="software").with_hash()
     out = apply(plan)
