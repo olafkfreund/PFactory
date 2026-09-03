@@ -64,18 +64,23 @@ def test_kotlin_android_text_classifies_as_software() -> None:
 
 
 def test_negative_control_classifier_without_descriptors(monkeypatch) -> None:
-    """Unwire the descriptor signals; the same text must stop classifying.
+    """Unwire the descriptor signals; descriptor-ONLY aliases stop classifying.
 
-    Proves the classification above comes FROM the descriptors, not from the
-    static lexicon happening to cover the words.
+    The text deliberately uses aliases only the descriptors declare (spm,
+    xcode) - NOT swift/ios/kotlin/android, which PFactory#672 later added to
+    the hand-curated lexicon too. With those shared words the control went
+    vacuous: the static table alone classified the text and the unwired run
+    looked identical to the wired one (the two-green-PRs-one-red-branch
+    combination caught this). The pair below differs by exactly the wiring.
     """
+    text = "Set up the spm package and the xcode project layout"
+    wired = target_classifier.classify_text(text)
+    assert wired.kind == "software"
     monkeypatch.setattr(
         target_classifier, "_software_signals", lambda: dict(target_classifier._SOFTWARE_SIGNALS)
     )
-    result = target_classifier.classify_text(
-        "Build the iOS client in Swift with offline sync for the profile screens"
-    )
-    assert result.kind != "software"
+    unwired = target_classifier.classify_text(text)
+    assert unwired.kind != "software"
 
 
 # ── tfactory_block ──────────────────────────────────────────────────────────
