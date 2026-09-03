@@ -233,6 +233,16 @@ class PlanServiceError(RuntimeError):
         return str(self)
 
 
+class PlanInputError(PlanServiceError):
+    """A human's edit was rejected: bad shape or empty required field (#692).
+
+    Split from the base so the route can answer 400 for "you sent something
+    invalid" while still answering 404 for "no such session". Both carry a
+    developer-written literal, so both stay safe to return verbatim.
+    """
+
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -588,16 +598,26 @@ class PlanService:
             )
         if title is not None:
             if not title.strip():
-                raise PlanServiceError("title cannot be empty")
+                raise PlanInputError("title cannot be empty")
             session.plan.title = title
         if description is not None:
             session.plan.description = description
         if criteria is not None:
             if not criteria:
-                raise PlanServiceError("a plan needs at least one acceptance criterion")
-            session.plan.criteria = [
-                Criterion(id=str(c["id"]), text=str(c["text"])) for c in criteria
-            ]
+                raise PlanInputError("a plan needs at least one acceptance criterion")
+            # A criterion arrives from an HTTP client, so a missing key is
+            # input, not a bug: indexing blind turned a malformed body into a
+            # KeyError and a 500 (PR #696 review).
+            parsed = []
+            for i, c in enumerate(criteria):
+                missing = [k for k in ("id", "text") if k not in c]
+                if missing:
+                    raise PlanInputError(
+                        f"criterion {i} is missing {' and '.join(missing)}; "
+                        "each criterion needs an 'id' and a 'text'"
+                    )
+                parsed.append(Criterion(id=str(c["id"]), text=str(c["text"])))
+            session.plan.criteria = parsed
         session.review = None
         session.status = "ingested"
         self._save(session)

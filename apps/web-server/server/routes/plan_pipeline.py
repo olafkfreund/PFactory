@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -27,10 +27,7 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
-from plan.service import SERVICE, PlanServiceError  # noqa: E402
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from plan.service import PlanService
+from plan.service import SERVICE, PlanInputError, PlanService, PlanServiceError  # noqa: E402
 
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
 
@@ -323,13 +320,17 @@ async def process(session_id: str, updates: PlanUpdateBody | None = None) -> dic
             # Cast HERE, not once at module level: a module-level handle binds the
             # singleton at import and silently defeats the
             # `monkeypatch.setattr(pp, "SERVICE", ...)` seam every test uses.
-            cast("PlanService", SERVICE).update_plan(
+            cast(PlanService, SERVICE).update_plan(
                 session_id,
                 title=updates.title,
                 description=updates.description,
                 criteria=updates.criteria,
             )
         return _session_dict(await SERVICE.process_async(session_id))
+    except PlanInputError as exc:
+        # Before PlanServiceError below: a rejected edit is the caller's input,
+        # not a missing session, and 404 told them the opposite (PR #696 review).
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc
 

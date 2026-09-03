@@ -26,6 +26,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
+from fastapi import HTTPException  # noqa: E402
 from plan.service import PlanService  # noqa: E402
 from server.routes import plan_pipeline as pp  # noqa: E402
 
@@ -93,3 +94,28 @@ def test_review_returned_describes_the_submitted_text(service):
     assert result["review"] is not None
     assert service.get(sid).plan.description == "revised wording"
     assert service.get(sid).status == "processed"
+
+
+def test_a_malformed_criterion_is_400_not_500(service):
+    """Was a bare KeyError escaping as a 500 (PR #696 review)."""
+    sid = _seed(service)
+
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(
+            pp.process(sid, updates=pp.PlanUpdateBody(criteria=[{"text": "no id"}]))
+        )
+
+    assert caught.value.status_code == 400
+
+
+def test_an_empty_title_is_400_and_an_unknown_session_is_404(service):
+    """Validation must not masquerade as "not found" — both were 404."""
+    sid = _seed(service)
+
+    with pytest.raises(HTTPException) as bad_input:
+        asyncio.run(pp.process(sid, updates=pp.PlanUpdateBody(title="   ")))
+    assert bad_input.value.status_code == 400
+
+    with pytest.raises(HTTPException) as missing:
+        asyncio.run(pp.process("no-such-session", updates=pp.PlanUpdateBody(title="x")))
+    assert missing.value.status_code == 404
