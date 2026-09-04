@@ -82,6 +82,9 @@ ACTION_MCP_TASK_RECOVER = "mcp.task.recover"
 ACTION_MCP_TASK_APPROVE_PLAN = "mcp.task.approve_plan"
 ACTION_MCP_TASK_CREATE_PR = "mcp.task.create_pr"
 ACTION_MCP_TASK_MERGE = "mcp.task.merge"
+ACTION_MCP_PLAN_INGEST = "mcp.plan.ingest"
+ACTION_MCP_PLAN_PROCESS = "mcp.plan.process"
+ACTION_MCP_PLAN_APPROVE = "mcp.plan.approve"
 
 
 # ---------------------------------------------------------------------------
