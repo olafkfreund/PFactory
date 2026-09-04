@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, X, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function PlanEditor({ session, onUpdated }: Props) {
+  const { t } = useTranslation('common');
   const store = usePlanStore();
   const { sessionLoading, error } = store;
 
@@ -68,20 +70,20 @@ export function PlanEditor({ session, onUpdated }: Props) {
     <div className="flex flex-col gap-5" data-testid="plan-editor">
       <div className="flex flex-col gap-1.5">
         <label htmlFor="edit-title" className="text-sm font-medium text-foreground">
-          Title
+          {t('planEditor.title')}
         </label>
         <Input
           id="edit-title"
           value={title}
           onChange={(e) => { setTitle(e.target.value); markDirty(); }}
-          aria-label="Plan title"
+          aria-label={t('planEditor.planTitleAria')}
           data-testid="edit-title"
         />
       </div>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="edit-description" className="text-sm font-medium text-foreground">
-          Description
+          {t('planEditor.description')}
         </label>
         {/*
           The description carries the whole plan document — business rules, open
@@ -94,7 +96,7 @@ export function PlanEditor({ session, onUpdated }: Props) {
           value={description}
           onChange={(e) => { setDescription(e.target.value); markDirty(); }}
           rows={24}
-          aria-label="Plan description"
+          aria-label={t('planEditor.planDescriptionAria')}
           data-testid="edit-description"
           className="min-h-[20rem] resize-y font-mono text-xs leading-relaxed"
         />
@@ -103,7 +105,7 @@ export function PlanEditor({ session, onUpdated }: Props) {
       {/* Criteria */}
       <div className="flex flex-col gap-2">
         <label className="text-sm font-medium text-foreground">
-          Acceptance criteria ({criteria.length})
+          {t('planEditor.criteria', { count: criteria.length })}
         </label>
         {criteria.map((c) => (
           <div key={c.id} className="flex items-start gap-2">
@@ -114,12 +116,12 @@ export function PlanEditor({ session, onUpdated }: Props) {
               value={c.text}
               onChange={(e) => handleUpdateCriterion(c.id, e.target.value)}
               rows={2}
-              aria-label={`Criterion ${c.id}`}
+              aria-label={t('planEditor.criterionAria', { id: c.id })}
               className="flex-1 min-h-0 text-xs"
             />
             <button
               type="button"
-              aria-label={`Remove criterion ${c.id}`}
+              aria-label={t('planEditor.removeCriterion', { id: c.id })}
               onClick={() => handleRemoveCriterion(c.id)}
               className="mt-2 rounded p-1 hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground"
             >
@@ -130,11 +132,11 @@ export function PlanEditor({ session, onUpdated }: Props) {
 
         <div className="flex gap-2">
           <Input
-            placeholder="New criterion text…"
+            placeholder={t('planEditor.newCriterionPlaceholder')}
             value={newCriterionText}
             onChange={(e) => setNewCriterionText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddCriterion()}
-            aria-label="New criterion"
+            aria-label={t('planEditor.newCriterionAria')}
             data-testid="new-criterion-input"
             className="text-xs"
           />
@@ -144,7 +146,7 @@ export function PlanEditor({ session, onUpdated }: Props) {
             size="sm"
             onClick={handleAddCriterion}
             disabled={!newCriterionText.trim()}
-            aria-label="Add criterion"
+            aria-label={t('planEditor.addCriterion')}
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
           </Button>
@@ -162,7 +164,7 @@ export function PlanEditor({ session, onUpdated }: Props) {
           role="status"
           className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning"
         >
-          Unsaved changes. Re-process saves them and re-runs review — which clears the current review and any approval.
+          {t('planEditor.unsavedChanges')}
         </div>
       )}
 
@@ -177,20 +179,20 @@ export function PlanEditor({ session, onUpdated }: Props) {
           }}
           disabled={!dirty || sessionLoading}
         >
-          Discard
+          {t('planEditor.discard')}
         </Button>
         <Button
           onClick={handleReprocess}
           disabled={sessionLoading}
           data-testid="reprocess-btn"
-          aria-label="Re-process plan"
+          aria-label={t('planEditor.reprocessAria')}
         >
           {sessionLoading ? (
             <RefreshCw className="mr-2 h-4 w-4 animate-spin" aria-hidden />
           ) : (
             <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
           )}
-          Re-process
+          {t('planEditor.reprocess')}
         </Button>
       </div>
     </div>
