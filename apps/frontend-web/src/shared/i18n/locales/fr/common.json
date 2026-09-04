@@ -349,5 +349,41 @@
       "checks": "Vérifications : {{ids}}",
       "invalidated": "invalidée"
     }
+  },
+  "planEditor": {
+    "title": "Titre",
+    "description": "Description",
+    "criteria": "Critères d'acceptation ({{count}})",
+    "criterionAria": "Critère {{id}}",
+    "removeCriterion": "Supprimer le critère {{id}}",
+    "newCriterionPlaceholder": "Texte du nouveau critère…",
+    "newCriterionAria": "Nouveau critère",
+    "addCriterion": "Ajouter un critère",
+    "unsavedChanges": "Modifications non enregistrées. Le retraitement les enregistre et relance la revue — ce qui annule la revue en cours et toute approbation.",
+    "discard": "Annuler",
+    "reprocess": "Retraiter",
+    "reprocessAria": "Retraiter le plan",
+    "planTitleAria": "Titre du plan",
+    "planDescriptionAria": "Description du plan"
+  },
+  "annotations": {
+    "empty": "Aucune modification suggérée — le plan est clair, ou il n'a pas encore été traité.",
+    "heading": "Modifications suggérées",
+    "count": "{{count}} suggestion · original préservé",
+    "count_plural": "{{count}} suggestions · original préservé",
+    "acceptAria": "Accepter : {{suggestion}}",
+    "line": "ligne {{line}}",
+    "wholeDocument": "document entier",
+    "why": "Pourquoi :",
+    "proposedText": "Texte proposé — modifiez-le avant d'accepter :",
+    "proposedTextAria": "Texte proposé pour {{suggestion}}",
+    "noDraft": "Aucun brouillon automatique — celui-ci demande un jugement. Modifiez le plan directement.",
+    "selectPrompt": "Sélectionnez les suggestions à accepter.",
+    "selected": "{{count}} sélectionnée(s) · l'application annule la revue en cours et toute approbation",
+    "apply": "Accepter et retraiter",
+    "applyCount": "Accepter {{count}} et retraiter",
+    "applyAria": "Appliquer les suggestions acceptées et retraiter",
+    "showDraft": "Afficher le brouillon amélioré",
+    "hideDraft": "Masquer le brouillon amélioré"
   }
 }

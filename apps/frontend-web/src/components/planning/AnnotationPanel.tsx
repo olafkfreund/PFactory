@@ -5,6 +5,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FileText, Lightbulb, Link as LinkIcon, RefreshCw } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -34,6 +35,7 @@ function SuggestionRow({
   onToggle: (checked: boolean) => void;
   onDraftChange: (text: string) => void;
 }) {
+  const { t } = useTranslation('common');
   // A suggestion with no drafted text cannot be accepted mechanically. Say so
   // and disable it rather than offering a button that would apply nothing.
   const applicable = s.mode !== 'manual';
@@ -46,7 +48,7 @@ function SuggestionRow({
             type="checkbox"
             checked={checked}
             onChange={(e) => { onToggle(e.target.checked); }}
-            aria-label={`Accept: ${s.suggestion}`}
+            aria-label={t('annotations.acceptAria', { suggestion: s.suggestion })}
             data-testid={`accept-${s.id}`}
             className="mt-1 h-3.5 w-3.5 shrink-0 accent-primary"
           />
@@ -56,10 +58,12 @@ function SuggestionRow({
         <div className="flex-1 space-y-1">
           <p className="text-xs font-medium leading-snug">{s.suggestion}</p>
           <p className="text-[11px] text-muted-foreground">
-            {s.anchor_line ? `line ${String(s.anchor_line)}` : 'whole document'}
+            {s.anchor_line
+              ? t('annotations.line', { line: s.anchor_line })
+              : t('annotations.wholeDocument')}
             {s.original_excerpt && <span className="opacity-80"> — “{s.original_excerpt}”</span>}
           </p>
-          {s.why && <p className="text-[11px] opacity-90"><span className="font-medium">Why:</span> {s.why}</p>}
+          {s.why && <p className="text-[11px] opacity-90"><span className="font-medium">{t('annotations.why')}</span> {s.why}</p>}
           {s.citation?.uri && (
             <a
               href={s.citation.uri}
@@ -75,13 +79,13 @@ function SuggestionRow({
             checked && (
               <div className="pt-1">
                 <p className="pb-1 text-[11px] font-medium text-muted-foreground">
-                  Proposed text — edit before accepting:
+                  {t('annotations.proposedText')}
                 </p>
                 <Textarea
                   value={draft}
                   onChange={(e) => { onDraftChange(e.target.value); }}
                   rows={draft.split('\n').length > 6 ? 12 : 4}
-                  aria-label={`Proposed text for ${s.suggestion}`}
+                  aria-label={t('annotations.proposedTextAria', { suggestion: s.suggestion })}
                   data-testid={`draft-${s.id}`}
                   className="resize-y font-mono text-[11px] leading-relaxed"
                 />
@@ -89,7 +93,7 @@ function SuggestionRow({
             )
           ) : (
             <p className="text-[11px] italic text-muted-foreground">
-              No automatic draft — this one needs a judgement call. Edit the plan directly.
+              {t('annotations.noDraft')}
             </p>
           )}
         </div>
@@ -100,6 +104,7 @@ function SuggestionRow({
 }
 
 export function AnnotationPanel({ session }: { session: PlanSession }) {
+  const { t } = useTranslation('common');
   const annotation = session.annotation ?? null;
   const [showDraft, setShowDraft] = useState(false);
   const store = usePlanStore();
@@ -124,7 +129,7 @@ export function AnnotationPanel({ session }: { session: PlanSession }) {
   if (!annotation || (annotation.suggestions.length === 0 && !annotation.improved_markdown)) {
     return (
       <p className="text-sm text-muted-foreground">
-        No suggested edits — the plan reads cleanly, or it hasn't been processed yet.
+        {t('annotations.empty')}
       </p>
     );
   }
@@ -134,12 +139,12 @@ export function AnnotationPanel({ session }: { session: PlanSession }) {
       <div className="flex items-center gap-2">
         <FileText className="h-4 w-4 text-primary" aria-hidden />
         <h3 className="text-sm font-semibold">
-          Suggested edits {session.original_filename && (
+          {t('annotations.heading')} {session.original_filename && (
             <span className="font-normal text-muted-foreground">· {session.original_filename}</span>
           )}
         </h3>
         <span className="ml-auto text-[11px] text-muted-foreground">
-          {annotation.suggestions.length} suggestion(s) · original preserved
+          {t('annotations.count', { count: annotation.suggestions.length })}
         </span>
       </div>
 
@@ -173,17 +178,19 @@ export function AnnotationPanel({ session }: { session: PlanSession }) {
       <div className="flex items-center justify-end gap-3">
         <span className="text-[11px] text-muted-foreground">
           {acceptedIds.length === 0
-            ? 'Select the suggestions to accept.'
-            : `${String(acceptedIds.length)} selected · applying clears the current review and any approval`}
+            ? t('annotations.selectPrompt')
+            : t('annotations.selected', { count: acceptedIds.length })}
         </span>
         <Button
           onClick={() => void handleApply()}
           disabled={acceptedIds.length === 0 || sessionLoading}
           data-testid="apply-suggestions-btn"
-          aria-label="Apply accepted suggestions and re-process"
+          aria-label={t('annotations.applyAria')}
         >
           <RefreshCw className={cn('mr-2 h-4 w-4', sessionLoading && 'animate-spin')} aria-hidden />
-          Accept {acceptedIds.length > 0 ? `${String(acceptedIds.length)} ` : ''}&amp; re-process
+          {acceptedIds.length > 0
+            ? t('annotations.applyCount', { count: acceptedIds.length })
+            : t('annotations.apply')}
         </Button>
       </div>
 
@@ -194,7 +201,7 @@ export function AnnotationPanel({ session }: { session: PlanSession }) {
             onClick={() => setShowDraft((v) => !v)}
             className="text-xs font-medium text-primary hover:underline"
           >
-            {showDraft ? 'Hide' : 'Show'} improved draft
+            {showDraft ? t('annotations.hideDraft') : t('annotations.showDraft')}
           </button>
           {showDraft && (
             <pre className="mt-2 max-h-[420px] overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-[11px] leading-relaxed whitespace-pre-wrap">

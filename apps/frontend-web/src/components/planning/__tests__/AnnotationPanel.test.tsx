@@ -14,6 +14,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
+import { translate } from './i18n-mock';
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: translate }),
+}));
+
 import { AnnotationPanel } from '../AnnotationPanel';
 import { usePlanStore } from '../../../stores/plan-store';
 

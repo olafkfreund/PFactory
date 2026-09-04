@@ -285,5 +285,41 @@
     "failedLabel": "Falhou",
     "starting": "Iniciando..."
   },
-  "lastChecked": "Última verificação"
+  "lastChecked": "Última verificação",
+  "planEditor": {
+    "title": "Título",
+    "description": "Descrição",
+    "criteria": "Critérios de aceitação ({{count}})",
+    "criterionAria": "Critério {{id}}",
+    "removeCriterion": "Remover critério {{id}}",
+    "newCriterionPlaceholder": "Texto do novo critério…",
+    "newCriterionAria": "Novo critério",
+    "addCriterion": "Adicionar critério",
+    "unsavedChanges": "Alterações não salvas. Reprocessar salva as alterações e executa a revisão novamente — o que limpa a revisão atual e qualquer aprovação.",
+    "discard": "Descartar",
+    "reprocess": "Reprocessar",
+    "reprocessAria": "Reprocessar plano",
+    "planTitleAria": "Título do plano",
+    "planDescriptionAria": "Descrição do plano"
+  },
+  "annotations": {
+    "empty": "Nenhuma edição sugerida — o plano está claro, ou ainda não foi processado.",
+    "heading": "Edições sugeridas",
+    "count": "{{count}} sugestão · original preservado",
+    "count_plural": "{{count}} sugestões · original preservado",
+    "acceptAria": "Aceitar: {{suggestion}}",
+    "line": "linha {{line}}",
+    "wholeDocument": "documento inteiro",
+    "why": "Por quê:",
+    "proposedText": "Texto proposto — edite antes de aceitar:",
+    "proposedTextAria": "Texto proposto para {{suggestion}}",
+    "noDraft": "Sem rascunho automático — este exige julgamento. Edite o plano diretamente.",
+    "selectPrompt": "Selecione as sugestões a aceitar.",
+    "selected": "{{count}} selecionada(s) · aplicar limpa a revisão atual e qualquer aprovação",
+    "apply": "Aceitar e reprocessar",
+    "applyCount": "Aceitar {{count}} e reprocessar",
+    "applyAria": "Aplicar sugestões aceitas e reprocessar",
+    "showDraft": "Mostrar rascunho melhorado",
+    "hideDraft": "Ocultar rascunho melhorado"
+  }
 }
