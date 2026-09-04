@@ -48,6 +48,10 @@ MCP_READ_SCOPE = "mcp:read"
 PROJECT_WRITE_SCOPE = "project:write"
 TASK_WRITE_SCOPE = "task:write"
 TASK_MERGE_SCOPE = "task:merge"
+# Plan mutations (ingest / process / approve). Separate from task:write
+# because handing a plan to the pipeline and running an agent on a repo are
+# different powers — a key may reasonably hold one without the other.
+PLAN_WRITE_SCOPE = "plan:write"
 
 ALL_SCOPES = frozenset(
     {
@@ -55,6 +59,7 @@ ALL_SCOPES = frozenset(
         PROJECT_WRITE_SCOPE,
         TASK_WRITE_SCOPE,
         TASK_MERGE_SCOPE,
+        PLAN_WRITE_SCOPE,
     }
 )
 

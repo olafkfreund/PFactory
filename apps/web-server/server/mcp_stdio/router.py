@@ -25,9 +25,27 @@ UI-driven actions in the audit log.
 from __future__ import annotations
 
 import json
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
-from fastapi import Request as FastAPIRequest
+from fastapi import APIRouter, Depends, File, Form, Query, Request as FastAPIRequest, UploadFile
+
+from server.routes.plan_meta import categories as plan_categories
+from server.routes.plan_pipeline import (
+    ApproveBody,
+    IngestTextBody,
+    approve as plan_approve,
+    audit_pack as plan_audit_pack,
+    get_session as plan_get_session,
+    ingest_text as plan_ingest_text,
+    ingest_upload as plan_ingest_upload,
+    list_sessions as plan_list_sessions,
+    process as plan_process,
+)
+from server.services.audit_service import (
+    ACTION_MCP_PLAN_APPROVE,
+    ACTION_MCP_PLAN_INGEST,
+    ACTION_MCP_PLAN_PROCESS,
+)
 
 from ..mcp_remote.auth import AuthenticatedKey
 from ..services.audit_service import (
@@ -43,6 +61,7 @@ from ..services.audit_service import (
 )
 from .auth import (
     MCP_READ_SCOPE,
+    PLAN_WRITE_SCOPE,
     PROJECT_WRITE_SCOPE,
     TASK_MERGE_SCOPE,
     TASK_WRITE_SCOPE,
@@ -337,5 +356,126 @@ async def proxy_merge_worktree(
         "task",
         task_id,
         request,
+    )
+    return result
+
+
+# =============================================================================
+# Plan pipeline (#694)
+#
+# The plan MCP tools used to drive an in-process ``PlanService``, so a plan
+# handed to PFactory over MCP was built inside the MCP subprocess and never
+# reached the server: invisible to the portal, invisible to
+# ``GET /api/plan/sessions``, gone when the subprocess exited — while the tool
+# returned a complete, plausible success payload. These routes give those tools
+# somewhere real to write, on the same scope-gated proxy the task tools use.
+#
+# Unlike the task routes above, the plan handlers are imported at module level.
+# ``main.py`` already imports ``plan_pipeline`` (and so builds the plan service)
+# before it includes this router, so deferring here would buy nothing — and
+# ``Annotated`` dependencies keep FastAPI's DI out of default arguments.
+# =============================================================================
+
+_Read = Annotated[AuthenticatedKey | _LegacyAdminKey, Depends(require_acw_scope(MCP_READ_SCOPE))]
+_PlanWrite = Annotated[
+    AuthenticatedKey | _LegacyAdminKey, Depends(require_acw_scope(PLAN_WRITE_SCOPE))
+]
+
+
+@router.get("/plan/sessions")
+async def proxy_list_plan_sessions(request: FastAPIRequest, _: _Read) -> dict[str, Any]:
+    return await plan_list_sessions(request)
+
+
+@router.get("/plan/sessions/{session_id}")
+async def proxy_get_plan_session(
+    session_id: str, request: FastAPIRequest, _: _Read
+) -> dict[str, Any]:
+    return await plan_get_session(session_id, request)
+
+
+@router.get("/plan/sessions/{session_id}/audit-pack")
+async def proxy_plan_audit_pack(
+    session_id: str,
+    _: _Read,
+    # Aliased because the REST parameter is `format`, which shadows a builtin.
+    fmt: Annotated[str, Query(alias="format")] = "json",
+) -> Any:
+    return await plan_audit_pack(session_id, format=fmt)
+
+
+@router.get("/plan/meta/categories")
+async def proxy_plan_categories(_: _Read) -> dict[str, Any]:
+    return await plan_categories()
+
+
+@router.post("/plan/sessions/ingest-text")
+async def proxy_plan_ingest_text(request: FastAPIRequest, key: _PlanWrite) -> dict[str, Any]:
+    body = await _read_json_body(request)
+    result = await plan_ingest_text(IngestTextBody(**body), request)
+    session_id = result.get("session_id") if isinstance(result, dict) else None
+    await _audit_mcp_write(
+        key,
+        ACTION_MCP_PLAN_INGEST,
+        "plan_session",
+        session_id,
+        request,
+        details={"title": body.get("title")},
+    )
+    return result
+
+
+@router.post("/plan/sessions/ingest")
+async def proxy_plan_ingest_upload(  # noqa: PLR0913 - one param per multipart form field
+    request: FastAPIRequest,
+    key: _PlanWrite,
+    file: Annotated[UploadFile, File()],
+    title: Annotated[str | None, Form()] = None,
+    category: Annotated[str, Form()] = "",
+    template: Annotated[str, Form()] = "",
+) -> dict[str, Any]:
+    """Multipart ingest, so ``plan_ingest(path=...)`` keeps working for pdf/docx.
+
+    The MCP subprocess runs on the caller's machine; the server cannot read that
+    filesystem. The tool reads the file locally and uploads the bytes here, so
+    text extraction stays server-side where the parsers live.
+    """
+    result = await plan_ingest_upload(
+        request, file=file, title=title, category=category, template=template
+    )
+    session_id = result.get("session_id") if isinstance(result, dict) else None
+    await _audit_mcp_write(
+        key,
+        ACTION_MCP_PLAN_INGEST,
+        "plan_session",
+        session_id,
+        request,
+        details={"filename": file.filename},
+    )
+    return result
+
+
+@router.post("/plan/sessions/{session_id}/process")
+async def proxy_plan_process(
+    session_id: str, request: FastAPIRequest, key: _PlanWrite
+) -> dict[str, Any]:
+    result = await plan_process(session_id, request)
+    await _audit_mcp_write(key, ACTION_MCP_PLAN_PROCESS, "plan_session", session_id, request)
+    return result
+
+
+@router.post("/plan/sessions/{session_id}/approve")
+async def proxy_plan_approve(
+    session_id: str, request: FastAPIRequest, key: _PlanWrite
+) -> dict[str, Any]:
+    body = await _read_json_body(request)
+    result = await plan_approve(session_id, ApproveBody(**body))
+    await _audit_mcp_write(
+        key,
+        ACTION_MCP_PLAN_APPROVE,
+        "plan_session",
+        session_id,
+        request,
+        details={"approver": body.get("approver")},
     )
     return result

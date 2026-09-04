@@ -1,7 +1,7 @@
 """Plan MCP tools — let any host hand a plan to PFactory (#2, Phase F).
 
-Six tools (`mcp__pfactory__plan_*`) that wrap the framework-agnostic callables in
-:mod:`plan.agent_api` (which drive the shared ``plan.service.SERVICE``):
+Eight tools (`mcp__pfactory__plan_*`) that call the running PFactory server over
+the scope-gated ``/api/mcp-stdio/*`` proxy (#694):
 
   - plan_ingest   — ingest inline text or a file path → new session
   - plan_process  — run the pipeline (enrich · feasibility · review)
@@ -13,11 +13,26 @@ Six tools (`mcp__pfactory__plan_*`) that wrap the framework-agnostic callables i
 Registered ONLY from the standalone MCP server, so Claude Code / Antigravity /
 Codex can call them over MCP. No GitHub/AIFactory side-effects — emission stays
 behind the human-approved path.
+
+WHY HTTP AND NOT ``plan.agent_api`` (#694). These tools used to call
+``agent_api``, which drives an in-process ``plan.service.SERVICE``. The MCP
+server runs as a **subprocess on the caller's machine**, so that store was a
+second, private PlanService: a plan handed to PFactory over MCP never reached
+the configured server. It did not appear in the portal, did not appear in
+``GET /api/plan/sessions``, and died with the subprocess — while the tool
+returned a complete, plausible payload with a session_id and a full review, so
+nothing signalled that the work had landed nowhere. ``PFACTORY_API_URL`` was
+configured and simply never read.
+
+Going through ``http_client`` puts these tools on the same path the task tools
+use, which means one auth story, one audit trail, and one store.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 try:
@@ -33,6 +48,39 @@ def _ok(data: Any) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(data, indent=2, default=str)}]}
 
 
+def _read_plan_file(path: str) -> tuple[str, bytes]:
+    """Read a plan document off the caller's disk, in a worker thread.
+
+    Every ``Path`` call lives in here, expansion included: they all touch the
+    filesystem, and any of them on the event loop is a blocking call inside an
+    async handler (ASYNC240). Returns the resolved name alongside the bytes so
+    the caller can label the upload without re-touching the path.
+    """
+    source = Path(path).expanduser()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    return source.name, source.read_bytes()
+
+
+def _status_of(session: Any) -> dict[str, Any]:
+    """Trim a full session payload to the lightweight status view.
+
+    ``plan_status`` promises status + board column + gate result. The server has
+    no narrower endpoint, so the projection happens here rather than shipping
+    the whole session and calling it a status.
+    """
+    if not isinstance(session, dict):
+        return {"error": "unexpected session payload"}
+    review = session.get("review") or {}
+    return {
+        "session_id": session.get("session_id"),
+        "status": session.get("status"),
+        "board_state": session.get("board_state"),
+        "gates_passed": review.get("gates_passed"),
+        "aggregate_score": review.get("aggregate_score"),
+    }
+
+
 def _err(message: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"ERROR: {message}"}], "is_error": True}
 
@@ -42,7 +90,7 @@ def create_plan_tools() -> list:
     if not SDK_TOOLS_AVAILABLE:
         return []
 
-    from plan import agent_api
+    from agents.tools_pkg import http_client
 
     tools: list = []
 
@@ -71,13 +119,35 @@ def create_plan_tools() -> list:
     )
     async def plan_ingest(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            text, path = args.get("text"), args.get("path")
+            if not text and not path:
+                return _err("plan_ingest needs either `text` or `path`")
+            common = {
+                "title": args.get("title"),
+                "category": args.get("category", ""),
+                "template": args.get("template", ""),
+            }
+            if path:
+                # Read here: the server has no access to the caller's disk. The
+                # bytes go up as-is so server-side parsers still handle pdf/docx.
+                try:
+                    name, data = await asyncio.to_thread(_read_plan_file, path)
+                except OSError:
+                    return _err(f"no such plan document: {path}")
+                form = {k: v for k, v in common.items() if v is not None}
+                return _ok(
+                    await http_client.request(
+                        "POST",
+                        "/api/plan/sessions/ingest",
+                        files={"file": (name, data)},
+                        data=form,
+                    )
+                )
             return _ok(
-                agent_api.plan_ingest(
-                    text=args.get("text"),
-                    path=args.get("path"),
-                    title=args.get("title"),
-                    category=args.get("category", ""),
-                    template=args.get("template", ""),
+                await http_client.request(
+                    "POST",
+                    "/api/plan/sessions/ingest-text",
+                    json={"text": text, **common},
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -98,7 +168,11 @@ def create_plan_tools() -> list:
     )
     async def plan_process(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            return _ok(agent_api.plan_process(args["session_id"]))
+            return _ok(
+                await http_client.request(
+                    "POST", f"/api/plan/sessions/{args['session_id']}/process", json={}
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
@@ -116,7 +190,8 @@ def create_plan_tools() -> list:
     )
     async def plan_status(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            return _ok(agent_api.plan_status(args["session_id"]))
+            session = await http_client.request("GET", f"/api/plan/sessions/{args['session_id']}")
+            return _ok(_status_of(session))
         except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
@@ -134,7 +209,7 @@ def create_plan_tools() -> list:
     )
     async def plan_get(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            return _ok(agent_api.plan_get(args["session_id"]))
+            return _ok(await http_client.request("GET", f"/api/plan/sessions/{args['session_id']}"))
         except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
@@ -147,7 +222,7 @@ def create_plan_tools() -> list:
     )
     async def plan_list(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            return _ok(agent_api.plan_list())
+            return _ok(await http_client.request("GET", "/api/plan/sessions"))
         except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
@@ -163,7 +238,7 @@ def create_plan_tools() -> list:
     )
     async def plan_categories(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            return _ok(agent_api.plan_categories())
+            return _ok(await http_client.request("GET", "/api/plan/meta/categories"))
         except Exception as exc:  # noqa: BLE001
             return _err(str(exc))
 
@@ -186,10 +261,13 @@ def create_plan_tools() -> list:
     async def plan_approve(args: dict[str, Any]) -> dict[str, Any]:
         try:
             return _ok(
-                agent_api.plan_approve(
-                    args["session_id"],
-                    approver=args["approver"],
-                    feedback=args.get("feedback"),
+                await http_client.request(
+                    "POST",
+                    f"/api/plan/sessions/{args['session_id']}/approve",
+                    json={
+                        "approver": args["approver"],
+                        "feedback": args.get("feedback"),
+                    },
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -217,9 +295,10 @@ def create_plan_tools() -> list:
     async def plan_export_audit_pack(args: dict[str, Any]) -> dict[str, Any]:
         try:
             return _ok(
-                agent_api.plan_export_audit_pack(
-                    args["session_id"],
-                    fmt=args.get("format", "json"),
+                await http_client.request(
+                    "GET",
+                    f"/api/plan/sessions/{args['session_id']}/audit-pack",
+                    params={"format": args.get("format", "json")},
                 )
             )
         except Exception as exc:  # noqa: BLE001

@@ -361,3 +361,97 @@ def test_audit_constants_use_mcp_namespace():
         assert action.startswith("mcp."), (
             f"Expected mcp.* namespace for Epic #50 audit constant, got {action!r}"
         )
+
+
+# ── Plan routes (#694) ───────────────────────────────────────────────
+#
+# The plan MCP tools had nowhere on this proxy to write, which is why they used
+# a private in-process store. These routes are that destination; they must be
+# scope-gated like every other route here, and the write routes must audit.
+
+
+def test_plan_write_scope_is_a_named_scope():
+    """``plan:write`` must be in ALL_SCOPES or no acw_ key can ever hold it."""
+    from server.mcp_stdio.auth import ALL_SCOPES, PLAN_WRITE_SCOPE
+
+    assert PLAN_WRITE_SCOPE == "plan:write"
+    assert PLAN_WRITE_SCOPE in ALL_SCOPES
+
+
+def test_plan_audit_constants_use_mcp_namespace():
+    from server.services.audit_service import (
+        ACTION_MCP_PLAN_APPROVE,
+        ACTION_MCP_PLAN_INGEST,
+        ACTION_MCP_PLAN_PROCESS,
+    )
+
+    assert ACTION_MCP_PLAN_INGEST == "mcp.plan.ingest"
+    assert ACTION_MCP_PLAN_PROCESS == "mcp.plan.process"
+    assert ACTION_MCP_PLAN_APPROVE == "mcp.plan.approve"
+
+
+def _proxy_module():
+    """The router MODULE — the package __init__ re-exports the APIRouter as
+    ``router``, which shadows it on a normal import."""
+    import sys
+
+    import server.mcp_stdio.router  # noqa: F401  (load into sys.modules)
+
+    return sys.modules["server.mcp_stdio.router"]
+
+
+def _scopes_of(route) -> set[str]:
+    """The scope strings closed over by this route's ``require_acw_scope`` dep."""
+    scopes: set[str] = set()
+    dependant = getattr(route, "dependant", None)
+    for dep in getattr(dependant, "dependencies", []) or []:
+        for cell in getattr(dep.call, "__closure__", None) or ():
+            value = cell.cell_contents
+            if isinstance(value, str):
+                scopes.add(value)
+    return scopes
+
+
+def _plan_routes():
+    return {
+        (sorted(r.methods - {"HEAD", "OPTIONS"})[0], r.path)
+        for r in _proxy_module().router.routes
+        if "/plan" in getattr(r, "path", "")
+    }
+
+
+def test_every_plan_tool_has_a_proxy_route():
+    """One route per plan MCP tool — a tool with no route cannot reach the server."""
+    assert _plan_routes() == {
+        ("GET", "/api/mcp-stdio/plan/sessions"),
+        ("GET", "/api/mcp-stdio/plan/sessions/{session_id}"),
+        ("GET", "/api/mcp-stdio/plan/sessions/{session_id}/audit-pack"),
+        ("GET", "/api/mcp-stdio/plan/meta/categories"),
+        ("POST", "/api/mcp-stdio/plan/sessions/ingest"),
+        ("POST", "/api/mcp-stdio/plan/sessions/ingest-text"),
+        ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/process"),
+        ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/approve"),
+    }
+
+
+def test_plan_writes_need_plan_write_and_reads_need_mcp_read():
+    """A write gated only by ``mcp:read`` would let a read-only key mutate plans.
+
+    Reads the dependency each route actually declares, rather than trusting that
+    the right decorator was pasted in.
+    """
+    writes = {
+        "/api/mcp-stdio/plan/sessions/ingest",
+        "/api/mcp-stdio/plan/sessions/ingest-text",
+        "/api/mcp-stdio/plan/sessions/{session_id}/process",
+        "/api/mcp-stdio/plan/sessions/{session_id}/approve",
+    }
+    seen = {
+        r.path: _scopes_of(r)
+        for r in _proxy_module().router.routes
+        if "/plan" in getattr(r, "path", "")
+    }
+    assert seen, "no plan routes found — the check examined nothing"
+    for path, scopes in seen.items():
+        expected = "plan:write" if path in writes else "mcp:read"
+        assert expected in scopes, f"{path} not gated by {expected} (got {scopes})"
