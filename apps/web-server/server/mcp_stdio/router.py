@@ -25,7 +25,7 @@ UI-driven actions in the audit log.
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request as FastAPIRequest, UploadFile
 
@@ -376,17 +376,21 @@ async def proxy_merge_worktree(
 # ``Annotated`` dependencies keep FastAPI's DI out of default arguments.
 # =============================================================================
 
-_Read = Annotated[object, Depends(require_acw_scope(MCP_READ_SCOPE))]
-_PlanWrite = Annotated[object, Depends(require_acw_scope(PLAN_WRITE_SCOPE))]
+_Read = Annotated[AuthenticatedKey | _LegacyAdminKey, Depends(require_acw_scope(MCP_READ_SCOPE))]
+_PlanWrite = Annotated[
+    AuthenticatedKey | _LegacyAdminKey, Depends(require_acw_scope(PLAN_WRITE_SCOPE))
+]
 
 
 @router.get("/plan/sessions")
-async def proxy_list_plan_sessions(request: FastAPIRequest, _: _Read):
+async def proxy_list_plan_sessions(request: FastAPIRequest, _: _Read) -> dict[str, Any]:
     return await plan_list_sessions(request)
 
 
 @router.get("/plan/sessions/{session_id}")
-async def proxy_get_plan_session(session_id: str, request: FastAPIRequest, _: _Read):
+async def proxy_get_plan_session(
+    session_id: str, request: FastAPIRequest, _: _Read
+) -> dict[str, Any]:
     return await plan_get_session(session_id, request)
 
 
@@ -396,17 +400,17 @@ async def proxy_plan_audit_pack(
     _: _Read,
     # Aliased because the REST parameter is `format`, which shadows a builtin.
     fmt: Annotated[str, Query(alias="format")] = "json",
-):
+) -> Any:
     return await plan_audit_pack(session_id, format=fmt)
 
 
 @router.get("/plan/meta/categories")
-async def proxy_plan_categories(_: _Read):
+async def proxy_plan_categories(_: _Read) -> dict[str, Any]:
     return await plan_categories()
 
 
 @router.post("/plan/sessions/ingest-text")
-async def proxy_plan_ingest_text(request: FastAPIRequest, key: _PlanWrite):
+async def proxy_plan_ingest_text(request: FastAPIRequest, key: _PlanWrite) -> dict[str, Any]:
     body = await _read_json_body(request)
     result = await plan_ingest_text(IngestTextBody(**body), request)
     session_id = result.get("session_id") if isinstance(result, dict) else None
@@ -429,7 +433,7 @@ async def proxy_plan_ingest_upload(  # noqa: PLR0913 - one param per multipart f
     title: Annotated[str | None, Form()] = None,
     category: Annotated[str, Form()] = "",
     template: Annotated[str, Form()] = "",
-):
+) -> dict[str, Any]:
     """Multipart ingest, so ``plan_ingest(path=...)`` keeps working for pdf/docx.
 
     The MCP subprocess runs on the caller's machine; the server cannot read that
@@ -452,14 +456,18 @@ async def proxy_plan_ingest_upload(  # noqa: PLR0913 - one param per multipart f
 
 
 @router.post("/plan/sessions/{session_id}/process")
-async def proxy_plan_process(session_id: str, request: FastAPIRequest, key: _PlanWrite):
+async def proxy_plan_process(
+    session_id: str, request: FastAPIRequest, key: _PlanWrite
+) -> dict[str, Any]:
     result = await plan_process(session_id, request)
     await _audit_mcp_write(key, ACTION_MCP_PLAN_PROCESS, "plan_session", session_id, request)
     return result
 
 
 @router.post("/plan/sessions/{session_id}/approve")
-async def proxy_plan_approve(session_id: str, request: FastAPIRequest, key: _PlanWrite):
+async def proxy_plan_approve(
+    session_id: str, request: FastAPIRequest, key: _PlanWrite
+) -> dict[str, Any]:
     body = await _read_json_body(request)
     result = await plan_approve(session_id, ApproveBody(**body))
     await _audit_mcp_write(

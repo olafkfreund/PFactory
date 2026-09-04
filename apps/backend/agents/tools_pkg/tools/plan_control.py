@@ -48,6 +48,20 @@ def _ok(data: Any) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(data, indent=2, default=str)}]}
 
 
+def _read_plan_file(path: str) -> tuple[str, bytes]:
+    """Read a plan document off the caller's disk, in a worker thread.
+
+    Every ``Path`` call lives in here, expansion included: they all touch the
+    filesystem, and any of them on the event loop is a blocking call inside an
+    async handler (ASYNC240). Returns the resolved name alongside the bytes so
+    the caller can label the upload without re-touching the path.
+    """
+    source = Path(path).expanduser()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    return source.name, source.read_bytes()
+
+
 def _status_of(session: Any) -> dict[str, Any]:
     """Trim a full session payload to the lightweight status view.
 
@@ -116,16 +130,16 @@ def create_plan_tools() -> list:
             if path:
                 # Read here: the server has no access to the caller's disk. The
                 # bytes go up as-is so server-side parsers still handle pdf/docx.
-                source = Path(path).expanduser()
-                if not source.is_file():
-                    return _err(f"no such plan document: {source}")
-                data = await asyncio.to_thread(source.read_bytes)
+                try:
+                    name, data = await asyncio.to_thread(_read_plan_file, path)
+                except OSError:
+                    return _err(f"no such plan document: {path}")
                 form = {k: v for k, v in common.items() if v is not None}
                 return _ok(
                     await http_client.request(
                         "POST",
                         "/api/plan/sessions/ingest",
-                        files={"file": (source.name, data)},
+                        files={"file": (name, data)},
                         data=form,
                     )
                 )
