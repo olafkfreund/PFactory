@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from plan.annotate import remediate
 from plan.annotate.models import AnnotationResult, SuggestedEdit
 
 if TYPE_CHECKING:
-    from plan.models import NormalizedPlan
+    from plan.models import Criterion, NormalizedPlan
     from plan.review.models import Finding, PlanReview
 
 # Words too generic to anchor on.
@@ -50,17 +51,54 @@ def _change_proposing(finding: Finding) -> bool:
     return finding.severity != "info" or bool(finding.blocking)
 
 
-def _anchor_for(finding: Finding, lines: list[str]) -> tuple[str, int, str]:
+# A finding may name the criterion it is about ("AC#10"). That reference is the
+# most precise anchor available, and the tokeniser below cannot see it: "AC" is
+# two letters and "10" does not start with one, so it is discarded and the
+# anchor falls through to whichever line first shares a generic word (#705).
+_AC_REF = re.compile(r"\bAC#\d+\b")
+
+
+def _criterion_anchor(
+    cid: str, criteria: Sequence[Criterion], lines: list[str]
+) -> tuple[str, int, str] | None:
+    """Locate the line holding the criterion a finding names, or None."""
+    # The negative lookahead keeps "AC#1" from matching "AC#10".
+    by_id = re.compile(rf"{re.escape(cid)}(?!\d)")
+    for i, line in enumerate(lines):
+        if by_id.search(line):
+            excerpt = line.strip()[:160]
+            return excerpt, i + 1, excerpt
+    # Documents that state the requirement without repeating its identifier.
+    text = next((c.text for c in criteria if c.id == cid), "")
+    needle = text.strip()[:60]
+    if needle:
+        for i, line in enumerate(lines):
+            if needle in line:
+                excerpt = line.strip()[:160]
+                return excerpt, i + 1, excerpt
+    return None
+
+
+def _anchor_for(
+    finding: Finding, lines: list[str], criteria: Sequence[Criterion] = ()
+) -> tuple[str, int, str]:
     """Find the best line in the original to attach this finding to.
 
     Returns (anchor_excerpt, 1-based line number, original_excerpt). Falls back
     to document-level (line 0) when no distinctive token matches.
     """
+    haystack = f"{finding.title} {finding.detail}"
+    ref = _AC_REF.search(haystack)
+    if ref:
+        hit = _criterion_anchor(ref.group(0), criteria, lines)
+        if hit:
+            return hit
+
     # Split on punctuation so compound tokens like "rds:CreateDBInstance" yield
     # anchorable words ("rds", "CreateDBInstance") that match the source text.
     tokens = [
         t.lower()
-        for t in re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", f"{finding.title} {finding.detail}")
+        for t in re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", haystack)
         if t.lower() not in _STOP
     ]
     # Prefer the most distinctive (longest) tokens first.
@@ -91,7 +129,7 @@ def annotate_plan(plan: NormalizedPlan, review: PlanReview | None) -> Annotation
     for f in findings:
         if not _change_proposing(f):
             continue
-        anchor, line_no, excerpt = _anchor_for(f, lines)
+        anchor, line_no, excerpt = _anchor_for(f, lines, plan.criteria)
         citation = f.citations[0] if f.citations else None
         why = (citation.why if citation and citation.why else f.detail) or f.title
         suggestions.append(
