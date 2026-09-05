@@ -10,6 +10,32 @@ from typing import Any
 AI_FACTORY_DIR = Path.home() / ".pfactory"
 
 
+def write_secret_file(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` as a 0600 file, atomically and with no
+    readable window.
+
+    The text-mode sibling of :func:`atomic_write_secret_json`, for secrets that
+    are not JSON (``.token``, ``.jwt_secret``). Same two defects avoided:
+    ``Path.write_text`` creates at the umask default (usually 0644) and only a
+    *subsequent* ``chmod`` narrows it, and it truncates in place so a concurrent
+    reader can see a partial secret. ``mkstemp`` opens 0600 from creation and
+    ``os.replace`` publishes atomically — and swaps the inode, so a file left at
+    0644 by an older build comes out 0600.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
+    try:
+        try:
+            os.write(fd, text.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        Path(tmp).replace(path)  # atomic within a filesystem
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def atomic_write_secret_json(path: Path, data: Any) -> None:
     """Write ``data`` as JSON to ``path`` atomically, mode 0600 (#298).
 
