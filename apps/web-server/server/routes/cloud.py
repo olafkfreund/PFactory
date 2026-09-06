@@ -34,6 +34,7 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 from agents.cloud import portal_run, store  # noqa: E402  (after sys.path insert)
+from server.background.tasks import spawn  # noqa: E402  (after sys.path insert)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cloud", tags=["Cloud"])
@@ -86,7 +87,7 @@ async def run_cloud_check(req: CloudRunRequest) -> dict:
         # No access — do NOT proceed. The user fixes creds and retries.
         return {"gate": "no_access", "provider": req.provider, "error": gate["error"]}
     # Access confirmed → kick off the assessment in the background.
-    asyncio.create_task(_run_assessment_bg(req))
+    spawn(_run_assessment_bg(req))
     return {
         "gate": "ok",
         "provider": req.provider,

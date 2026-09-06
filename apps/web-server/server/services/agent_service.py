@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from factory_common.logsafe import sanitize_log
+from server.background.tasks import spawn
 from server.services.git_utils import safe_spec_component
 
 from ..config import get_settings
@@ -711,15 +712,13 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         )
 
         # Start output processing in background
-        asyncio.create_task(self._process_output(task_id, proc.stdout, is_stderr=False))
-        asyncio.create_task(self._process_output(task_id, proc.stderr, is_stderr=True))
+        spawn(self._process_output(task_id, proc.stdout, is_stderr=False))
+        spawn(self._process_output(task_id, proc.stderr, is_stderr=True))
 
         # Start process monitor to clean up when finished
         # Pass project_path so monitor can detect created spec and check for review state
         # Pass cmd and env so model fallback can retry with a different model on failure
-        asyncio.create_task(
-            self._monitor_process(task_id, proc, project_path=project_path, cmd=cmd, env=env)
-        )
+        spawn(self._monitor_process(task_id, proc, project_path=project_path, cmd=cmd, env=env))
 
         return proc
 
@@ -1085,15 +1084,15 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         main_log_writer.set_phase_status(spec_id, TaskPhase.PLANNING, "active")
 
         # Start output processing in background with log writers
-        asyncio.create_task(
+        spawn(
             self._process_output(
                 task_id, proc.stdout, is_stderr=False, log_writer=log_writer, spec_id=spec_id
             )
         )
-        asyncio.create_task(self._process_output(task_id, proc.stderr, is_stderr=True))
+        spawn(self._process_output(task_id, proc.stderr, is_stderr=True))
 
         # Start process monitor to clean up when finished (with file syncing and failover support)
-        asyncio.create_task(self._monitor_process(task_id, proc, project_path, spec_id, cmd, env))
+        spawn(self._monitor_process(task_id, proc, project_path, spec_id, cmd, env))
 
         # Epic #44 R1 — opt-in Live Agent Console. No-op when
         # PFACTORY_RMUX_ENABLED is unset/false (the default), so the

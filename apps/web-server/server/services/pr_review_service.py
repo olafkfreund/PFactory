@@ -23,6 +23,7 @@ from enum import Enum
 from pathlib import Path
 
 from factory_common.logsafe import sanitize_log
+from server.background.tasks import spawn
 from server.error_ref import error_reference
 
 from ..config import get_settings
@@ -302,7 +303,7 @@ class PRReviewService:
             )
 
             # Process output in background
-            asyncio.create_task(self._process_output(project_id, pr_number, project_path, proc))
+            spawn(self._process_output(project_id, pr_number, project_path, proc))
 
             return True
 
