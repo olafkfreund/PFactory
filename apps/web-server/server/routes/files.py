@@ -19,9 +19,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from server.auth import _is_legacy_api_token, _try_decode_jwt
 from server.services.git_utils import confine_to_project, confine_to_workspace  # #335, #553
 
-from ..auth import _try_decode_jwt
 from ..config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -331,14 +331,14 @@ def _validate_serve_token(request: Request, token: str) -> bool:
         header_token = auth_header[7:]
         if _try_decode_jwt(header_token) is not None:
             return True
-        if header_token == settings.API_TOKEN:
+        if _is_legacy_api_token(header_token):
             return True
 
     # 2. Try query-param token (used by rewritten HTML asset URLs)
     if token:
         if _try_decode_jwt(token) is not None:
             return True
-        if token == settings.API_TOKEN:
+        if _is_legacy_api_token(token):
             return True
 
     return False

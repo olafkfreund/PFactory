@@ -33,7 +33,8 @@ from pathlib import Path
 
 from fastapi import HTTPException, Request, status
 
-from ..config import get_settings
+from server.auth import _is_legacy_api_token
+
 from ..mcp_remote import auth as mcp_remote_auth
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
@@ -48,6 +49,10 @@ MCP_READ_SCOPE = "mcp:read"
 PROJECT_WRITE_SCOPE = "project:write"
 TASK_WRITE_SCOPE = "task:write"
 TASK_MERGE_SCOPE = "task:merge"
+# Plan mutations (ingest / process / approve). Separate from task:write
+# because handing a plan to the pipeline and running an agent on a repo are
+# different powers — a key may reasonably hold one without the other.
+PLAN_WRITE_SCOPE = "plan:write"
 
 ALL_SCOPES = frozenset(
     {
@@ -55,6 +60,7 @@ ALL_SCOPES = frozenset(
         PROJECT_WRITE_SCOPE,
         TASK_WRITE_SCOPE,
         TASK_MERGE_SCOPE,
+        PLAN_WRITE_SCOPE,
     }
 )
 
@@ -105,7 +111,6 @@ def require_acw_scope(scope: str):
     """
 
     async def _check(request: Request):
-        settings = get_settings()
         token = _strip_bearer(request.headers.get("Authorization"))
         if not token:
             raise HTTPException(
@@ -113,8 +118,10 @@ def require_acw_scope(scope: str):
                 detail="Missing or malformed Authorization header (expected 'Bearer <token>')",
             )
 
-        # Legacy admin token = wildcard. Compare against settings.API_TOKEN.
-        if token == settings.API_TOKEN:
+        # Legacy admin token = wildcard. Matched constant-time via the
+        # shared helper, which also refuses to authenticate anything when
+        # API_TOKEN is unset (Factory#324 M1).
+        if _is_legacy_api_token(token):
             return _LegacyAdminKey()
 
         try:

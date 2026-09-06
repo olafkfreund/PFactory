@@ -82,6 +82,9 @@ ACTION_MCP_TASK_RECOVER = "mcp.task.recover"
 ACTION_MCP_TASK_APPROVE_PLAN = "mcp.task.approve_plan"
 ACTION_MCP_TASK_CREATE_PR = "mcp.task.create_pr"
 ACTION_MCP_TASK_MERGE = "mcp.task.merge"
+ACTION_MCP_PLAN_INGEST = "mcp.plan.ingest"
+ACTION_MCP_PLAN_PROCESS = "mcp.plan.process"
+ACTION_MCP_PLAN_APPROVE = "mcp.plan.approve"
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +108,22 @@ async def log_audit_event(
     This function is wrapped in a try/except so that audit logging
     failures never propagate to the calling code.  A warning is logged
     instead.
+
+    The insert runs inside its own SAVEPOINT so that promise actually
+    holds. Without one, a failed flush (a violated FK on ``org_id``/
+    ``user_id``, an over-length column) leaves the caller's
+    ``AsyncSession`` in a needs-rollback state; the route's next
+    ``await db.commit()`` then raises ``PendingRollbackError`` and the
+    BUSINESS request 500s -- the audit failure propagated after all,
+    just later and wearing the caller's name. Rolling the savepoint back
+    restores the session to exactly the state the caller had before, so
+    their transaction stays committable.
+
+    A savepoint rather than a separate session (the
+    :func:`log_audit_event_bg` route) on purpose: callers pass their own
+    session precisely so the audit row lands in the SAME transaction as
+    the action it records. A separate session would commit an audit row
+    for a business change that then rolled back.
 
     Parameters
     ----------
@@ -130,42 +149,47 @@ async def log_audit_event(
         The IP address of the client, if available.
     """
     try:
-        # Epic #26 P5.2 — hash chain on write. Look up the most-recent
-        # row's hash; this row's prev_hash = compute_hash(that, this).
-        # Concurrency note: SQLAlchemy serializes within a session, but
-        # parallel writers across sessions can race. Worst case: two
-        # rows share the same prev_hash, breaking the chain at that
-        # point. v1.0 mitigates via the FastAPI single-replica
-        # constraint; v1.1 multi-replica adds a SELECT FOR UPDATE on
-        # the chain head.
-        from sqlalchemy import select as _select
+        # Own savepoint: a failed audit insert must not leave the caller's
+        # session in a needs-rollback state (see the docstring). Everything
+        # that touches the DB goes inside -- the chain-head SELECT too, since
+        # a failed statement poisons the transaction just as an insert does.
+        async with db.begin_nested():
+            # Epic #26 P5.2 — hash chain on write. Look up the most-recent
+            # row's hash; this row's prev_hash = compute_hash(that, this).
+            # Concurrency note: SQLAlchemy serializes within a session, but
+            # parallel writers across sessions can race. Worst case: two
+            # rows share the same prev_hash, breaking the chain at that
+            # point. v1.0 mitigates via the FastAPI single-replica
+            # constraint; v1.1 multi-replica adds a SELECT FOR UPDATE on
+            # the chain head.
+            from sqlalchemy import select as _select
 
-        from .audit_chain import GENESIS, compute_hash, row_as_mapping
+            from .audit_chain import GENESIS, compute_hash, row_as_mapping
 
-        last = await db.execute(_select(AuditLog).order_by(AuditLog.created_at.desc()).limit(1))
-        last_row = last.scalar_one_or_none()
-        prev_hash_value = (
-            compute_hash(last_row.prev_hash, row_as_mapping(last_row))
-            if last_row is not None
-            else GENESIS
-        )
+            last = await db.execute(_select(AuditLog).order_by(AuditLog.created_at.desc()).limit(1))
+            last_row = last.scalar_one_or_none()
+            prev_hash_value = (
+                compute_hash(last_row.prev_hash, row_as_mapping(last_row))
+                if last_row is not None
+                else GENESIS
+            )
 
-        # Default retention: 13 months (SOC2 12mo + buffer).
-        retention_until = datetime.utcnow() + timedelta(days=395)
+            # Default retention: 13 months (SOC2 12mo + buffer).
+            retention_until = datetime.utcnow() + timedelta(days=395)
 
-        entry = AuditLog(
-            user_id=user_id,
-            org_id=org_id,
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            details_json=json.dumps(details) if details is not None else None,
-            ip=ip,
-            retention_until=retention_until,
-            prev_hash=prev_hash_value,
-        )
-        db.add(entry)
-        await db.flush()
+            entry = AuditLog(
+                user_id=user_id,
+                org_id=org_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                details_json=json.dumps(details) if details is not None else None,
+                ip=ip,
+                retention_until=retention_until,
+                prev_hash=prev_hash_value,
+            )
+            db.add(entry)
+            await db.flush()
     except Exception:
         logger.warning(
             "Failed to write audit log entry: action=%s resource_type=%s resource_id=%s",

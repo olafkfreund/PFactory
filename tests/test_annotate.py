@@ -96,3 +96,90 @@ def test_no_review_yields_no_suggestions():
     result = annotate_plan(_plan(), None)
     assert result.suggestions == []
     assert result.original_preserved is True
+
+
+# ── a finding that names a criterion anchors to THAT criterion (#705) ──────
+
+_AC_DOC = """# Profile
+
+| NFR-003 | Forms must be operable via keyboard, with appropriately labelled fields. |
+
+## Acceptance Criteria
+
+AC#1: Given a valid age When I save Then the profile is complete.
+AC#2: Given an age below the minimum When I save Then the system shows an appropriate message.
+"""
+
+
+def _ac_plan() -> NormalizedPlan:
+    return NormalizedPlan(
+        plan_id="001-ac",
+        title="Profile",
+        source_format="markdown",
+        target_kind="software",
+        criteria=[
+            Criterion(id="AC#1", text="Given a valid age When I save Then the profile is complete."),
+            Criterion(
+                id="AC#2",
+                text=(
+                    "Given an age below the minimum When I save Then the system shows "
+                    "an appropriate message."
+                ),
+            ),
+        ],
+        raw_text=_AC_DOC,
+    )
+
+
+def test_a_finding_naming_a_criterion_anchors_to_that_criterion():
+    """#705: 'AC#2' must win over a generic word shared with an earlier line.
+
+    ``AC#2`` survives no word tokeniser that requires three leading letters, so
+    before the fix this anchored on 'appropriate' — whose first match is the
+    NFR-003 line, a different criterion entirely. A ``replace_criterion`` draft
+    built from that excerpt would overwrite the wrong requirement.
+    """
+    finding = Finding(
+        title="Ambiguous, untestable criterion (AC#2)",
+        detail="AC#2 relies on vague language ('appropriate') that cannot be objectively verified.",
+        severity="medium",
+        source="red-team",
+    )
+    result = annotate_plan(_ac_plan(), _review([finding]))
+    s = result.suggestions[0]
+    # The line number is the assertion that matters: a non-empty anchor passes
+    # even when it points at the wrong requirement.
+    assert s.anchor_line == _AC_DOC.splitlines().index(
+        "AC#2: Given an age below the minimum When I save Then the system shows an appropriate message."
+    ) + 1
+    assert "NFR-003" not in s.original_excerpt
+
+
+_PREFIX_DOC = """# Profile
+
+AC#10: Given a long-form biography When I save Then it is truncated.
+AC#1: Given a valid age When I save Then the profile is complete.
+"""
+
+
+def test_a_criterion_id_does_not_match_a_longer_id_sharing_its_prefix():
+    """AC#1 must not anchor to AC#10, which appears first and contains it."""
+    plan = NormalizedPlan(
+        plan_id="001-prefix",
+        title="Profile",
+        source_format="markdown",
+        target_kind="software",
+        criteria=[
+            Criterion(id="AC#1", text="Given a valid age When I save Then the profile is complete."),
+            Criterion(id="AC#10", text="Given a long-form biography When I save Then it is truncated."),
+        ],
+        raw_text=_PREFIX_DOC,
+    )
+    finding = Finding(
+        title="Ambiguous, untestable criterion (AC#1)",
+        detail="AC#1 relies on vague language.",
+        severity="medium",
+        source="red-team",
+    )
+    s = annotate_plan(plan, _review([finding])).suggestions[0]
+    assert s.original_excerpt.startswith("AC#1:")

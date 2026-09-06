@@ -349,5 +349,41 @@
       "checks": "Checks: {{ids}}",
       "invalidated": "invalidated"
     }
+  },
+  "planEditor": {
+    "title": "Title",
+    "description": "Description",
+    "criteria": "Acceptance criteria ({{count}})",
+    "criterionAria": "Criterion {{id}}",
+    "removeCriterion": "Remove criterion {{id}}",
+    "newCriterionPlaceholder": "New criterion text…",
+    "newCriterionAria": "New criterion",
+    "addCriterion": "Add criterion",
+    "unsavedChanges": "Unsaved changes. Re-process saves them and re-runs review — which clears the current review and any approval.",
+    "discard": "Discard",
+    "reprocess": "Re-process",
+    "reprocessAria": "Re-process plan",
+    "planTitleAria": "Plan title",
+    "planDescriptionAria": "Plan description"
+  },
+  "annotations": {
+    "empty": "No suggested edits — the plan reads cleanly, or it hasn't been processed yet.",
+    "heading": "Suggested edits",
+    "count": "{{count}} suggestion · original preserved",
+    "count_plural": "{{count}} suggestions · original preserved",
+    "acceptAria": "Accept: {{suggestion}}",
+    "line": "line {{line}}",
+    "wholeDocument": "whole document",
+    "why": "Why:",
+    "proposedText": "Proposed text — edit before accepting:",
+    "proposedTextAria": "Proposed text for {{suggestion}}",
+    "noDraft": "No automatic draft — this one needs a judgement call. Edit the plan directly.",
+    "selectPrompt": "Select the suggestions to accept.",
+    "selected": "{{count}} selected · applying clears the current review and any approval",
+    "apply": "Accept & re-process",
+    "applyCount": "Accept {{count}} & re-process",
+    "applyAria": "Apply accepted suggestions and re-process",
+    "showDraft": "Show improved draft",
+    "hideDraft": "Hide improved draft"
   }
 }
