@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from factory_common.logsafe import sanitize_log
+from server.background.tasks import spawn
 
 from .git_utils import safe_spec_component  # #335
 from .task_models import TaskLog, TaskPhase, TaskProgress
@@ -459,7 +460,7 @@ class AgentProcessMonitorMixin:
                         if task_id in self._task_log_writers:
                             log_writer, main_log_writer = self._task_log_writers[task_id]
 
-                        asyncio.create_task(  # noqa: RUF006
+                        spawn(
                             self._process_output(
                                 task_id,
                                 new_proc.stdout,  # type: ignore[arg-type]
@@ -468,7 +469,7 @@ class AgentProcessMonitorMixin:
                                 spec_id=spec_id,
                             )
                         )
-                        asyncio.create_task(  # noqa: RUF006
+                        spawn(
                             self._process_output(
                                 task_id,
                                 new_proc.stderr,  # type: ignore[arg-type]
@@ -477,7 +478,7 @@ class AgentProcessMonitorMixin:
                                 spec_id=spec_id,
                             )
                         )
-                        asyncio.create_task(  # noqa: RUF006
+                        spawn(
                             self._monitor_process(
                                 task_id, new_proc, project_path, spec_id, cmd=None, env=None
                             )
@@ -743,7 +744,7 @@ class AgentProcessMonitorMixin:
                             log_writer, main_log_writer = self._task_log_writers[task_id]
 
                         # Restart output processing for new subprocess
-                        asyncio.create_task(  # noqa: RUF006
+                        spawn(
                             self._process_output(
                                 task_id,
                                 new_proc.stdout,  # type: ignore[arg-type]
@@ -752,7 +753,7 @@ class AgentProcessMonitorMixin:
                                 spec_id=spec_id,
                             )
                         )
-                        asyncio.create_task(  # noqa: RUF006
+                        spawn(
                             self._process_output(
                                 task_id,
                                 new_proc.stderr,  # type: ignore[arg-type]
@@ -763,7 +764,7 @@ class AgentProcessMonitorMixin:
                         )
 
                         # Restart monitoring for new subprocess (without cmd/env to prevent infinite retry)  # noqa: E501
-                        asyncio.create_task(  # noqa: RUF006
+                        spawn(
                             self._monitor_process(
                                 task_id,
                                 new_proc,
