@@ -378,6 +378,7 @@
     "proposedText": "Proposed text — edit before accepting:",
     "proposedTextAria": "Proposed text for {{suggestion}}",
     "noDraft": "No automatic draft — this one needs a judgement call. Edit the plan directly.",
+    "noneApplicable": "No suggestion here can be applied automatically — edit the plan directly on the Edit tab, then Process.",
     "selectPrompt": "Select the suggestions to accept.",
     "selected": "{{count}} selected · applying clears the current review and any approval",
     "apply": "Accept & re-process",

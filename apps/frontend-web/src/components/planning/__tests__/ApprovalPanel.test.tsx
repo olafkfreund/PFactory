@@ -14,7 +14,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { ApprovalPanel } from '../ApprovalPanel';
 import { usePlanStore } from '../../../stores/plan-store';
-import type { PlanSession } from '../../../shared/types/plan';
+import type { PlanReview, PlanSession } from '../../../shared/types/plan';
 
 beforeEach(() => {
   localStorage.setItem('pfactory-token', 'test-token');
@@ -100,6 +100,62 @@ describe('<ApprovalPanel> — gates not passed', () => {
     render(<ApprovalPanel session={session} />);
 
     expect(screen.getByTestId('gates-warning')).toBeInTheDocument();
+  });
+});
+
+// ── Why the gate failed (PFactory#719) ───────────────────────────────
+
+// A plan can fail its gate two independent ways. Reporting the wrong one sends
+// the reader hunting for blocking findings that do not exist, with nothing to
+// act on — which is exactly what the panel used to do for every failure.
+function withLenses(session: PlanSession, lenses: PlanReview['lenses']): PlanSession {
+  return { ...session, review: { ...session.review!, threshold: 0.75, lenses } };
+}
+
+describe('<ApprovalPanel> — why the gate failed', () => {
+  it('names the lens and its score when a lens is below threshold', () => {
+    const session = withLenses(makeSession(false), [
+      { lens: 'compliance', score: 0.55, max: 1, findings: [], blocking: false },
+      { lens: 'security', score: 1, max: 1, findings: [], blocking: false },
+    ]);
+    usePlanStore.setState({ currentSession: session });
+    render(<ApprovalPanel session={session} />);
+
+    const scores = screen.getByTestId('gates-warning-scores');
+    expect(scores).toHaveTextContent('compliance scored 0.55');
+    expect(scores).toHaveTextContent('threshold is 0.75');
+    // The lens that passed must not be blamed.
+    expect(scores).not.toHaveTextContent('security');
+    // No blocking finding exists, so the panel must not claim one does.
+    expect(screen.queryByTestId('gates-warning-blocking')).not.toBeInTheDocument();
+  });
+
+  it('names the blocking findings when a lens carries one', () => {
+    const session = withLenses(makeSession(false), [
+      {
+        lens: 'security',
+        score: 1,
+        max: 1,
+        blocking: true,
+        findings: [
+          {
+            title: 'Secret in plaintext',
+            detail: '',
+            severity: 'critical',
+            source: 'security',
+            blocking: true,
+          },
+        ],
+      },
+    ]);
+    usePlanStore.setState({ currentSession: session });
+    render(<ApprovalPanel session={session} />);
+
+    expect(screen.getByTestId('gates-warning-blocking')).toHaveTextContent(
+      'Secret in plaintext',
+    );
+    // Every lens is at/above threshold, so no score line.
+    expect(screen.queryByTestId('gates-warning-scores')).not.toBeInTheDocument();
   });
 });
 
