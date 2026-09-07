@@ -12,6 +12,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
+import { translate } from './i18n-mock';
+
+// Resolves against the real `en` resource, so a key missing from the locale
+// files fails here instead of rendering as a raw key in the browser.
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: translate }),
+}));
+
 import { ApprovalPanel } from '../ApprovalPanel';
 import { usePlanStore } from '../../../stores/plan-store';
 import type { PlanReview, PlanSession } from '../../../shared/types/plan';
@@ -158,6 +166,20 @@ describe('<ApprovalPanel> — why the gate failed', () => {
     expect(screen.queryByTestId('gates-warning-scores')).not.toBeInTheDocument();
   });
 });
+
+  it('explains itself when the gate failed with no lens results at all', () => {
+    // The backend records an empty `lenses` when none ran. Reporting only
+    // "gates have not passed" here is the same dead end this change removes.
+    const session = withLenses(makeSession(false), []);
+    usePlanStore.setState({ currentSession: session });
+    render(<ApprovalPanel session={session} />);
+
+    expect(screen.getByTestId('gates-warning-nodetail')).toHaveTextContent(
+      /no lens results/i,
+    );
+    expect(screen.queryByTestId('gates-warning-scores')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gates-warning-blocking')).not.toBeInTheDocument();
+  });
 
 // ── Approve enabled when gates passed ────────────────────────────────
 

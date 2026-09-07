@@ -88,11 +88,16 @@ def extract_pdf_text(data: bytes) -> str:
 _HEADING_LEVEL = re.compile(r"heading\s+(\d+)", re.IGNORECASE)
 
 # Fallback shapes for a DOCX whose paragraphs carry no Heading/List styles.
-# "4. Acceptance Criteria" / "Section 2 - Scope" as a short standalone line.
+# A section label opening with a number or a letter: "4. Acceptance Criteria",
+# "A) Scope". The prefix must start the line -- "Section 2 - Scope" is prose to
+# this pattern, not a heading.
 _NUMBERED_HEADING = re.compile(r"^(?:\d+|[A-Z])[.)]\s+(\S.*)$")
-# A criterion line: an id like "AC-PROF-001-01" / "AC#3", or a bare Gherkin
-# clause. Either shape means "this is an item", not prose.
-_CRITERION_LINE = re.compile(r"^(?:AC[\s#-]*[A-Za-z0-9-]*\d|Given\b)", re.IGNORECASE)
+# A criterion line: an id like "AC-PROF-001-01" / "AC#3" / "AC 3" / "AC1", or a
+# bare Gherkin clause. Either shape means "this is an item", not prose. The id
+# alternatives are deliberately tight: a looser "AC" prefix swallows any word
+# starting with those letters and containing a digit -- "ACME1", "ACCOUNT-2" --
+# and turns it into an acceptance criterion that asserts nothing.
+_CRITERION_LINE = re.compile(r"^(?:AC[\s#-]*\d|AC-[A-Za-z]+-\d|Given\b)", re.IGNORECASE)
 # A heading is a short standalone label; anything longer is a sentence that
 # merely happens to start with a number.
 _MAX_HEADING_CHARS = 80

@@ -29,7 +29,7 @@ from plan.ingest.document_loaders import (  # noqa: E402
     ingest_document,
     load_document_text,
 )
-from spec_sources import SpecFormat  # noqa: E402
+from spec_sources import SpecFormat, ingest  # noqa: E402
 
 # ── fixtures / builders ────────────────────────────────────────────────
 
@@ -188,8 +188,18 @@ def test_styleless_docx_still_yields_its_criteria():
     # Before #717 this raised "no acceptance criteria found" about a document
     # whose criteria are plainly present, because structure was read only from
     # Word paragraph styles and every paragraph here is `Normal`.
-    from spec_sources import ingest
-
+    ac_1 = (
+        "AC-PROF-001-01 Given I am creating my profile "
+        "When I enter a valid display name and save Then the system saves it."
+    )
+    ac_2 = (
+        "AC-PROF-001-02 Given I am creating my profile "
+        "When I leave it empty Then the system prevents the save."
+    )
+    ac_3 = (
+        "AC-PROF-002-01 Given I am creating my profile "
+        "When I upload a supported photo Then the system accepts it."
+    )
     data = _make_flat_docx(
         [
             "Create Profile — Requirements & Acceptance Criteria",
@@ -197,13 +207,10 @@ def test_styleless_docx_still_yields_its_criteria():
             "A1: Authentication is out of scope.",
             "4. Acceptance Criteria",
             "PROF-001 — Display Name",
-            "AC-PROF-001-01 Given I am creating my profile When I enter a valid display "
-            "name and save Then the system saves it.",
-            "AC-PROF-001-02 Given I am creating my profile When I leave it empty Then the "
-            "system prevents the save.",
+            ac_1,
+            ac_2,
             "PROF-002 — Profile Photo",
-            "AC-PROF-002-01 Given I am creating my profile When I upload a supported photo "
-            "Then the system accepts it.",
+            ac_3,
         ]
     )
     spec = ingest(extract_docx_text(data), filename="plan.docx")
@@ -233,3 +240,24 @@ def test_styled_docx_keeps_its_own_structure():
     assert text.startswith("# Styled plan")
     assert "## Acceptance Criteria" in text
     assert "- the system shall do the thing" in text
+
+def test_ac_lookalike_words_are_not_criteria():
+    """A word merely starting with "AC" is prose, not an acceptance criterion.
+
+    The first pass matched ``AC`` followed by any run of word characters ending
+    in a digit, so "ACME1 ships in Q3" became a criterion asserting nothing.
+    """
+    data = _make_flat_docx(
+        [
+            "Widget plan",
+            "2. Acceptance Criteria",
+            "ACME1 is our supplier and ACCOUNT-2 is the billing code.",
+            "AC1 the widget spins",
+            "AC#2 the widget stops",
+            "AC-WID-003-01 the widget reverses",
+        ]
+    )
+    spec = ingest(extract_docx_text(data), filename="plan.docx")
+
+    assert [c.text.split()[0] for c in spec.criteria] == ["AC1", "AC#2", "AC-WID-003-01"]
+    assert not any("ACME1" in c.text for c in spec.criteria)

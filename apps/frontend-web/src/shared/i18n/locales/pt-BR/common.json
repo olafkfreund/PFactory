@@ -322,5 +322,12 @@
     "applyAria": "Aplicar sugestões aceitas e reprocessar",
     "showDraft": "Mostrar rascunho melhorado",
     "hideDraft": "Ocultar rascunho melhorado"
+  },
+  "approval": {
+    "gatesTitle": "As verificações de revisão não foram aprovadas.",
+    "gatesScores": "{{lenses}} — o limite é {{threshold}}. Aceite as correções sugeridas na aba Sugestões e reprocesse.",
+    "gatesLensScore": "{{lens}} obteve {{score}}",
+    "gatesBlocking": "Os achados bloqueadores precisam ser resolvidos: {{titles}}.",
+    "gatesNoDetail": "Nenhum resultado de análise foi registrado para este plano, portanto não há o que corrigir aqui. Reprocesse para gerar uma revisão."
   }
 }

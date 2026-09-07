@@ -386,5 +386,12 @@
     "applyAria": "Apply accepted suggestions and re-process",
     "showDraft": "Show improved draft",
     "hideDraft": "Hide improved draft"
+  },
+  "approval": {
+    "gatesTitle": "Review gates have not passed.",
+    "gatesScores": "{{lenses}} — threshold is {{threshold}}. Accept the drafted fixes on the Suggestions tab and re-process.",
+    "gatesLensScore": "{{lens}} scored {{score}}",
+    "gatesBlocking": "Blocking findings must be resolved: {{titles}}.",
+    "gatesNoDetail": "No lens results were recorded for this plan, so there is no reason to act on here. Re-process it to produce a review."
   }
 }
