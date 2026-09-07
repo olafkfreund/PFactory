@@ -224,9 +224,9 @@ RUN mkdir -p /home/nonroot/.npm-global \
 # because nothing asserted the CLI works. Full path, since PATH is set for the
 # runtime user rather than for RUN.
 RUN npm install -g \
-        @anthropic-ai/claude-code@2.1.238 \
-        @openai/codex@0.149.0 \
-        @google/gemini-cli@0.56.0 \
+        @anthropic-ai/claude-code@2.1.263 \
+        @openai/codex@0.153.4 \
+        @google/gemini-cli@0.58.0 \
  && node /home/nonroot/.npm-global/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
  && /home/nonroot/.npm-global/bin/claude --version \
  && npm cache clean --force \
