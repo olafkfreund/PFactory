@@ -339,3 +339,35 @@ def test_a_heading_ends_the_section_mid_wrap():
     )
     assert [c.text for c in spec.criteria] == ["wraps here and continues"]
     assert "Design notes." in spec.description
+
+def test_subheadings_inside_the_ac_section_do_not_end_it():
+    """PFactory#718 — real specs group their criteria by requirement.
+
+    Every heading used to re-evaluate whether the AC section was open, so a
+    sub-heading that lacked the words "acceptance"/"requirements" closed it.
+    The sub-heading normally precedes the first bullet, so the document parsed
+    to zero criteria and was rejected as having none at all.
+    """
+    spec = parse_markdown(
+        "# Plan\n"
+        "\n"
+        "## Acceptance Criteria\n"
+        "\n"
+        "### PROF-001 — Display Name\n"
+        "- AC-PROF-001-01 the display name is saved\n"
+        "\n"
+        "### PROF-002 — Profile Photo\n"
+        "- AC-PROF-002-01 the photo is accepted\n"
+        "\n"
+        "## Business Rules\n"
+        "- not a criterion\n"
+    )
+
+    assert [c.text for c in spec.criteria] == [
+        "AC-PROF-001-01 the display name is saved",
+        "AC-PROF-002-01 the photo is accepted",
+    ]
+    # A heading at the same level still closes the section, so the bullet under
+    # "Business Rules" stays out of the criteria and lands in the prose.
+    assert "not a criterion" in spec.description
+

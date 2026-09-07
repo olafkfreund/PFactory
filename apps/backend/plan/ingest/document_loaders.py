@@ -87,6 +87,61 @@ def extract_pdf_text(data: bytes) -> str:
 
 _HEADING_LEVEL = re.compile(r"heading\s+(\d+)", re.IGNORECASE)
 
+# Fallback shapes for a DOCX whose paragraphs carry no Heading/List styles.
+# "4. Acceptance Criteria" / "Section 2 - Scope" as a short standalone line.
+_NUMBERED_HEADING = re.compile(r"^(?:\d+|[A-Z])[.)]\s+(\S.*)$")
+# A criterion line: an id like "AC-PROF-001-01" / "AC#3", or a bare Gherkin
+# clause. Either shape means "this is an item", not prose.
+_CRITERION_LINE = re.compile(r"^(?:AC[\s#-]*[A-Za-z0-9-]*\d|Given\b)", re.IGNORECASE)
+# A heading is a short standalone label; anything longer is a sentence that
+# merely happens to start with a number.
+_MAX_HEADING_CHARS = 80
+# A group label that introduces the criteria for one requirement:
+# "PROF-002 — Profile Photo". It is a heading, not a criterion -- bulleting it
+# invents an acceptance criterion that asserts nothing, and leaving it as bare
+# text glues it onto the previous bullet as a wrapped continuation.
+_GROUP_LABEL = re.compile("^[A-Z]{2,}-\\d+\\s*[\u2014\u2013\\-:]\\s*\\S")
+
+
+def _infer_markdown_structure(lines: list[str]) -> list[str]:
+    """Re-impose markdown structure on style-less DOCX paragraphs (#717).
+
+    :func:`extract_docx_text` reads structure from Word paragraph *styles*. A
+    document that was written with direct formatting -- bold and font size
+    rather than the Heading and List styles -- has every paragraph as
+    ``Normal``, so the style pass yields no headings and no bullets and
+    :func:`spec_sources.parse_markdown` then reports "no acceptance criteria
+    found" about a document whose criteria are plainly there. That is how most
+    ``.docx`` files exported from chat assistants and Google Docs arrive, so it
+    is the common case, not the edge one.
+
+    Applied only when the style pass produced nothing, so a properly styled
+    document keeps its own structure untouched.
+    """
+    out: list[str] = []
+    for i, ln in enumerate(lines):
+        heading = _NUMBERED_HEADING.match(ln)
+        # A numbered *heading* is a short standalone label ("4. Acceptance
+        # Criteria"), not a numbered sentence -- length is what separates them,
+        # and a criterion shape wins outright so "1. Given I ..." stays a bullet.
+        if (
+            heading
+            and len(ln) <= _MAX_HEADING_CHARS
+            and not _CRITERION_LINE.match(heading.group(1))
+        ):
+            out.append(f"## {heading.group(1)}")
+        elif _CRITERION_LINE.match(ln):
+            out.append(f"- {ln}")
+        elif _GROUP_LABEL.match(ln) and len(ln) <= _MAX_HEADING_CHARS:
+            # Deeper than the "## <section>" above it, so it subdivides the
+            # acceptance-criteria section instead of ending it (#718).
+            out.append(f"### {ln}")
+        elif i == 0:
+            out.append(f"# {ln}")
+        else:
+            out.append(ln)
+    return out
+
 
 def extract_docx_text(data: bytes) -> str:
     """Extract text from DOCX bytes, reconstructing markdown from paragraph styles.
@@ -130,6 +185,9 @@ def extract_docx_text(data: bytes) -> str:
             cells = [c.text.strip() for c in row.cells if c.text.strip()]
             if cells:
                 lines.append(" | ".join(cells))
+
+    if not any(ln.startswith(("#", "- ")) for ln in lines):
+        lines = _infer_markdown_structure(lines)
 
     return "\n".join(lines).strip()
 
