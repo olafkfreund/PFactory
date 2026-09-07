@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CheckCircle2, XCircle, Shield, Hash, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export function ApprovalPanel({ session, onUpdated }: Props) {
+  const { t } = useTranslation('common');
   const store = usePlanStore();
   const { sessionLoading, error } = store;
 
@@ -34,6 +36,18 @@ export function ApprovalPanel({ session, onUpdated }: Props) {
   const review = session.review;
   const approval = review?.human_approval;
   const gatesPassed = review?.gates_passed ?? false;
+
+  // Why the gate failed. The backend has two independent conditions
+  // (`plan/review/models.py:recompute`): every lens at/above threshold AND no
+  // blocking finding. This panel used to report the second one unconditionally,
+  // so a plan held back purely by a low lens score told the reader to resolve
+  // "blocking findings" that did not exist — and there was nothing to act on
+  // (PFactory#719). Name whichever one actually fired.
+  const threshold = review?.threshold ?? 0;
+  const belowThreshold = (review?.lenses ?? []).filter((ls) => ls.score < threshold);
+  const blockingLenses = (review?.lenses ?? []).filter((ls) =>
+    ls.findings.some((f) => f.blocking),
+  );
 
   const handleApprove = async () => {
     if (!approver.trim()) {
@@ -159,8 +173,44 @@ export function ApprovalPanel({ session, onUpdated }: Props) {
           className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning"
           data-testid="gates-warning"
         >
-          <span className="font-medium">Review gates have not passed.</span>
-          <span className="text-xs opacity-80">Approval is disabled until all blocking findings are resolved.</span>
+          <div className="flex flex-col gap-1">
+            <span className="font-medium">{t('approval.gatesTitle')}</span>
+            {belowThreshold.length > 0 && (
+              <span className="text-xs opacity-80" data-testid="gates-warning-scores">
+                {t('approval.gatesScores', {
+                  lenses: belowThreshold
+                    .map((ls) =>
+                      t('approval.gatesLensScore', {
+                        lens: ls.lens,
+                        score: ls.score.toFixed(2),
+                      }),
+                    )
+                    .join(', '),
+                  threshold: threshold.toFixed(2),
+                })}
+              </span>
+            )}
+            {blockingLenses.length > 0 && (
+              <span className="text-xs opacity-80" data-testid="gates-warning-blocking">
+                {t('approval.gatesBlocking', {
+                  titles: blockingLenses
+                    .flatMap((ls) =>
+                      ls.findings.filter((f) => f.blocking).map((f) => f.title),
+                    )
+                    .join(', '),
+                })}
+              </span>
+            )}
+            {belowThreshold.length === 0 && blockingLenses.length === 0 && (
+              // The gate failed but no lens explains why -- the backend records
+              // an empty `lenses` when none ran. Without this the panel repeats
+              // "gates have not passed" and stops, which is the dead end this
+              // whole change set exists to remove.
+              <span className="text-xs opacity-80" data-testid="gates-warning-nodetail">
+                {t('approval.gatesNoDetail')}
+              </span>
+            )}
+          </div>
         </div>
       )}
 

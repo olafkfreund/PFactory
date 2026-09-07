@@ -314,6 +314,7 @@
     "proposedText": "Texto proposto — edite antes de aceitar:",
     "proposedTextAria": "Texto proposto para {{suggestion}}",
     "noDraft": "Sem rascunho automático — este exige julgamento. Edite o plano diretamente.",
+    "noneApplicable": "Nenhuma sugestão aqui pode ser aplicada automaticamente — edite o plano diretamente na aba Editar e depois processe.",
     "selectPrompt": "Selecione as sugestões a aceitar.",
     "selected": "{{count}} selecionada(s) · aplicar limpa a revisão atual e qualquer aprovação",
     "apply": "Aceitar e reprocessar",
@@ -321,5 +322,12 @@
     "applyAria": "Aplicar sugestões aceitas e reprocessar",
     "showDraft": "Mostrar rascunho melhorado",
     "hideDraft": "Ocultar rascunho melhorado"
+  },
+  "approval": {
+    "gatesTitle": "As verificações de revisão não foram aprovadas.",
+    "gatesScores": "{{lenses}} — o limite é {{threshold}}. Aceite as correções sugeridas na aba Sugestões e reprocesse.",
+    "gatesLensScore": "{{lens}} obteve {{score}}",
+    "gatesBlocking": "Os achados bloqueadores precisam ser resolvidos: {{titles}}.",
+    "gatesNoDetail": "Nenhum resultado de análise foi registrado para este plano, portanto não há o que corrigir aqui. Reprocesse para gerar uma revisão."
   }
 }

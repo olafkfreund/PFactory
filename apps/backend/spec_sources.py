@@ -129,9 +129,31 @@ def _first_h1(text: str, default: str) -> str:
 
 
 _BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*\S)\s*$")
-_HEADING = re.compile(r"^\s*#{1,6}\s+(.*\S)\s*$")
+_HEADING = re.compile(r"^\s*(#{1,6})\s+(.*\S)\s*$")
 _AC_INLINE = re.compile(r"\bAC\s*#?\s*\d+\s*[:.\-]\s*(.*\S)", re.IGNORECASE)
 _AC_HEADING_WORDS = ("acceptance criteria", "acceptance", "requirements")
+
+
+def _ac_section_state(
+    heading: re.Match[str],
+    *,
+    in_section: bool,
+    section_depth: int,
+    title_may_open: bool,
+) -> tuple[bool, int, bool]:
+    """Decide what a heading does to the acceptance-criteria section.
+
+    Returns ``(in_section, section_depth, is_subheading)``. A *subheading* is
+    one nested inside an open section: it keeps the section open (PFactory#718)
+    and is prose, not a section boundary.
+    """
+    depth = len(heading.group(1))
+    names_ac = any(w in heading.group(2).lower() for w in _AC_HEADING_WORDS)
+    if names_ac and (depth > 1 or title_may_open):
+        return True, depth, False
+    if in_section and depth > section_depth:
+        return True, section_depth, True
+    return False, section_depth, False
 
 
 # ── markdown ───────────────────────────────────────────────────────────
@@ -154,19 +176,44 @@ def parse_markdown(text: str, *, title: str | None = None) -> NormalizedSpec:
     lines = text.splitlines()
     title = title or _first_h1(text, "Untitled spec")
 
+    # A document *titled* "… Requirements & Acceptance Criteria" is not one
+    # giant acceptance-criteria section: its real AC section is a heading
+    # further down. Letting the title open the section swallows every prose
+    # line above that heading, because in-section non-bullet text is dropped.
+    # Only fall back to the title when nothing deeper opens a section.
+    deeper_ac_heading = any(
+        (m := _HEADING.match(ln))
+        and len(m.group(1)) > 1
+        and any(w in m.group(2).lower() for w in _AC_HEADING_WORDS)
+        for ln in lines
+    )
+
     # 1) collect bullets under an acceptance heading; everything else is prose
     criteria: list[str] = []
     prose: list[str] = []
     in_section = False
+    section_depth = 0  # heading level that opened the AC section
     title_seen = False
     continuing = False  # inside a bullet whose text may wrap onto later lines
     for ln in lines:
         h = _HEADING.match(ln)
         if h:
-            in_section = any(w in h.group(1).lower() for w in _AC_HEADING_WORDS)
-            is_title_heading = not title_seen and ln.lstrip().startswith("# ")
+            # Real specs group their criteria by requirement -- "### PROF-001 —
+            # Display Name" under "## Acceptance Criteria". Every heading used
+            # to re-decide whether the section was open, so such a sub-heading
+            # closed it; since it precedes the first bullet, the document
+            # parsed to zero criteria and was rejected as having none at all
+            # (PFactory#718). Only a heading at the same level or shallower
+            # ends the section now.
+            in_section, section_depth, is_subheading = _ac_section_state(
+                h,
+                in_section=in_section,
+                section_depth=section_depth,
+                title_may_open=not deeper_ac_heading,
+            )
+            is_title_heading = not title_seen and len(h.group(1)) == 1
             title_seen = title_seen or is_title_heading
-            if not in_section and not is_title_heading:
+            if is_subheading or (not in_section and not is_title_heading):
                 prose.append(ln)
             continue
         if in_section:

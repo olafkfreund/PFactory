@@ -378,6 +378,7 @@
     "proposedText": "Texte proposé — modifiez-le avant d'accepter :",
     "proposedTextAria": "Texte proposé pour {{suggestion}}",
     "noDraft": "Aucun brouillon automatique — celui-ci demande un jugement. Modifiez le plan directement.",
+    "noneApplicable": "Aucune suggestion ici ne peut être appliquée automatiquement — modifiez le plan directement dans l'onglet Édition, puis lancez le traitement.",
     "selectPrompt": "Sélectionnez les suggestions à accepter.",
     "selected": "{{count}} sélectionnée(s) · l'application annule la revue en cours et toute approbation",
     "apply": "Accepter et retraiter",
@@ -385,5 +386,12 @@
     "applyAria": "Appliquer les suggestions acceptées et retraiter",
     "showDraft": "Afficher le brouillon amélioré",
     "hideDraft": "Masquer le brouillon amélioré"
+  },
+  "approval": {
+    "gatesTitle": "Les contrôles de revue n'ont pas été validés.",
+    "gatesScores": "{{lenses}} — le seuil est {{threshold}}. Acceptez les corrections proposées dans l'onglet Suggestions puis relancez le traitement.",
+    "gatesLensScore": "{{lens}} a obtenu {{score}}",
+    "gatesBlocking": "Les constats bloquants doivent être résolus : {{titles}}.",
+    "gatesNoDetail": "Aucun résultat d'analyse n'a été enregistré pour ce plan ; il n'y a donc rien à corriger ici. Relancez le traitement pour produire une revue."
   }
 }

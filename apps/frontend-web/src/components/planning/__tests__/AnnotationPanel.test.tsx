@@ -140,6 +140,29 @@ describe('<AnnotationPanel>', () => {
     expect(screen.getByText(/no automatic draft/i)).toBeInTheDocument();
   });
 
+  it('hides the apply button when every suggestion is manual-only', () => {
+    // PFactory#720: a manual suggestion renders without a checkbox, so with
+    // only manual ones left nothing on the page can be selected. The footer
+    // still told the reader to "select the suggestions to accept" next to a
+    // button that could never enable — an instruction with no possible action.
+    const manual = suggestion({ id: 'S2', suggestion: 'Oversized epic', replacement: '', mode: 'manual' });
+    render(<AnnotationPanel session={withSuggestions(manual) as never} />);
+
+    expect(screen.queryByTestId('apply-suggestions-btn')).not.toBeInTheDocument();
+    expect(screen.queryByText(/select the suggestions to accept/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('no-applicable-suggestions')).toHaveTextContent(
+      /edit the plan directly/i,
+    );
+  });
+
+  it('keeps the apply button when at least one suggestion is applicable', () => {
+    const manual = suggestion({ id: 'S2', suggestion: 'Oversized epic', replacement: '', mode: 'manual' });
+    render(<AnnotationPanel session={withSuggestions(suggestion(), manual) as never} />);
+
+    expect(screen.getByTestId('apply-suggestions-btn')).toBeInTheDocument();
+    expect(screen.queryByTestId('no-applicable-suggestions')).not.toBeInTheDocument();
+  });
+
   it('refreshes the sessions list, not just the open session', async () => {
     // Apply re-processes, so status/gates/children all move. Updating only
     // currentSession left the SessionList showing the pre-apply verdict.
