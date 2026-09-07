@@ -314,6 +314,7 @@
     "proposedText": "Texto proposto — edite antes de aceitar:",
     "proposedTextAria": "Texto proposto para {{suggestion}}",
     "noDraft": "Sem rascunho automático — este exige julgamento. Edite o plano diretamente.",
+    "noneApplicable": "Nenhuma sugestão aqui pode ser aplicada automaticamente — edite o plano diretamente na aba Editar e depois processe.",
     "selectPrompt": "Selecione as sugestões a aceitar.",
     "selected": "{{count}} selecionada(s) · aplicar limpa a revisão atual e qualquer aprovação",
     "apply": "Aceitar e reprocessar",

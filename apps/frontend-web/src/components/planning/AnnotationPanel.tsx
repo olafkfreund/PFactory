@@ -112,6 +112,15 @@ export function AnnotationPanel({ session }: { session: PlanSession }) {
   const [accepted, setAccepted] = useState<Record<string, string>>({});
 
   const acceptedIds = Object.keys(accepted);
+  // A `manual` suggestion has no drafted replacement, so it renders without a
+  // checkbox. When every remaining suggestion is manual there is nothing on the
+  // page to select, and the footer's "select the suggestions to accept" prompt
+  // beside a permanently disabled button asked for an impossible action
+  // (PFactory#720). `acceptedIds.length === 0` cannot tell "you have not picked
+  // one yet" apart from "there is nothing to pick" — this can.
+  const applicableCount = (annotation?.suggestions ?? []).filter(
+    (s) => s.mode !== 'manual',
+  ).length;
 
   const handleApply = async () => {
     store.clearError();
@@ -175,24 +184,36 @@ export function AnnotationPanel({ session }: { session: PlanSession }) {
 
       {/* Applying re-runs the pipeline, so the verdict you see next describes the
           text you just accepted — that is the whole point of the loop. */}
-      <div className="flex items-center justify-end gap-3">
-        <span className="text-[11px] text-muted-foreground">
-          {acceptedIds.length === 0
-            ? t('annotations.selectPrompt')
-            : t('annotations.selected', { count: acceptedIds.length })}
-        </span>
-        <Button
-          onClick={() => void handleApply()}
-          disabled={acceptedIds.length === 0 || sessionLoading}
-          data-testid="apply-suggestions-btn"
-          aria-label={t('annotations.applyAria')}
+      {applicableCount === 0 ? (
+        <p
+          className="text-right text-[11px] text-muted-foreground"
+          data-testid="no-applicable-suggestions"
         >
-          <RefreshCw className={cn('mr-2 h-4 w-4', sessionLoading && 'animate-spin')} aria-hidden />
-          {acceptedIds.length > 0
-            ? t('annotations.applyCount', { count: acceptedIds.length })
-            : t('annotations.apply')}
-        </Button>
-      </div>
+          {t('annotations.noneApplicable')}
+        </p>
+      ) : (
+        <div className="flex items-center justify-end gap-3">
+          <span className="text-[11px] text-muted-foreground">
+            {acceptedIds.length === 0
+              ? t('annotations.selectPrompt')
+              : t('annotations.selected', { count: acceptedIds.length })}
+          </span>
+          <Button
+            onClick={() => void handleApply()}
+            disabled={acceptedIds.length === 0 || sessionLoading}
+            data-testid="apply-suggestions-btn"
+            aria-label={t('annotations.applyAria')}
+          >
+            <RefreshCw
+              className={cn('mr-2 h-4 w-4', sessionLoading && 'animate-spin')}
+              aria-hidden
+            />
+            {acceptedIds.length > 0
+              ? t('annotations.applyCount', { count: acceptedIds.length })
+              : t('annotations.apply')}
+          </Button>
+        </div>
+      )}
 
       {annotation.improved_markdown && (
         <div>
