@@ -163,3 +163,73 @@ def test_empty_document_raises(tmp_path):
 def test_missing_file_raises():
     with pytest.raises(DocumentLoadError, match="could not read"):
         load_document_text("/nonexistent/plan.pdf")
+
+# ── style-less Word documents (#717) ───────────────────────────────────
+
+
+def _make_flat_docx(lines: list[str]) -> bytes:
+    """A .docx with every paragraph as ``Normal`` — direct formatting only.
+
+    This is how documents exported from chat assistants and Google Docs arrive:
+    the author used bold and font size, never the Heading or List styles, so
+    the style pass has nothing to read.
+    """
+    import docx
+
+    d = docx.Document()
+    for ln in lines:
+        d.add_paragraph(ln)
+    buf = io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
+def test_styleless_docx_still_yields_its_criteria():
+    # Before #717 this raised "no acceptance criteria found" about a document
+    # whose criteria are plainly present, because structure was read only from
+    # Word paragraph styles and every paragraph here is `Normal`.
+    from spec_sources import ingest
+
+    data = _make_flat_docx(
+        [
+            "Create Profile — Requirements & Acceptance Criteria",
+            "1. Assumptions",
+            "A1: Authentication is out of scope.",
+            "4. Acceptance Criteria",
+            "PROF-001 — Display Name",
+            "AC-PROF-001-01 Given I am creating my profile When I enter a valid display "
+            "name and save Then the system saves it.",
+            "AC-PROF-001-02 Given I am creating my profile When I leave it empty Then the "
+            "system prevents the save.",
+            "PROF-002 — Profile Photo",
+            "AC-PROF-002-01 Given I am creating my profile When I upload a supported photo "
+            "Then the system accepts it.",
+        ]
+    )
+    spec = ingest(extract_docx_text(data), filename="plan.docx")
+
+    assert [c.text.split()[0] for c in spec.criteria] == [
+        "AC-PROF-001-01",
+        "AC-PROF-001-02",
+        "AC-PROF-002-01",
+    ]
+    # A group label introduces criteria; it is not one. Bulleting it would
+    # invent an acceptance criterion that asserts nothing.
+    assert not any("Display Name" in c.text for c in spec.criteria)
+    assert spec.title == "Create Profile — Requirements & Acceptance Criteria"
+    # Prose outside the AC section survives — the plan is more than its ACs.
+    assert "Authentication is out of scope" in spec.description
+
+
+def test_styled_docx_keeps_its_own_structure():
+    # The fallback must not touch a document that styled itself properly.
+    data = _make_docx(
+        title="Styled plan",
+        description="Some prose.",
+        criteria=["the system shall do the thing"],
+    )
+    text = extract_docx_text(data)
+
+    assert text.startswith("# Styled plan")
+    assert "## Acceptance Criteria" in text
+    assert "- the system shall do the thing" in text
