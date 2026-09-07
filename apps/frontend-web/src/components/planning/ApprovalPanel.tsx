@@ -35,6 +35,18 @@ export function ApprovalPanel({ session, onUpdated }: Props) {
   const approval = review?.human_approval;
   const gatesPassed = review?.gates_passed ?? false;
 
+  // Why the gate failed. The backend has two independent conditions
+  // (`plan/review/models.py:recompute`): every lens at/above threshold AND no
+  // blocking finding. This panel used to report the second one unconditionally,
+  // so a plan held back purely by a low lens score told the reader to resolve
+  // "blocking findings" that did not exist — and there was nothing to act on
+  // (PFactory#719). Name whichever one actually fired.
+  const threshold = review?.threshold ?? 0;
+  const belowThreshold = (review?.lenses ?? []).filter((ls) => ls.score < threshold);
+  const blockingLenses = (review?.lenses ?? []).filter((ls) =>
+    ls.findings.some((f) => f.blocking),
+  );
+
   const handleApprove = async () => {
     if (!approver.trim()) {
       setLocalError('Approver name is required.');
@@ -159,8 +171,27 @@ export function ApprovalPanel({ session, onUpdated }: Props) {
           className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning"
           data-testid="gates-warning"
         >
-          <span className="font-medium">Review gates have not passed.</span>
-          <span className="text-xs opacity-80">Approval is disabled until all blocking findings are resolved.</span>
+          <div className="flex flex-col gap-1">
+            <span className="font-medium">Review gates have not passed.</span>
+            {belowThreshold.length > 0 && (
+              <span className="text-xs opacity-80" data-testid="gates-warning-scores">
+                {belowThreshold
+                  .map((ls) => `${ls.lens} scored ${ls.score.toFixed(2)}`)
+                  .join(', ')}{' '}
+                — threshold is {threshold.toFixed(2)}. Accept the drafted fixes on the
+                Suggestions tab and re-process.
+              </span>
+            )}
+            {blockingLenses.length > 0 && (
+              <span className="text-xs opacity-80" data-testid="gates-warning-blocking">
+                Blocking findings must be resolved:{' '}
+                {blockingLenses
+                  .flatMap((ls) => ls.findings.filter((f) => f.blocking).map((f) => f.title))
+                  .join(', ')}
+                .
+              </span>
+            )}
+          </div>
         </div>
       )}
 
