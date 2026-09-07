@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CheckCircle2, XCircle, Shield, Hash, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export function ApprovalPanel({ session, onUpdated }: Props) {
+  const { t } = useTranslation('common');
   const store = usePlanStore();
   const { sessionLoading, error } = store;
 
@@ -172,23 +174,40 @@ export function ApprovalPanel({ session, onUpdated }: Props) {
           data-testid="gates-warning"
         >
           <div className="flex flex-col gap-1">
-            <span className="font-medium">Review gates have not passed.</span>
+            <span className="font-medium">{t('approval.gatesTitle')}</span>
             {belowThreshold.length > 0 && (
               <span className="text-xs opacity-80" data-testid="gates-warning-scores">
-                {belowThreshold
-                  .map((ls) => `${ls.lens} scored ${ls.score.toFixed(2)}`)
-                  .join(', ')}{' '}
-                — threshold is {threshold.toFixed(2)}. Accept the drafted fixes on the
-                Suggestions tab and re-process.
+                {t('approval.gatesScores', {
+                  lenses: belowThreshold
+                    .map((ls) =>
+                      t('approval.gatesLensScore', {
+                        lens: ls.lens,
+                        score: ls.score.toFixed(2),
+                      }),
+                    )
+                    .join(', '),
+                  threshold: threshold.toFixed(2),
+                })}
               </span>
             )}
             {blockingLenses.length > 0 && (
               <span className="text-xs opacity-80" data-testid="gates-warning-blocking">
-                Blocking findings must be resolved:{' '}
-                {blockingLenses
-                  .flatMap((ls) => ls.findings.filter((f) => f.blocking).map((f) => f.title))
-                  .join(', ')}
-                .
+                {t('approval.gatesBlocking', {
+                  titles: blockingLenses
+                    .flatMap((ls) =>
+                      ls.findings.filter((f) => f.blocking).map((f) => f.title),
+                    )
+                    .join(', '),
+                })}
+              </span>
+            )}
+            {belowThreshold.length === 0 && blockingLenses.length === 0 && (
+              // The gate failed but no lens explains why -- the backend records
+              // an empty `lenses` when none ran. Without this the panel repeats
+              // "gates have not passed" and stops, which is the dead end this
+              // whole change set exists to remove.
+              <span className="text-xs opacity-80" data-testid="gates-warning-nodetail">
+                {t('approval.gatesNoDetail')}
               </span>
             )}
           </div>
