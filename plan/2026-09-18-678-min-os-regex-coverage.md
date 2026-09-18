@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 678
 spec: spec/2026-09-18-678-min-os-regex-coverage.md
 ---
