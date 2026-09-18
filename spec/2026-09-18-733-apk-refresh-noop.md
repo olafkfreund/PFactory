@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 733
 intent: intent/2026-09-18-733-apk-refresh-noop.md
 ---
