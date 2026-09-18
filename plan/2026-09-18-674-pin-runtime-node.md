@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 674
 spec: spec/2026-09-18-674-pin-runtime-node.md
 ---
