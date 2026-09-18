@@ -44,6 +44,12 @@ Approved decisions (from the spec, which corrects the intent):
    `test_every_cached_upgrade_layer_can_be_rebuilt` fails; restore. Then, with
    the arg still removed, revert only the regex widening → verify the same test
    passes (proving the widening is what catches it); restore both.
+   *Deviation (implementation):* the rule matches raw file text, and the new
+   Dockerfile comment still mentions `apk upgrade`, so with comments present
+   the old rule also failed — catching the missing arg only by accident. Run
+   against the Dockerfile with comment lines stripped: old rule passes (root
+   image silently out of scope), widened rule fails. So the widening is what
+   holds once the comment is ever reworded.
 
 ## Tests
 
