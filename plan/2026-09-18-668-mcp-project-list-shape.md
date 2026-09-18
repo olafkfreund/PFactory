@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 668
 spec: spec/2026-09-18-668-mcp-project-list-shape.md
 ---
