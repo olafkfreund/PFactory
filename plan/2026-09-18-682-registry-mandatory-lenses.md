@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 682
 spec: spec/2026-09-18-682-registry-mandatory-lenses.md
 ---
