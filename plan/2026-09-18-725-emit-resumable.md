@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 725
 spec: spec/2026-09-18-725-emit-resumable.md
 ---
