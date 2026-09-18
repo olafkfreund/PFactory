@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 678
 author: Olaf Krasicki-Freund
 ---
