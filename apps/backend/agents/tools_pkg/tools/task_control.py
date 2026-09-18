@@ -115,20 +115,47 @@ def _projects_file(root: Path | None = None) -> Path:
 
 
 def _load_projects(root: Path | None = None) -> dict[str, Any]:
-    """Return ``{"projects": [...]}``; empty if the file doesn't exist."""
+    """Return ``{"projects": [...], "_shape": "list" | "by_id"}``.
+
+    ``projects.json`` is shared with the web server, which stores it keyed by
+    project id with ``path`` where these tools use ``root_path`` (#668). Both
+    shapes normalise to the list form; ``_shape`` records which one was on disk
+    so :func:`_add_project` writes it back the same way.
+    """
     pf = _projects_file(root)
-    if not pf.exists():
-        return {"projects": []}
     try:
-        return json.loads(pf.read_text())
+        raw = json.loads(pf.read_text()) if pf.exists() else {"projects": []}
     except (json.JSONDecodeError, OSError):
-        return {"projects": []}
+        raw = {"projects": []}
+    if isinstance(raw, dict) and isinstance(raw.get("projects"), list):
+        return {"projects": raw["projects"], "_shape": "list"}
+    # ``{}`` counts: it is what the web server leaves after deleting its last project.
+    if isinstance(raw, dict) and all(isinstance(v, dict) for v in raw.values()):
+        projects = [
+            {"id": pid, **e, "root_path": e.get("root_path") or e.get("path") or ""}
+            for pid, e in raw.items()
+        ]
+        return {"projects": projects, "_shape": "by_id"}
+    return {"projects": [], "_shape": "list"}
 
 
-def _save_projects(data: dict[str, Any], root: Path | None = None) -> None:
+def _add_project(entry: dict[str, Any], shape: str, root: Path | None = None) -> None:
+    """Persist one new project in the shape the file already has."""
     pf = _projects_file(root)
     pf.parent.mkdir(parents=True, exist_ok=True)
-    pf.write_text(json.dumps(data, indent=2))
+    if shape == "by_id":
+        # Re-read the raw dict so the web server's own entries (repo, settings,
+        # ...) are written back untouched rather than re-derived.
+        raw = json.loads(pf.read_text())
+        raw[entry["id"]] = {
+            "name": entry["name"],
+            "path": entry["root_path"],
+            "root_path": entry["root_path"],
+            "created_at": entry["created_at"],
+        }
+    else:
+        raw = {"projects": [*_load_projects(root)["projects"], entry]}
+    pf.write_text(json.dumps(raw, indent=2))
 
 
 def _spec_dir(project_id: str, spec_id: str, root: Path | None = None) -> Path:
@@ -577,8 +604,7 @@ def create_task_control_tools() -> list:
             "root_path": str(Path(root_path).expanduser()),
             "created_at": _now_iso(),
         }
-        data["projects"].append(entry)
-        _save_projects(data)
+        _add_project(entry, data["_shape"])
         return _format_json(entry)
 
     tools.append(project_create)

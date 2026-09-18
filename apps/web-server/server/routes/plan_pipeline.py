@@ -14,7 +14,7 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +33,13 @@ from plan.service import SERVICE, PlanInputError, PlanService, PlanServiceError 
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
 
 
-class IngestTextBody(BaseModel):
+class _StrictBody(BaseModel):
+    # An unknown field is a 422 naming it, not a silent no-op: `repo` sent to
+    # /process used to be dropped and yield a confident greenfield plan (#671).
+    model_config = ConfigDict(extra="forbid")
+
+
+class IngestTextBody(_StrictBody):
     text: str
     title: str | None = None
     channel: str = "portal"
@@ -45,7 +51,7 @@ class IngestTextBody(BaseModel):
     base_ref: str | None = None  # branch/tag; default repo branch when omitted
 
 
-class FromIssueBody(BaseModel):
+class FromIssueBody(_StrictBody):
     """Body for ``POST /api/plan/sessions/from-issue``.
 
     Exactly the shape AIFactory's RFC-0011 intake poller sends for a
@@ -67,37 +73,37 @@ class FromIssueBody(BaseModel):
     change_mode: str | None = None
 
 
-class ApproveBody(BaseModel):
+class ApproveBody(_StrictBody):
     approver: str
     feedback: str | None = None
 
 
-class RejectBody(BaseModel):
+class RejectBody(_StrictBody):
     approver: str
     feedback: str
 
 
-class DiscardBody(BaseModel):
+class DiscardBody(_StrictBody):
     """Abandon a session (#360). Both fields required — see ``PlanService.discard``."""
 
     actor: str
     reason: str
 
 
-class WaiveBody(BaseModel):
+class WaiveBody(_StrictBody):
     check_ids: list[str]
     reason: str
     waived_by: str
 
 
-class ApproveAccessBody(BaseModel):
+class ApproveAccessBody(_StrictBody):
     resource: str
     approved_by: str
     scope: str
     approved_at: str | None = None
 
 
-class EmitBody(BaseModel):
+class EmitBody(_StrictBody):
     repo: str
     dry_run: bool = True
     # Per-plan selection of docs sinks by kind (e.g. ["backstage"]). When None,
@@ -106,7 +112,7 @@ class EmitBody(BaseModel):
     docs_targets: list[str] | None = None
 
 
-class EmitContractBody(BaseModel):
+class EmitContractBody(_StrictBody):
     repo: str | None = None
     project_id: str | None = None
     dry_run: bool = True
@@ -286,7 +292,7 @@ async def audit_pack(session_id: str, format: str = "json"):
     return pack.model_dump()
 
 
-class PlanUpdateBody(BaseModel):
+class PlanUpdateBody(_StrictBody):
     """Human edits applied immediately before a re-process (#692).
 
     Optional so a bare ``POST /process`` (the re-run-unchanged case) keeps
@@ -357,7 +363,7 @@ async def process(session_id: str, request: Request, updates: PlanUpdateBody | N
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc
 
 
-class AcceptedSuggestion(BaseModel):
+class AcceptedSuggestion(_StrictBody):
     """One suggestion the human accepted, with the text they approved (#701)."""
 
     id: str
@@ -366,7 +372,7 @@ class AcceptedSuggestion(BaseModel):
     replacement: str | None = None
 
 
-class ApplySuggestionsBody(BaseModel):
+class ApplySuggestionsBody(_StrictBody):
     accepted: list[AcceptedSuggestion]
     # Applying alone leaves the plan edited but unreviewed, so re-processing is
     # the default: the point of accepting a suggestion is to see a new verdict.
