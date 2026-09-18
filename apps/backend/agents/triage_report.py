@@ -93,10 +93,21 @@ class TriageReport:
     # #37: test_id → flaky-history summary (runs / flip_rate / classification).
     # Empty when build_report was called without spec_dir or no history exists.
     flaky_by_test_id: dict = field(default_factory=dict)
+    # #662 (port of TFactory#1260): the git_writer error when the accepted tests
+    # were NOT delivered. None means the write succeeded (or was a declared
+    # dry-run). When set, the accepted candidates are still listed — under a
+    # heading that says they did not land — and ``committed_count`` reads 0.
+    delivery_error: str | None = None
+
+    @property
+    def accepted_count(self) -> int:
+        """How many candidates the triage ACCEPTED, whether or not delivered."""
+        return len(self.committed)
 
     @property
     def committed_count(self) -> int:
-        return len(self.committed)
+        """How many accepted tests were actually COMMITTED: 0 when the write failed."""
+        return 0 if self.delivery_error else len(self.committed)
 
     @property
     def rejected_count(self) -> int:
@@ -156,6 +167,7 @@ def build_report(
     skipped: Sequence[TriageCandidate] = (),
     decisions: dict | None = None,
     spec_dir: Path | None = None,
+    delivery_error: str | None = None,
 ) -> TriageReport:
     """Construct a TriageReport from the Triager's commit-5 working set.
 
@@ -196,6 +208,7 @@ def build_report(
         decisions=dict(decisions) if decisions else {},
         evidence_urls_by_test_id=evidence_urls_by_test_id,
         flaky_by_test_id=flaky_by_test_id,
+        delivery_error=delivery_error,
     )
 
 
@@ -282,6 +295,7 @@ def render_json(report: TriageReport) -> str:
         "generated_at": report.generated_at,
         "summary": {
             "dedup_input_count": report.dedup_input_count,
+            "accepted_count": report.accepted_count,
             "committed_count": report.committed_count,
             "flagged_count": report.flagged_count,
             "rejected_count": report.rejected_count,
@@ -293,6 +307,7 @@ def render_json(report: TriageReport) -> str:
         "rejected": [_candidate_to_json(c) for c in report.rejected],
         "skipped": [_candidate_to_json(c, decisions) for c in report.skipped],
         "dedup_collisions": [_collision_to_json(c) for c in report.collisions],
+        "delivery_error": report.delivery_error,
     }
     return json.dumps(doc, indent=2, sort_keys=True) + "\n"
 
@@ -436,6 +451,7 @@ def render_markdown(report: TriageReport) -> str:
         "| Bucket | Count |\n"
         "|---|---:|\n"
         f"| Dedup input | {report.dedup_input_count} |\n"
+        f"| Accepted | {report.accepted_count} |\n"
         f"| Committed (accept) | {report.committed_count} |\n"
         f"| Flagged | {report.flagged_count} |\n"
         f"| Skipped (operator locked) | {report.skipped_count} |\n"
@@ -478,8 +494,24 @@ def render_markdown(report: TriageReport) -> str:
     parts = [
         "# Triage Report\n",
         f"_Mode: {report.mode} · Generated at {report.generated_at}_\n",
+    ]
+    if report.delivery_error:
+        # #662: an unsuccessful write must not print a "Committed" table. The
+        # accepted tests are still listed — under a heading that says they did
+        # not land — so a reader gets the work AND the fact it was not delivered.
+        parts.append(
+            "> **Delivery FAILED — nothing was committed.** "
+            f"{report.accepted_count} test(s) were accepted and none reached the "
+            f"branch: `{report.delivery_error}`\n"
+        )
+    parts += [
         _section("Summary", summary_table),
-        _section("Committed", committed_body),
+        _section(
+            "Accepted but NOT committed (delivery failed)"
+            if report.delivery_error
+            else "Committed",
+            committed_body,
+        ),
         _section("Flagged", flagged_body),
         _section("Skipped", skipped_body),
         _section("Rejected", rejected_body),

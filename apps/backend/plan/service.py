@@ -17,6 +17,8 @@ import logging
 import os
 import re
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -357,6 +359,11 @@ class PlanService:
         # a plain re-usable mutex (held only for the brief dict/disk write, never
         # across the long pipeline body) — minimal and correct.
         self._store_lock = threading.Lock()
+        # One emit (issues or contract) per session at a time (#725). Emits run
+        # in a worker thread, so without this a double-click would run two that
+        # both see "no epic yet" and both create one. Per-process is enough:
+        # replicaCount is pinned to 1.
+        self._emit_locks: dict[str, threading.Lock] = {}
         # Monotonic sequence counter (RFC-0016 #217). Was derived as
         # ``len(_sessions)+1`` at each call — a TOCTOU race under concurrent
         # ingests (two readers see the same length → identical seq → identical
@@ -1353,7 +1360,28 @@ class PlanService:
 
     # ── emit ───────────────────────────────────────────────────────────
 
-    def emit(
+    @contextmanager
+    def _emit_lock(self, session_id: str) -> Iterator[None]:
+        with self._store_lock:
+            lock = self._emit_locks.setdefault(session_id, threading.Lock())
+        if not lock.acquire(blocking=False):
+            raise PlanServiceError(f"an emit is already running for session {session_id!r}")
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def emit(self, session_id: str, **kwargs: Any) -> PlanSession:
+        """Emit the epic + children to GitHub; see :meth:`_emit`."""
+        with self._emit_lock(session_id):
+            return self._emit(session_id, **kwargs)
+
+    def emit_contract(self, session_id: str, **kwargs: Any) -> PlanSession:
+        """Emit the signed Task Contract; see :meth:`_emit_contract`."""
+        with self._emit_lock(session_id):
+            return self._emit_contract(session_id, **kwargs)
+
+    def _emit(
         self,
         session_id: str,
         *,
@@ -1363,7 +1391,7 @@ class PlanService:
         docs_connections: list[dict] | None = None,
         docs_selected: list[str] | None = None,
     ) -> PlanSession:
-        from plan.emit.github_emitter import emit_to_github
+        from plan.emit.github_emitter import EmitResult, emit_to_github
         from plan.emit.labels import pfactory_meta_block, taxonomy_labels
 
         session = self.get(session_id)
@@ -1391,6 +1419,16 @@ class PlanService:
         prior = session.emit_result or {}
         existing_epic = session.emitted_issue_number or prior.get("epic_number")
         existing_children = prior.get("child_numbers") or {}
+
+        def _save_progress(epic_number: int, child_numbers: dict[str, int]) -> None:
+            # Persist each number as its issue appears, so a kill mid-emit leaves
+            # the #119 resume path something to resume from (#725).
+            session.emitted_issue_number = epic_number
+            session.emit_result = EmitResult(
+                dry_run=False, epic_number=epic_number, child_numbers=child_numbers
+            ).model_dump()
+            self._save(session)
+
         result = emit_to_github(
             session.epic,
             repo=repo,
@@ -1402,6 +1440,7 @@ class PlanService:
             gh=gh,
             existing_epic_number=existing_epic if not dry_run else None,
             existing_child_numbers=existing_children if not dry_run else None,
+            on_progress=None if dry_run else _save_progress,
         )
         session.emit_result = result.model_dump()
         # Persist the epic number as soon as it exists — even on a PARTIAL emit
@@ -1448,7 +1487,7 @@ class PlanService:
         self._save(session)
         return session
 
-    def emit_contract(
+    def _emit_contract(
         self,
         session_id: str,
         *,
