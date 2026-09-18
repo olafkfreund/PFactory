@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 670
 spec: spec/2026-09-18-670-auth-lens-participles.md
 ---
