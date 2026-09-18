@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 671
 spec: spec/2026-09-18-671-process-reject-unknown-fields.md
 ---
