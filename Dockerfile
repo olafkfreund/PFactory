@@ -56,6 +56,10 @@ RUN mkdir -p apps/web-server/static \
 # Stage 2: Runtime (Chainguard Python, dev variant for now — minimal split
 # happens in P0.5 once we know what the runtime *actually* needs)
 # ---------------------------------------------------------------------------
+# Runtime Node comes from the official image, not apk (Factory#1710). Same
+# digest as frontend-build, so both move together in one Dependabot bump.
+FROM docker.io/node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS node-runtime
+
 FROM cgr.dev/chainguard/python:latest-dev@sha256:30cd0d997b48b7bc5c1c0cb2d88a4cd00e35d68c2babd783a08f2c896628223d AS runtime
 
 USER root
@@ -76,14 +80,29 @@ ARG SECURITY_REFRESH=0
 RUN echo "security refresh: ${SECURITY_REFRESH}" \
     && apk upgrade --no-cache
 
+# Node from the official image (Factory#1710). apk `nodejs` is rebuilt on the
+# rolling index against the newest glibc, while this base pins glibc exactly in
+# /etc/apk/world, and apk deps are unversioned sonames. apk node needed exactly
+# the image's GLIBC_2.44 (zero headroom) and broke every PR on 2026-09-03. The
+# official binary needs GLIBC_2.28 and only libc/libm/libdl/libpthread/
+# libstdc++/libgcc_s/libatomic (all in the base); libuv/OpenSSL/ICU are bundled.
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+# .nvmrc is the one declaration of the Node major: fail the build on drift.
+COPY .nvmrc /tmp/.nvmrc
+RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
+ && have="$(node -p 'process.versions.node.split(".")[0]')" \
+ && [ -n "$want" ] && [ "$want" = "$have" ] \
+ || { echo "Node major drift: .nvmrc=$want runtime=$have (Factory#1710)"; exit 1; } \
+ && rm /tmp/.nvmrc
+
 # System packages from Wolfi APK index. Build tools come bundled in :latest-dev.
 #   git           — worktree operations
 #   curl, wget    — downloads (HEALTHCHECK uses curl)
 #   gh            — GitHub CLI (Wolfi apk package name)
-#   nodejs, npm   — runtime Node for `npm install -g @anthropic-ai/claude-code`
-#                   spawned by the agent. Installed via apk instead of
-#                   binary-copying from the frontend stage so dynamic linker
-#                   deps (libuv etc.) resolve correctly.
+#   (Node is NOT from apk: see the node-runtime COPY below, Factory#1710.)
 #   ca-certificates — TLS roots
 #   bash          — entrypoint script (will be removed in P0.3)
 #   binutils      — the :latest-dev base bundles binutils 2.46-r1, which carries
@@ -127,8 +146,6 @@ RUN apk add --no-cache \
         git \
         gh \
         gnupg \
-        nodejs \
-        npm \
         socat \
         "wget>=1.25.0-r15"
 
