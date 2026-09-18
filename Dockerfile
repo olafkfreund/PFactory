@@ -84,6 +84,16 @@ RUN echo "security refresh: ${SECURITY_REFRESH}" \
 #                   spawned by the agent. Installed via apk instead of
 #                   binary-copying from the frontend stage so dynamic linker
 #                   deps (libuv etc.) resolve correctly.
+#                   EXACT pins, unlike the CVE floors below (#674): the base
+#                   pins glibc per series (glibc-2.44, ...) in /etc/apk/world,
+#                   and glibc does not follow `apk add`. A floating node breaks
+#                   the build, with no commit, the day Wolfi rebuilds it against
+#                   a newer glibc (`GLIBC_2.44' not found`, 2026-09-03). The
+#                   `node --version` at the end of the RUN makes that fail here,
+#                   not two layers later. To bump (a Trivy HIGH on node is the
+#                   usual trigger): pick versions from the Wolfi index
+#                   (`apk search -a -x nodejs-26 npm-12`), confirm they run on
+#                   the current base digest, and bump both together.
 #   ca-certificates — TLS roots
 #   bash          — entrypoint script (will be removed in P0.3)
 #   binutils      — the :latest-dev base bundles binutils 2.46-r1, which carries
@@ -127,10 +137,12 @@ RUN apk add --no-cache \
         git \
         gh \
         gnupg \
-        nodejs \
-        npm \
+        "nodejs-26=26.9.0-r0" \
+        "npm-12=12.0.2-r3" \
         socat \
-        "wget>=1.25.0-r15"
+        "wget>=1.25.0-r15" \
+    && node --version \
+    && npm --version
 
 # Epic #44 R3 — optionally bundle the rmux binary.
 #
