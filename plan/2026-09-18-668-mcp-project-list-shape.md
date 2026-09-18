@@ -24,6 +24,10 @@ All in `apps/backend/agents/tools_pkg/tools/task_control.py` unless stated.
 1. `_load_projects()`: after `json.loads`, branch on shape — dict with a
    `projects` list → list shape; dict of dicts → normalise to list with
    `_shape: "by_id"`; anything else → empty list shape.
+   *Deviation (implementation):* an empty `{}` counts as `by_id` — it is
+   what the web server leaves after deleting its last project, and treating
+   it as list shape would make a later MCP create write `{"projects": [...]}`
+   over a web-server file. A missing file is still list shape, as today.
    → verify by the new list test (step 4).
 2. `_save_projects()` → `_add_project(entry, shape)`: list shape appends and
    writes `{"projects": [...]}` as today; `by_id` re-reads the raw dict, sets
@@ -37,6 +41,7 @@ All in `apps/backend/agents/tools_pkg/tools/task_control.py` unless stated.
    - same file + `project_create` → still id-keyed, original entries
      byte-identical, new entry has `path` == `root_path`;
    - garbage JSON shape (e.g. a list) → `project_list` returns count 0.
+   - `{}` file + `project_create` → still id-keyed (deviation above).
    → verify green.
 5. Negative control: revert step 1 only, the id-keyed list test raises
    `KeyError`; restore.
