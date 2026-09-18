@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Plan-session routes reject unknown body fields with 422 (#671).** Every
+  JSON body under `/api/plan/sessions` now forbids fields it does not declare.
+  Previously `POST /process` with `{"repo", "base_ref"}` returned 200 and a
+  complete greenfield plan, because those fields belong on `/ingest-text` and
+  were silently dropped. **Behaviour change:** a client that sends extra keys
+  now gets a 422 naming the field; drop the key (it was never read).
+
 ## 0.6.19 — runtime Node from the official image; base-image bumps auto-merge (2026-09-18)
 
 - **The runtime image's Node can no longer outrun its glibc (Factory#1710).**
