@@ -29,8 +29,11 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 # auth words this includes cloud-native identity primitives an engineering SOW uses
 # instead of a literal "login": IAM, IRSA, mTLS, service accounts, least-privilege,
 # a secrets manager / KMS, SSO/SAML/OIDC/JWT.
-_AUTH_RE = re.compile(
-    r"(?i)\b(auth|authn|authz|authentication|authorization|login|oauth|rbac|abac|"
+# The auth stem takes every word form (authenticated, unauthorised, authz, ...)
+# but not author/authored/authority, which would falsely cover a plan (#670).
+# Shared with the red-team lens so the two can't drift.
+AUTH_RE = re.compile(
+    r"(?i)\b((?:un)?auth(?:n|z|entic\w*|ori[sz]\w*)?|login|oauth|rbac|abac|"
     r"permission|access control|token|iam|irsa|m[\s-]?tls|mutual tls|"
     r"service[\s-]?account|least[\s-]?privilege|secrets?[\s-]?manager|kms|"
     r"sso|saml|oidc|jwt|identity provider|credential)\b"
@@ -117,7 +120,7 @@ class SecurityLens:
             not blocking
             and plan.target_kind == "software"
             and _NETWORKED_RE.search(text)
-            and not _AUTH_RE.search(text)
+            and not AUTH_RE.search(text)
         ):
             score = min(score, 0.7)
             findings.append(
