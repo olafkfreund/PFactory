@@ -84,7 +84,8 @@ fork has no outcome layer, and adding one is out of scope.
   `## Committed` heading. Unset → today's output plus the Accepted row (golden
   fixture).
 - `test_triager.py`: with `source.json` branch set and
-  `triager.write_tests_to_branch` monkeypatched to a failed result
+  `tools.git_writer.write_tests_to_branch` monkeypatched to a failed result
+  (the triager imports it inside `run_triager`, `triager.py:529`)
   (`ok=False`, error text): `status.json` has `committed_count: 0`,
   `accepted_count > 0`, `status: triaged`, and `triage_report.md` shows the
   delivery failure. Default dry run: `committed_count == accepted_count`.
