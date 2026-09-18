@@ -7,6 +7,7 @@ _Mode: initial · Generated at 2026-05-28T15:30:00+00:00_
 | Bucket | Count |
 |---|---:|
 | Dedup input | 4 |
+| Accepted | 1 |
 | Committed (accept) | 1 |
 | Flagged | 1 |
 | Skipped (operator locked) | 0 |
