@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 662
 spec: spec/2026-09-18-662-triager-committed-count.md
 ---
