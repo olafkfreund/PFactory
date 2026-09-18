@@ -34,7 +34,7 @@
 # the runtime stage -- so the base's CVE posture is not part of the attack
 # surface. The runtime stage stays on Chainguard, where it does matter.
 # Digest bumps land via Dependabot PRs (.github/dependabot.yml).
-FROM docker.io/node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS frontend-build
+FROM docker.io/node:26-bookworm-slim@sha256:c8fedd782bcd1b68d8a7d1ed2577b5f820eba820871323f605292651ff11e3c6 AS frontend-build
 
 USER root
 WORKDIR /build
@@ -58,7 +58,7 @@ RUN mkdir -p apps/web-server/static \
 # ---------------------------------------------------------------------------
 # Runtime Node comes from the official image, not apk (Factory#1710). Same
 # digest as frontend-build, so both move together in one Dependabot bump.
-FROM docker.io/node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS node-runtime
+FROM docker.io/node:26-bookworm-slim@sha256:c8fedd782bcd1b68d8a7d1ed2577b5f820eba820871323f605292651ff11e3c6 AS node-runtime
 
 FROM cgr.dev/chainguard/python:latest-dev@sha256:30cd0d997b48b7bc5c1c0cb2d88a4cd00e35d68c2babd783a08f2c896628223d AS runtime
 
