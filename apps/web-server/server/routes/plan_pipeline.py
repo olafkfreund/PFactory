@@ -7,6 +7,7 @@ store keyed by ``session_id`` (== the plan id). All emission is dry-run by defau
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -537,8 +538,12 @@ async def emit(
 ) -> dict:
     docs_connections = await _load_docs_connections(request, db)
     try:
+        # Off the event loop (#725): a live emit is dozens of `gh` subprocess
+        # calls, and holding the loop for minutes starved /api/health until the
+        # liveness probe killed the pod mid-emit.
         return _session_dict(
-            SERVICE.emit(
+            await asyncio.to_thread(
+                SERVICE.emit,
                 session_id,
                 repo=body.repo,
                 dry_run=body.dry_run,
@@ -560,7 +565,8 @@ async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
     try:
         http = None if body.dry_run else _UrllibHttp()
         return _session_dict(
-            SERVICE.emit_contract(
+            await asyncio.to_thread(
+                SERVICE.emit_contract,
                 session_id,
                 repo=body.repo,
                 project_id=body.project_id,

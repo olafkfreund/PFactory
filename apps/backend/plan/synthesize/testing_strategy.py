@@ -4,7 +4,7 @@ Deterministically renders a markdown Testing Strategy spec for a
 :class:`~plan.models.NormalizedPlan` and a dedicated ``testing`` child issue. The
 strategy defines test lanes (unit / integration / e2e), coverage targets, and a
 table mapping every acceptance criterion to a test approach. The child is
-TFactory-aware (labelled ``handover:tfactory``) so the test work routes to the
+TFactory-aware (labelled ``handoff:tfactory``) so the test work routes to the
 testing factory.
 """
 
@@ -263,7 +263,7 @@ def _build_child(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) -> ChildI
         labels=[
             "pfactory",
             "area:testing",
-            "handover:tfactory",
+            "handoff:tfactory",
             f"plan-type:{descriptor.name}",
         ],
         complexity="standard",
