@@ -84,7 +84,8 @@ def test_software_plan_generates_both_artifacts():
     assert cicd.child.key == "CICD"
     assert "area:cicd" in cicd.child.labels
     assert testing.child.key == "TEST"
-    assert "handover:tfactory" in testing.child.labels
+    assert "handoff:tfactory" in testing.child.labels  # the label TFactory reads (#725)
+    assert "handover:tfactory" not in testing.child.labels
 
 
 def test_testing_doc_maps_each_acceptance_criterion():

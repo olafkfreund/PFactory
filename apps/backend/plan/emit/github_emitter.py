@@ -19,6 +19,7 @@ create issues for an ungoverned plan.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
@@ -29,6 +30,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from plan.decompose.models import ChildIssue, EpicPlan
     from plan.models import NormalizedPlan
     from plan.review.models import PlanReview
+
+logger = logging.getLogger(__name__)
 
 
 # Substrings that mark a *transient* GitHub failure worth retrying — secondary
@@ -190,6 +193,7 @@ def emit_to_github(
     existing_epic_number: int | None = None,
     existing_child_numbers: dict[str, int] | None = None,
     sleep_fn: Callable[[float], None] = time.sleep,
+    on_progress: Callable[[int, dict[str, int]], None] | None = None,
 ) -> EmitResult:
     """Emit an :class:`EpicPlan` as a GitHub epic + child issues.
 
@@ -209,6 +213,11 @@ def emit_to_github(
             attempt; those children are reused (not re-created), and only the
             missing ones are created (#119).
         sleep_fn: Injected sleep seam for the retry backoff (tests pass a no-op).
+        on_progress: Live only. Called with ``(epic_number, {child.key: issue#})``
+            once the epic exists and again after each child is created, so the
+            caller can persist numbers as they appear. A kill mid-emit then
+            leaves a record a re-emit resumes from, instead of nothing (#725).
+            Its errors are logged and never stop issue creation.
 
     Behaviour:
         * Live emit refuses an ungoverned plan: if ``review`` is provided and
@@ -278,6 +287,20 @@ def emit_to_github(
     reused = dict(existing_child_numbers or {})
     child_numbers: dict[str, int] = {}
     newly_created: list[int] = []
+
+    # Every report carries ALL reused children, not just those the loop has
+    # passed — a partial map saved after a kill would re-create the rest.
+    known = {c.key: reused[c.key] for c in epic.children if c.key in reused}
+
+    def _report() -> None:
+        if on_progress is None:
+            return
+        try:
+            on_progress(epic_number, {**known, **child_numbers})
+        except Exception:  # noqa: BLE001 - saving progress must never abort the emit
+            logger.warning("emit progress callback failed", exc_info=True)
+
+    _report()
     for child in epic.children:
         if child.key in reused:
             child_numbers[child.key] = reused[child.key]
@@ -298,6 +321,7 @@ def emit_to_github(
             continue
         child_numbers[child.key] = number
         newly_created.append(number)
+        _report()
 
     # Link only the children we created THIS call as sub-issues (best-effort);
     # reused children were already linked by the attempt that created them.

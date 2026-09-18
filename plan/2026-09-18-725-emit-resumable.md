@@ -40,6 +40,11 @@ Approved decisions (from the spec):
    c. `emit`: wrap the body in `with self._emit_lock(session_id):`; pass
       `on_progress=` a closure doing the three writes above (live only).
    d. `emit_contract`: wrap its body in the same lock.
+   *Deviation (implementation):* instead of re-indenting both ~150-line
+   bodies under `with`, the bodies are renamed `_emit` / `_emit_contract` and
+   the public `emit` / `emit_contract` are thin wrappers that take the lock and
+   delegate. Same behaviour, reviewable diff; both signatures were already
+   keyword-only after `session_id`, so `**kwargs` forwarding changes no caller.
    → verify by steps 6-7 tests.
 3. `apps/web-server/server/routes/plan_pipeline.py`: `import asyncio`;
    `emit` → `await asyncio.to_thread(SERVICE.emit, session_id, repo=..., ...)`;
