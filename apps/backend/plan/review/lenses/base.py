@@ -9,12 +9,15 @@ by default; an optional LLM seam may refine them but is never required.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
     from plan.models import NormalizedPlan
     from plan.review.models import LensScore
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -47,6 +50,14 @@ def default_lenses() -> list[Lens]:
 
     Imported lazily so registration (a side-effect of importing each lens
     module) happens on first use without an import cycle.
+
+    The ``order`` list is the MANDATORY review set and never consults the
+    extension registry: ``is_enabled`` reads an unreadable registry as
+    "disabled", so honouring it here would let a parse error silently empty the
+    whole review. The registry's ``enabled`` flag is load-bearing only for gated
+    lenses in the tail (see :func:`_gated_off`). A registry entry for a
+    mandatory lens is descriptive: it carries ``mandatory: true`` and a warning
+    is logged if it ever claims to be disabled (#682).
     """
     from plan.review.lenses import (  # noqa: F401
         architecture,
@@ -65,6 +76,7 @@ def default_lenses() -> list[Lens]:
         "best-practices",
         "completeness",
     ]
+    _warn_if_mandatory_disabled(order)
 
     # RFC-0015 §4 D1: the adversarial red-team lens is gated — only register it in
     # the default set when the declarative extension registry (D3) enables it (or
@@ -87,6 +99,36 @@ def default_lenses() -> list[Lens]:
             continue
         seen.append(n)
     return [_REGISTRY[n] for n in seen if n in _REGISTRY]
+
+
+_WARNED_MANDATORY: set[str] = set()
+
+
+def _warn_if_mandatory_disabled(mandatory: list[str]) -> None:
+    """Log once per entry when the registry misdescribes a mandatory lens (#682).
+
+    A mandatory lens always runs, whatever its ``<lens>-review`` entry says; an
+    entry reading ``enabled: false`` (or missing ``mandatory: true``) would tell
+    an operator it is off when it is on. Never raises, never changes the set.
+    """
+    try:
+        from plan.review.extension_registry import get_extension  # noqa: PLC0415
+
+        for lens in mandatory:
+            name = f"{lens}-review"
+            entry = get_extension(name)
+            if entry is None or name in _WARNED_MANDATORY:
+                continue
+            if entry.get("enabled") is False or entry.get("mandatory") is not True:
+                _WARNED_MANDATORY.add(name)
+                logger.warning(
+                    "registry entry %r describes mandatory lens %r as optional/disabled; "
+                    "it still runs (mandatory review cannot be switched off, #682)",
+                    name,
+                    lens,
+                )
+    except Exception:  # noqa: BLE001 - a misread registry must never affect the review
+        logger.debug("mandatory-lens registry check failed", exc_info=True)
 
 
 def _gated_off(lens_name: str) -> bool:
