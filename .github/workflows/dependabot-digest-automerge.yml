@@ -1,0 +1,54 @@
+# Factory#1710: Dependabot base-image digest bumps merge themselves once green.
+#
+# The runtime base is pinned by digest, and the packages installed on top come
+# from a rolling index. Every day a bump sits unmerged is a day in which a
+# package rebuilt against a newer glibc can break every PR (2026-09-03). These
+# PRs used to sit for weeks. Auto-merge closes that window without weakening a
+# gate: `--auto` merges only after every required status check passes.
+#
+# Scope is deliberately narrow: the PR must be authored AND triggered by
+# Dependabot (a human pushing to its branch disables this), in the `docker`
+# ecosystem, and touch nothing but Dockerfiles. npm/pip/actions bumps are
+# untouched.
+name: dependabot digest auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: >-
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      - name: Only Dockerfiles changed
+        id: scope
+        if: steps.meta.outputs.package-ecosystem == 'docker'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          files="$(gh pr diff "$PR_URL" --name-only)"
+          echo "changed: $files"
+          # Anything that is not a Dockerfile keeps the PR on the human path.
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '(^|/)Dockerfile[^/]*$'; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable auto-merge (lands only when required checks pass)
+        if: steps.scope.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
