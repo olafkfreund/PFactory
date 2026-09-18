@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.6.19 — runtime Node from the official image; base-image bumps auto-merge (2026-09-18)
+
+- **The runtime image's Node can no longer outrun its glibc (Factory#1710).**
+  apk `nodejs` is rebuilt on the rolling Wolfi index against the newest glibc,
+  while the chainguard base pins glibc exactly in `/etc/apk/world` and apk deps
+  are unversioned sonames. apk Node needed exactly the image's `GLIBC_2.44`,
+  with zero headroom; that broke every PR on 2026-09-03 (#674). Node now comes
+  from the official `node:26` image (`.nvmrc`), which needs `GLIBC_2.28`, and a
+  build-time guard fails on `.nvmrc` drift. (#732)
+- **Green Dependabot base-image digest bumps merge themselves (Factory#1710).**
+  Digest bumps sat unmerged for weeks, which is the window in which the glibc
+  break recurs. Auto-merge is enabled only for Dependabot docker PRs that touch
+  only Dockerfiles; required checks still decide. Verified live. (#735)
+- Chainguard python base bumped to `075c08a` via that auto-merge. (#666)
+- Also in this release, previously unversioned on `main`:
+
 - **Starting a task with auto-continue off no longer crashes it, after the agent
   has already spawned (#599).** The human-review gate -- `spec_dir`,
   `require_review`, and the `--force` decision -- sat one indent level too deep,
