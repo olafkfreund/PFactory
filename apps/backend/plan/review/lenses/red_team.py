@@ -32,6 +32,7 @@ import re
 from typing import TYPE_CHECKING
 
 from plan.review.lenses.base import register_lens
+from plan.review.lenses.security import AUTH_RE
 from plan.review.models import Finding, LensScore
 
 if TYPE_CHECKING:
@@ -59,12 +60,6 @@ _INFEASIBLE_RE = re.compile(
 _NETWORKED_RE = re.compile(
     r"(?i)\b(api|endpoint|https?|rest|graphql|websocket|server|request|login|"
     r"session|database|postgres|mysql|redis|microservice|deploy|ingress|socket)\b"
-)
-_AUTH_RE = re.compile(
-    r"(?i)\b(auth|authn|authz|authentication|authorization|login|oauth|rbac|abac|"
-    r"permission|access control|token|iam|irsa|m[\s-]?tls|mutual tls|"
-    r"service[\s-]?account|least[\s-]?privilege|secrets?[\s-]?manager|kms|"
-    r"sso|saml|oidc|jwt|identity provider|credential)\b"
 )
 # Contradiction pairs: if both words of a pair appear across the criteria.
 _CONTRADICTION_PAIRS = (
@@ -216,7 +211,7 @@ class RedTeamLens:
         return []
 
     def _security_scope(self, text: str, is_software: bool) -> list[Finding]:
-        if is_software and _NETWORKED_RE.search(text) and not _AUTH_RE.search(text):
+        if is_software and _NETWORKED_RE.search(text) and not AUTH_RE.search(text):
             return [
                 _finding(
                     "Unstated security / access scope",
