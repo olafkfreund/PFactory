@@ -257,19 +257,55 @@ def test_inject_skips_mobile_requirement_the_user_already_wrote() -> None:
 
 def test_min_os_and_forced_upgrade_overlap_phrasing() -> None:
     # "We support iOS 16 and above and prompt users on older versions to
-    # update" reads as covering BOTH min-os-versions and forced-upgrade. With
-    # substring matching it covers forced-upgrade ("versions to update"); the
-    # OS floor cannot be detected without a keyword like "support ios", which
-    # would also match "supports iOS and Android" — a phrase in essentially
-    # every mobile brief — and silently disable min-os injection everywhere.
-    # So min-os is still injected here: the cost is a near-duplicate AC, not a
-    # false gate failure, because injection runs before the lens and check.
+    # update" covers BOTH min-os-versions and forced-upgrade. No safe substring
+    # detects the OS floor ("support ios" would also match "supports iOS and
+    # Android" and disable min-os injection everywhere), so min-os carries
+    # regexes that need a platform, a version AND a floor word (#678).
     epic = _bare_mobile_epic()
     epic.children[0].acceptance_criteria.append(
         "We support iOS 16 and above and prompt users on older versions to update"
     )
     missing = {k for k, _t in missing_requirements(epic, MOBILE_IMPLICIT_REQUIREMENTS)}
     assert "forced-upgrade" not in missing
+    assert "min-os-versions" not in missing
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "Android 10 or newer",
+        "iOS 15+",
+        "requires at least iOS 16",
+        "iOS 16.4 or later",
+        "Android 8.0 and up",
+        "minimum of Android 9",
+        "iPadOS 17 or higher",
+        "We support iOS 16 and above",
+    ],
+)
+def test_os_floor_phrasings_cover_min_os(phrase: str) -> None:
+    epic = _bare_mobile_epic()
+    epic.children[0].acceptance_criteria.append(phrase)
+    missing = {k for k, _t in missing_requirements(epic, MOBILE_IMPLICIT_REQUIREMENTS)}
+    assert "min-os-versions" not in missing
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "The app supports iOS and Android.",
+        "tested on iOS 17",
+        "iOS 17 simulator screenshots",
+        "Android devices and tablets",
+        "radios 5 and up",  # word boundary (#397/#673)
+        "audios 3+",
+    ],
+)
+def test_platform_mentions_without_a_floor_do_not_cover_min_os(phrase: str) -> None:
+    # Precision over recall: a false cover silently drops the requirement.
+    epic = _bare_mobile_epic()
+    epic.children[0].acceptance_criteria.append(phrase)
+    missing = {k for k, _t in missing_requirements(epic, MOBILE_IMPLICIT_REQUIREMENTS)}
     assert "min-os-versions" in missing
 
 
