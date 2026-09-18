@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Plan-session routes reject unknown body fields with 422 (#671).** Every
+  JSON body under `/api/plan/sessions` now forbids fields it does not declare.
+  Previously `POST /process` with `{"repo", "base_ref"}` returned 200 and a
+  complete greenfield plan, because those fields belong on `/ingest-text` and
+  were silently dropped. **Behaviour change:** a client that sends extra keys
+  now gets a 422 naming the field; drop the key (it was never read).
 - **Starting a task with auto-continue off no longer crashes it, after the agent
   has already spawned (#599).** The human-review gate -- `spec_dir`,
   `require_review`, and the `--force` decision -- sat one indent level too deep,
