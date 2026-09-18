@@ -22,9 +22,12 @@ permissions:
 
 jobs:
   automerge:
+    # base.ref: Dependabot targets `dev`; `main` only takes release
+    # promotions, so a Dependabot PR retargeted at `main` stays manual.
     if: >-
       github.actor == 'dependabot[bot]' &&
-      github.event.pull_request.user.login == 'dependabot[bot]'
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.base.ref == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
