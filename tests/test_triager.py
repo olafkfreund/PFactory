@@ -1101,3 +1101,70 @@ async def test_ambiguous_match_logs_warning(
     # Warning about catalog ambiguity must have been emitted
     ambiguity_msgs = [r for r in caplog.records if "ambiguity" in r.message.lower()]
     assert len(ambiguity_msgs) >= 1
+
+
+# ── delivery failure (#662, port of TFactory#1260) ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_failed_git_write_reports_zero_committed(
+    spec_dir: Path, project_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A write that failed must not report its accepted tests as committed."""
+    from tools import git_writer
+    from tools.git_writer import GitWriteResult
+
+    monkeypatch.setenv("PFACTORY_TRIAGER_GIT_WRITE", "1")
+    error = "checkout 'auto-claude/test-feat' failed: already used by worktree"
+    monkeypatch.setattr(
+        git_writer,
+        "write_tests_to_branch",
+        lambda request, dry_run: GitWriteResult(ok=False, dry_run=dry_run, error=error),
+    )
+    (spec_dir / "findings" / "verdicts.json").write_text(
+        json.dumps(_make_verdicts(3, ["accept", "accept", "flag"]))
+    )
+    _write_test_files(spec_dir, 3)
+
+    assert await run_triager(spec_dir, project_dir) is True
+
+    status = json.loads((spec_dir / "status.json").read_text())
+    assert status["git_writer"]["ok"] is False
+    assert status["accepted_count"] == 2
+    assert status["committed_count"] == 0
+    assert status["status"] == "triaged"  # status is unchanged by design
+    report_md = (spec_dir / "findings" / "triage_report.md").read_text()
+    assert "Delivery FAILED — nothing was committed" in report_md
+    assert error in report_md
+
+
+@pytest.mark.asyncio
+async def test_dry_run_git_write_counts_accepted_as_committed(
+    spec_dir: Path, project_dir: Path,
+) -> None:
+    (spec_dir / "findings" / "verdicts.json").write_text(
+        json.dumps(_make_verdicts(2, ["accept", "accept"]))
+    )
+    _write_test_files(spec_dir, 2)
+
+    await run_triager(spec_dir, project_dir)
+
+    status = json.loads((spec_dir / "status.json").read_text())
+    assert status["git_writer"]["dry_run"] is True
+    assert status["accepted_count"] == status["committed_count"] == 2
+
+
+@pytest.mark.parametrize(
+    ("summary", "expected"),
+    [
+        ({"skipped": False, "dry_run": True, "ok": True}, None),
+        ({"skipped": True, "reason": "no branch in source.json"}, None),
+        (None, None),
+        ({"ok": False, "error": "boom"}, "boom"),
+        ({"ok": False, "error": ""}, "git write failed"),
+    ],
+)
+def test_delivery_error(summary, expected) -> None:
+    from agents.triager import _delivery_error
+
+    assert _delivery_error(summary) == expected

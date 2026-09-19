@@ -16,9 +16,12 @@ aliases: [kotlin, android, kts]
 detect_weight: 1
 proof_command: kotlinc -version
 # Gradle fetches its plugins and dependencies from the Gradle plugin portal and
-# Maven Central at run time. NOTE for in-cluster Jobs: build-Job egress is
-# currently allowlisted to apk + npm CDNs only, so these fetches stall there
-# until the Maven/Gradle hosts are allowlisted - the lane is proven on the
+# Maven Central at run time. In-cluster this works: the build-Job egress policy
+# admits public 443 (no per-host allowlist), measured 2026-09-18 on Factory#1712
+# (Maven Central, plugins.gradle.org and a 136.7 MB services.gradle.org
+# distribution all completed). The unit lane runs in-cluster as a per-task Nix
+# Job via TFactory's run_gradle_lane_via_nix: a minimal Gradle module's suite
+# passed (3/3) and, mutated, failed (1/3) there. It also runs on the
 # docker-host substrate.
 network: restricted
 nix:

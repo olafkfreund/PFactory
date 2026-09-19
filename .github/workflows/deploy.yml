@@ -62,9 +62,9 @@ jobs:
           username: "${{ github.repository_owner }}"
           password: "${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}"
       # Rebuild the base-security layer at most once a day. Without a
-      # daily-changing build arg the `apt-get upgrade` layer is served from
-      # the build cache indefinitely, so Debian security fixes never reach the
-      # image (CFactory#440).
+      # daily-changing build arg the package layer (`apk add`) is served from
+      # the build cache indefinitely, so newer package versions never reach the
+      # image (CFactory#440, #733).
       - name: Compute security-refresh token
         run: echo "SECURITY_REFRESH=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
 
