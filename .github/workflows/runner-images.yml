@@ -76,14 +76,14 @@ jobs:
       # docker/setup-buildx-action enables BuildKit features (layer caching,
       # multi-platform builds, --check flag). Required for dockerfile:1.7 syntax.
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       # Build the image and load it into the local Docker daemon so the
       # hello-world smoke step below can run it.
       # push: false — nothing reaches the registry until the smoke has passed.
       # load: true  — exports image to local daemon for the smoke test.
       - name: Build pfactory-runner-${{ matrix.runner }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: docker/pfactory-runner-${{ matrix.runner }}
           file: docker/pfactory-runner-${{ matrix.runner }}/Dockerfile
@@ -208,7 +208,7 @@ jobs:
       - name: Push pfactory-runner-${{ matrix.runner }} to GHCR
         id: push
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: docker/pfactory-runner-${{ matrix.runner }}
           file: docker/pfactory-runner-${{ matrix.runner }}/Dockerfile
