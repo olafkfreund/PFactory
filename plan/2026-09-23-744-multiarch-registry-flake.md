@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 744
 spec: spec/2026-09-23-744-multiarch-registry-flake.md
 ---
