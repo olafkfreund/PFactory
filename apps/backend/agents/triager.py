@@ -408,6 +408,24 @@ def _pr_comment_dry_run() -> bool:
     return not _truthy(os.environ.get("PFACTORY_TRIAGER_PR_COMMENT"))
 
 
+def _delivery_error(git_writer: object) -> str | None:
+    """#662 (port of TFactory#1260) — the error from a git write that was
+    ATTEMPTED and FAILED.
+
+    ``None`` when the accepted tests were delivered, when the write was a
+    declared dry-run (``ok`` stays true and ``dry_run: true`` is recorded), or
+    when there was nothing to write (a skipped summary has no ``ok``). This is
+    the one place ``git_writer.ok`` is reconciled with the counts: without it a
+    run whose checkout failed reported ``committed_count: 5`` for work that
+    reached no branch.
+    """
+    if not isinstance(git_writer, dict):
+        return None
+    if git_writer.get("ok") is False:
+        return str(git_writer.get("error") or "git write failed")[:300]
+    return None
+
+
 def _harvest_enabled() -> bool:
     """Default ON. Promote high-confidence accepts into the reusable template
     library. Writing template files into ``<project>/.pfactory/templates/`` is
@@ -628,6 +646,7 @@ async def run_triager(
                 spec_dir,
                 status="triaged_empty",
                 phase="triager_no_candidates",
+                accepted_count=0,
                 committed_count=0,
                 rejected_count=0,
                 flagged_count=0,
@@ -641,27 +660,9 @@ async def run_triager(
         committed = tuple(c for c in ranked_survivors if c.verdict_label == "accept")
         flagged = tuple(c for c in ranked_survivors if c.verdict_label == "flag")
 
-        # ── 4. Build + render the report ────────────────────────
-        report = build_report(
-            mode=mode,
-            generated_at=_now_iso(),
-            committed=committed,
-            flagged=flagged,
-            rejected=tuple(rejects),
-            skipped=tuple(skipped),
-            collisions=dedup_result.collisions,
-            dedup_input_count=len(keepers),
-            decisions=decisions,
-            spec_dir=spec_dir,
-        )
-
-        findings_dir = spec_dir / "findings"
-        findings_dir.mkdir(parents=True, exist_ok=True)
-        (findings_dir / "triage_report.json").write_text(render_json(report))
-        report_md = render_markdown(report)
-        (findings_dir / "triage_report.md").write_text(report_md)
-
-        # ── 5. git_writer side-effect (dry-run by default) ──────
+        # ── 4. git_writer side-effect (dry-run by default) ──────
+        # Commit BEFORE rendering the report (#662): the report states what was
+        # committed, so it cannot be written before the write that decides it.
         git_dry = _git_writer_dry_run()
         git_result_summary: dict = {"skipped": True, "reason": "no side-effect path"}
         source_meta = _load_source_meta(spec_dir)
@@ -698,6 +699,28 @@ async def run_triager(
                         "no branch in source.json" if not branch else "no readable test sources"
                     ),
                 }
+        delivery_error = _delivery_error(git_result_summary)
+
+        # ── 5. Build + render the report ────────────────────────
+        report = build_report(
+            mode=mode,
+            generated_at=_now_iso(),
+            committed=committed,
+            flagged=flagged,
+            rejected=tuple(rejects),
+            skipped=tuple(skipped),
+            collisions=dedup_result.collisions,
+            dedup_input_count=len(keepers),
+            decisions=decisions,
+            spec_dir=spec_dir,
+            delivery_error=delivery_error,
+        )
+
+        findings_dir = spec_dir / "findings"
+        findings_dir.mkdir(parents=True, exist_ok=True)
+        (findings_dir / "triage_report.json").write_text(render_json(report))
+        report_md = render_markdown(report)
+        (findings_dir / "triage_report.md").write_text(report_md)
 
         # ── 6. pr_comment side-effect (dry-run by default) ──────
         pr_dry = _pr_comment_dry_run()
@@ -804,15 +827,19 @@ async def run_triager(
                 _triage_log.warning("triager: template harvest failed (non-fatal): %s", exc)
 
         # ── 7. Record summaries in status.json ──────────────────
-        committed_count = len(committed)
+        # Two concepts, two names (#662): `accepted_count` is what triage decided,
+        # `committed_count` is what landed. A failed write means nothing landed.
+        accepted_count = len(committed)
+        committed_count = 0 if delivery_error else accepted_count
         flagged_count = len(flagged)
         rejected_count = len(rejects)
         collision_count = len(dedup_result.collisions)
-        final_status = "triaged" if (committed_count or flagged_count) else "triaged_empty"
+        final_status = "triaged" if (accepted_count or flagged_count) else "triaged_empty"
         _write_status_patch(
             spec_dir,
             status=final_status,
             phase="triager_complete",
+            accepted_count=accepted_count,
             committed_count=committed_count,
             rejected_count=rejected_count,
             flagged_count=flagged_count,

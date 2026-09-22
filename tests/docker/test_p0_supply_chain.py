@@ -66,8 +66,9 @@ def test_base_images_pinned_by_digest() -> None:
 def test_trivy_no_high_critical(built_image: str) -> None:
     """P0.8 — Trivy scan reports zero *fixable* HIGH/CRITICAL vulnerabilities.
 
-    `--ignore-unfixed` gates only on CVEs with an upstream patch; the image's
-    `apk upgrade` + digest pin clear every fixable HIGH/CRITICAL on rebuild. An
+    `--ignore-unfixed` gates only on CVEs with an upstream patch; base digest
+    bumps plus the explicit floors in the daily-refreshed `apk add` layer clear
+    every fixable HIGH/CRITICAL (#733). An
     unfixable finding isn't actionable here and must not wedge CI.
     """
     result = subprocess.run(

@@ -14,6 +14,9 @@ So the rule is per-build, not per-repo: follow each cached build step to the
 Dockerfile it names, and if that Dockerfile upgrades packages, require the
 cache-bust arg on both sides. Images with no upgrade layer are out of scope
 here (a separate policy question) rather than silently passing as "fine".
+
+On the chainguard root image the refreshing layer is `apk add`, not
+`apk upgrade` (a no-op there, #733), so `apk add` counts as upgrading.
 """
 
 from __future__ import annotations
@@ -25,7 +28,10 @@ _ROOT = Path(__file__).resolve().parents[1]
 _WORKFLOWS = _ROOT / ".github/workflows"
 _STEP = re.compile(r"^(\s*)- (?:name|id|uses):.*$", re.M)
 _FILE = re.compile(r"^\s*file:\s*(\S+)\s*$", re.M)
-_UPGRADE = re.compile(r"(apt-get|apk)\s+upgrade")
+# `apk add` counts too (#733): on the chainguard base `apk upgrade` is a no-op
+# (every package is pinned in /etc/apk/world), so the layer that actually
+# refreshes packages is `apk add`, and it freezes under cache-from the same way.
+_UPGRADE = re.compile(r"(apt-get|apk)\s+upgrade|apk\s+add")
 
 
 def _cached_builds():

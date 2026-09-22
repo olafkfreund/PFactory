@@ -180,6 +180,70 @@ async def test_project_list_after_create(tools: dict) -> None:
     assert {p["id"] for p in body["projects"]} == {"demo", "other"}
 
 
+# ── projects.json written by the web server (#668) ───────────────────────
+# The web server keys the same file by project id and stores `path`.
+
+_WEB_SERVER_PROJECTS = {
+    "friends": {
+        "name": "friends",
+        "path": "/srv/friends",
+        "created_at": "2026-09-01T10:00:00",
+        "settings": {"gitProvider": "github"},
+    },
+    "olafkfreund-demo": {
+        "name": "demo",
+        "repo": "olafkfreund/demo",
+        "path": "",
+        "source": "plan-session",
+        "created_at": "2026-09-02T10:00:00",
+    },
+}
+
+
+def _write_web_server_file(workspace: Path, projects: dict) -> Path:
+    workspace.mkdir(parents=True, exist_ok=True)
+    pf = workspace / "projects.json"
+    pf.write_text(json.dumps(projects, indent=2))
+    return pf
+
+
+@pytest.mark.asyncio
+async def test_project_list_reads_web_server_shape(tools: dict, workspace: Path) -> None:
+    _write_web_server_file(workspace, _WEB_SERVER_PROJECTS)
+    body = _payload(await tools["project_list"]({}))
+    assert body["count"] == 2
+    by_id = {p["id"]: p for p in body["projects"]}
+    assert by_id["friends"]["root_path"] == "/srv/friends"
+    assert by_id["olafkfreund-demo"]["root_path"] == ""
+    assert "_shape" not in body
+
+
+@pytest.mark.asyncio
+async def test_project_create_keeps_web_server_shape(tools: dict, workspace: Path) -> None:
+    pf = _write_web_server_file(workspace, _WEB_SERVER_PROJECTS)
+    res = await tools["project_create"]({"id": "new", "name": "New", "root_path": "/tmp/new"})
+    assert res.get("isError") is not True
+    on_disk = json.loads(pf.read_text())
+    assert "projects" not in on_disk
+    for pid, entry in _WEB_SERVER_PROJECTS.items():
+        assert on_disk[pid] == entry  # untouched
+    assert on_disk["new"]["path"] == on_disk["new"]["root_path"] == "/tmp/new"
+
+
+@pytest.mark.asyncio
+async def test_project_create_on_emptied_web_server_file(tools: dict, workspace: Path) -> None:
+    # `{}` is what the web server leaves after deleting its last project.
+    pf = _write_web_server_file(workspace, {})
+    await tools["project_create"]({"id": "new", "name": "New", "root_path": "/tmp/new"})
+    assert list(json.loads(pf.read_text())) == ["new"]
+
+
+@pytest.mark.asyncio
+async def test_project_list_unrecognised_shape_is_empty(tools: dict, workspace: Path) -> None:
+    _write_web_server_file(workspace, ["not", "a", "registry"])  # type: ignore[arg-type]
+    assert _payload(await tools["project_list"]({})) == {"count": 0, "projects": []}
+
+
 # ── task_create_and_run ──────────────────────────────────────────────────
 
 

@@ -60,25 +60,9 @@ RUN mkdir -p apps/web-server/static \
 # digest as frontend-build, so both move together in one Dependabot bump.
 FROM docker.io/node:26-bookworm-slim@sha256:c8fedd782bcd1b68d8a7d1ed2577b5f820eba820871323f605292651ff11e3c6 AS node-runtime
 
-FROM cgr.dev/chainguard/python:latest-dev@sha256:075c08ad4c1d529dfb0ee3aaeab034268c912771256132765bb0751d0dba6572 AS runtime
+FROM cgr.dev/chainguard/python:latest-dev@sha256:8af5085c793a9b501253117ccceabff2340400f3ef92fb0e09df690dd1e961a4 AS runtime
 
 USER root
-
-# Pull all available Wolfi security patches at build time. The base is pinned by
-# digest for reproducibility, but a pinned digest lags behind freshly-disclosed
-# CVEs. `apk upgrade` clears fixable HIGH/CRITICAL findings between digest bumps;
-# when the snapshot itself lags, bump the digest above to a Chainguard rebuild
-# that ships the fix (what cleared CVE-2026-45447, libcrypto3/libssl3 → 3.6.3-r1).
-#
-# SECURITY_REFRESH busts THIS layer's cache. CI builds with `cache-from`, so
-# without it the upgrade layer is served from cache and never re-runs -- the
-# image keeps shipping whatever Debian shipped the day the layer was first
-# built. That is how CFactory#440 hit a Trivy failure for CVE-2026-14456 on an
-# image whose Dockerfile already ran `apt-get upgrade`: the upgrade was real,
-# its result was frozen. CI passes the date, so it rebuilds at most daily.
-ARG SECURITY_REFRESH=0
-RUN echo "security refresh: ${SECURITY_REFRESH}" \
-    && apk upgrade --no-cache
 
 # Node from the official image (Factory#1710). apk `nodejs` is rebuilt on the
 # rolling index against the newest glibc, while this base pins glibc exactly in
@@ -119,9 +103,9 @@ RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
 #                   can create the sandbox.
 #   socat         — required alongside bwrap by the SDK sandbox network-proxy
 #                   path; its absence triggers the same warning.
-# Two version floors below are CVE remediation, not preference. `apk upgrade`
-# earlier in this stage does not clear either, because both packages come from
-# the base image layer and must be named explicitly to be pulled forward:
+# Two version floors below are CVE remediation, not preference. Both packages
+# come from the base image layer, which pins them in /etc/apk/world; only naming
+# them here moves them (see the SECURITY_REFRESH note below):
 #   libssl3 / libcrypto3 3.6.3-r3 — CVE-2026-14456 (HIGH), fixed in 3.6.3-r5.
 #                        Named together because they ship from the same openssl
 #                        origin and apk will not move one without the other.
@@ -134,7 +118,20 @@ RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
 # (1.38.0-r1 and later already exist); drop each once the base digest ships it.
 # Verified present in the Wolfi x86_64 APKINDEX before pinning — a floor above
 # the newest available version fails the build outright.
-RUN apk add --no-cache \
+# How base-layer security fixes reach this image (#733). The chainguard base
+# pins every installed package exactly in /etc/apk/world, so `apk upgrade`
+# cannot move any of them -- it was measured to upgrade nothing and has been
+# removed. Fixes arrive three ways:
+#   1. base digest bumps (Dependabot; green ones auto-merge, #735);
+#   2. the explicit floors below, which replace a package's base pin;
+#   3. this layer re-running daily: SECURITY_REFRESH busts its cache, so the
+#      packages it installs (gh, curl, gnupg, ... have no base pin) and the
+#      floors resolve to the newest index versions, not to the day the layer
+#      was first cached. CI builds with `cache-from`; without the arg this layer
+#      would freeze, the CFactory#440 failure. CI passes the date.
+ARG SECURITY_REFRESH=0
+RUN echo "security refresh: ${SECURITY_REFRESH}" \
+    && apk add --no-cache \
         bash \
         "binutils>2.46-r1" \
         "busybox>=1.38.0-r0" \
@@ -148,6 +145,13 @@ RUN apk add --no-cache \
         gnupg \
         socat \
         "wget>=1.25.0-r15"
+
+# Node must come only from the node-runtime COPY above, never from apk: an apk
+# nodejs would be rebuilt against a glibc newer than this base pins and break
+# the build (Factory#1710). Checked AFTER the apk block, where it could appear.
+RUN if apk info 2>/dev/null | grep -q '^nodejs'; then \
+      echo "apk nodejs is installed; runtime Node must come from node-runtime (Factory#1710)"; exit 1; \
+    fi
 
 # Epic #44 R3 — optionally bundle the rmux binary.
 #

@@ -127,3 +127,48 @@ def test_an_empty_title_is_400_and_an_unknown_session_is_404(service):
     with pytest.raises(HTTPException) as missing:
         asyncio.run(pp.process("no-such-session", _Request(), updates=pp.PlanUpdateBody(title="x")))
     assert missing.value.status_code == 404
+
+
+# ── unknown fields are rejected, not silently dropped (#671) ──────────────────
+# FastAPI validates the body before the route runs, so these go through a real
+# app + TestClient rather than calling the route function directly.
+
+
+@pytest.fixture
+def client(service):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(pp.router)
+    return TestClient(app)
+
+
+def test_process_rejects_repo_instead_of_planning_greenfield(client, service, monkeypatch):
+    sid = _seed(service)
+    ran = []
+    monkeypatch.setattr(service, "process", lambda *a, **k: ran.append(a))
+
+    resp = client.post(
+        f"/api/plan/sessions/{sid}/process",
+        json={"repo": "olafkfreund/pfactory-friends-demo", "base_ref": "main"},
+    )
+
+    assert resp.status_code == 422
+    assert {"repo", "base_ref"} <= {e["loc"][-1] for e in resp.json()["detail"]}
+    assert ran == []
+
+
+def test_process_still_accepts_a_bare_post(client, service):
+    sid = _seed(service)
+    assert client.post(f"/api/plan/sessions/{sid}/process").status_code == 200
+
+
+def test_emit_contract_rejects_an_unknown_field(client, service):
+    sid = _seed(service)
+    resp = client.post(
+        f"/api/plan/sessions/{sid}/emit-contract",
+        json={"repo": "o/r", "project-id": "p1", "dry_run": True},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"][-1] == "project-id"
