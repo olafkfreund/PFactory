@@ -28,6 +28,7 @@ the health-check criterion; otherwise a sensible default is used.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,8 +40,24 @@ if TYPE_CHECKING:
 # Each implicit requirement is (key, acceptance-criterion text, match keywords).
 # The keywords are matched case-insensitively against the epic's existing child
 # ACs + bodies so an equivalent criterion the user *did* write isn't duplicated.
+# A keyword is a substring, or a compiled regex searched on the lower-cased text
+# for phrasings no safe substring can catch (#678).
+Requirement = tuple[str, str, tuple[str | re.Pattern[str], ...]]
+
+# An OS floor needs a platform, a version AND a floor word: "iOS 16 and above",
+# "Android 10+", "at least iOS 16". Platform names alone ("supports iOS and
+# Android") or a bare version ("tested on iOS 17") are not a floor, and counting
+# them would silently drop min-os injection (#678). Leading \b keeps "radios"
+# and "audios" out (#397/#673).
+_OS = r"(?:ios|ipados|android)"
+_VER = r"\d+(?:\.\d+)*"
+_AFTER = r"(?:\s*\+|\s+(?:and|or)\s+(?:above|up|later|newer|higher))"
+_OS_FLOOR_PATTERNS = (
+    re.compile(rf"\b{_OS}\s*{_VER}{_AFTER}"),
+    re.compile(rf"\b(?:at\s+least|minimum(?:\s+of)?|min\.?)\s+{_OS}\s*{_VER}\b"),
+)
 # ``{health_path}`` in the health text is filled by :func:`service_requirements`.
-SERVICE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
+SERVICE_IMPLICIT_REQUIREMENTS: list[Requirement] = [
     (
         "starts",
         "The service starts and serves without error.",
@@ -70,7 +87,7 @@ SERVICE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
 # mechanism as the service list: what a mobile product needs to ship through the
 # stores and survive real-world conditions, which users state as feature intent
 # ("an app for finding friends nearby") but never write down as criteria.
-MOBILE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
+MOBILE_IMPLICIT_REQUIREMENTS: list[Requirement] = [
     (
         "store-listing",
         "The app has a complete store listing (name, description, screenshots, "
@@ -131,6 +148,7 @@ MOBILE_IMPLICIT_REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
             "minimum ios",
             "minimum android",
             "minimum api",
+            *_OS_FLOOR_PATTERNS,
         ),
     ),
     (
@@ -199,9 +217,7 @@ def is_mobile_app(descriptor: PlanTypeDescriptor) -> bool:
     return (getattr(descriptor, "category", "") or "").lower() == "mobile"
 
 
-def requirement_set(
-    plan: NormalizedPlan, descriptor: PlanTypeDescriptor
-) -> list[tuple[str, str, tuple[str, ...]]]:
+def requirement_set(plan: NormalizedPlan, descriptor: PlanTypeDescriptor) -> list[Requirement]:
     """The implicit-requirement list this plan type carries (empty when none).
 
     This is the single selection point the injector, the completeness lens, and
@@ -246,9 +262,7 @@ def service_requirements(plan: NormalizedPlan) -> list[tuple[str, str]]:
     return _resolve(plan, SERVICE_IMPLICIT_REQUIREMENTS)
 
 
-def _resolve(
-    plan: NormalizedPlan, requirements: list[tuple[str, str, tuple[str, ...]]]
-) -> list[tuple[str, str]]:
+def _resolve(plan: NormalizedPlan, requirements: list[Requirement]) -> list[tuple[str, str]]:
     """Resolve a requirement list to ``(key, ac_text)`` pairs (fills placeholders)."""
     hp = health_path(plan)
     return [
@@ -268,7 +282,7 @@ def _haystack(epic: EpicPlan) -> str:
 
 def missing_requirements(
     epic: EpicPlan,
-    requirements: list[tuple[str, str, tuple[str, ...]]] | None = None,
+    requirements: list[Requirement] | None = None,
 ) -> list[tuple[str, str]]:
     """Return the implicit requirements not already covered by any child.
 
@@ -283,7 +297,7 @@ def missing_requirements(
     hay = _haystack(epic)
     missing: list[tuple[str, str]] = []
     for key, text, keywords in requirements:
-        if not any(kw in hay for kw in keywords):
+        if not any(kw.search(hay) if isinstance(kw, re.Pattern) else kw in hay for kw in keywords):
             missing.append((key, text))
     return missing
 
