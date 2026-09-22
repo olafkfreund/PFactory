@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Factory Extension Registry",
-  "description": "RFC-0015 §4 D3 declarative extension/stage registry. One entry per Factory stage, gate, connector, and runtime, each tagged with a category (intake|plan|review|gate|runtime|connector|observe) and an effect (read-only|read-write), plus its operator-gating state (enabled) and the owning service. Makes the pipeline discoverable, toggleable, and auditable; unifies the RFC-0014 gated-runtime opt-in and the RFC-0012 connector probe chain under one manifest. enabled=false marks a runtime/extension that is GATED OFF until an operator opts in (RFC-0014). Open object; consumers ignore unknown keys.",
+  "description": "RFC-0015 §4 D3 declarative extension/stage registry. One entry per Factory stage, gate, connector, and runtime, each tagged with a category (intake|plan|review|gate|runtime|connector|observe) and an effect (read-only|read-write), plus its operator-gating state (enabled) and the owning service. Makes the pipeline discoverable, toggleable, and auditable; unifies the RFC-0014 gated-runtime opt-in and the RFC-0012 connector probe chain under one manifest. enabled=false marks a runtime/extension that is GATED OFF until an operator opts in (RFC-0014). enabled gates optional extensions only: an entry with mandatory=true always runs, must stay enabled=true, and cannot be disabled here. Open object; consumers ignore unknown keys.",
   "version": "1",
   "extensions": [
     {
@@ -41,7 +41,8 @@
       "category": "review",
       "effect": "read-only",
       "enabled": true,
-      "description": "Compliance obligations lens: deterministic heuristics that scan the plan for data-class signals (personal data, location, profiling, user-to-user contact, store distribution) and raise cited findings for unaddressed obligations (lawful basis, age assurance, retention, jurisdiction, trust and safety, in-app account deletion). Descriptive signpost with sourced citations, explicitly not legal advice. Missing jurisdiction on a personal-data plan is blocking.",
+      "mandatory": true,
+      "description": "Compliance obligations lens: deterministic heuristics that scan the plan for data-class signals (personal data, location, profiling, user-to-user contact, store distribution) and raise cited findings for unaddressed obligations (lawful basis, age assurance, retention, jurisdiction, trust and safety, in-app account deletion). Descriptive signpost with sourced citations, explicitly not legal advice. Missing jurisdiction on a personal-data plan is blocking. Mandatory: part of the built-in review set, it always runs and cannot be switched off here.",
       "owner_service": "pfactory"
     },
     {

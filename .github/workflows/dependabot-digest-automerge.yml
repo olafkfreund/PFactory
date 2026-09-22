@@ -14,7 +14,8 @@ name: dependabot digest auto-merge
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # `edited` fires when the base branch changes; see the disarm job.
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: write
@@ -22,9 +23,13 @@ permissions:
 
 jobs:
   automerge:
+    # base.ref: Dependabot targets `dev`; `main` only takes release
+    # promotions, so a Dependabot PR retargeted at `main` stays manual.
     if: >-
+      github.event.action != 'edited' &&
       github.actor == 'dependabot[bot]' &&
-      github.event.pull_request.user.login == 'dependabot[bot]'
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.base.ref == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -52,3 +57,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge --auto --squash "$PR_URL"
+
+  # A Dependabot PR that was armed while targeting `dev` keeps auto-merge if it
+  # is later retargeted; the automerge job's base.ref guard never re-runs. On
+  # any edit that leaves the base off `dev`, take auto-merge back off. The actor
+  # here is whoever retargeted it, so this job must not require Dependabot.
+  disarm:
+    if: >-
+      github.event.action == 'edited' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.base.ref != 'dev' &&
+      github.event.pull_request.auto_merge != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Disable auto-merge (base is no longer dev)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --disable-auto "$PR_URL"

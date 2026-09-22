@@ -110,3 +110,47 @@ def test_no_hardcoded_red_team_special_case_remains() -> None:
     """
     source = inspect.getsource(base.default_lenses)
     assert 'n == "red-team"' not in source
+
+
+# ── mandatory lenses: the registry describes them, it cannot switch them off (#682)
+
+_MANDATORY = ["feasibility", "architecture", "security", "compliance", "best-practices", "completeness"]
+
+
+def test_mandatory_lens_entries_are_marked_and_enabled() -> None:
+    """A mandatory lens's entry must not present itself as switchable."""
+    with open(extension_registry._VENDORED, encoding="utf-8") as fh:
+        entries = {e["name"]: e for e in json.load(fh)["extensions"]}
+    found = [f"{lens}-review" for lens in _MANDATORY if f"{lens}-review" in entries]
+    assert "compliance-review" in found  # the scan is not vacuous
+    for name in found:
+        assert entries[name].get("mandatory") is True, name
+        assert entries[name].get("enabled") is True, name
+
+
+def test_disabled_mandatory_entry_still_runs_and_warns(monkeypatch, tmp_path, caplog) -> None:
+    monkeypatch.setenv(
+        "PFACTORY_EXTENSION_REGISTRY",
+        _registry(
+            tmp_path,
+            [
+                {
+                    "name": "compliance-review",
+                    "category": "review",
+                    "effect": "read-only",
+                    "enabled": False,
+                    "owner_service": "pfactory",
+                }
+            ],
+        ),
+    )
+    extension_registry.reset_cache()
+    monkeypatch.setattr(base, "_WARNED_MANDATORY", set())
+    try:
+        with caplog.at_level("WARNING", logger=base.logger.name):
+            names = [lens.name for lens in default_lenses()]
+    finally:
+        extension_registry.reset_cache()
+
+    assert "compliance" in names  # the mandatory review cannot be switched off
+    assert any("compliance-review" in r.getMessage() for r in caplog.records)
