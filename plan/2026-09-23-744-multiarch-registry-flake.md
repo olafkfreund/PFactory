@@ -26,6 +26,17 @@ Approved decisions (from the spec):
 - New `tests/test_registry_inspect_helper.py`, NOT `docker`-marked.
 - CI job selection unchanged (intent Q2: no).
 
+*Deviations (implementation, forced by the ruff ratchet — a changed file may
+not gain findings):*
+
+- The exception classes are `RegistryUnavailableError` / `ManifestInspectError`,
+  not `RegistryUnavailable` / `ManifestInspectFailed` (ruff N818 requires an
+  `Error` suffix). Behaviour and meaning unchanged.
+- `attempts` is the module constant `_INSPECT_ATTEMPTS = 2` rather than a
+  keyword argument (ruff PLR0913: 6 arguments exceeded the limit of 5). The
+  retry-once behaviour is unchanged; `timeout`, `backoff`, `runner` and `sleep`
+  remain injectable, which is what the tests need.
+
 ## Steps
 
 1. `tests/docker/helpers.py`: add the two exception classes, the marker tuple,
