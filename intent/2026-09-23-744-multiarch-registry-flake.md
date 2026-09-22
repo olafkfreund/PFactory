@@ -4,65 +4,60 @@ issue: 744
 author: Olaf Krasicki-Freund
 ---
 
-# Intent: A slow registry fails the required unit gate
+# Intent: A slow registry fails a required CI gate
 
 ## Problem
 
-`tests/docker/test_p0_multi_arch.py::test_multi_arch_buildable` shells out to
-`docker buildx imagetools inspect --raw <base image digest>` with
-`timeout=30`. When cgr.dev is slow the call raises `subprocess.TimeoutExpired`,
-which is an error, not an assertion — so the test fails and takes the required
-`backend (ruff + pytest)` check with it. That is what happened on #743, a PR
-that changed a YAML comment and a pin.
+`tests/docker/test_p0_multi_arch.py::test_multi_arch_buildable` asks
+`cgr.dev` / `docker.io` about each pinned base image
+(`docker buildx imagetools inspect --raw <ref>`, `timeout=30`). When the
+registry is slow, `subprocess.TimeoutExpired` propagates and the test ERRORs.
 
-The test guards against a missing docker/buildx with `pytest.skip`, but not
-against an unreachable or slow registry, so a network hiccup is reported as a
-code failure on a PR that cannot have caused it.
+Measured on `dev`:
 
-Measured on `dev` (CI run 35408605952):
+- The required `backend (ruff + pytest)` job runs
+  `pytest tests/ apps/web-server/tests/ -m "not slow"`, which includes
+  `docker`-marked tests. Of the 7 that run there, 6 are static file checks
+  (Dockerfile digests pinned, release workflow signs, docs exist) — **this is
+  the only one that touches the network**. The heavier image-building tests are
+  `slow`-marked and do not run in that job.
+- `docker (P0 acceptance)` is *also* a required check and runs the same test
+  (`pytest tests/docker/ -m docker`), so the same hiccup can fail that gate too.
 
-- the unit job runs `pytest tests/ apps/web-server/tests/ -m "not slow"`
-  (`ci.yml:98`), which does **not** exclude `-m docker`; its log shows
-  `tests/docker/test_p0_multi_arch.py`, `test_p0_runtime.py` and
-  `test_p0_supply_chain.py` all running there;
-- the dedicated `docker (P0 acceptance)` job runs
-  `pytest tests/docker/ -m docker -v` (`ci.yml:749`) with buildx set up and the
-  image built — and it is itself a required check on `dev`.
-
-So the docker suite runs twice, and the copy in the required unit job is the
-one with no buildx setup step, no built image, and a hard dependency on a
-third-party registry being fast.
-
-`tests/pytest.ini` documents the marker as "run with `-m docker`", which is
-what the dedicated job does and the unit job does not.
+The test already skips when docker or buildx is absent, so "environment cannot
+answer" is an accepted skip condition — but an unreachable/slow registry is
+reported as a code failure instead. #743 hit this on a PR that changed a YAML
+comment and a pin.
 
 ## Proposed outcome
 
-- A slow or unreachable registry no longer fails the required unit gate on an
-  unrelated PR.
-- Base-image multi-arch coverage is not lost: it still runs, and still blocks
-  merge, in `docker (P0 acceptance)`.
-- A registry that is genuinely unreachable is visible as a skip with a reason
-  naming the registry, never as a silent pass.
+- A registry timeout / transport failure no longer fails either gate: the test
+  reports a skip whose reason names the registry and the error.
+- A registry that answers and says an image is single-arch still FAILS, as now.
+  (The check must not become a pass-without-checking.)
+- Repeated flakiness stays visible: the skip reason is explicit, not silent.
 
 ## Affected users and systems
 
-- Everyone opening a PR (the required `backend (ruff + pytest)` check).
-- `.github/workflows/ci.yml` (unit job), `tests/docker/test_p0_multi_arch.py`.
+- Every PR: `backend (ruff + pytest)` and `docker (P0 acceptance)` are both
+  required checks.
+- `tests/docker/test_p0_multi_arch.py` only.
 
 ## Constraints
 
-- Must not weaken the multi-arch contract: a base image that really lacks
-  amd64/arm64 must still fail `docker (P0 acceptance)`.
-- Must not turn a real failure into a skip: only a timeout/connection error
-  may skip, never a manifest that parses and lacks an architecture.
-- No `continue-on-error` on a gate (the repo's rule 4.10: a control that passes
-  without checking looks identical to one that checked).
+- Never skip on a *substantive* failure (manifest present, arch missing) — that
+  is the assertion the test exists for.
+- No unbounded retry loops that turn a 30 s failure into minutes of CI time.
+- No `continue-on-error` on the job (repo rule: a control that passes without
+  running is worse than one that fails).
 
 ## Open questions
 
-1. Scope: (a) exclude `-m docker` from the unit job only; (b) also make the
-   test skip on `TimeoutExpired`/connection errors; or (c) only (b).
-   Recommendation: (a) **and** (b) — (a) removes the duplicate run from the
-   required gate, (b) keeps the dedicated job from flaking on the same
-   third-party outage. (c) alone leaves the docker suite running twice.
+1. Retry once before skipping (one extra inspect after a short backoff), or
+   skip on the first timeout? Recommendation: retry once — a single hiccup is
+   the common case, and it keeps real coverage rather than skipping eagerly.
+2. Also drop `docker`-marked tests from the unit job (the issue's second
+   option), since `docker (P0 acceptance)` already runs them as a required
+   check? Recommendation: no — it does not fix the flake (it still fails the
+   acceptance gate), and it removes the 6 cheap static checks from the fast
+   job for no gain.
