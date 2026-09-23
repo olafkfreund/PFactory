@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 755
 spec: spec/2026-09-23-755-session-split-brain.md
 ---
