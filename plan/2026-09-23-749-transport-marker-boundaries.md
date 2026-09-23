@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 749
 spec: spec/2026-09-23-749-transport-marker-boundaries.md
 ---
