@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 758
 author: Olaf Krasicki-Freund
 ---
@@ -60,6 +60,8 @@ so the justification was already false when it was written.
 - No change to emit behaviour when `DATABASE_URL` is unset.
 
 ## Open questions
+
+Resolved 2026-09-23 (approved): 1 = fail fast with 409; 2 = settle in spec, advisory lock preferred; 3 = confirm in spec.
 
 1. **What a concurrent second emit gets:** block and wait for the first to
    finish, then see `emitted_issue_number` set and return the existing result,
