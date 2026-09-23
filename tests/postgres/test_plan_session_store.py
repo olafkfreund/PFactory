@@ -184,3 +184,37 @@ def test_concurrent_allocation_hands_out_distinct_numbers(test_postgres_url):
         got = list(pool.map(lambda i: stores[i % 2].next_seq(), range(12)))
 
     assert len(set(got)) == 12
+
+
+@pytest.mark.usefixtures("pg_schema")
+def test_the_counter_clears_sessions_imported_after_the_migration(test_postgres_url):
+    """The migration seeds the counter at 0; the import brings in higher ids.
+
+    Reviewed on #760: `_highest_existing_seq()` fed only the INSERT values, and
+    the conflict path (the only path that runs once the migration has seeded
+    the row) ignored it — so the first allocation on an upgraded deployment
+    returned 1 and collided with the imported `001-...` session.
+    """
+    import asyncio as _asyncio
+
+    from sqlalchemy import text
+
+    async def _seed() -> None:
+        eng = create_async_engine(test_postgres_url)
+        async with eng.begin() as conn:
+            # what the migration does
+            await conn.execute(text("INSERT INTO plan_session_seq (id, value) VALUES (1, 0)"))
+            # what the one-shot JSON import does
+            for n in (1, 2, 3):
+                await conn.execute(
+                    text(
+                        "INSERT INTO plan_sessions "
+                        "(session_id, tenant_id, seq, schema_version, payload) "
+                        f"VALUES ('00{n}-imported', 'default', {n}, '1', '{{}}')"
+                    )
+                )
+        await eng.dispose()
+
+    _asyncio.run(_seed())
+
+    assert _store(test_postgres_url).next_seq() == 4

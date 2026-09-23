@@ -1158,7 +1158,12 @@ async def test_dry_run_git_write_counts_accepted_as_committed(
     ("summary", "expected"),
     [
         ({"skipped": False, "dry_run": True, "ok": True}, None),
-        ({"skipped": True, "reason": "no branch in source.json"}, None),
+        # A skipped write delivered nothing, so it is NOT None (review on
+        # #760): "no branch" used to report the accepted tests as committed.
+        (
+            {"skipped": True, "reason": "no branch in source.json"},
+            "git write skipped: no branch in source.json",
+        ),
         (None, None),
         ({"ok": False, "error": "boom"}, "boom"),
         ({"ok": False, "error": ""}, "git write failed"),
@@ -1168,3 +1173,26 @@ def test_delivery_error(summary, expected) -> None:
     from agents.triager import _delivery_error
 
     assert _delivery_error(summary) == expected
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_git_write_reports_zero_committed(
+    spec_dir: Path, project_dir: Path,
+) -> None:
+    """No branch in source.json means nothing was written (review on #760)."""
+    (spec_dir / "context" / "source.json").write_text(
+        json.dumps({"project_id": "demo", "base_ref": "main"})  # no branch
+    )
+    (spec_dir / "findings" / "verdicts.json").write_text(
+        json.dumps(_make_verdicts(2, ["accept", "accept"]))
+    )
+    _write_test_files(spec_dir, 2)
+
+    assert await run_triager(spec_dir, project_dir) is True
+
+    status = json.loads((spec_dir / "status.json").read_text())
+    assert status["git_writer"]["skipped"] is True
+    assert status["accepted_count"] == 2
+    assert status["committed_count"] == 0
+    report = (spec_dir / "findings" / "triage_report.md").read_text()
+    assert "Delivery FAILED" in report
