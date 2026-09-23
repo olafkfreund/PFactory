@@ -11,6 +11,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
+// Resolve keys against the REAL `en` bundle, so a missing or misspelt key
+// fails here rather than rendering the key to a user (#734).
+import { translate } from './i18n-mock';
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: translate }),
+}));
+
 import { PlanUploadForm } from '../PlanUploadForm';
 import { usePlanStore } from '../../../stores/plan-store';
 

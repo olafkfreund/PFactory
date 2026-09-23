@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, FileText, Cpu, TestTube, Wrench } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -26,28 +27,34 @@ import type { PlanSession, EpicChild, PlanArtifact } from '../../shared/types/pl
 
 // ── Kind icons + labels ───────────────────────────────────────────────
 
-const KIND_META: Record<string, { label: string; icon: React.ElementType; color: string }> = {
-  feature: { label: 'Feature', icon: Cpu, color: 'bg-primary/10 text-primary' },
-  testing: { label: 'Testing', icon: TestTube, color: 'bg-success/10 text-success' },
-  cicd: { label: 'CI/CD', icon: Wrench, color: 'bg-info/10 text-info' },
+// `labelKey` rather than `label`: this map is module-level, so it cannot call
+// `t` itself — the component resolves the key at render (#734).
+const KIND_META: Record<string, { labelKey: string; icon: React.ElementType; color: string }> = {
+  feature: { labelKey: 'pipelinePanel.kindFeature', icon: Cpu, color: 'bg-primary/10 text-primary' },
+  testing: { labelKey: 'pipelinePanel.kindTesting', icon: TestTube, color: 'bg-success/10 text-success' },
+  cicd: { labelKey: 'pipelinePanel.kindCicd', icon: Wrench, color: 'bg-info/10 text-info' },
 };
 
 function kindMeta(kind: string) {
-  return KIND_META[kind] ?? { label: kind, icon: FileText, color: 'bg-muted text-muted-foreground' };
+  // An unknown kind falls back to the RAW kind string: it is data from the
+  // plan, not UI copy, so it is not translated.
+  return KIND_META[kind] ?? { labelKey: '', icon: FileText, color: 'bg-muted text-muted-foreground' };
 }
 
 // ── EpicChildRow ──────────────────────────────────────────────────────
 
 function EpicChildRow({ child }: { child: EpicChild }) {
+  const { t } = useTranslation('common');
   const [open, setOpen] = useState(false);
-  const { label, icon: Icon, color } = kindMeta(child.kind);
+  const { labelKey, icon: Icon, color } = kindMeta(child.kind);
+  const label = labelKey ? t(labelKey) : child.kind;
 
   return (
     <div className="rounded-lg border border-border/60 bg-card/40">
       <button
         type="button"
         aria-expanded={open}
-        aria-label={`Toggle details for ${child.title}`}
+        aria-label={t('pipelinePanel.toggleDetails', { title: child.title })}
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
       >
@@ -83,7 +90,7 @@ function EpicChildRow({ child }: { child: EpicChild }) {
           {child.acceptance_criteria.length > 0 && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                Acceptance criteria
+                {t('pipelinePanel.acceptanceCriteria')}
               </p>
               <ul className="space-y-1">
                 {child.acceptance_criteria.map((ac, i) => (
@@ -97,7 +104,7 @@ function EpicChildRow({ child }: { child: EpicChild }) {
           )}
           {child.depends_on.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              Depends on: {child.depends_on.join(', ')}
+              {t('pipelinePanel.dependsOn', { list: child.depends_on.join(', ') })}
             </p>
           )}
         </div>
@@ -109,6 +116,7 @@ function EpicChildRow({ child }: { child: EpicChild }) {
 // ── Artifact dialog ───────────────────────────────────────────────────
 
 function ArtifactCard({ artifact }: { artifact: PlanArtifact }) {
+  const { t } = useTranslation('common');
   const [open, setOpen] = useState(false);
 
   return (
@@ -116,7 +124,7 @@ function ArtifactCard({ artifact }: { artifact: PlanArtifact }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label={`View artifact: ${artifact.title}`}
+        aria-label={t('pipelinePanel.viewArtifact', { title: artifact.title })}
         className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/40 px-4 py-3 text-left transition-colors hover:border-border hover:bg-muted/40 w-full"
       >
         <FileText className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" aria-hidden />
@@ -155,6 +163,7 @@ interface Props {
 }
 
 export function PipelinePanel({ session }: Props) {
+  const { t } = useTranslation('common');
   const { plan, epic } = session;
 
   // Group epic children by kind
@@ -205,7 +214,7 @@ export function PipelinePanel({ session }: Props) {
           {plan.criteria.length > 0 && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                Criteria ({plan.criteria.length})
+                {t('pipelinePanel.criteria', { count: plan.criteria.length })}
               </p>
               <ul className="space-y-1">
                 {plan.criteria.slice(0, 5).map((c) => (
@@ -216,7 +225,7 @@ export function PipelinePanel({ session }: Props) {
                 ))}
                 {plan.criteria.length > 5 && (
                   <li className="text-xs text-muted-foreground">
-                    + {plan.criteria.length - 5} more…
+                    {t('pipelinePanel.moreCriteria', { count: plan.criteria.length - 5 })}
                   </li>
                 )}
               </ul>
@@ -230,7 +239,7 @@ export function PipelinePanel({ session }: Props) {
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground">{epic.epic_title}</h3>
-            <Badge variant="secondary">{epic.children.length} items</Badge>
+            <Badge variant="secondary">{t('pipelinePanel.items', { count: epic.children.length })}</Badge>
           </div>
           {epic.summary && (
             <p className="text-sm text-muted-foreground">{epic.summary}</p>
@@ -241,10 +250,11 @@ export function PipelinePanel({ session }: Props) {
               {sortedKinds.map((kind) => {
                 const meta = kindMeta(kind);
                 const Icon = meta.icon;
+                const kindLabel = meta.labelKey ? t(meta.labelKey) : kind;
                 return (
                   <TabsTrigger key={kind} value={kind}>
                     <Icon className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-                    {meta.label}
+                    {kindLabel}
                     <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-mono">
                       {childrenByKind[kind].length}
                     </span>
@@ -269,20 +279,20 @@ export function PipelinePanel({ session }: Props) {
       {session.artifacts.length > 0 && (
         <div className="flex flex-col gap-3">
           <h3 className="text-sm font-semibold text-foreground">
-            Synthesized artifacts ({session.artifacts.length})
+            {t('pipelinePanel.synthesizedArtifacts', { count: session.artifacts.length })}
           </h3>
           <Tabs defaultValue={testingArtifacts.length > 0 ? 'testing' : 'cicd'}>
             <TabsList>
               {testingArtifacts.length > 0 && (
                 <TabsTrigger value="testing">
                   <TestTube className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-                  Testing ({testingArtifacts.length})
+                  {t('pipelinePanel.tabTesting', { count: testingArtifacts.length })}
                 </TabsTrigger>
               )}
               {cicdArtifacts.length > 0 && (
                 <TabsTrigger value="cicd">
                   <Wrench className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-                  CI/CD ({cicdArtifacts.length})
+                  {t('pipelinePanel.tabCicd', { count: cicdArtifacts.length })}
                 </TabsTrigger>
               )}
             </TabsList>
