@@ -21,7 +21,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 from pydantic import BaseModel, Field
 
@@ -327,6 +327,130 @@ def _resolve_job_store() -> object | None:
             return None
 
 
+class SessionStore(Protocol):
+    """What :class:`PlanService` needs of the shared session store (#755).
+
+    Structural, so the real ``PlanSessionStore`` and a test fake both satisfy
+    it without importing the web-server DB layer here (this module must import
+    cleanly in the dependency-light backend venv).
+    """
+
+    def get(self, session_id: str) -> str | None: ...
+
+    def list_payloads(self, *, tenant_id: str | None = ...) -> list[str]: ...
+
+    def upsert(self, session_id: str, *, payload: str, seq: int, tenant_id: str | None) -> None: ...
+
+    def next_seq(self) -> int: ...
+
+    def session_ids(self) -> set[str]: ...
+
+    def is_ready(self) -> bool: ...
+
+    def close(self) -> None: ...
+
+
+def _seq_of(session_id: str) -> int:
+    """The numeric prefix of a ``NNN-slug`` session id, or 0.
+
+    Stored alongside the payload so ``next_seq()`` can allocate the next id
+    with ``max(seq)+1`` in one transaction (#755). A hand-made id with no
+    numeric prefix simply never raises the high-water mark.
+    """
+    head = session_id.split("-", 1)[0]
+    return int(head) if head.isdigit() else 0
+
+
+def _warn_if_multi_replica_without_store(store: SessionStore | None) -> None:
+    """Shout when this process is one of several with no shared store (#755).
+
+    The pre-existing WARNING about the in-memory path was logged throughout the
+    prod incident and nobody saw it, so this is an ERROR naming the
+    consequence. With PFACTORY_REQUIRE_SHARED_STORE=1 it refuses to start
+    instead, so the KEDA pin can be lifted against a guarantee rather than a
+    hope.
+    """
+    if store is not None:
+        return
+    try:
+        replicas = int(os.environ.get("PFACTORY_REPLICA_COUNT", "1").strip() or "1")
+    except ValueError:
+        replicas = 1
+    if replicas <= 1:
+        return
+    message = (
+        f"PFACTORY_REPLICA_COUNT={replicas} but plan sessions are PER-PROCESS: "
+        "writes on this replica will be invisible to the others and session "
+        "ids can collide (#755). Set DATABASE_URL to a shared Postgres and "
+        "run `alembic upgrade head`, or pin the deployment to one replica."
+    )
+    require = os.environ.get("PFACTORY_REQUIRE_SHARED_STORE", "").strip().lower()
+    if require in ("1", "true", "yes", "on"):
+        raise RuntimeError(message)
+    logger.error(message)
+
+
+_SESSION_STORE_CACHE: dict[str, SessionStore] = {}
+# URLs whose store could not serve requests — do not rebuild one per service.
+_SESSION_STORE_UNAVAILABLE: set[str] = set()
+_SESSION_STORE_LOCK = threading.Lock()
+
+
+def _resolve_session_store() -> SessionStore | None:
+    """Return the shared plan-session store, or ``None`` (per-process path).
+
+    The sibling of :func:`_resolve_job_store`, and degrades the same way: no
+    ``DATABASE_URL``, an unimportable web-server DB layer, or an unmigrated
+    table all fall back to the in-memory dict rather than failing a request.
+
+    Without it, `_sessions` is per process: a write on one replica is invisible
+    to the others until they restart (#755, measured in prod with 4 pods). The
+    JSON mirror on the PVC does not close that gap — the volume is
+    ReadWriteOnce/local-path, so replicas share it only while co-scheduled.
+    """
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url or url in _SESSION_STORE_UNAVAILABLE:
+        # Remembering the failure matters: without it every PlanService in a
+        # process retries the connection and builds (then discards) a store.
+        return None
+    with _SESSION_STORE_LOCK:
+        cached = _SESSION_STORE_CACHE.get(url)
+        if cached is not None:
+            return cached
+        try:
+            from server.jobstore import PlanSessionStore  # noqa: PLC0415
+
+            store = PlanSessionStore()
+            if not store.is_ready():
+                # Close it: the instance owns an event loop, a thread and a
+                # connection pool, and a process that builds many PlanServices
+                # would leak all three per construction.
+                store.close()
+                _SESSION_STORE_UNAVAILABLE.add(url)
+                logger.warning(
+                    "DATABASE_URL is set but the plan_sessions table is not "
+                    "ready (DB unreachable or migrations not applied); plan "
+                    "sessions stay PER-PROCESS, which is NOT multi-replica "
+                    "safe (#755). Run `alembic upgrade head`."
+                )
+                return None
+            typed = cast("SessionStore", store)
+            _SESSION_STORE_CACHE[url] = typed
+            logger.info(
+                "PFactory plan sessions are SHARED: backed by the plan_sessions table (#755)."
+            )
+            return typed
+        except Exception as exc:  # noqa: BLE001 — degrade, never fatal
+            _SESSION_STORE_UNAVAILABLE.add(url)
+            logger.warning(
+                "DATABASE_URL is set but the shared plan-session store is "
+                "unavailable (%s); plan sessions stay PER-PROCESS, which is "
+                "NOT multi-replica safe (#755).",
+                exc,
+            )
+            return None
+
+
 class PlanService:
     """Orchestrator for plan sessions, with durable + disk-backed persistence.
 
@@ -349,6 +473,7 @@ class PlanService:
         store_dir: Path | None = None,
         persist: bool | None = None,
         job_store: object | None = None,
+        session_store: SessionStore | None = None,
     ) -> None:
         self._sessions: dict[str, PlanSession] = {}
         # RFC-0016 (#217): process() now runs in a worker thread (see
@@ -385,6 +510,14 @@ class PlanService:
         # (per apis/concurrency-conventions.md §1). An explicit ``job_store``
         # (tests) wins over auto-resolution.
         self._job_store = job_store if job_store is not None else _resolve_job_store()
+        # #755: the authoritative, cross-replica copy of every session. None
+        # keeps today's per-process behaviour (local dev, the CLI, tests).
+        self._session_store: SessionStore | None = (
+            session_store if session_store is not None else _resolve_session_store()
+        )
+        if self._session_store is not None:
+            self._import_sessions_into_store()
+        _warn_if_multi_replica_without_store(self._session_store)
 
     # ── persistence (opt-in via PFACTORY_PLAN_PERSIST) ──────────────────
 
@@ -418,7 +551,10 @@ class PlanService:
         durable mirror and the disk write are best-effort telemetry of state,
         not part of the request's success contract.
         """
-        # Durable job-state row first (RFC-0016 #217) — runs whether or not the
+        # The shared session row first (#755): it is what other replicas read,
+        # so it must be written before we consider the transition visible.
+        self._upsert_session(session)
+        # Durable job-state row (RFC-0016 #217) — runs whether or not the
         # JSON disk mirror is enabled; a no-op when no durable store is set.
         self._mirror(session)
         if not self._persist:
@@ -437,6 +573,47 @@ class PlanService:
                 logger.warning("failed to persist plan session %s: %s", session.session_id, exc)
 
     # ── durable job-state mirror (RFC-0016 #217) ────────────────────────
+
+    def _upsert_session(self, session: PlanSession) -> None:
+        """Write the session to the shared store. Best-effort, never raises."""
+        store = self._session_store
+        if store is None:
+            return
+        try:
+            store.upsert(
+                session.session_id,
+                payload=session.model_dump_json(),
+                seq=_seq_of(session.session_id),
+                tenant_id=session.tenant_id,
+            )
+        except Exception as exc:  # noqa: BLE001 — a DB hiccup must not fail the request
+            logger.warning("shared plan-session write failed for %s: %s", session.session_id, exc)
+
+    def _import_sessions_into_store(self) -> None:
+        """One-shot: copy sessions already on disk into the shared store (#755).
+
+        A deployment that gains DATABASE_URL would otherwise start with an
+        empty table while its sessions sit on the PVC. Keyed by session_id and
+        skipping ids already stored, so running it on every boot is a no-op
+        after the first. Best-effort: never raises, never overwrites a row that
+        another replica may have advanced.
+        """
+        store = self._session_store
+        if store is None or not self._sessions:
+            return
+        try:
+            existing = store.session_ids()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("shared plan-session import skipped (%s)", exc)
+            return
+        imported = 0
+        for session in list(self._sessions.values()):
+            if session.session_id in existing:
+                continue
+            self._upsert_session(session)
+            imported += 1
+        if imported:
+            logger.info("imported %d on-disk plan session(s) into the shared store", imported)
 
     def _mirror(self, session: PlanSession) -> None:
         """Mirror a session's current lifecycle into the durable store.
@@ -557,9 +734,17 @@ class PlanService:
         return session
 
     def _next_seq(self) -> int:
-        # Atomic increment under the lock so two concurrent ingests can never
-        # mint the same sequence number (and hence the same plan_id) — see the
-        # `_seq` note in __init__ (RFC-0016 #217).
+        # With a shared store the counter must be allocated in the DB (#755):
+        # `self._seq` starts from this process's own view, so two replicas
+        # would mint the same NNN-slug id.
+        store = self._session_store
+        if store is not None:
+            try:
+                return int(store.next_seq())
+            except Exception as exc:  # noqa: BLE001 — fall back to the local counter
+                logger.warning("shared session-id allocation failed (%s); using local", exc)
+        # Atomic increment under the lock so two concurrent ingests in THIS
+        # process can never mint the same sequence number (RFC-0016 #217).
         with self._store_lock:
             self._seq += 1
             return self._seq
@@ -571,17 +756,66 @@ class PlanService:
 
         ``None`` (the default, and the single-tenant path) lists everything.
         """
-        return [
-            s.summary()
-            for s in self._sessions.values()
-            if tenant_id is None or s.tenant_id == tenant_id
-        ]
+        sessions = self._all_sessions()
+        return [s.summary() for s in sessions if tenant_id is None or s.tenant_id == tenant_id]
+
+    def _all_sessions(self) -> list[PlanSession]:
+        """Every session: from the shared store when set, else the local dict."""
+        store = self._session_store
+        if store is None:
+            return list(self._sessions.values())
+        try:
+            payloads = store.list_payloads()
+        except Exception as exc:  # noqa: BLE001 — degrade to the cache
+            logger.warning("shared plan-session list failed: %s", exc)
+            return list(self._sessions.values())
+        out: list[PlanSession] = []
+        for raw in payloads:
+            try:
+                out.append(PlanSession.model_validate_json(raw))
+            except Exception as exc:  # noqa: BLE001 — skip a corrupt row
+                logger.warning("skipping unreadable stored plan session: %s", exc)
+        with self._store_lock:
+            for session in out:
+                self._sessions[session.session_id] = session
+        return out
 
     def get(self, session_id: str) -> PlanSession:
+        # Read through the shared store when there is one (#755): the local
+        # dict is a cache, and another replica may have written since we loaded
+        # it. Without a store this is the historical dict lookup.
+        session = self._load_from_store(session_id)
+        if session is not None:
+            return session
         try:
             return self._sessions[session_id]
         except KeyError:
             raise PlanServiceError(f"unknown session '{session_id}'") from None
+
+    def _load_from_store(self, session_id: str) -> PlanSession | None:
+        """Refresh one session from the shared store. None when unavailable.
+
+        Best-effort: a store hiccup degrades to the cached copy rather than
+        failing the read — the same contract the durable job-state mirror has.
+        """
+        store = self._session_store
+        if store is None:
+            return None
+        try:
+            raw = store.get(session_id)
+        except Exception as exc:  # noqa: BLE001 — degrade to the cache
+            logger.warning("shared plan-session read failed for %s: %s", session_id, exc)
+            return None
+        if raw is None:
+            return None
+        try:
+            session = PlanSession.model_validate_json(raw)
+        except Exception as exc:  # noqa: BLE001 — a corrupt row must not break reads
+            logger.warning("unreadable stored plan session %s: %s", session_id, exc)
+            return None
+        with self._store_lock:
+            self._sessions[session.session_id] = session
+        return session
 
     def update_plan(
         self,

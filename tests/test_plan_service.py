@@ -151,3 +151,81 @@ def test_summary_review_is_none_before_the_gates_run():
     out = PlanSession(session_id="028", plan=plan).summary()
     assert out["review"] is None
     assert out["gates_passed"] is None
+
+
+# ── multi-replica guard (#755) ────────────────────────────────────────
+
+
+def test_multi_replica_without_a_shared_store_is_an_error(monkeypatch, caplog):
+    """The WARNING about the in-memory path was logged all through the prod
+    incident and nobody saw it, so >1 replica with no store is an ERROR."""
+    monkeypatch.setenv("PFACTORY_REPLICA_COUNT", "4")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("PFACTORY_REQUIRE_SHARED_STORE", raising=False)
+
+    with caplog.at_level("ERROR", logger="plan.service"):
+        PlanService()
+
+    assert any("PFACTORY_REPLICA_COUNT=4" in r.getMessage() for r in caplog.records)
+    assert any("#755" in r.getMessage() for r in caplog.records)
+
+
+def test_require_shared_store_refuses_to_start(monkeypatch):
+    """So the KEDA pin can be lifted against a guarantee, not a hope."""
+    monkeypatch.setenv("PFACTORY_REPLICA_COUNT", "2")
+    monkeypatch.setenv("PFACTORY_REQUIRE_SHARED_STORE", "1")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="#755"):
+        PlanService()
+
+
+def test_single_replica_without_a_store_stays_quiet(monkeypatch, caplog):
+    monkeypatch.setenv("PFACTORY_REPLICA_COUNT", "1")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with caplog.at_level("ERROR", logger="plan.service"):
+        PlanService()
+
+    assert not [r for r in caplog.records if "#755" in r.getMessage()]
+
+
+def test_an_unusable_store_is_resolved_once_not_per_service(monkeypatch):
+    """Each store owns a loop, a thread and a pool (#755).
+
+    The first cut returned None on an unready store WITHOUT closing it, so a
+    process that builds many PlanServices — the full suite against Postgres —
+    leaked all three per construction. Resolution must happen once and be
+    remembered.
+    """
+    from plan import service as svc
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://nobody@127.0.0.1:1/none")
+    monkeypatch.setattr(svc, "_SESSION_STORE_CACHE", {})
+    monkeypatch.setattr(svc, "_SESSION_STORE_UNAVAILABLE", set())
+
+    built = []
+
+    class _Unready:
+        def __init__(self, *_a, **_kw):
+            built.append(self)
+            self.closed = False
+
+        def is_ready(self):
+            return False
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "server.jobstore",
+        type("M", (), {"PlanSessionStore": _Unready})(),
+    )
+
+    assert svc._resolve_session_store() is None
+    assert svc._resolve_session_store() is None
+    assert svc._resolve_session_store() is None
+
+    assert len(built) == 1, "the store was rebuilt per call"
+    assert built[0].closed is True, "the unusable store was not closed"

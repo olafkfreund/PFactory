@@ -87,6 +87,13 @@ spec:
             # "the Factory"; here we restore PFactory's prior wording.
             - name: FACTORY_SERVICE_NAME
               value: "PFactory"
+            # PFACTORY_REPLICA_COUNT: what the pod believes the replica count
+            # is, so PlanService can shout when it is one of several WITHOUT a
+            # shared session store (#755) -- the prod incident where a discard
+            # on one pod stayed invisible to three others. KEDA may scale this
+            # Deployment, so the value is the ceiling the chart knows about.
+            - name: PFACTORY_REPLICA_COUNT
+              value: "{{ .Values.replicaCount }}"
             # DATABASE_URL: produced by ExternalSecret OR by an
             # out-of-band Secret named values.postgres.externalSecretName.
             - name: DATABASE_URL
