@@ -38,6 +38,18 @@ so the justification was already false when it was written.
 - After this ships, raising `maxReplicaCount` above 1 no longer risks
   duplicate emission (the pin itself is lifted separately).
 
+## Amendment (approved 2026-09-23): no lost session writes
+
+Review of release PR #760 found that `PlanSessionStore.upsert` overwrites the
+shared row unconditionally. A long `process()` or emit holding a payload read
+earlier can overwrite a newer approval or discard saved by another replica,
+which is the lost update #755 set out to prevent. It shares this task's cause
+(no store-level concurrency guard) and was folded in with the user's
+approval.
+
+Added outcome: a session write based on a stale read never overwrites a newer
+one. The stale writer is refused and told why; the newer state survives.
+
 ## Affected users and systems
 
 - PFactory backend: `plan/service.py` emit paths and the session store

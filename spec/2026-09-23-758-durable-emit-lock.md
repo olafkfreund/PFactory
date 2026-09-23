@@ -73,6 +73,42 @@ explicitly. It expires on its own if the holder dies.
   take only the in-process lock, not the lease. A preview is never refused
   because a real emit is running elsewhere.
 
+### No lost session writes (intent amendment)
+
+- **Schema:** the same migration adds `version INTEGER NOT NULL DEFAULT 0` to
+  `plan_sessions`.
+- **Store:** `upsert(session_id, *, payload, seq, tenant_id, expected_version)`
+  becomes a compare-and-set:
+  - update path: `UPDATE plan_sessions SET payload=..., version=version+1,
+    updated_at=now() WHERE session_id=:id AND version=:expected RETURNING version`;
+  - insert path: the row is new, `version=1`, `ON CONFLICT DO NOTHING`;
+  - zero rows back means a conflict: it returns `None`, and the caller raises.
+  - `get()` returns `(payload, version)`; the protocol changes to match.
+- **Service:** `PlanService` records the version with each session it loads
+  from the store (a `dict[str, int]` next to `_sessions`, not a field on the
+  Pydantic model, so payloads and the JSON mirror are unchanged).
+  `_upsert_session` passes it and stores the new version on success. On
+  conflict it raises `StaleSessionError(PlanServiceError)`: "<session> was
+  changed by another replica; reload and retry". It also refreshes the cached
+  copy from the store, so the next read is current.
+- **Long operations:** `process()` and emit write progress several times, so a
+  conflict mid-run (e.g. someone discarded the session) stops the run at that
+  write instead of overwriting. With the emit lease held, another emit cannot
+  be the writer, so the only conflicts are genuine human actions.
+- **No store:** unchanged. There is nothing to compare against, and the
+  in-process path is single-replica by definition.
+- **HTTP:** `StaleSessionError` maps to **409**, alongside
+  `EmitInProgressError`.
+
+Verification additions:
+
+- store: two writers with the same expected version, second gets `None` and
+  the row keeps the first;
+- service: a stale `_upsert_session` raises `StaleSessionError` and does not
+  change the row;
+- two-process test: replica A approves while replica B's long `process()` holds
+  an older copy; the approval survives and B stops with `StaleSessionError`.
+
 ### HTTP mapping
 
 `routes/plan_pipeline.py` `emit` and `emit_contract` catch
