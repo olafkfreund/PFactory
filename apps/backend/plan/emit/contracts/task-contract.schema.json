@@ -651,6 +651,9 @@
         },
         "constitution": {
           "$ref": "#/$defs/constitution"
+        },
+        "skills": {
+          "$ref": "#/$defs/skills"
         }
       }
     },
@@ -1517,6 +1520,50 @@
                 "production-apply"
               ],
               "description": "How far deploy verification goes. 'dry-run'/'plan-only' for non-prod automation; 'ephemeral-apply' against a disposable target (VAL-3); 'production-apply' (VAL-4) is gated and never autonomous."
+            }
+          }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "PFactory#687 skills: the registry's `kind: skill` rows whose declared capabilities match what this contract needs, so the coder is pointed at the written skill for the work instead of rediscovering it. Needs are derived from decided signals only (the compliance block's obligations + data classes, the plan type) — never from scanning prose, because a wrongly attached skill sends a coder to irrelevant guidance. available=true means the catalogue was read, NOT that anything matched: available=true with an empty skills[] is 'we looked and no skill applies' (matched_on shows what was looked for), available=false is 'the catalogue could not be read', and an absent block is a contract that predates the feature.",
+      "properties": {
+        "available": {
+          "type": "boolean",
+          "description": "True when the registry catalogue was read. Says nothing about whether anything matched."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where the rows came from, e.g. 'pfactory:plan-registry'."
+        },
+        "matched_on": {
+          "type": "array",
+          "description": "The capability tokens derived from this contract, sorted. Empty means no signal asked for a skill.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skills": {
+          "type": "array",
+          "description": "The matching skill rows.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Registry entry id, e.g. 'skill:privacy-and-regulatory'."
+              },
+              "title": {
+                "type": "string",
+                "description": "Human-readable skill title."
+              },
+              "path": {
+                "type": "string",
+                "description": "Repo-relative path to the skill file, openable by an agent with the checkout."
+              }
             }
           }
         }
