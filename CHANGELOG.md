@@ -2,12 +2,40 @@
 
 ## Unreleased
 
+## 0.6.20 — plan sessions shared across replicas; skill lane; planning i18n (2026-09-23)
+
+- **Plan sessions are shared across replicas (#755, #757).** With
+  `DATABASE_URL` set and `alembic upgrade head` applied, sessions are read and
+  written through a shared Postgres store, and ids are allocated atomically
+  (no `NNN-slug` collisions). Without it, the per-process path is unchanged,
+  and it now logs an ERROR when `PFACTORY_REPLICA_COUNT>1`
+  (`PFACTORY_REQUIRE_SHARED_STORE=1` refuses to start instead). **Keep the
+  deployment pinned to one replica until #758** (durable emit lock) ships.
+- **Emit saves issue numbers as they are created and runs off the event loop
+  (#725).** A liveness probe no longer kills a pod mid-emit.
+- **Emit attaches the registry's matching skills to the contract (#687).**
+- **Planning UI localised:** PipelinePanel, EnrichmentPanel and PlanUploadForm
+  (#734).
 - **Plan-session routes reject unknown body fields with 422 (#671).** Every
   JSON body under `/api/plan/sessions` now forbids fields it does not declare.
   Previously `POST /process` with `{"repo", "base_ref"}` returned 200 and a
   complete greenfield plan, because those fields belong on `/ingest-text` and
   were silently dropped. **Behaviour change:** a client that sends extra keys
   now gets a 422 naming the field; drop the key (it was never read).
+- Review: authenticated/unauthorised phrasing counts as auth in both lenses
+  (#670), and the compliance lens is marked mandatory in the registry (#682).
+- Decompose recognises OS-floor phrasing as covering min-os-versions (#678).
+- Triager `committed_count` counts what was committed, not what was accepted
+  (#662).
+- MCP reads and writes the web server's `projects.json` shape (#668).
+- Docker: the no-op apk upgrade layer is dropped (#733). The docker gates keep
+  a refusal a refusal on 5xx/429 digests (#749) and skip the multi-arch check
+  when the registry never answers (#744).
+- CI and deps: digest auto-merge is disarmed when a Dependabot PR is retargeted
+  off dev (Factory#1710, #741); `kotlin.yaml` re-vendored (Factory#1712, #743);
+  hub pins refreshed to `5477f12a` (#752, #754); chainguard/python base
+  `c9be3f0` (#747, #756); agent-CLI pins (claude-code 2.1.278, gemini-cli
+  0.60.0, codex 0.155.1); github-actions, vitest and js-yaml bumps.
 
 ## 0.6.19 — runtime Node from the official image; base-image bumps auto-merge (2026-09-18)
 
