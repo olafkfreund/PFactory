@@ -12,7 +12,16 @@ import en from '../locales/en/common.json';
 import fr from '../locales/fr/common.json';
 import ptBR from '../locales/pt-BR/common.json';
 
-const NAMESPACES = ['planEditor', 'annotations'] as const;
+const NAMESPACES = [
+  'planEditor',
+  'annotations',
+  // `approval` was already complete in every locale but unguarded — the gap
+  // that let the three below ship hardcoded is the same one (#734).
+  'approval',
+  'pipelinePanel',
+  'enrichmentPanel',
+  'planUploadForm',
+] as const;
 
 function keysOf(bundle: Record<string, unknown>, ns: string): string[] {
   return Object.keys((bundle[ns] ?? {}) as Record<string, unknown>).sort();

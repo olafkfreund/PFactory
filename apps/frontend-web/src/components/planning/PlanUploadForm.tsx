@@ -15,6 +15,8 @@ import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { cn } from '../../lib/utils';
 import { usePlanStore } from '../../stores/plan-store';
+import { useTranslation } from 'react-i18next';
+
 import { getCategories } from '../../lib/planning-api';
 import type { PlanSession, CategoryEntry } from '../../shared/types/plan';
 
@@ -39,6 +41,7 @@ interface Props {
 }
 
 export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
+  const { t } = useTranslation('common');
   const [mode, setMode] = useState<'file' | 'text'>('file');
   const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -90,23 +93,23 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
     const dropped = e.dataTransfer.files[0];
     if (!dropped) return;
     if (!isAccepted(dropped)) {
-      setFileError(`Unsupported file type. Accepted: ${ACCEPTED_EXTENSIONS.join(', ')}`);
+      setFileError(t('planUploadForm.unsupportedFile', { list: ACCEPTED_EXTENSIONS.join(', ') }));
       return;
     }
     setFileError(null);
     setFile(dropped);
-  }, []);
+  }, [t]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
     if (!isAccepted(selected)) {
-      setFileError(`Unsupported file type. Accepted: ${ACCEPTED_EXTENSIONS.join(', ')}`);
+      setFileError(t('planUploadForm.unsupportedFile', { list: ACCEPTED_EXTENSIONS.join(', ') }));
       return;
     }
     setFileError(null);
     setFile(selected);
-  }, []);
+  }, [t]);
 
   const handleSubmit = async () => {
     store.clearError();
@@ -151,7 +154,7 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
           )}
         >
           <Upload className="h-3.5 w-3.5" aria-hidden />
-          Upload file
+          {t('planUploadForm.uploadFile')}
         </button>
         <button
           type="button"
@@ -164,21 +167,22 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
           )}
         >
           <FileText className="h-3.5 w-3.5" aria-hidden />
-          Paste text
+          {t('planUploadForm.pasteText')}
         </button>
       </div>
 
       {/* Title */}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="plan-title" className="text-sm font-medium text-foreground">
-          Title <span className="text-muted-foreground font-normal">(optional)</span>
+          {t('planUploadForm.title')}{' '}
+          <span className="text-muted-foreground font-normal">{t('planUploadForm.optional')}</span>
         </label>
         <Input
           id="plan-title"
-          placeholder="e.g. Q3 Feature Specification"
+          placeholder={t('planUploadForm.titlePlaceholder')}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          aria-label="Plan title"
+          aria-label={t('planUploadForm.titleAria')}
         />
       </div>
 
@@ -187,17 +191,18 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="plan-category" className="text-sm font-medium text-foreground">
-              Category <span className="text-muted-foreground font-normal">(optional)</span>
+              {t('planUploadForm.category')}{' '}
+              <span className="text-muted-foreground font-normal">{t('planUploadForm.optional')}</span>
             </label>
             <select
               id="plan-category"
               value={category}
               onChange={(e) => { setCategory(e.target.value); setTemplate(''); }}
-              aria-label="Plan category"
+              aria-label={t('planUploadForm.categoryAria')}
               className="h-9 rounded-md border border-input bg-background px-3 text-sm capitalize
                          focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              <option value="">Auto-detect</option>
+              <option value="">{t('planUploadForm.autoDetect')}</option>
               {categories.map((c) => (
                 <option key={c.category} value={c.category}>{c.category}</option>
               ))}
@@ -205,20 +210,23 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
           </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="plan-template" className="text-sm font-medium text-foreground">
-              Template <span className="text-muted-foreground font-normal">(optional)</span>
+              {t('planUploadForm.template')}{' '}
+              <span className="text-muted-foreground font-normal">{t('planUploadForm.optional')}</span>
             </label>
             <select
               id="plan-template"
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
-              aria-label="Plan template"
+              aria-label={t('planUploadForm.templateAria')}
               disabled={templatesForCategory.length === 0}
               className="h-9 rounded-md border border-input bg-background px-3 text-sm
                          focus:outline-none focus:ring-2 focus:ring-ring
                          disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="">
-                {templatesForCategory.length === 0 ? 'No templates for category' : 'None — suggest only'}
+                {templatesForCategory.length === 0
+                  ? t('planUploadForm.noTemplates')
+                  : t('planUploadForm.noneSuggestOnly')}
               </option>
               {templatesForCategory.map((t) => (
                 <option key={t.name} value={t.name}>{t.title}</option>
@@ -226,7 +234,7 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
             </select>
             {template && (
               <p className="text-xs text-muted-foreground">
-                Selecting a template enforces its policy during review.
+                {t('planUploadForm.templateHint')}
               </p>
             )}
           </div>
@@ -237,12 +245,13 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
       {mode === 'file' && (
         <div className="flex flex-col gap-2">
           <label className="text-sm font-medium text-foreground">
-            Document <span className="text-muted-foreground text-xs">(.pdf, .docx, .md)</span>
+            {t('planUploadForm.document')}{' '}
+            <span className="text-muted-foreground text-xs">{t('planUploadForm.documentTypes')}</span>
           </label>
           <div
             role="button"
             tabIndex={0}
-            aria-label="Drop a file here or click to browse"
+            aria-label={t('planUploadForm.dropZoneAria')}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -262,7 +271,7 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
                 <span className="text-sm font-medium truncate max-w-[220px]">{file.name}</span>
                 <button
                   type="button"
-                  aria-label="Remove file"
+                  aria-label={t('planUploadForm.removeFile')}
                   onClick={(e) => { e.stopPropagation(); setFile(null); }}
                   className="ml-1 rounded p-0.5 hover:bg-destructive/10 hover:text-destructive transition-colors"
                 >
@@ -273,8 +282,8 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
               <>
                 <Upload className="h-8 w-8 opacity-50" aria-hidden />
                 <div className="text-center">
-                  <p className="text-sm font-medium">Drop file here</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">or click to browse</p>
+                  <p className="text-sm font-medium">{t('planUploadForm.dropFileHere')}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t('planUploadForm.orClickToBrowse')}</p>
                 </div>
               </>
             )}
@@ -284,7 +293,7 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
             type="file"
             accept=".pdf,.docx,.md"
             className="sr-only"
-            aria-label="Choose file"
+            aria-label={t('planUploadForm.chooseFile')}
             onChange={handleFileChange}
             data-testid="file-input"
           />
@@ -298,19 +307,19 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
       {mode === 'text' && (
         <div className="flex flex-col gap-1.5">
           <label htmlFor="plan-text" className="text-sm font-medium text-foreground">
-            Plan text
+            {t('planUploadForm.planText')}
           </label>
           <Textarea
             id="plan-text"
-            placeholder="Paste your product requirements, feature spec, or technical plan here…"
+            placeholder={t('planUploadForm.textPlaceholder')}
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={10}
-            aria-label="Plan text"
+            aria-label={t('planUploadForm.planText')}
             data-testid="plan-text-input"
           />
           <p className="text-xs text-muted-foreground text-right">
-            {text.trim().length} characters
+            {t('planUploadForm.characters', { count: text.trim().length })}
           </p>
         </div>
       )}
@@ -326,24 +335,24 @@ export function PlanUploadForm({ onSuccess, onCancel, fetchFn }: Props) {
       <div className="flex justify-end gap-3">
         {onCancel && (
           <Button variant="outline" onClick={onCancel} disabled={loading}>
-            Cancel
+            {t('buttons.cancel')}
           </Button>
         )}
         <Button
           onClick={handleSubmit}
           disabled={!canSubmit}
           data-testid="submit-btn"
-          aria-label="Ingest plan"
+          aria-label={t('planUploadForm.ingestAria')}
         >
           {loading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-              Ingesting…
+              {t('planUploadForm.ingesting')}
             </>
           ) : (
             <>
               <Plus className="mr-2 h-4 w-4" aria-hidden />
-              Ingest plan
+              {t('planUploadForm.ingest')}
             </>
           )}
         </Button>
