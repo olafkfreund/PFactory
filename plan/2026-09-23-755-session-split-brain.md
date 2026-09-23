@@ -25,6 +25,30 @@ Approved decisions (from the spec):
   raises when `PFACTORY_REQUIRE_SHARED_STORE=1`. Chart injects the count.
 - Out of scope: lifting `maxReplicaCount` in factory-gitops.
 
+*Deviations (implementation, all found by running it):*
+
+- **Id allocation is a counter table, not `max(seq)+1 FOR UPDATE`.** Postgres
+  rejects `FOR UPDATE` with an aggregate (`FeatureNotSupportedError`), so the
+  spec's query never ran — and the service's fallback logged a warning and
+  silently used the per-process counter, so the collision #755 reports was
+  still there while the tests passed. Even fixed, `max(seq)+1` races: the
+  allocation and the session insert are separate transactions, so two replicas
+  can read the same maximum. The migration now adds `plan_session_seq` (one
+  row) and `next_seq()` is a single atomic insert-or-bump
+  (`ON CONFLICT DO UPDATE ... RETURNING`), seeded from the highest existing
+  `seq` so an upgraded deployment never reissues an id. Extra tests call the
+  allocator DIRECTLY and assert no fallback warning — the plan's tests went
+  through the service, where the failure was invisible.
+- **`PlanSessionStore.close()` + negative caching.** An unready store was
+  returned as `None` without closing it, leaking an event loop, a thread and a
+  connection pool per `PlanService` construction. That failed
+  `tests/postgres/test_p1_suite_against_postgres.py` (which builds hundreds of
+  services) while every test in isolation passed. `_resolve_job_store` already
+  closed its store; mine now does too, and remembers the failed URL.
+- **`tenant_id` is `String(64)` NOT NULL default `'default'`**, matching the
+  `job_states` convention (#308), not the nullable `String(255)` the spec
+  sketched.
+
 ## Steps
 
 1. Migration `apps/web-server/server/database/alembic/versions/` (new file,

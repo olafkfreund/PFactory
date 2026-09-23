@@ -32,7 +32,12 @@ from server.database.models import Base  # noqa: E402
 # Import the RFC-0016 job-state model so its table attaches to Base.metadata
 # (the migration is hand-written, but autogenerate / compare_* and any
 # create_all need the model registered). Side-effect import only.
-from server.jobstore import models as _jobstore_models  # noqa: E402,F401
+# Same for the plan-session model (#755): the shared copy of a plan session
+# that every replica reads through.
+from server.jobstore import (  # noqa: E402
+    models as _jobstore_models,  # noqa: F401
+    plan_session_models as _plan_session_models,  # noqa: F401
+)
 
 config = context.config
 
