@@ -28,6 +28,7 @@ from plan.emit.house_standards import attach_house_standards
 from plan.emit.migration_block import attach_migration
 from plan.emit.review_tier import attach_review_tier
 from plan.emit.signing import attach_signature, key_from_env
+from plan.emit.skills_block import attach_skills
 from plan.emit.task_contract import validate_contract
 from plan.emit.tfactory_block import attach_tfactory
 from plan.emit.tier_profile import apply_tier
@@ -190,6 +191,13 @@ def assemble_contract(
     # additionalProperties is true); best-effort, never raises; available=false
     # when no compliance lens ran, so "never ran" != "found nothing".
     attach_compliance(contract, plan, review)
+    # #687: point the coder at the skills this repo already ships for the work
+    # the contract demands — matched from the registry's `kind: skill` rows by
+    # capability. MUST run after attach_compliance: the needs are derived from
+    # the compliance block's obligations + data classes. Additive, best-effort,
+    # never raises; `available: true` with an empty list means "looked, nothing
+    # applies", which is not the same as the key being absent.
+    attach_skills(contract, plan)
     # RFC-0007: access requirements discovered from .pfactory.yml (#84) + recorded
     # human-verified curation applied (#86).
     attach_access(contract, config, spec_text, approvals=approvals)
