@@ -48,8 +48,9 @@ def upgrade() -> None:
         sa.Column("seq", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("schema_version", sa.String(length=8), nullable=False, server_default="1"),
         # PlanSession.model_dump_json() verbatim — the pydantic model remains
-        # the one definition of a session's shape.
-        sa.Column("payload", sa.JSON(), nullable=False),
+        # the one definition of a session's shape. Text, not JSON: a JSON column
+        # would re-encode the string.
+        sa.Column("payload", sa.Text(), nullable=False),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),

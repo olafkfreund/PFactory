@@ -21,7 +21,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 from pydantic import BaseModel, Field
 
@@ -327,6 +327,29 @@ def _resolve_job_store() -> object | None:
             return None
 
 
+class SessionStore(Protocol):
+    """What :class:`PlanService` needs of the shared session store (#755).
+
+    Structural, so the real ``PlanSessionStore`` and a test fake both satisfy
+    it without importing the web-server DB layer here (this module must import
+    cleanly in the dependency-light backend venv).
+    """
+
+    def get(self, session_id: str) -> str | None: ...
+
+    def list_payloads(self, *, tenant_id: str | None = ...) -> list[str]: ...
+
+    def upsert(self, session_id: str, *, payload: str, seq: int, tenant_id: str | None) -> None: ...
+
+    def next_seq(self) -> int: ...
+
+    def session_ids(self) -> set[str]: ...
+
+    def is_ready(self) -> bool: ...
+
+    def close(self) -> None: ...
+
+
 def _seq_of(session_id: str) -> int:
     """The numeric prefix of a ``NNN-slug`` session id, or 0.
 
@@ -338,7 +361,7 @@ def _seq_of(session_id: str) -> int:
     return int(head) if head.isdigit() else 0
 
 
-def _warn_if_multi_replica_without_store(store: object | None) -> None:
+def _warn_if_multi_replica_without_store(store: SessionStore | None) -> None:
     """Shout when this process is one of several with no shared store (#755).
 
     The pre-existing WARNING about the in-memory path was logged throughout the
@@ -367,13 +390,13 @@ def _warn_if_multi_replica_without_store(store: object | None) -> None:
     logger.error(message)
 
 
-_SESSION_STORE_CACHE: dict[str, object] = {}
+_SESSION_STORE_CACHE: dict[str, SessionStore] = {}
 # URLs whose store could not serve requests — do not rebuild one per service.
 _SESSION_STORE_UNAVAILABLE: set[str] = set()
 _SESSION_STORE_LOCK = threading.Lock()
 
 
-def _resolve_session_store() -> object | None:
+def _resolve_session_store() -> SessionStore | None:
     """Return the shared plan-session store, or ``None`` (per-process path).
 
     The sibling of :func:`_resolve_job_store`, and degrades the same way: no
@@ -411,11 +434,12 @@ def _resolve_session_store() -> object | None:
                     "safe (#755). Run `alembic upgrade head`."
                 )
                 return None
-            _SESSION_STORE_CACHE[url] = store
+            typed = cast("SessionStore", store)
+            _SESSION_STORE_CACHE[url] = typed
             logger.info(
                 "PFactory plan sessions are SHARED: backed by the plan_sessions table (#755)."
             )
-            return store
+            return typed
         except Exception as exc:  # noqa: BLE001 — degrade, never fatal
             _SESSION_STORE_UNAVAILABLE.add(url)
             logger.warning(
@@ -449,7 +473,7 @@ class PlanService:
         store_dir: Path | None = None,
         persist: bool | None = None,
         job_store: object | None = None,
-        session_store: object | None = None,
+        session_store: SessionStore | None = None,
     ) -> None:
         self._sessions: dict[str, PlanSession] = {}
         # RFC-0016 (#217): process() now runs in a worker thread (see
@@ -488,7 +512,7 @@ class PlanService:
         self._job_store = job_store if job_store is not None else _resolve_job_store()
         # #755: the authoritative, cross-replica copy of every session. None
         # keeps today's per-process behaviour (local dev, the CLI, tests).
-        self._session_store = (
+        self._session_store: SessionStore | None = (
             session_store if session_store is not None else _resolve_session_store()
         )
         if self._session_store is not None:

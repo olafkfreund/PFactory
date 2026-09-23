@@ -150,13 +150,13 @@ class PlanSessionStore:
 
                 seed = await self._highest_existing_seq(session)
                 stmt = (
-                    pg_insert(PlanSessionCounter.__table__)
+                    pg_insert(PlanSessionCounter)
                     .values(id=1, value=seed + 1)
                     .on_conflict_do_update(
-                        index_elements=[PlanSessionCounter.__table__.c.id],
-                        set_={"value": PlanSessionCounter.__table__.c.value + 1},
+                        index_elements=[PlanSessionCounter.id],
+                        set_={"value": PlanSessionCounter.value + 1},
                     )
-                    .returning(PlanSessionCounter.__table__.c.value)
+                    .returning(PlanSessionCounter.value)
                 )
                 return int((await session.execute(stmt)).scalar_one())
 
@@ -183,12 +183,15 @@ class PlanSessionStore:
 
     def get(self, session_id: str) -> str | None:
         """The stored payload for ``session_id``, or None when absent."""
-        return self._run(self._get_coro(session_id))
+        # `_run` is typed Any (it marshals any coroutine); bind it to the real
+        # type here rather than returning Any from a typed signature.
+        payload: str | None = self._run(self._get_coro(session_id))
+        return payload
 
     async def _get_coro(self, session_id: str) -> str | None:
         async with self._sessionmaker() as session:
             row = await session.get(PlanSessionRow, session_id)
-            return None if row is None else str(row.payload)
+            return None if row is None else row.payload
 
     def list_payloads(self, *, tenant_id: str | None = None) -> list[str]:
         """Every stored payload, oldest session number first."""
@@ -200,7 +203,7 @@ class PlanSessionStore:
             if tenant_id is not None:
                 stmt = stmt.where(PlanSessionRow.tenant_id == tenant_id)
             rows = (await session.execute(stmt)).scalars().all()
-            return [str(r.payload) for r in rows]
+            return [r.payload for r in rows]
 
     def close(self) -> None:
         """Dispose the engine and stop the background loop.

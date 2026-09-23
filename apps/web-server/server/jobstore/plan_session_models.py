@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Integer, String, func
+from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.database.models import Base
@@ -65,7 +65,10 @@ class PlanSessionRow(Base):
     schema_version: Mapped[str] = mapped_column(
         String(8), nullable=False, default=PLAN_SESSION_SCHEMA_VERSION
     )
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # Text, not JSON: this is ``PlanSession.model_dump_json()`` verbatim, and a
+    # JSON column would re-encode the string (storing a quoted blob) while the
+    # model stays the one definition of the shape.
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=func.now(), server_default=func.now()
     )
