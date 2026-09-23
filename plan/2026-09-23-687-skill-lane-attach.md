@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 687
 spec: spec/2026-09-23-687-skill-lane-attach.md
 ---
