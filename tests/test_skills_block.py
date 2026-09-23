@@ -153,3 +153,22 @@ def test_attach_never_raises(monkeypatch):
     monkeypatch.setattr(skills_block, "build_skills_block", lambda *_a, **_k: 1 / 0)
     contract: dict = {}
     assert attach_skills(contract, None) is contract  # degraded, not raised
+
+
+def test_a_missing_catalogue_is_not_reported_as_read(monkeypatch, tmp_path):
+    """`available: true` must mean "we looked", not "nothing raised".
+
+    `_load_catalogue` degrades a MISSING directory to an empty list rather than
+    raising, so before the review on #760 an absent catalogue was
+    indistinguishable from a catalogue with no matching skill — the exact
+    distinction this block's docstring promises to keep.
+    """
+    from plan.registry import loader
+
+    monkeypatch.setattr(loader, "_CATALOGUE_DIR", tmp_path / "not-there")
+
+    block = build_skills_block(_compliance(data_classes=["profile"]))
+
+    assert block["available"] is False
+    assert block["skills"] == []
+    assert block["matched_on"] == ["privacy"]  # what we would have looked for
