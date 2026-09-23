@@ -14,6 +14,7 @@
  * Objects are never rendered directly as React children.
  */
 
+import { useTranslation } from 'react-i18next';
 import { Server, Globe, BookOpen, ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -41,6 +42,7 @@ interface InfraCardProps {
 }
 
 function InfraCard({ snap }: InfraCardProps) {
+  const { t } = useTranslation('common');
   const adapter = safeStr(snap.adapter) || 'unknown';
   const target = safeStr(snap.target) || '—';
   const resources = (snap.resources ?? {}) as Record<string, unknown>;
@@ -68,20 +70,20 @@ function InfraCard({ snap }: InfraCardProps) {
           {snap.available ? (
             <span
               className="flex items-center gap-1 text-xs text-success"
-              aria-label="Adapter available"
+              aria-label={t('enrichmentPanel.adapterAvailable')}
               data-testid="infra-available"
             >
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-              available
+              {t('enrichmentPanel.available')}
             </span>
           ) : (
             <span
               className="flex items-center gap-1 text-xs text-muted-foreground"
-              aria-label="Adapter unavailable"
+              aria-label={t('enrichmentPanel.adapterUnavailable')}
               data-testid="infra-unavailable"
             >
               <XCircle className="h-3.5 w-3.5" aria-hidden />
-              unavailable
+              {t('enrichmentPanel.unavailable')}
             </span>
           )}
         </div>
@@ -99,7 +101,7 @@ function InfraCard({ snap }: InfraCardProps) {
         {Object.keys(resources).length > 0 && (
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-              Resources
+              {t('enrichmentPanel.resources')}
             </p>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3" data-testid="infra-resources">
               {Object.entries(resources).map(([key, val]) => (
@@ -116,7 +118,7 @@ function InfraCard({ snap }: InfraCardProps) {
         {findings.length > 0 && (
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-              Findings
+              {t('enrichmentPanel.findings')}
             </p>
             <ul className="space-y-1" data-testid="infra-findings">
               {findings.map((f, i) => (
@@ -134,7 +136,7 @@ function InfraCard({ snap }: InfraCardProps) {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-destructive mb-1.5 flex items-center gap-1">
               <ShieldAlert className="h-3 w-3" aria-hidden />
-              Exposed security groups ({publicPolicies.length})
+              {t('enrichmentPanel.exposedSecurityGroups', { count: publicPolicies.length })}
             </p>
             <ul className="space-y-1.5" data-testid="infra-exposures">
               {publicPolicies.map((pol, i) => {
@@ -153,9 +155,9 @@ function InfraCard({ snap }: InfraCardProps) {
                       ) : null}
                     </span>
                     {' — '}
-                    open to <span className="font-mono">{cidrs || '—'}</span>
+                    {t('enrichmentPanel.openTo')} <span className="font-mono">{cidrs || '—'}</span>
                     {ports ? (
-                      <span> on <span className="font-mono">{ports}</span></span>
+                      <span> {t('enrichmentPanel.onPorts')} <span className="font-mono">{ports}</span></span>
                     ) : null}
                   </li>
                 );
@@ -169,7 +171,7 @@ function InfraCard({ snap }: InfraCardProps) {
           Object.keys(resources).length === 0 &&
           findings.length === 0 &&
           publicPolicies.length === 0 && (
-            <p className="text-xs text-muted-foreground italic">No details gathered for this adapter.</p>
+            <p className="text-xs text-muted-foreground italic">{t('enrichmentPanel.noDetails')}</p>
           )}
       </CardContent>
     </Card>
@@ -196,7 +198,8 @@ interface KnowledgeCardProps {
 }
 
 function KnowledgeCard({ ref_ }: KnowledgeCardProps) {
-  const title = safeStr(ref_.title) || 'Untitled';
+  const { t } = useTranslation('common');
+  const title = safeStr(ref_.title) || t('enrichmentPanel.untitled');
   const snippet = safeStr(ref_.snippet);
   const connector = safeStr(ref_.connector);
   const uri = safeStr(ref_.uri);
@@ -245,7 +248,7 @@ function KnowledgeCard({ ref_ }: KnowledgeCardProps) {
                     ? 'bg-info/10 text-info'
                     : 'bg-muted text-muted-foreground',
                 )}
-                aria-label={`Relevance score ${score.toFixed(2)}`}
+                aria-label={t('enrichmentPanel.relevanceScore', { score: score.toFixed(2) })}
                 data-testid="knowledge-score"
               >
                 {score.toFixed(2)}
@@ -272,6 +275,7 @@ interface Props {
 }
 
 export function EnrichmentPanel({ session }: Props) {
+  const { t } = useTranslation('common');
   const enrichment = session.plan?.enrichment;
   const infraList = Array.isArray(enrichment?.infra) ? enrichment.infra : [];
   const knowledgeList = Array.isArray(enrichment?.knowledge) ? enrichment.knowledge : [];
@@ -295,9 +299,9 @@ export function EnrichmentPanel({ session }: Props) {
         className="flex flex-col items-center justify-center py-12 text-center gap-2"
         data-testid="enrichment-empty"
       >
-        <p className="text-sm text-muted-foreground">No AI context was gathered for this plan.</p>
+        <p className="text-sm text-muted-foreground">{t('enrichmentPanel.emptyTitle')}</p>
         <p className="text-xs text-muted-foreground/60">
-          Context is collected when the plan is processed.
+          {t('enrichmentPanel.emptyHint')}
         </p>
       </div>
     );
@@ -315,7 +319,7 @@ export function EnrichmentPanel({ session }: Props) {
               id="enrichment-infra-heading"
               className="text-sm font-semibold text-foreground"
             >
-              Infrastructure probe
+              {t('enrichmentPanel.infrastructureProbe')}
             </h3>
             <Badge variant="muted" className="text-[10px]">{infraList.length}</Badge>
           </div>
@@ -337,7 +341,7 @@ export function EnrichmentPanel({ session }: Props) {
               id="enrichment-bp-heading"
               className="text-sm font-semibold text-foreground"
             >
-              Best practices
+              {t('enrichmentPanel.bestPractices')}
             </h3>
             <Badge variant="success" className="text-[10px]">{bestPractices.length}</Badge>
           </div>
@@ -358,7 +362,7 @@ export function EnrichmentPanel({ session }: Props) {
               id="enrichment-docs-heading"
               className="text-sm font-semibold text-foreground"
             >
-              Wiki &amp; docs
+              {t('enrichmentPanel.wikiDocs')}
             </h3>
             <Badge variant="info" className="text-[10px]">{wikiDocs.length}</Badge>
           </div>
