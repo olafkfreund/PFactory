@@ -8,6 +8,7 @@ All helpers wrap subprocess calls to `docker` with sensible defaults
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -64,13 +65,18 @@ _TRANSPORT_MARKERS = (
     "temporary failure in name resolution",
     "no such host",
     "unexpected eof",
-    "503",
-    "502",
-    "504",
-    "429",
     "too many requests",
     "server misbehaving",
 )
+
+# The HTTP status codes need word boundaries, not substring matching (#749).
+# A refusal echoes the ref, and a sha256 digest is 64 hex characters that carry
+# these digit sequences ~6% of the time -- so `…@sha256:503edd78…: not found`
+# read as "the registry never answered" and SKIPPED the gate for a vanished
+# digest, the one case the refusal branch exists to catch. Inside a digest the
+# neighbouring hex characters are word characters, so \b does not hold; in
+# `status: 503 Service Unavailable` or `toomanyrequests: 429` it does.
+_TRANSPORT_CODE_RE = re.compile(r"\b(?:429|502|503|504)\b")
 
 
 # Two tries: one retry absorbs the common single hiccup without turning a 30s
@@ -81,7 +87,9 @@ _INSPECT_ATTEMPTS = 2
 def _is_transport_error(stderr: str) -> bool:
     """True when stderr reads as "the registry never answered"."""
     low = (stderr or "").lower()
-    return any(marker in low for marker in _TRANSPORT_MARKERS)
+    if any(marker in low for marker in _TRANSPORT_MARKERS):
+        return True
+    return bool(_TRANSPORT_CODE_RE.search(low))
 
 
 def inspect_raw_manifest(

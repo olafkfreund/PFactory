@@ -96,6 +96,11 @@ def test_transport_failures_report_the_registry_unavailable(stderr, slept):
         "manifest unknown",
         "not found: manifest unknown: manifest tagged by X is not found",
         "unauthorized: authentication required",
+        # A refusal echoes the ref, and a sha256 digest carries 429/502/503/504
+        # ~6% of the time. Substring matching read this as "never answered" and
+        # skipped the gate for a vanished digest (#749).
+        "ERROR: docker.io/library/alpine@sha256:"
+        "503edd782bcd1b68d8a7d1ed2577b5f820eba820871323f605292651ff11e3c6: not found",
     ],
 )
 def test_a_refusal_fails_and_is_not_retried(stderr, slept):

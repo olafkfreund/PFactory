@@ -75,7 +75,7 @@ def test_multi_arch_buildable() -> None:
         # environment that cannot answer the question, like docker being absent
         # above — skip, don't fail a required gate on someone else's outage
         # (#744). A registry that ANSWERS with a refusal still fails, via
-        # ManifestInspectFailed.
+        # ManifestInspectError.
         try:
             raw = inspect_raw_manifest(ref)
         except RegistryUnavailableError as exc:
