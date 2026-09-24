@@ -98,6 +98,12 @@ plan is approved, stop and report rather than build on top of an unmerged PR.
      (`_load_from_store`) or written to it (`_upsert_session`, the import).
      A new session starts at 0 (insert). A copy with no known version (from
      `list_payloads`) reads it with `get()` just before writing.
+   - A CAS `None` is followed by `get()`: no row means "deleted on another
+     replica" (cache entry dropped), otherwise "changed" (cache refreshed);
+     both raise `StaleSessionError`.
+   - Before taking the lease, a live emit inserts the session (expected 0) if
+     its row is missing, since the store cannot lease a missing row and a
+     False must only mean "held elsewhere".
    - `_upsert_session` passes the expected version. On `None` it refreshes
      from the store and raises `StaleSessionError`.
    - **`_save` keeps its "never raises" contract for everything except

@@ -48,6 +48,18 @@ def test_a_write_from_an_older_copy_is_refused_and_the_cache_refreshed():
     assert b._sessions[sid].status == "discarded"  # cache refreshed from the store
 
 
+def test_a_write_to_a_row_deleted_elsewhere_says_so():
+    store = FakeSessionStore()
+    svc = PlanService(session_store=store)
+    sid = svc.ingest_text(_PLAN, title="Refund API").session_id
+    session = svc.get(sid)
+    del store.rows[sid]  # removed by another replica
+
+    with pytest.raises(StaleSessionError, match="deleted on another replica"):
+        svc._save(session)
+    assert sid not in store.rows  # not resurrected
+
+
 def test_two_copies_in_one_process_cannot_overwrite_each_other():
     store = FakeSessionStore()
     svc = PlanService(session_store=store)
