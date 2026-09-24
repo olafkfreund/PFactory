@@ -412,17 +412,24 @@ def _delivery_error(git_writer: object) -> str | None:
     """#662 (port of TFactory#1260) — the error from a git write that was
     ATTEMPTED and FAILED.
 
-    ``None`` when the accepted tests were delivered, when the write was a
-    declared dry-run (``ok`` stays true and ``dry_run: true`` is recorded), or
-    when there was nothing to write (a skipped summary has no ``ok``). This is
-    the one place ``git_writer.ok`` is reconciled with the counts: without it a
-    run whose checkout failed reported ``committed_count: 5`` for work that
-    reached no branch.
+    ``None`` when the accepted tests were delivered or the write was a declared
+    dry-run (``ok`` stays true and ``dry_run: true`` is recorded). This is the
+    one place ``git_writer.ok`` is reconciled with the counts: without it a run
+    whose checkout failed reported ``committed_count: 5`` for work that reached
+    no branch.
+
+    A SKIPPED write counts as undelivered too (review on #760). "No branch in
+    source.json" or "no readable test sources" means nothing was attempted and
+    nothing landed — reporting the accepted tests as committed is the same lie
+    in a quieter voice. The caller suppresses this when nothing was accepted,
+    so an empty run does not advertise a delivery failure.
     """
     if not isinstance(git_writer, dict):
         return None
     if git_writer.get("ok") is False:
         return str(git_writer.get("error") or "git write failed")[:300]
+    if git_writer.get("skipped") is True:
+        return f"git write skipped: {git_writer.get('reason') or 'unknown reason'}"[:300]
     return None
 
 
@@ -699,7 +706,9 @@ async def run_triager(
                         "no branch in source.json" if not branch else "no readable test sources"
                     ),
                 }
-        delivery_error = _delivery_error(git_result_summary)
+        # Suppress the "skipped" case when nothing was accepted: an empty run
+        # has nothing to deliver, so it must not report a delivery failure.
+        delivery_error = _delivery_error(git_result_summary) if committed else None
 
         # ── 5. Build + render the report ────────────────────────
         report = build_report(

@@ -82,6 +82,17 @@ def _matching_skills(needs: set[str]) -> list[dict[str, str]]:
     return matches
 
 
+def _catalogue_present() -> bool:
+    """True when the registry catalogue directory is actually there.
+
+    The loader degrades a missing directory to an empty list, which would make
+    ``available: true`` mean "we read nothing" (review on #760).
+    """
+    from plan.registry import loader  # noqa: PLC0415 - lazy, as _matching_skills is
+
+    return bool(loader._CATALOGUE_DIR.is_dir())
+
+
 def build_skills_block(contract: dict[str, Any], plan: Any = None) -> dict[str, Any]:
     """Build the ``epic_context.skills`` block.
 
@@ -93,6 +104,17 @@ def build_skills_block(contract: dict[str, Any], plan: Any = None) -> dict[str, 
     """
     needs = derive_needs(contract, plan)
     try:
+        # `_load_catalogue` returns [] for a MISSING directory rather than
+        # raising, so "no catalogue" and "catalogue with no match" both arrive
+        # here as an empty list — the two states this block promises to keep
+        # apart (review on #760). Check the source before claiming we looked.
+        if not _catalogue_present():
+            return {
+                "available": False,
+                "source": _SOURCE,
+                "matched_on": sorted(needs),
+                "skills": [],
+            }
         skills = _matching_skills(needs)
     except Exception:  # noqa: BLE001 — an unreadable catalogue must not fail an emit
         return {

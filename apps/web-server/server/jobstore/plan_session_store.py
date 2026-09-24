@@ -154,7 +154,14 @@ class PlanSessionStore:
                     .values(id=1, value=seed + 1)
                     .on_conflict_do_update(
                         index_elements=[PlanSessionCounter.id],
-                        set_={"value": PlanSessionCounter.value + 1},
+                        # GREATEST, not value+1: the migration seeds this row at
+                        # 0, so on a deployment that then imports existing JSON
+                        # sessions the counter would hand out 1 again and collide
+                        # with 001-... . The conflict path must clear whatever is
+                        # already stored (review on #760).
+                        set_={
+                            "value": func.greatest(PlanSessionCounter.value, seed) + 1,
+                        },
                     )
                     .returning(PlanSessionCounter.value)
                 )
@@ -163,11 +170,14 @@ class PlanSessionStore:
             # SQLite (tests/dev): one writer at a time, so read-modify-write
             # inside the transaction is already serialised.
             row = await session.get(PlanSessionCounter, 1, with_for_update=False)
+            highest = await self._highest_existing_seq(session)
             if row is None:
-                row = PlanSessionCounter(id=1, value=await self._highest_existing_seq(session))
+                row = PlanSessionCounter(id=1, value=highest)
                 session.add(row)
                 await session.flush()
-            row.value = int(row.value) + 1
+            # max(): same reason as the Postgres branch — a seeded-at-zero
+            # counter must not reissue an imported session's number.
+            row.value = max(int(row.value), highest) + 1
             return int(row.value)
 
     async def _highest_existing_seq(self, session: Any) -> int:
