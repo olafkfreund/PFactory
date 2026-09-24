@@ -16,14 +16,16 @@ import asyncio
 import logging
 import os
 import re
+import socket
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
+from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from plan.annotate import AnnotationResult, annotate_plan
 from plan.completion import (
@@ -79,10 +81,12 @@ SessionStatus = str
 # attribute access still work; only ``import *`` skips it.
 __all__ = [
     "BoardColumn",
+    "EmitInProgressError",
     "PlanService",
     "PlanServiceError",
     "PlanSession",
     "SessionStatus",
+    "StaleSessionError",
     "board_state",
 ]
 
@@ -156,6 +160,14 @@ class PlanSession(BaseModel):
     # event so CFactory can display it. A `flagged` verdict forces tier=hard
     # (blocking human review) via route_tier — see _detect_and_plan_type.
     injection_scan: dict | None = None
+
+    # The shared-store row version this copy was read at (#758): 0 for a
+    # session never stored, None when unknown (listed, or imported by another
+    # replica). Private, so payloads and the JSON mirror are unchanged. It
+    # lives on the copy rather than in a dict keyed by id, because two copies
+    # of one session in the same process (a long process() and a human's
+    # approve) must not be able to overwrite each other either.
+    _store_version: int | None = PrivateAttr(default=None)
 
     def record_usage(self, usage: PlanUsage | None) -> None:
         """Fold an LLM call's usage into the run total (no-op for ``None``)."""
@@ -252,6 +264,24 @@ class PlanInputError(PlanServiceError):
     """
 
 
+class EmitInProgressError(PlanServiceError):
+    """A live emit of this session is running, or cannot be ruled out (#758).
+
+    Raised when another thread or replica holds the emit, and also when the
+    shared store cannot be asked (fail closed): a refused emit costs a retry, a
+    duplicate epic costs a manual cleanup. Routes answer 409.
+    """
+
+
+class StaleSessionError(PlanServiceError):
+    """This copy of a session is older than the stored row (#758).
+
+    Another replica, or another request in this one, wrote the session after
+    this copy was read, so saving it would silently undo that write. Routes
+    answer 409; the caller reloads and retries.
+    """
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -335,11 +365,31 @@ class SessionStore(Protocol):
     cleanly in the dependency-light backend venv).
     """
 
-    def get(self, session_id: str) -> str | None: ...
+    def get(self, session_id: str) -> tuple[str, int] | None:
+        """The stored payload and its row version, or None."""
+        ...
 
     def list_payloads(self, *, tenant_id: str | None = ...) -> list[str]: ...
 
-    def upsert(self, session_id: str, *, payload: str, seq: int, tenant_id: str | None) -> None: ...
+    def upsert(
+        self,
+        session_id: str,
+        *,
+        payload: str,
+        seq: int,
+        tenant_id: str | None,
+        expected_version: int,
+    ) -> int | None:
+        """Compare-and-set write (#758); the new version, or None on conflict.
+
+        ``expected_version`` 0 inserts a new row (None if it already exists);
+        a positive value updates only a row still at that version.
+        """
+        ...
+
+    def acquire_emit_lease(self, session_id: str, owner: str, ttl_seconds: int) -> bool: ...
+
+    def release_emit_lease(self, session_id: str, owner: str) -> None: ...
 
     def next_seq(self) -> int: ...
 
@@ -359,6 +409,24 @@ def _seq_of(session_id: str) -> int:
     """
     head = session_id.split("-", 1)[0]
     return int(head) if head.isdigit() else 0
+
+
+_EMIT_LEASE_TTL_DEFAULT = 1800
+
+
+def _emit_lease_ttl() -> int:
+    """``PFACTORY_EMIT_LEASE_TTL_SECONDS``, or 1800 when unset or invalid (#758).
+
+    The lease outlives any observed live emit (minutes, #725) and expires on
+    its own if the holder dies, so a crashed pod blocks a session for at most
+    this long.
+    """
+    raw = os.environ.get("PFACTORY_EMIT_LEASE_TTL_SECONDS", "").strip()
+    try:
+        ttl = int(raw)
+    except ValueError:
+        return _EMIT_LEASE_TTL_DEFAULT
+    return ttl if ttl > 0 else _EMIT_LEASE_TTL_DEFAULT
 
 
 def _warn_if_multi_replica_without_store(store: SessionStore | None) -> None:
@@ -550,6 +618,11 @@ class PlanService:
         (independent of the opt-in JSON disk mirror). Never raises — both the
         durable mirror and the disk write are best-effort telemetry of state,
         not part of the request's success contract.
+
+        One exception (#758): :class:`StaleSessionError` propagates. It means
+        this copy is older than the shared row, so writing it would undo
+        someone else's change; nothing is written anywhere and the caller's
+        operation stops. Every other store failure is still swallowed.
         """
         # The shared session row first (#755): it is what other replicas read,
         # so it must be written before we consider the transition visible.
@@ -575,19 +648,66 @@ class PlanService:
     # ── durable job-state mirror (RFC-0016 #217) ────────────────────────
 
     def _upsert_session(self, session: PlanSession) -> None:
-        """Write the session to the shared store. Best-effort, never raises."""
+        """Compare-and-set the session into the shared store (#758).
+
+        Raises :class:`StaleSessionError`, after refreshing the cached copy,
+        when the row moved on since this copy was read. Any other store
+        failure is logged and swallowed: a DB hiccup must not fail the request.
+        """
         store = self._session_store
         if store is None:
             return
+        sid = session.session_id
         try:
-            store.upsert(
-                session.session_id,
+            expected = session._store_version
+            if expected is None:
+                # ponytail: a listed copy has no version, so learn it now. A
+                # write landing between this read and the upsert is lost; only
+                # the store-down fallback in get() writes such a copy.
+                row = store.get(sid)
+                expected = row[1] if row is not None else 0
+            version = store.upsert(
+                sid,
                 payload=session.model_dump_json(),
-                seq=_seq_of(session.session_id),
+                seq=_seq_of(sid),
                 tenant_id=session.tenant_id,
+                expected_version=expected,
             )
         except Exception as exc:  # noqa: BLE001 — a DB hiccup must not fail the request
-            logger.warning("shared plan-session write failed for %s: %s", session.session_id, exc)
+            logger.warning("shared plan-session write failed for %s: %s", sid, exc)
+            return
+        if version is None:
+            # A missing row also fails the compare-and-set: tell the two apart.
+            try:
+                gone = store.get(sid) is None
+            except Exception:  # noqa: BLE001 — cannot tell; report the common case
+                gone = False
+            if gone:
+                with self._store_lock:
+                    self._sessions.pop(sid, None)
+                raise StaleSessionError(f"session {sid!r} was deleted on another replica")
+            self._load_from_store(sid)
+            raise StaleSessionError(
+                f"session {sid!r} was changed by another replica; reload and retry"
+            )
+        session._store_version = version
+
+    @staticmethod
+    def _insert_new(store: SessionStore, session: PlanSession) -> None:
+        """Insert a session not yet in the store; a row already there stands.
+
+        Sets the copy's version only when it inserted. May raise a store
+        error; the caller decides whether that matters.
+        """
+        version = store.upsert(
+            session.session_id,
+            payload=session.model_dump_json(),
+            seq=_seq_of(session.session_id),
+            tenant_id=session.tenant_id,
+            expected_version=0,
+        )
+        if version is not None:
+            session._store_version = version
 
     def _import_sessions_into_store(self) -> None:
         """One-shot: copy sessions already on disk into the shared store (#755).
@@ -610,8 +730,15 @@ class PlanService:
         for session in list(self._sessions.values()):
             if session.session_id in existing:
                 continue
-            self._upsert_session(session)
-            imported += 1
+            try:
+                self._insert_new(store, session)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "shared plan-session import failed for %s: %s", session.session_id, exc
+                )
+                continue
+            if session._store_version is not None:  # None: another replica inserted it first
+                imported += 1
         if imported:
             logger.info("imported %d on-disk plan session(s) into the shared store", imported)
 
@@ -659,6 +786,7 @@ class PlanService:
 
     def _store(self, plan: NormalizedPlan) -> PlanSession:
         session = PlanSession(session_id=plan.plan_id, plan=plan)
+        session._store_version = 0  # new: insert, and refuse if the id is taken
         # Guard the shared-store insertion so a concurrent offloaded run (or a
         # concurrent ingest) cannot lose this session via a non-atomic dict
         # write (RFC-0016 #217). `_save` takes the lock separately afterwards.
@@ -802,17 +930,19 @@ class PlanService:
         if store is None:
             return None
         try:
-            raw = store.get(session_id)
+            row = store.get(session_id)
         except Exception as exc:  # noqa: BLE001 — degrade to the cache
             logger.warning("shared plan-session read failed for %s: %s", session_id, exc)
             return None
-        if raw is None:
+        if row is None:
             return None
+        raw, version = row
         try:
             session = PlanSession.model_validate_json(raw)
         except Exception as exc:  # noqa: BLE001 — a corrupt row must not break reads
             logger.warning("unreadable stored plan session %s: %s", session_id, exc)
             return None
+        session._store_version = version
         with self._store_lock:
             self._sessions[session.session_id] = session
         return session
@@ -1595,24 +1725,76 @@ class PlanService:
     # ── emit ───────────────────────────────────────────────────────────
 
     @contextmanager
-    def _emit_lock(self, session_id: str) -> Iterator[None]:
+    def _emit_lock(self, session_id: str, *, live: bool = False) -> Iterator[None]:
+        """One emit per session: in this process, and for live emits everywhere.
+
+        The thread lock covers this process (#725). A live emit with a shared
+        store also takes the session row's emit lease (#758), so a second
+        replica is refused rather than creating a second epic. A store that
+        cannot be asked refuses too: we cannot confirm no emit is running. Dry
+        runs create nothing, so they never wait on or block a real emit.
+        """
         with self._store_lock:
             lock = self._emit_locks.setdefault(session_id, threading.Lock())
         if not lock.acquire(blocking=False):
-            raise PlanServiceError(f"an emit is already running for session {session_id!r}")
+            raise EmitInProgressError(f"an emit is already running for session {session_id!r}")
         try:
-            yield
+            store = self._session_store if live else None
+            if store is None:
+                yield
+                return
+            owner = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
+            cached = self._sessions.get(session_id)
+            unknown = False
+            try:
+                # The lease lives on the row, and a missing row cannot be
+                # leased: store a session that never reached the store (it was
+                # down at the time), or False would falsely mean "held".
+                if store.get(session_id) is None:
+                    if cached is None:
+                        unknown = True
+                    else:
+                        self._insert_new(store, cached)
+                acquired = not unknown and store.acquire_emit_lease(
+                    session_id, owner, _emit_lease_ttl()
+                )
+            except Exception as exc:  # noqa: BLE001 — fail closed, never emit unguarded
+                logger.warning("emit lease for %s could not be taken: %s", session_id, exc)
+                raise EmitInProgressError(
+                    f"cannot confirm no concurrent emit of session {session_id!r}; retry shortly"
+                ) from None
+            if unknown:
+                raise PlanServiceError(f"unknown session '{session_id}'")
+            if not acquired:
+                raise EmitInProgressError(
+                    f"an emit of session {session_id!r} is already running on another replica"
+                )
+            try:
+                yield
+            finally:
+                try:
+                    store.release_emit_lease(session_id, owner)
+                except Exception as exc:  # noqa: BLE001 — the TTL frees it
+                    logger.warning("emit lease for %s was not released: %s", session_id, exc)
         finally:
             lock.release()
 
     def emit(self, session_id: str, **kwargs: Any) -> PlanSession:
         """Emit the epic + children to GitHub; see :meth:`_emit`."""
-        with self._emit_lock(session_id):
+        live = not kwargs.get("dry_run", True)
+        with self._emit_lock(session_id, live=live):
+            if live and self._session_store is not None:
+                # Under the lease, read what the last holder left: if another
+                # replica already finished this emit, there is nothing to do.
+                # A partial emit (#119) is not "emitted", so it still resumes.
+                current = self.get(session_id)
+                if current.status == "emitted" and current.emitted_issue_number is not None:
+                    return current
             return self._emit(session_id, **kwargs)
 
     def emit_contract(self, session_id: str, **kwargs: Any) -> PlanSession:
         """Emit the signed Task Contract; see :meth:`_emit_contract`."""
-        with self._emit_lock(session_id):
+        with self._emit_lock(session_id, live=not kwargs.get("dry_run", True)):
             return self._emit_contract(session_id, **kwargs)
 
     def _emit(

@@ -237,10 +237,15 @@ def _tool_get_task_contract(args: dict[str, Any]) -> dict[str, Any]:
     # Build on demand (dry-run) if the plan has been processed.
     if sess.epic is None:
         raise _ToolError("plan not yet processed — cannot build a task contract")
-    from plan.service import SERVICE
+    from plan.service import SERVICE, StaleSessionError
 
     try:
         SERVICE.emit_contract(sess.session_id, dry_run=True)
+    except StaleSessionError as exc:
+        # A dry run takes no emit lease, but it still saves the session, and
+        # another replica may have changed it first (#758). Say so, so the
+        # caller knows a retry will work.
+        raise _ToolError(str(exc)) from exc
     except Exception as exc:
         logger.exception(
             "failed to build task contract for session %s", sanitize_log(sess.session_id)

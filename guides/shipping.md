@@ -184,6 +184,47 @@ Optional operator secrets (see comments in `charts/pfactory/values.yaml`):
 `claude-remote-credentials` (Remote Control), `pfactory-mcp-credentials`
 (MCP cloud-provider creds), `pfactory-metrics` (scrape bearer token).
 
+### Running more than one replica
+
+Plan sessions live in the shared Postgres store (`DATABASE_URL`), so every
+replica sees the same sessions. Two guards make writes from several replicas
+safe (#758):
+
+- **One emit per session.** A live emit takes a lease on the session row in
+  the store. A second live emit of the same session, from any replica, is
+  refused while the lease is held. Dry runs take no lease and are never
+  refused. Once the lease is held the session is re-read, so a session another
+  replica already emitted is not emitted twice.
+- **No lost updates.** Every session save is a compare-and-set on a version
+  number. A save based on an out-of-date copy is refused instead of
+  overwriting the newer one.
+
+Both refusals answer **409 Conflict**, and both are safe to retry:
+
+| Error | Meaning | What to do |
+| --- | --- | --- |
+| `EmitInProgressError` | Another replica holds the emit lease, or the store could not be reached (or the migration has not run) to take it. The emit fails closed: it never runs unguarded. | Wait for the other emit to finish, then reload the session. If the store is down, fix it first. |
+| `StaleSessionError` | Another replica changed the session after this one read it. Returned by emit, approve, reject, discard, waive, process and the other session writes. | Reload the session and repeat the action. |
+
+`PFACTORY_EMIT_LEASE_TTL_SECONDS` sets how long a lease lasts before another
+replica may take it, so a pod that dies mid-emit does not block the session
+forever.
+
+- Default, and what you get when it is unset: `1800` (30 minutes), well above
+  any observed live emit.
+- An invalid or non-positive value falls back to the default.
+- A higher value suits very slow emits; a lower one frees a crashed pod's
+  session sooner.
+
+Without `DATABASE_URL` there is no shared store: each process keeps its own
+sessions and only an in-process lock guards emits, so run exactly one replica.
+
+**Do not raise the replica count yet.** The KEDA scaler pins PFactory to one
+replica (factory-gitops#268). Lift that pin only after both this change and
+#767 (the session id counter seed) are released and `alembic upgrade head`
+has run against the production database. Until the migration has run, live
+emits are refused with 409.
+
 ### Validate before applying
 
 ```bash
