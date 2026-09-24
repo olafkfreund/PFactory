@@ -9,11 +9,22 @@
   written through a shared Postgres store, and ids are allocated atomically
   (no `NNN-slug` collisions). Without it, the per-process path is unchanged,
   and it now logs an ERROR when `PFACTORY_REPLICA_COUNT>1`
-  (`PFACTORY_REQUIRE_SHARED_STORE=1` refuses to start instead). **Keep the
-  deployment pinned to one replica until #758** (durable emit lock) ships.
+  (`PFACTORY_REQUIRE_SHARED_STORE=1` refuses to start instead). The session
+  counter continues from the highest stored number after the migration
+  (#761, #767), and the chart's `plan.replicaSignal` lets the guard see the
+  autoscaler's ceiling (#764).
+- **One emit per session and no lost session writes across replicas (#758,
+  #771).** A live emit takes a lease on the session row
+  (`PFACTORY_EMIT_LEASE_TTL_SECONDS`, default 1800); a second concurrent emit
+  gets **409**. Session writes are compare-and-set on a new `version` column,
+  so a stale copy can no longer undo a newer approval or discard (**409**,
+  retry). Migrations `c9f2a6d1e483` and `d4a7e2b9f1c6` must be applied
+  (`alembic upgrade head`). The KEDA one-replica pin stays in place; lifting
+  it is a separate step (see `guides/shipping.md`).
 - **Emit saves issue numbers as they are created and runs off the event loop
   (#725).** A liveness probe no longer kills a pod mid-emit.
-- **Emit attaches the registry's matching skills to the contract (#687).**
+- **Emit attaches the registry's matching skills to the contract (#687).** A
+  missing skills catalogue is reported as unavailable, not as read (#763).
 - **Planning UI localised:** PipelinePanel, EnrichmentPanel and PlanUploadForm
   (#734).
 - **Plan-session routes reject unknown body fields with 422 (#671).** Every
@@ -26,7 +37,7 @@
   (#670), and the compliance lens is marked mandatory in the registry (#682).
 - Decompose recognises OS-floor phrasing as covering min-os-versions (#678).
 - Triager `committed_count` counts what was committed, not what was accepted
-  (#662).
+  (#662); a skipped git write now counts as undelivered (#762).
 - MCP reads and writes the web server's `projects.json` shape (#668).
 - Docker: the no-op apk upgrade layer is dropped (#733). The docker gates keep
   a refusal a refusal on 5xx/429 digests (#749) and skip the multi-arch check
