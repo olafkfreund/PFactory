@@ -23,7 +23,7 @@ import threading
 from concurrent.futures import Future
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from .plan_session_models import (
@@ -103,29 +103,120 @@ class PlanSessionStore:
 
     # ── writes ──────────────────────────────────────────────────────────
 
-    def upsert(self, session_id: str, *, payload: str, seq: int, tenant_id: str | None) -> None:
-        """Write one session's payload. Last write wins (as the disk file did)."""
-        self._run(self._upsert_coro(session_id, payload, seq, tenant_id or "default"))
+    def upsert(
+        self,
+        session_id: str,
+        *,
+        payload: str,
+        seq: int,
+        tenant_id: str | None,
+        expected_version: int,
+    ) -> int | None:
+        """Compare-and-set one session's payload (#758).
 
-    async def _upsert_coro(self, session_id: str, payload: str, seq: int, tenant: str) -> None:
+        ``expected_version == 0`` inserts a new row (version 1); anything else
+        updates only if the stored version still matches. Returns the new
+        version, or None when the row already exists (insert) or has moved on
+        or vanished (update) — the caller holds a stale copy.
+        """
+        new: int | None = self._run(
+            self._upsert_coro(session_id, payload, seq, tenant_id or "default", expected_version)
+        )
+        return new
+
+    async def _upsert_coro(
+        self, session_id: str, payload: str, seq: int, tenant: str, expected: int
+    ) -> int | None:
         async with self._sessionmaker() as session, session.begin():
-            row = await session.get(PlanSessionRow, session_id)
-            if row is None:
-                session.add(
-                    PlanSessionRow(
+            if expected == 0:
+                stmt: Any = (
+                    self._insert(PlanSessionRow)
+                    .values(
                         session_id=session_id,
                         tenant_id=tenant,
                         seq=seq,
                         schema_version=PLAN_SESSION_SCHEMA_VERSION,
                         payload=payload,
+                        version=1,
+                    )
+                    .on_conflict_do_nothing(index_elements=[PlanSessionRow.session_id])
+                    .returning(PlanSessionRow.version)
+                )
+            else:
+                stmt = (
+                    update(PlanSessionRow)
+                    .where(
+                        PlanSessionRow.session_id == session_id,
+                        PlanSessionRow.version == expected,
+                    )
+                    .values(
+                        payload=payload,
+                        seq=seq,
+                        tenant_id=tenant,
+                        version=PlanSessionRow.version + 1,
                         updated_at=func.now(),
                     )
+                    .returning(PlanSessionRow.version)
                 )
-                return
-            row.payload = payload
-            row.tenant_id = tenant
-            row.seq = seq
-            row.updated_at = func.now()
+            got = (await session.execute(stmt)).scalar_one_or_none()
+            return None if got is None else int(got)
+
+    def _insert(self, table: Any) -> Any:
+        """The dialect's INSERT, which carries ``on_conflict_do_nothing``."""
+        from sqlalchemy.dialects import postgresql, sqlite  # noqa: PLC0415
+
+        if self._engine.dialect.name == "postgresql":
+            return postgresql.insert(table)
+        return sqlite.insert(table)
+
+    # ── emit lease (#758) ───────────────────────────────────────────────
+
+    def acquire_emit_lease(self, session_id: str, owner: str, ttl_seconds: int) -> bool:
+        """Take the session's emit lease if it is free or expired.
+
+        One atomic UPDATE against the database clock, so replicas with skewed
+        clocks still agree. False when another owner holds it or the row is
+        missing.
+        """
+        return bool(self._run(self._acquire_coro(session_id, owner, ttl_seconds)))
+
+    async def _acquire_coro(self, session_id: str, owner: str, ttl: int) -> bool:
+        now, until = self._now_and_until(ttl)
+        stmt = (
+            update(PlanSessionRow)
+            .where(
+                PlanSessionRow.session_id == session_id,
+                (PlanSessionRow.emit_lease_until.is_(None))
+                | (PlanSessionRow.emit_lease_until < now),
+            )
+            .values(emit_lease_owner=owner, emit_lease_until=until)
+            .returning(PlanSessionRow.session_id)
+        )
+        async with self._sessionmaker() as session, session.begin():
+            return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+    def _now_and_until(self, ttl: int) -> tuple[Any, Any]:
+        """The DB clock now, and now + ``ttl`` seconds, as SQL expressions."""
+        if self._engine.dialect.name == "postgresql":
+            return func.now(), func.now() + func.make_interval(0, 0, 0, 0, 0, 0, ttl)
+        # SQLite (tests/dev): datetime() strings compare lexically in order.
+        return func.datetime("now"), func.datetime("now", "+" + str(int(ttl)) + " seconds")
+
+    def release_emit_lease(self, session_id: str, owner: str) -> None:
+        """Clear the lease, but only if ``owner`` still holds it."""
+        self._run(self._release_coro(session_id, owner))
+
+    async def _release_coro(self, session_id: str, owner: str) -> None:
+        stmt = (
+            update(PlanSessionRow)
+            .where(
+                PlanSessionRow.session_id == session_id,
+                PlanSessionRow.emit_lease_owner == owner,
+            )
+            .values(emit_lease_owner=None, emit_lease_until=None)
+        )
+        async with self._sessionmaker() as session, session.begin():
+            await session.execute(stmt)
 
     def next_seq(self) -> int:
         """Allocate the next session number, atomically across replicas.
@@ -191,17 +282,17 @@ class PlanSessionStore:
 
     # ── reads ───────────────────────────────────────────────────────────
 
-    def get(self, session_id: str) -> str | None:
-        """The stored payload for ``session_id``, or None when absent."""
+    def get(self, session_id: str) -> tuple[str, int] | None:
+        """``(payload, version)`` for ``session_id``, or None when absent."""
         # `_run` is typed Any (it marshals any coroutine); bind it to the real
         # type here rather than returning Any from a typed signature.
-        payload: str | None = self._run(self._get_coro(session_id))
-        return payload
+        found: tuple[str, int] | None = self._run(self._get_coro(session_id))
+        return found
 
-    async def _get_coro(self, session_id: str) -> str | None:
+    async def _get_coro(self, session_id: str) -> tuple[str, int] | None:
         async with self._sessionmaker() as session:
             row = await session.get(PlanSessionRow, session_id)
-            return None if row is None else row.payload
+            return None if row is None else (row.payload, int(row.version))
 
     def list_payloads(self, *, tenant_id: str | None = None) -> list[str]:
         """Every stored payload, oldest session number first."""

@@ -72,3 +72,11 @@ class PlanSessionRow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=func.now(), server_default=func.now()
     )
+    # Cross-replica emit lease (#758): at most one pod emits a session; the
+    # lease expires so a pod that dies mid-emit does not wedge it.
+    emit_lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    emit_lease_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Bumped on every write; ``upsert`` is a compare-and-set on it (#758).
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

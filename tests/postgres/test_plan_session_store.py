@@ -30,6 +30,7 @@ pytestmark = [pytest.mark.postgres, pytest.mark.slow]
 
 pytest.importorskip("asyncpg")
 
+from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 from plan.service import PlanService  # noqa: E402
@@ -195,9 +196,6 @@ def test_the_counter_clears_sessions_imported_after_the_migration(test_postgres_
     the row) ignored it — so the first allocation on an upgraded deployment
     returned 1 and collided with the imported `001-...` session.
     """
-    import asyncio as _asyncio
-
-    from sqlalchemy import text
 
     async def _seed() -> None:
         eng = create_async_engine(test_postgres_url)
@@ -216,6 +214,60 @@ def test_the_counter_clears_sessions_imported_after_the_migration(test_postgres_
                 )
         await eng.dispose()
 
-    _asyncio.run(_seed())
+    asyncio.run(_seed())
 
     assert _store(test_postgres_url).next_seq() == 4
+
+
+# ── #758: emit lease and compare-and-set writes ─────────────────────────
+
+
+@pytest.mark.usefixtures("pg_schema")
+def test_emit_lease_is_exclusive_until_released_or_expired(test_postgres_url):
+    """One emit per session across replicas: the lease is the cross-pod lock."""
+    store = _store(test_postgres_url)
+    assert store.acquire_emit_lease("001-x", "pod-a", 60) is False  # no row yet
+
+    assert store.upsert("001-x", payload="{}", seq=1, tenant_id=None, expected_version=0) == 1
+    assert store.acquire_emit_lease("001-x", "pod-a", 60) is True
+    assert store.acquire_emit_lease("001-x", "pod-b", 60) is False
+
+    store.release_emit_lease("001-x", "pod-b")  # not the owner: a no-op
+    assert store.acquire_emit_lease("001-x", "pod-b", 60) is False
+
+    store.release_emit_lease("001-x", "pod-a")
+    assert store.acquire_emit_lease("001-x", "pod-b", 60) is True
+
+    # A crashed holder never releases; its lease lapses instead.
+    async def _expire() -> None:
+        eng = create_async_engine(test_postgres_url)
+        async with eng.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE plan_sessions SET emit_lease_until = now() - interval '1 second' "
+                    "WHERE session_id = :sid"
+                ),
+                {"sid": "001-x"},
+            )
+        await eng.dispose()
+
+    asyncio.run(_expire())
+    assert store.acquire_emit_lease("001-x", "pod-c", 60) is True
+
+
+@pytest.mark.usefixtures("pg_schema")
+def test_upsert_is_a_compare_and_set_on_version(test_postgres_url):
+    """A replica holding an older copy must not overwrite a newer write."""
+    store = _store(test_postgres_url)
+    assert store.get("001-x") is None
+
+    assert store.upsert("001-x", payload="v1", seq=1, tenant_id=None, expected_version=0) == 1
+    assert store.upsert("001-x", payload="dup", seq=1, tenant_id=None, expected_version=0) is None
+    assert store.get("001-x") == ("v1", 1)
+
+    assert store.upsert("001-x", payload="v2", seq=1, tenant_id="t", expected_version=1) == 2
+    assert store.upsert("001-x", payload="stale", seq=1, tenant_id="t", expected_version=1) is None
+    assert store.get("001-x") == ("v2", 2)
+
+    assert store.upsert("002-y", payload="x", seq=2, tenant_id=None, expected_version=3) is None
+    assert store.get("002-y") is None
