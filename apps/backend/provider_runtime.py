@@ -364,7 +364,13 @@ def install_argv(rt: ProviderRuntime, version: str | None = None) -> list[str]:
         spec = f"{rt.package}@{version or 'latest'}"
         return ["npm", "install", "-g", spec]
     if rt.kind == "pip":
-        spec = f"{rt.package}=={version}" if version else rt.package
+        # Narrow for the type checker and for the caller: a pip runtime with no
+        # package name is not installable, and saying so here beats an argv
+        # carrying the literal "None".
+        package = rt.package
+        if package is None:
+            raise InputRejectedError(f"{rt.name} declares no pip package to install")
+        spec = f"{package}=={version}" if version else package
         # The runtime image ships no pip: it was removed to clear the
         # pip-vendored-SBOM HIGHs (#681, Factory#858), which left this call site
         # building a command the service venv cannot run. uv is in the image and
@@ -387,7 +393,7 @@ def install_argv(rt: ProviderRuntime, version: str | None = None) -> list[str]:
             "--python",
             sys.executable,
             "--upgrade-package",
-            rt.package,
+            package,
             spec,
         ]
     if rt.kind == "gh":
