@@ -87,6 +87,23 @@ spec:
             # "the Factory"; here we restore PFactory's prior wording.
             - name: FACTORY_SERVICE_NAME
               value: "PFactory"
+            # PFACTORY_REPLICA_COUNT: what the pod believes the replica count
+            # is, so PlanService can shout when it is one of several WITHOUT a
+            # shared session store (#755) -- the prod incident where a discard
+            # on one pod stayed invisible to three others.
+            #
+            # `replicaCount` is the chart's DESIRED count; KEDA scales this
+            # Deployment independently (factory-gitops), so with autoscaling on
+            # the chart can say 1 while four pods run and the guard never fires
+            # (review on #760). `plan.replicaSignal` is the override: set it to
+            # the scaler's ceiling. `plan.requireSharedStore` turns the log into
+            # a refusal, which is the only hard guarantee.
+            - name: PFACTORY_REPLICA_COUNT
+              value: "{{ .Values.plan.replicaSignal | default .Values.replicaCount }}"
+            {{- if .Values.plan.requireSharedStore }}
+            - name: PFACTORY_REQUIRE_SHARED_STORE
+              value: "1"
+            {{- end }}
             # DATABASE_URL: produced by ExternalSecret OR by an
             # out-of-band Secret named values.postgres.externalSecretName.
             - name: DATABASE_URL

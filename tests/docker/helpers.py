@@ -8,6 +8,7 @@ All helpers wrap subprocess calls to `docker` with sensible defaults
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -31,6 +32,101 @@ def docker_available() -> bool:
         timeout=5,
     )
     return result.returncode == 0
+
+
+class RegistryUnavailableError(RuntimeError):
+    """The registry never answered: timeout, refused, DNS, TLS, 5xx, throttle.
+
+    The environment could not answer the question, so callers skip — the same
+    category as "docker is not installed" (#744). NOT for a registry that
+    answered and said no; see :class:`ManifestInspectError`.
+    """
+
+
+class ManifestInspectError(RuntimeError):
+    """The registry answered and refused: manifest unknown / unauthorized.
+
+    A real defect (e.g. a pinned digest that no longer exists), so callers must
+    fail rather than skip (#744).
+    """
+
+
+# Substrings that mark a TRANSPORT failure in `imagetools inspect` stderr —
+# the registry never answered. Matched case-insensitively. Anything else
+# (manifest unknown, not found, unauthorized) is the registry answering, which
+# is a real failure and must not be skipped.
+_TRANSPORT_MARKERS = (
+    "i/o timeout",
+    "context deadline exceeded",
+    "dial tcp",
+    "tls handshake timeout",
+    "connection refused",
+    "connection reset",
+    "temporary failure in name resolution",
+    "no such host",
+    "unexpected eof",
+    "too many requests",
+    "server misbehaving",
+)
+
+# The HTTP status codes need word boundaries, not substring matching (#749).
+# A refusal echoes the ref, and a sha256 digest is 64 hex characters that carry
+# these digit sequences ~6% of the time -- so `…@sha256:503edd78…: not found`
+# read as "the registry never answered" and SKIPPED the gate for a vanished
+# digest, the one case the refusal branch exists to catch. Inside a digest the
+# neighbouring hex characters are word characters, so \b does not hold; in
+# `status: 503 Service Unavailable` or `toomanyrequests: 429` it does.
+_TRANSPORT_CODE_RE = re.compile(r"\b(?:429|502|503|504)\b")
+
+
+# Two tries: one retry absorbs the common single hiccup without turning a 30s
+# failure into minutes of CI time (#744).
+_INSPECT_ATTEMPTS = 2
+
+
+def _is_transport_error(stderr: str) -> bool:
+    """True when stderr reads as "the registry never answered"."""
+    low = (stderr or "").lower()
+    if any(marker in low for marker in _TRANSPORT_MARKERS):
+        return True
+    return bool(_TRANSPORT_CODE_RE.search(low))
+
+
+def inspect_raw_manifest(
+    ref: str,
+    *,
+    timeout: int = 30,
+    backoff: float = 3.0,
+    runner=subprocess.run,
+    sleep=time.sleep,
+) -> str:
+    """Return the raw image-index manifest JSON for ``ref``.
+
+    Raises :class:`RegistryUnavailableError` when the registry never answered
+    (after :data:`_INSPECT_ATTEMPTS` tries, ``backoff`` seconds apart) and
+    :class:`ManifestInspectError` when it answered with a refusal. ``runner``
+    and ``sleep`` are injection seams so the behaviour is testable offline.
+    """
+    argv = ["docker", "buildx", "imagetools", "inspect", "--raw", ref]
+    last = ""
+    for attempt in range(_INSPECT_ATTEMPTS):
+        try:
+            result = runner(argv, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            last = f"timed out after {timeout}s"
+        else:
+            if result.returncode == 0:
+                return result.stdout
+            stderr = (result.stderr or "").strip()
+            if not _is_transport_error(stderr):
+                raise ManifestInspectError(
+                    f"`docker buildx imagetools inspect --raw {ref}` was refused:\n"
+                    f"--- stderr ---\n{stderr[-1000:]}"
+                )
+            last = stderr[-500:]
+        if attempt < _INSPECT_ATTEMPTS - 1:
+            sleep(backoff)
+    raise RegistryUnavailableError(f"{ref}: {last}")
 
 
 def docker_build(

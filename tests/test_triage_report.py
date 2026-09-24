@@ -508,3 +508,45 @@ def test_evidence_walks_only_candidates_in_report(tmp_path: Path) -> None:
     assert "real" not in report.evidence_urls_by_test_id  # no evidence dir
     md = render_markdown(report)
     assert "ghost" not in md
+
+
+# ── delivery failure (#662, port of TFactory#1260) ─────────────────────
+
+
+def _report_with(delivery_error: str | None) -> TriageReport:
+    return build_report(
+        mode="initial",
+        generated_at="2026-09-18T00:00:00+00:00",
+        committed=[_cand(test_id="a"), _cand(test_id="b")],
+        flagged=[],
+        rejected=[],
+        collisions=[],
+        dedup_input_count=2,
+        delivery_error=delivery_error,
+    )
+
+
+def test_failed_delivery_commits_nothing_but_keeps_the_accept_count() -> None:
+    report = _report_with("checkout 'x' failed: already used by worktree")
+    assert report.accepted_count == 2
+    assert report.committed_count == 0
+
+    doc = json.loads(render_json(report))
+    assert doc["summary"]["accepted_count"] == 2
+    assert doc["summary"]["committed_count"] == 0
+    assert doc["delivery_error"].startswith("checkout 'x' failed")
+
+    md = render_markdown(report)
+    assert "**Delivery FAILED — nothing was committed.** 2 test(s) were accepted" in md
+    assert "## Accepted but NOT committed (delivery failed)" in md
+    assert "## Committed\n" not in md
+    assert "| Committed (accept) | 0 |" in md
+
+
+def test_successful_delivery_counts_match() -> None:
+    report = _report_with(None)
+    assert report.accepted_count == report.committed_count == 2
+    md = render_markdown(report)
+    assert "Delivery FAILED" not in md
+    assert "## Committed\n" in md
+    assert json.loads(render_json(report))["delivery_error"] is None

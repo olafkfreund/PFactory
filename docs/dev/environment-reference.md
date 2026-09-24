@@ -192,6 +192,7 @@ inspect it. Read in the respective agent modules.
 | `PFACTORY_PLAN_STORE_DIR` | derived | No | Directory for persisted plans. | `plan/service_helpers.py` |
 | `PFACTORY_MAX_CONCURRENT_PLANS` | `4` | No | Cap on concurrent plan runs. | `plan/service.py`, `web-server/server/jobstore/store.py` |
 | `PFACTORY_PLAN_LEASE_TTL_SECONDS` | `600` | No | Lease TTL (seconds) for a plan job in the durable jobstore before it can be reclaimed. | `web-server/server/jobstore/store.py` |
+| `PFACTORY_EMIT_LEASE_TTL_SECONDS` | `1800` | No | Seconds a live emit holds the per-session emit lease in the shared plan store, so no other replica can emit the same session at once (#758). A crashed holder frees the session when it expires. Unset, invalid or non-positive: the default. Ignored when `DATABASE_URL` is unset (no shared store). | `plan/service.py` |
 | `PFACTORY_MULTI_TENANT` | off | No | On (hosted mode): scope plan sessions by the `X-Tenant-Id` intake header. Off: single-tenant, behaviour unchanged. | `web-server/server/tenancy.py`, `plan/service.py` |
 | `PFACTORY_STALL_DEADLINE_SECONDS` | `900` | No | Idle seconds before an agent run is considered stalled. | `agents/liveness.py` |
 | `PFACTORY_PORTAL_PORT` | `3114` | No | Portal port the task-control tool links back to. | `agents/tools_pkg/tools/task_control.py` |

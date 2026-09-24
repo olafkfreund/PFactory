@@ -30,6 +30,18 @@ image:
 
 replicaCount: 1  # v1.1 will support >1 via Redis pub/sub for WS fan-out
 
+# What the pod is TOLD about how many replicas may run (#755, review on #760).
+# `replicaCount` is only the chart's desired count -- KEDA (factory-gitops
+# apps/keda/scaledobjects/pfactory.yaml) scales this Deployment independently,
+# so a pod can be one of several while the chart still says 1 and the
+# per-process-store guard never fires. Set this to the scaler's CEILING
+# whenever autoscaling is enabled.
+#   requireSharedStore: refuse to start rather than log, which is the only
+#   hard guarantee; turn it on with the replica ceiling when lifting the pin.
+plan:
+  replicaSignal: ""        # "" => fall back to replicaCount
+  requireSharedStore: false
+
 resources:
   requests:
     cpu: 500m

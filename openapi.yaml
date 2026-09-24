@@ -198,8 +198,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EmitResult' }
+        '400':
+          description: Emission blocked, e.g. the plan has not been processed yet.
         '409':
-          description: Session not approved — emission blocked.
+          description: >-
+            Another emit of this session is running on another replica (or the
+            emit lease could not be confirmed), or another replica changed the
+            session since it was read. Safe to retry once the other writer is done.
 
   /api/plan/meta/registry:
     get:

@@ -7,13 +7,14 @@ store keyed by ``session_id`` (== the plan id). All emission is dry-run by defau
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,12 +28,25 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
-from plan.service import SERVICE, PlanInputError, PlanService, PlanServiceError  # noqa: E402
+from plan.service import (  # noqa: E402
+    SERVICE,
+    EmitInProgressError,
+    PlanInputError,
+    PlanService,
+    PlanServiceError,
+    StaleSessionError,
+)
 
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
 
 
-class IngestTextBody(BaseModel):
+class _StrictBody(BaseModel):
+    # An unknown field is a 422 naming it, not a silent no-op: `repo` sent to
+    # /process used to be dropped and yield a confident greenfield plan (#671).
+    model_config = ConfigDict(extra="forbid")
+
+
+class IngestTextBody(_StrictBody):
     text: str
     title: str | None = None
     channel: str = "portal"
@@ -44,7 +58,7 @@ class IngestTextBody(BaseModel):
     base_ref: str | None = None  # branch/tag; default repo branch when omitted
 
 
-class FromIssueBody(BaseModel):
+class FromIssueBody(_StrictBody):
     """Body for ``POST /api/plan/sessions/from-issue``.
 
     Exactly the shape AIFactory's RFC-0011 intake poller sends for a
@@ -66,37 +80,37 @@ class FromIssueBody(BaseModel):
     change_mode: str | None = None
 
 
-class ApproveBody(BaseModel):
+class ApproveBody(_StrictBody):
     approver: str
     feedback: str | None = None
 
 
-class RejectBody(BaseModel):
+class RejectBody(_StrictBody):
     approver: str
     feedback: str
 
 
-class DiscardBody(BaseModel):
+class DiscardBody(_StrictBody):
     """Abandon a session (#360). Both fields required — see ``PlanService.discard``."""
 
     actor: str
     reason: str
 
 
-class WaiveBody(BaseModel):
+class WaiveBody(_StrictBody):
     check_ids: list[str]
     reason: str
     waived_by: str
 
 
-class ApproveAccessBody(BaseModel):
+class ApproveAccessBody(_StrictBody):
     resource: str
     approved_by: str
     scope: str
     approved_at: str | None = None
 
 
-class EmitBody(BaseModel):
+class EmitBody(_StrictBody):
     repo: str
     dry_run: bool = True
     # Per-plan selection of docs sinks by kind (e.g. ["backstage"]). When None,
@@ -105,7 +119,7 @@ class EmitBody(BaseModel):
     docs_targets: list[str] | None = None
 
 
-class EmitContractBody(BaseModel):
+class EmitContractBody(_StrictBody):
     repo: str | None = None
     project_id: str | None = None
     dry_run: bool = True
@@ -285,7 +299,7 @@ async def audit_pack(session_id: str, format: str = "json"):
     return pack.model_dump()
 
 
-class PlanUpdateBody(BaseModel):
+class PlanUpdateBody(_StrictBody):
     """Human edits applied immediately before a re-process (#692).
 
     Optional so a bare ``POST /process`` (the re-run-unchanged case) keeps
@@ -348,6 +362,8 @@ async def process(session_id: str, request: Request, updates: PlanUpdateBody | N
                 criteria=updates.criteria,
             )
         return _session_dict(await SERVICE.process_async(session_id))
+    except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanInputError as exc:
         # Before PlanServiceError below: a rejected edit is the caller's input,
         # not a missing session, and 404 told them the opposite (PR #696 review).
@@ -356,7 +372,7 @@ async def process(session_id: str, request: Request, updates: PlanUpdateBody | N
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc
 
 
-class AcceptedSuggestion(BaseModel):
+class AcceptedSuggestion(_StrictBody):
     """One suggestion the human accepted, with the text they approved (#701)."""
 
     id: str
@@ -365,7 +381,7 @@ class AcceptedSuggestion(BaseModel):
     replacement: str | None = None
 
 
-class ApplySuggestionsBody(BaseModel):
+class ApplySuggestionsBody(_StrictBody):
     accepted: list[AcceptedSuggestion]
     # Applying alone leaves the plan edited but unreviewed, so re-processing is
     # the default: the point of accepting a suggestion is to see a new verdict.
@@ -388,6 +404,8 @@ async def apply_suggestions(
             session = await service.process_async(session_id)
         else:
             session = service.get(session_id)
+    except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanInputError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
@@ -408,6 +426,8 @@ async def re_gate(session_id: str) -> dict[str, Any]:
     """
     try:
         return _session_dict(SERVICE.re_gate(session_id))
+    except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
@@ -418,6 +438,8 @@ async def approve(session_id: str, body: ApproveBody) -> dict:
         return _session_dict(
             SERVICE.approve(session_id, approver=body.approver, feedback=body.feedback)
         )
+    except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except RuntimeError as exc:  # ApprovalError (gates not passed)
@@ -441,6 +463,8 @@ async def approve_access(session_id: str, body: ApproveAccessBody) -> dict:
             scope=body.scope,
             approved_at=body.approved_at,
         )
+    except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
@@ -461,6 +485,8 @@ async def waive(session_id: str, body: WaiveBody) -> dict:
                 waived_by=body.waived_by,
             )
         )
+    except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except (PlanServiceError, WaiverError) as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
@@ -471,6 +497,8 @@ async def reject(session_id: str, body: RejectBody) -> dict:
         return _session_dict(
             SERVICE.reject(session_id, approver=body.approver, feedback=body.feedback)
         )
+    except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
@@ -487,6 +515,8 @@ async def discard(session_id: str, body: DiscardBody) -> dict:
     """
     try:
         return _session_dict(SERVICE.discard(session_id, actor=body.actor, reason=body.reason))
+    except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
@@ -529,10 +559,22 @@ async def emit(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """Emit the approved plan as governed GitHub issues (dry-run by default).
+
+    Answers **409** when a live emit of this session is already running on
+    another replica, or the emit lease cannot be confirmed (the emit is refused,
+    never run unguarded), and when another replica changed the session since
+    this one read it. Both are safe to retry once the other writer finishes.
+    Other failures, such as an unprocessed plan, stay 400 (#758).
+    """
     docs_connections = await _load_docs_connections(request, db)
     try:
+        # Off the event loop (#725): a live emit is dozens of `gh` subprocess
+        # calls, and holding the loop for minutes starved /api/health until the
+        # liveness probe killed the pod mid-emit.
         return _session_dict(
-            SERVICE.emit(
+            await asyncio.to_thread(
+                SERVICE.emit,
                 session_id,
                 repo=body.repo,
                 dry_run=body.dry_run,
@@ -540,6 +582,8 @@ async def emit(
                 docs_selected=body.docs_targets,
             )
         )
+    except (EmitInProgressError, StaleSessionError) as exc:  # #758
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
@@ -550,11 +594,16 @@ async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
 
     Dry-run by default (returns the assembled+signed contract under
     ``contract_result``); a live run POSTs it to ``/api/tasks/from-plan``.
+
+    Answers **409**, like ``/emit``, when another replica holds the emit lease
+    or changed the session since this one read it; other failures stay 400
+    (#758).
     """
     try:
         http = None if body.dry_run else _UrllibHttp()
         return _session_dict(
-            SERVICE.emit_contract(
+            await asyncio.to_thread(
+                SERVICE.emit_contract,
                 session_id,
                 repo=body.repo,
                 project_id=body.project_id,
@@ -562,5 +611,7 @@ async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
                 dry_run=body.dry_run,
             )
         )
+    except (EmitInProgressError, StaleSessionError) as exc:  # #758
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc

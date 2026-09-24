@@ -88,7 +88,7 @@ env:
   # The hub squash-merges, so a branch head stops existing the moment its PR
   # lands and the pin then resolves to nothing -- a gate that cannot run rather
   # than one that fails honestly (Factory#638).
-  HUB_PIN_SHA: "67733bdb8f1a0382881241f4d885216bf77d0b49"
+  HUB_PIN_SHA: "5477f12a2e8436222b7839b61e07cba9e5aaee03"
 
 jobs:
   collection:

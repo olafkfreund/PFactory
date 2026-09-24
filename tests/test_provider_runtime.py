@@ -7,11 +7,13 @@ no real CLI, network, or host state is touched.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import provider_runtime as pr
 import pytest
+
+import provider_runtime as pr
 
 # ── registry + parsing ───────────────────────────────────────────────────────
 
@@ -51,7 +53,8 @@ def test_detect_pip_uses_importlib_metadata(monkeypatch: pytest.MonkeyPatch) -> 
 def test_detect_binary_runs_version_command(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pr.shutil, "which", lambda b: f"/usr/bin/{b}" if b == "codex" else None)
     monkeypatch.setattr(
-        pr.subprocess, "run",
+        pr.subprocess,
+        "run",
         lambda *a, **k: SimpleNamespace(stdout="codex 1.5.0\n", stderr="", returncode=0),
     )
     assert pr.detect_installed(pr.get_runtime("codex")) == "1.5.0"
@@ -71,7 +74,8 @@ def test_detect_pip_falls_back_to_backend_venv(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("importlib.metadata.version", _boom)
     monkeypatch.setattr(pr, "_backend_python", lambda: "/be/.venv/bin/python")
     monkeypatch.setattr(
-        pr.subprocess, "run",
+        pr.subprocess,
+        "run",
         lambda *a, **k: SimpleNamespace(stdout="0.2.87\n", stderr="", returncode=0),
     )
     assert pr.detect_installed(pr.get_runtime("claude")) == "0.2.87"
@@ -135,7 +139,8 @@ def test_detect_npm_prefers_package_json_over_cli(
 def test_latest_npm_via_npm_view(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pr.shutil, "which", lambda b: "/usr/bin/npm" if b == "npm" else None)
     monkeypatch.setattr(
-        pr.subprocess, "run",
+        pr.subprocess,
+        "run",
         lambda *a, **k: SimpleNamespace(stdout="1.9.0\n", stderr="", returncode=0),
     )
     assert pr.latest_version(pr.get_runtime("codex")) == "1.9.0"
@@ -144,9 +149,7 @@ def test_latest_npm_via_npm_view(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_latest_pip_via_pypi(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Resp:
         def __enter__(self):
-            return SimpleNamespace(
-                read=lambda: json.dumps({"info": {"version": "0.2.0"}}).encode()
-            )
+            return SimpleNamespace(read=lambda: json.dumps({"info": {"version": "0.2.0"}}).encode())
 
         def __exit__(self, *a):
             return False
@@ -216,12 +219,45 @@ def test_install_argv_npm_latest_and_pinned() -> None:
     assert pr.install_argv(rt, "1.4.0") == ["npm", "install", "-g", "@openai/codex@1.4.0"]
 
 
-def test_install_argv_pip() -> None:
+def test_install_argv_pip_uses_uv_against_the_service_venv() -> None:
+    """The image ships no pip (Factory#2823), so the install runs through uv."""
     rt = pr.get_runtime("claude")
     latest = pr.install_argv(rt)
-    assert latest[1:] == ["-m", "pip", "install", "--upgrade", "claude-agent-sdk"]
+    assert latest[0].endswith("uv")
+    assert latest[1:3] == ["pip", "install"]
+    # Explicitly the interpreter this service runs on, not whatever uv picks.
+    assert latest[3:5] == ["--python", sys.executable]
+    assert latest[-1] == "claude-agent-sdk"
+
     pinned = pr.install_argv(rt, "0.1.20")
     assert pinned[-1] == "claude-agent-sdk==0.1.20"
+
+
+def test_install_argv_pip_upgrades_only_the_named_package() -> None:
+    """--upgrade would resolve the whole env and move pins out from under us.
+
+    Measured in the live pod: a bare --upgrade moved starlette 1.3.1 -> 1.7.0,
+    the pin fastapi 0.137 broke routing over. --upgrade-package moves the
+    requested package only.
+    """
+    argv = pr.install_argv(pr.get_runtime("claude"))
+    assert "--upgrade-package" in argv
+    assert argv[argv.index("--upgrade-package") + 1] == "claude-agent-sdk"
+    assert "--upgrade" not in argv
+
+
+def test_install_argv_pip_without_uv_raises_rather_than_failing_quietly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing tool must name itself, not return a non-zero nobody reads.
+
+    That silence is why this feature sat dead for three weeks.
+    """
+    monkeypatch.setattr(pr.shutil, "which", lambda _name: None)
+    with pytest.raises(ValueError) as exc:
+        pr.install_argv(pr.get_runtime("claude"))
+    assert "uv" in str(exc.value)
+    assert "2823" in str(exc.value)
 
 
 def test_install_argv_gh_is_upgrade() -> None:
@@ -238,8 +274,12 @@ def test_install_argv_unmanaged_raises() -> None:
 
 @pytest.mark.parametrize(
     "a,b,older",
-    [("1.0.0", "1.2.0", True), ("1.2.0", "1.2.0", False), ("2.0.0", "1.9.9", False),
-     ("0.1.16", "0.1.20", True)],
+    [
+        ("1.0.0", "1.2.0", True),
+        ("1.2.0", "1.2.0", False),
+        ("2.0.0", "1.9.9", False),
+        ("0.1.16", "0.1.20", True),
+    ],
 )
 def test_semver_lt(a, b, older) -> None:
     assert pr._semver_lt(a, b) is older
@@ -250,7 +290,8 @@ def test_semver_lt(a, b, older) -> None:
 
 def test_run_install_executes_and_redetects(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        pr.subprocess, "run",
+        pr.subprocess,
+        "run",
         lambda *a, **k: SimpleNamespace(stdout="added 1 package\n", stderr="", returncode=0),
     )
     monkeypatch.setattr(pr, "detect_installed", lambda rt: "1.9.0")

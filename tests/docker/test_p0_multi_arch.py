@@ -26,7 +26,11 @@ import subprocess
 
 import pytest
 
-from tests.docker.helpers import DOCKERFILE_PATH
+from tests.docker.helpers import (
+    DOCKERFILE_PATH,
+    RegistryUnavailableError,
+    inspect_raw_manifest,
+)
 
 
 def _extract_base_image_digests() -> list[str]:
@@ -67,15 +71,16 @@ def test_multi_arch_buildable() -> None:
         # `docker buildx imagetools inspect --raw` returns the image-index
         # manifest list as JSON. Multi-arch images have `manifests[]` with
         # one entry per platform.
-        result = subprocess.run(
-            ["docker", "buildx", "imagetools", "inspect", "--raw", ref],
-            capture_output=True, text=True, timeout=30,
-        )
-        assert result.returncode == 0, (
-            f"`docker buildx imagetools inspect --raw {ref}` failed:\n"
-            f"--- stderr ---\n{result.stderr[-1000:]}"
-        )
-        manifest = json.loads(result.stdout)
+        # A registry that never answers (timeout, refused, 5xx, throttle) is an
+        # environment that cannot answer the question, like docker being absent
+        # above — skip, don't fail a required gate on someone else's outage
+        # (#744). A registry that ANSWERS with a refusal still fails, via
+        # ManifestInspectError.
+        try:
+            raw = inspect_raw_manifest(ref)
+        except RegistryUnavailableError as exc:
+            pytest.skip(f"registry unavailable, multi-arch not verified: {exc}")
+        manifest = json.loads(raw)
         arches = {
             entry.get("platform", {}).get("architecture")
             for entry in manifest.get("manifests", [])
