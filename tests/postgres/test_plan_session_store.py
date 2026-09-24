@@ -210,8 +210,9 @@ def test_the_counter_clears_sessions_imported_after_the_migration(test_postgres_
                     text(
                         "INSERT INTO plan_sessions "
                         "(session_id, tenant_id, seq, schema_version, payload) "
-                        f"VALUES ('00{n}-imported', 'default', {n}, '1', '{{}}')"
-                    )
+                        "VALUES (:sid, 'default', :seq, '1', '{}')"
+                    ),
+                    {"sid": f"00{n}-imported", "seq": n},
                 )
         await eng.dispose()
 
