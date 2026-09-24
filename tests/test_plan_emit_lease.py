@@ -40,7 +40,7 @@ class _Gh:
         self.titles: list[str] = []
         self._n = 100
 
-    def create_issue(self, title, body, labels):
+    def create_issue(self, title, body, labels):  # noqa: ARG002 - fake of the gh client signature
         self._n += 1
         self.titles.append(title)
         return self._n

@@ -23,7 +23,7 @@ class FakeSessionStore:
     def get(self, session_id: str) -> tuple[str, int] | None:
         return self.rows.get(session_id)
 
-    def list_payloads(self, *, tenant_id: str | None = None) -> list[str]:
+    def list_payloads(self, *, tenant_id: str | None = None) -> list[str]:  # noqa: ARG002 - contract signature
         return [payload for payload, _ in self.rows.values()]
 
     def upsert(
@@ -31,8 +31,8 @@ class FakeSessionStore:
         session_id: str,
         *,
         payload: str,
-        seq: int,
-        tenant_id: str | None,
+        seq: int,  # noqa: ARG002 - contract signature
+        tenant_id: str | None,  # noqa: ARG002 - contract signature
         expected_version: int,
     ) -> int | None:
         if self.upsert_error is not None:
