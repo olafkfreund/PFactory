@@ -365,8 +365,31 @@ def install_argv(rt: ProviderRuntime, version: str | None = None) -> list[str]:
         return ["npm", "install", "-g", spec]
     if rt.kind == "pip":
         spec = f"{rt.package}=={version}" if version else rt.package
-        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", spec]
-        return cmd
+        # The runtime image ships no pip: it was removed to clear the
+        # pip-vendored-SBOM HIGHs (#681, Factory#858), which left this call site
+        # building a command the service venv cannot run. uv is in the image and
+        # installs into that venv directly.
+        uv = shutil.which("uv")
+        if uv is None:
+            raise InputRejectedError(
+                f"cannot install {rt.name}: uv is not on PATH and the runtime "
+                "image ships no pip, so a pip-kind provider cannot be "
+                "installed (Factory#2823)"
+            )
+        # --upgrade-package, NOT --upgrade: a bare upgrade resolves the whole
+        # environment and would move pins this service depends on (measured:
+        # starlette 1.3.1 -> 1.7.0, which fastapi 0.137 broke routing over).
+        # This moves the requested package and leaves everything else alone.
+        return [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            sys.executable,
+            "--upgrade-package",
+            rt.package,
+            spec,
+        ]
     if rt.kind == "gh":
         # Copilot is upgraded in place; no version pin via this path.
         return ["copilot", "upgrade"]
