@@ -17,14 +17,23 @@ Self-contained summary of the approved decisions:
   - Taken in `PlanService._emit_lock` after the in-process lock, for live
     emits only; dry runs skip it.
   - Once the lease is held, the session is re-read; if `emitted_issue_number`
-    is already set, the emit returns without emitting.
+    is already set **and** the status is `emitted`, the emit returns without
+    emitting. (Deviation, see step 4: `emitted_issue_number` alone is also set
+    by a partial emit, which must still resume under #119. The contract emit
+    takes the lease but has no re-check: a set issue number is its normal
+    precondition.)
   - Failing to acquire, or the store being unreachable, refuses the emit
     (fail closed) with `EmitInProgressError` (409).
 - **Lost-update guard:** a `version INTEGER NOT NULL DEFAULT 0` column.
   - `upsert` becomes a compare-and-set on `expected_version`; `get()` returns
     `(payload, version)`.
-  - `PlanService` tracks versions in a `dict[str, int]`, not on the Pydantic
-    model.
+  - `PlanService` tracks the version on each session copy as a pydantic
+    `PrivateAttr` (`_store_version`), which is not a field and never
+    serialised, so payloads and the JSON mirror are unchanged. (Deviation from
+    the approved `dict[str, int]`: a dict keyed by session id shares one
+    version between two copies in the same process, so a long `process()`
+    could overwrite a human's approve on the same pod, which is the only
+    deployed shape while the KEDA pin is 1.)
   - A conflict raises `StaleSessionError` (409) and refreshes the cached copy.
 - **No store** (`DATABASE_URL` unset): behaviour unchanged.
 - Id allocation needs nothing more; #767 fixes the counter seed.
@@ -85,8 +94,10 @@ plan is approved, stop and report rather than build on top of an unmerged PR.
    → verify with the step 2 store tests.
 
 4. **Service** (`apps/backend/plan/service.py`):
-   - `_versions: dict[str, int]` is filled wherever a session is loaded from
-     the store (`_load_from_store`, `_load_all` import path).
+   - `_store_version` is set wherever a session is loaded from the store
+     (`_load_from_store`) or written to it (`_upsert_session`, the import).
+     A new session starts at 0 (insert). A copy with no known version (from
+     `list_payloads`) reads it with `get()` just before writing.
    - `_upsert_session` passes the expected version. On `None` it refreshes
      from the store and raises `StaleSessionError`.
    - **`_save` keeps its "never raises" contract for everything except
