@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 758
 intent: intent/2026-09-23-758-durable-emit-lock.md
 ---
