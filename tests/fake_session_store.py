@@ -58,8 +58,8 @@ class FakeSessionStore:
         self.lease_calls.append((session_id, owner, ttl_seconds))
         if self.acquire_error is not None:
             raise self.acquire_error
-        if session_id in self.lease:
-            return False
+        if session_id not in self.rows or session_id in self.lease:
+            return False  # like the real UPDATE: no row, nothing to lease
         self.lease[session_id] = owner
         return True
 

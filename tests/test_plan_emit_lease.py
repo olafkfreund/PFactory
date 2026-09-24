@@ -106,6 +106,19 @@ def test_an_emit_already_finished_elsewhere_creates_nothing():
     assert store.lease == {}
 
 
+def test_a_session_missing_from_the_store_is_stored_before_the_lease():
+    store = FakeSessionStore()
+    svc, sid = _approved(store)
+    del store.rows[sid]  # e.g. the store was down when it was written
+    svc._sessions[sid]._store_version = None
+
+    out = svc.emit(sid, repo="acme/widget", dry_run=False, gh=_Gh())
+
+    assert out.status == "emitted"
+    assert len(store.lease_calls) == 1
+    assert sid in store.rows
+
+
 def test_a_dry_run_takes_no_lease():
     store = FakeSessionStore()
     svc, sid = _approved(store)

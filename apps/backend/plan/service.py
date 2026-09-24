@@ -677,11 +677,37 @@ class PlanService:
             logger.warning("shared plan-session write failed for %s: %s", sid, exc)
             return
         if version is None:
+            # A missing row also fails the compare-and-set: tell the two apart.
+            try:
+                gone = store.get(sid) is None
+            except Exception:  # noqa: BLE001 — cannot tell; report the common case
+                gone = False
+            if gone:
+                with self._store_lock:
+                    self._sessions.pop(sid, None)
+                raise StaleSessionError(f"session {sid!r} was deleted on another replica")
             self._load_from_store(sid)
             raise StaleSessionError(
                 f"session {sid!r} was changed by another replica; reload and retry"
             )
         session._store_version = version
+
+    @staticmethod
+    def _insert_new(store: SessionStore, session: PlanSession) -> None:
+        """Insert a session not yet in the store; a row already there stands.
+
+        Sets the copy's version only when it inserted. May raise a store
+        error; the caller decides whether that matters.
+        """
+        version = store.upsert(
+            session.session_id,
+            payload=session.model_dump_json(),
+            seq=_seq_of(session.session_id),
+            tenant_id=session.tenant_id,
+            expected_version=0,
+        )
+        if version is not None:
+            session._store_version = version
 
     def _import_sessions_into_store(self) -> None:
         """One-shot: copy sessions already on disk into the shared store (#755).
@@ -705,22 +731,14 @@ class PlanService:
             if session.session_id in existing:
                 continue
             try:
-                version = store.upsert(
-                    session.session_id,
-                    payload=session.model_dump_json(),
-                    seq=_seq_of(session.session_id),
-                    tenant_id=session.tenant_id,
-                    expected_version=0,
-                )
+                self._insert_new(store, session)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "shared plan-session import failed for %s: %s", session.session_id, exc
                 )
                 continue
-            if version is None:
-                continue  # another replica inserted it first; theirs stands
-            session._store_version = version
-            imported += 1
+            if session._store_version is not None:  # None: another replica inserted it first
+                imported += 1
         if imported:
             logger.info("imported %d on-disk plan session(s) into the shared store", imported)
 
@@ -1726,13 +1744,27 @@ class PlanService:
                 yield
                 return
             owner = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
+            cached = self._sessions.get(session_id)
+            unknown = False
             try:
-                acquired = store.acquire_emit_lease(session_id, owner, _emit_lease_ttl())
+                # The lease lives on the row, and a missing row cannot be
+                # leased: store a session that never reached the store (it was
+                # down at the time), or False would falsely mean "held".
+                if store.get(session_id) is None:
+                    if cached is None:
+                        unknown = True
+                    else:
+                        self._insert_new(store, cached)
+                acquired = not unknown and store.acquire_emit_lease(
+                    session_id, owner, _emit_lease_ttl()
+                )
             except Exception as exc:  # noqa: BLE001 — fail closed, never emit unguarded
                 logger.warning("emit lease for %s could not be taken: %s", session_id, exc)
                 raise EmitInProgressError(
                     f"cannot confirm no concurrent emit of session {session_id!r}; retry shortly"
                 ) from None
+            if unknown:
+                raise PlanServiceError(f"unknown session '{session_id}'")
             if not acquired:
                 raise EmitInProgressError(
                     f"an emit of session {session_id!r} is already running on another replica"
