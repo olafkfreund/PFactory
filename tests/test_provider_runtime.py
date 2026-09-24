@@ -7,13 +7,13 @@ no real CLI, network, or host state is touched.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import provider_runtime as pr
-import sys
-
 import pytest
+
+import provider_runtime as pr
 
 # ── registry + parsing ───────────────────────────────────────────────────────
 
