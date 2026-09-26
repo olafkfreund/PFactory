@@ -33,6 +33,7 @@ from plan.review.readiness.checks import (
 )
 from plan.review.readiness.revision import _SOURCE_MODULES
 from plan.service import PlanService
+from tests.conftest import persist
 
 CHECK_ID = "criteria-self-consistent"
 
@@ -343,6 +344,7 @@ def _session(svc: PlanService) -> str:
     review = PlanReview(plan_id=session.plan.plan_id, gates_passed=True)
     review.readiness = run_readiness(session.plan, session.epic)
     session.review = review
+    persist(svc, session)
     return session.session_id
 
 
