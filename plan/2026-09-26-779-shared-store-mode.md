@@ -128,3 +128,15 @@ python scripts/ratchet_lint.py --base origin/dev --package apps/backend --packag
 - **Groups 2 and 3:** test-only; revert freely.
 
 There is no schema or config change.
+
+## Deviations
+
+- **Group 3, schema:** the migration runs from `pytest_sessionstart`, not from
+  a session-scoped fixture. Collection already builds `SERVICE`
+  (`plan.agent_api` and `tests/test_pfactory_mcp_rpc.py` import it at module
+  level), and a store resolved before the table exists marks the URL
+  unavailable, so a fixture would run too late and leave the run
+  per-process. It runs `alembic upgrade head` unconditionally when
+  `DATABASE_URL` is set, which is a no-op on a database already at head. The
+  `test`-name guard runs before the migration as well as before each wipe, so
+  a non-test database is never touched.
