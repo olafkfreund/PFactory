@@ -133,3 +133,27 @@ python scripts/ratchet_lint.py --base origin/dev
 Revert the fix commit on `dev` and cut a patch release. There is no schema or
 config change. After a rollback, the first boot after a future migration
 needs a manual restart again, which was the pre-fix behaviour.
+
+## Deviations
+
+Recorded during implementation; none changes an approved spec decision.
+
+- **Step 1 outcome, no location change.** `alembic upgrade head` runs on
+  SQLite (exit 0, `alembic current` at head `d4a7e2b9f1c6`, `plan_sessions`
+  created), so all three tests live in
+  `apps/web-server/tests/test_store_after_boot_migrations.py` on tmp SQLite.
+- **`tests/test_plan_service.py`, two tests pinned.** `create_app()` sets
+  `_DEFER_REPLICA_GUARD` for the process, so any test that builds the app
+  earlier in a full run left it set, and the two tests asserting the
+  construction-time guard (#755) failed. Each now sets the switch to False
+  with `monkeypatch`.
+- **Log capture uses a handler on `plan.service`, not `caplog`.**
+  `create_app()` reconfigures the root logger that `caplog` reads through;
+  this mirrors `test_tracing.captured()`.
+- **Test 3 reads `SERVICE` after `create_app()`.** When an earlier test has
+  already imported `routes.plan_pipeline`, `create_app()` does not rebuild
+  `SERVICE`. Reading it before the lifespan runs builds it pre-migration
+  either way, and the test asserts its store is None at that point.
+- **"`SERVICE` not constructed" is `isinstance(..., PlanService)`,** not
+  `"SERVICE" not in globals()`, so a test that monkeypatches a stand-in
+  `SERVICE` is also left alone. Same result for the real singleton.

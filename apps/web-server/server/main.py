@@ -101,6 +101,12 @@ async def lifespan(app: FastAPI):
     # Initialize database (creates tables if needed)
     await init_db()
 
+    # #774: SERVICE was built when the routes were imported, before the
+    # migrations above; give it the shared session store now, in this boot.
+    from plan.service import attach_session_store_after_migrations  # noqa: PLC0415
+
+    await asyncio.to_thread(attach_session_store_after_migrations)
+
     # Initialize skills service singleton once at startup
     init_skills_service()
     logger.info("SkillsService initialized")
@@ -163,6 +169,13 @@ def _read_app_version() -> str:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    # #774: before any route import builds SERVICE, which predates the boot
+    # migrations; the replica guard runs after them, in the lifespan hook.
+    # `plan` resolves via the sys.path entry routes.mcp_rpc adds on import.
+    from plan.service import defer_replica_guard  # noqa: PLC0415
+
+    defer_replica_guard()
+
     settings = get_settings()
 
     # v3.0.2 — stdlib logging configured here (was module-level

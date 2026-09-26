@@ -219,6 +219,23 @@ forever.
 Without `DATABASE_URL` there is no shared store: each process keeps its own
 sessions and only an in-process lock guards emits, so run exactly one replica.
 
+A pod that applies migrations on boot (#774):
+
+- **Attaches to the shared store in the same boot**, with no restart. The
+  store is checked again right after the boot migrations, whether
+  `MIGRATIONS_AUTO_APPLY` is `true` (the pod migrates) or `false` (the pod
+  only verifies the schema is at head).
+- **Logs it.** When the table only appeared with this boot's migrations, the
+  log has `plan sessions attached to the shared store after boot migrations
+  (#774)`. When it already existed, the usual `PFactory plan sessions are
+  SHARED` line appears instead. If the log shows `plan_sessions table is not
+  ready` and neither of those lines follows it, the pod is running
+  per-process.
+- **Refuses after migrations, not before.** With
+  `PFACTORY_REQUIRE_SHARED_STORE=1` and more than one replica, a pod with no
+  store fails in the startup hook, after the migrations have run, instead of
+  crashing while the routes load.
+
 **Do not raise the replica count yet.** The KEDA scaler pins PFactory to one
 replica (factory-gitops#268). Lift that pin only after both this change and
 #767 (the session id counter seed) are released and `alembic upgrade head`
