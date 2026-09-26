@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 774
 spec: spec/2026-09-26-774-store-resolve-before-migrations.md
 ---
