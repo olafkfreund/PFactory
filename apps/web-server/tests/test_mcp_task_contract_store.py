@@ -41,6 +41,8 @@ A FastAPI service tested with pytest.
 def service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[svc.PlanService]:
     """SERVICE backed by a migrated tmp SQLite store."""
     url = f"sqlite+aiosqlite:///{tmp_path}/pf.db"
+    # Both: alembic's env.py reads the environment, engine.py its import-time copy.
+    monkeypatch.setenv("DATABASE_URL", url)
     monkeypatch.setattr(engine_mod, "DATABASE_URL", url)
     command.upgrade(engine_mod._alembic_config(), "head")  # type: ignore[no-untyped-call]
     store = PlanSessionStore(database_url=url)
@@ -85,3 +87,22 @@ def test_task_contract_tool_returns_the_contract_it_built(service: svc.PlanServi
     assert out["contract"]["contract_version"] == "2"
     stored = service.get(sid).contract_result
     assert stored is not None and stored["contract"] == out["contract"]
+
+
+def test_read_tools_find_a_session_another_replica_wrote(service: svc.PlanService) -> None:
+    """The MCP read tools read through the store, not this pod's cache (#779).
+
+    A second PlanService on the same store is another replica: its session is
+    in the table but was never in this SERVICE's per-process dict.
+    """
+    other = svc.PlanService(persist=False, session_store=service._session_store)
+    sid = _processed_session(other)
+    session = other.get(sid)
+    session.emitted_issue_number = 4242
+    other._save(session)
+    assert sid not in service._sessions
+
+    by_id = mcp_rpc._tool_get_decomposition({"session_id": sid})
+    by_issue = mcp_rpc._tool_get_decomposition({"issue_number": 4242})
+
+    assert by_id["epic_title"] == by_issue["epic_title"] == "Widget service"

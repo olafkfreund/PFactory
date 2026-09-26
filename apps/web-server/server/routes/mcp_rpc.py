@@ -173,19 +173,21 @@ class _ToolError(Exception):
 
 def _resolve_session(args: dict[str, Any]):
     """Look up a PlanSession by session_id (preferred) or emitted issue number."""
-    from plan.service import SERVICE
+    from plan.service import SERVICE, PlanServiceError
 
     session_id = args.get("session_id")
     issue_number = args.get("issue_number")
 
+    # Read through the service, not its per-pod cache: with the shared store a
+    # session written on another replica is only in the table (#755, #779).
     if session_id:
-        sess = SERVICE._sessions.get(session_id)
-        if sess is None:
-            raise _ToolError(f"no plan session with id {session_id!r}")
-        return sess
+        try:
+            return SERVICE.get(session_id)
+        except PlanServiceError:
+            raise _ToolError(f"no plan session with id {session_id!r}") from None
 
     if issue_number is not None:
-        for sess in SERVICE._sessions.values():
+        for sess in SERVICE._all_sessions():
             if sess.emitted_issue_number == issue_number:
                 return sess
         raise _ToolError(f"no plan session emitted for issue #{issue_number}")

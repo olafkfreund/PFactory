@@ -140,3 +140,23 @@ There is no schema or config change.
   `DATABASE_URL` is set, which is a no-op on a database already at head. The
   `test`-name guard runs before the migration as well as before each wipe, so
   a non-test database is never touched.
+- **Group 1, a third site (found by the audit):**
+  `routes/mcp_rpc.py` `_resolve_session` read `SERVICE._sessions`, the
+  per-pod cache, instead of reading through the store. This is the #755
+  split-brain class, not the held-across-a-mutator class. Every MCP read tool
+  missed a session written on another replica, or served that pod's stale
+  copy. It now uses `SERVICE.get(session_id)` (a `PlanServiceError` maps to
+  the existing "no plan session" error). The `issue_number` lookup uses
+  `SERVICE._all_sessions()`, which reads `store.list_payloads()` in
+  shared-store mode and falls back to the cache only when that read fails.
+  Regression test: `test_read_tools_find_a_session_another_replica_wrote` in
+  `apps/web-server/tests/test_mcp_task_contract_store.py`. A second
+  `PlanService` on the same SQLite store writes the session, and the tool
+  finds it by id and by issue number; the test failed before the fix. No
+  other production read of `._sessions` remains outside
+  `plan/service.py`. The fix exposed one more group-2 test:
+  `tests/test_pfactory_mcp_rpc.py`'s `seeded_session` wrote only the cache,
+  so in shared-store mode the issue-number lookup could not see it. It now
+  also saves through `persist()`, as does
+  `test_resolve_plan_doc_derives_key_from_session` after it sets
+  `correlation_key` on its copy. Assertions are unchanged.
