@@ -240,7 +240,9 @@ def _tool_get_task_contract(args: dict[str, Any]) -> dict[str, Any]:
     from plan.service import SERVICE, StaleSessionError
 
     try:
-        SERVICE.emit_contract(sess.session_id, dry_run=True)
+        # The returned session carries the contract: with the shared store,
+        # `sess` is a copy from before the call and never gets one (#779).
+        sess = SERVICE.emit_contract(sess.session_id, dry_run=True)
     except StaleSessionError as exc:
         # A dry run takes no emit lease, but it still saves the session, and
         # another replica may have changed it first (#758). Say so, so the
