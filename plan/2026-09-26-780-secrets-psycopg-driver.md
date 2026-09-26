@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 780
 spec: spec/2026-09-26-780-secrets-psycopg-driver.md
 ---
