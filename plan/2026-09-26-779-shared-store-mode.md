@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 779
 spec: spec/2026-09-26-779-shared-store-mode.md
 ---
