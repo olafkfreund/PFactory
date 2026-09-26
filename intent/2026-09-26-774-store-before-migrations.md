@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 774
 author: Olaf Krasicki-Freund
 ---
@@ -66,6 +66,8 @@ safety features are silently off rather than the data diverging.
   keep working.
 
 ## Open questions
+
+Resolved 2026-09-26 (approved): 1 = (a) plus a one-shot re-resolve after `init_db()`; 2 = not in this task.
 
 1. **Where to fix it:**
    - (a) Order: run migrations before anything constructs `SERVICE`, e.g.
