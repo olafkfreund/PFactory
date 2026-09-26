@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.6.21 — shared session store fixes (2026-09-26)
+
+- **Three production stale reads in shared-store mode are fixed (#779).**
+  Since 0.6.20, PFactory runs with the shared Postgres session store, where
+  every read returns a fresh copy:
+  - the GitHub PR plan-review comment reported no gate result (it rendered
+    the pre-processing copy);
+  - the MCP task-contract tool said "task contract could not be built" even
+    when it had built one;
+  - every MCP read tool looked up sessions in the per-pod cache, so with
+    several replicas it missed sessions created on another pod.
+- **A pod that migrates on boot now uses the shared store without a restart
+  (#774).** Previously the first boot after a migration ran per-process until
+  someone restarted it. `PFACTORY_REQUIRE_SHARED_STORE=1` now refuses after
+  migrations, not at import. On a deploy that carries a migration, look for
+  the log line "plan sessions attached to the shared store after boot
+  migrations (#774)".
+- **Tests now exercise shared-store mode for real (#779).** The Postgres
+  suite migrates first and isolates each test; before this, it ran
+  per-process by accident of test order.
+- Chainguard python base bumped to `2d5551e` (#775).
+
 ## 0.6.20 — plan sessions shared across replicas; skill lane; planning i18n (2026-09-23)
 
 - **Plan sessions are shared across replicas (#755, #757).** With
