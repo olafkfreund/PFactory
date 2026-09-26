@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import time
 import sys
 from pathlib import Path
 
@@ -271,3 +272,65 @@ def test_upsert_is_a_compare_and_set_on_version(test_postgres_url):
 
     assert store.upsert("002-y", payload="x", seq=2, tenant_id=None, expected_version=3) is None
     assert store.get("002-y") is None
+
+
+# ── the store is picked up after boot (#774) ──────────────────────────
+
+
+def test_a_service_built_before_the_migration_picks_the_store_up(
+    test_postgres_url, tmp_path, monkeypatch, caplog
+):
+    """The prod reproduction: routes import SERVICE at module scope, so the
+    store resolves BEFORE the lifespan applies migrations. That pod then served
+    its whole life per-process — `plan_sessions` empty, the on-disk sessions
+    never imported, the #758 lease and #766 compare-and-set inactive — until a
+    manual `rollout restart` (#774, measured 0.5s apart in prod)."""
+    from plan import service as svc
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    tables = [PlanSessionRow.__table__, PlanSessionCounter.__table__]
+
+    async def _drop() -> None:
+        eng = create_async_engine(test_postgres_url)
+        async with eng.begin() as conn:
+            for table in tables:
+                await conn.run_sync(table.drop, checkfirst=True)
+        await eng.dispose()
+
+    async def _migrate() -> None:
+        eng = create_async_engine(test_postgres_url)
+        async with eng.begin() as conn:
+            for table in tables:
+                await conn.run_sync(table.create, checkfirst=True)
+        await eng.dispose()
+
+    asyncio.run(_drop())
+    monkeypatch.setenv("DATABASE_URL", test_postgres_url)
+    monkeypatch.setattr(svc, "_SESSION_STORE_CACHE", {})
+    monkeypatch.setattr(svc, "_SESSION_STORE_RETRY_AFTER", {})
+
+    # A pod whose on-disk store already holds a session (the PVC case).
+    store_dir = tmp_path / "disk"
+    seeded = svc.PlanService(store_dir=store_dir, persist=True)
+    sid = seeded.ingest_text(_PLAN, title="before the migration").session_id
+
+    pod = svc.PlanService(store_dir=store_dir, persist=True)
+    assert pod._session_store is None  # the table does not exist yet
+
+    asyncio.run(_migrate())  # the lifespan runs `alembic upgrade head`
+    # Past the back-off, without sleeping through it.
+    real_monotonic = time.monotonic
+    monkeypatch.setattr(
+        svc.time,
+        "monotonic",
+        lambda: real_monotonic() + svc._STORE_RETRY_COOLDOWN_SECONDS + 1,
+    )
+
+    with caplog.at_level("INFO", logger="plan.service"):
+        store = pod._session_store  # same instance, no restart
+
+    assert store is not None, "the pod never picked the store up"
+    assert any("became SHARED after boot" in r.getMessage() for r in caplog.records)
+    # and the on-disk session it was holding reached the shared table
+    assert sid in store.session_ids()
+    asyncio.run(_drop())
