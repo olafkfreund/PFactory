@@ -172,7 +172,7 @@ def _migrate_session_store() -> None:
 
 def _refuse_unless_test_database(url: str) -> None:
     """The suite migrates and empties plan_sessions: never on a real database."""
-    from sqlalchemy.engine import make_url
+    from sqlalchemy.engine import make_url  # noqa: PLC0415
 
     name = make_url(url).database or ""
     if "test" not in name:
@@ -188,9 +188,13 @@ def _empty_session_store():
     if not os.environ.get("DATABASE_URL", "").strip():
         yield
         return
-    from plan import service as plan_service
-    from server.jobstore.plan_session_models import PlanSessionCounter, PlanSessionRow
-    from sqlalchemy import delete, update
+    from sqlalchemy import delete, update  # noqa: PLC0415
+
+    from plan import service as plan_service  # noqa: PLC0415
+    from server.jobstore.plan_session_models import (  # noqa: PLC0415
+        PlanSessionCounter,
+        PlanSessionRow,
+    )
 
     # A mark left by a test that pointed DATABASE_URL elsewhere must not
     # switch the rest of the run to per-process.

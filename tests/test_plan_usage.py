@@ -135,7 +135,7 @@ def test_estimate_cost_unknown_model_is_zero():
 def test_completion_event_carries_zero_usage_on_deterministic_run():
     svc = PlanService()
     session = svc.ingest_text(_PLAN, title="Refund flow")
-    svc.process(session.session_id)  # no llm → deterministic
+    session = svc.process(session.session_id)  # no llm → deterministic
     event = build_completion_event(session)
     assert event["usage"] == {
         "input_tokens": 0,
@@ -165,7 +165,7 @@ class _UsageLLM:
 def test_completion_event_reflects_real_usage_when_llm_supplied():
     svc = PlanService()
     session = svc.ingest_text(_PLAN, title="Refund flow")
-    svc.process(session.session_id, llm=_UsageLLM(_EPIC_JSON))
+    session = svc.process(session.session_id, llm=_UsageLLM(_EPIC_JSON))
     event = build_completion_event(session)
     usage = event["usage"]
     assert usage["input_tokens"] == 321

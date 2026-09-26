@@ -18,6 +18,7 @@ from plan.review.models import PlanReview  # noqa: E402
 from plan.review.readiness.checks import run_readiness  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import PlanService, PlanServiceError  # noqa: E402
+from tests.conftest import persist  # noqa: E402
 
 _PLAN = """# Widget service
 A FastAPI service tested with pytest.
@@ -39,6 +40,7 @@ def _session_with_uncovered_ac(svc: PlanService) -> str:
     review = PlanReview(plan_id=session.plan.plan_id, gates_passed=True)
     review.readiness = run_readiness(session.plan, session.epic)
     session.review = review
+    persist(svc, session)
     return session.session_id
 
 
