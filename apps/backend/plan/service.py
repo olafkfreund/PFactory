@@ -18,6 +18,7 @@ import os
 import re
 import socket
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -459,9 +460,27 @@ def _warn_if_multi_replica_without_store(store: SessionStore | None) -> None:
 
 
 _SESSION_STORE_CACHE: dict[str, SessionStore] = {}
-# URLs whose store could not serve requests — do not rebuild one per service.
-_SESSION_STORE_UNAVAILABLE: set[str] = set()
+# URL -> monotonic deadline before which we do not try again. NOT a permanent
+# "unavailable" set: routes import SERVICE at module scope, so the store is
+# resolved BEFORE the lifespan applies migrations, and a permanent negative
+# meant the first pod after a migration served its whole life per-process with
+# the #755/#758/#766 safety work silently off (#774, measured in prod 0.5s
+# apart). A deadline still stops the per-construction rebuild the leak fix
+# targets: at most one attempt per URL per cooldown.
+_SESSION_STORE_RETRY_AFTER: dict[str, float] = {}
+_STORE_RETRY_COOLDOWN_SECONDS = 30.0
 _SESSION_STORE_LOCK = threading.Lock()
+
+
+def _store_retry_blocked(url: str) -> bool:
+    """True while this URL is inside its back-off window."""
+    deadline = _SESSION_STORE_RETRY_AFTER.get(url)
+    return deadline is not None and time.monotonic() < deadline
+
+
+def _hold_off_store_retry(url: str) -> None:
+    """Stamp the back-off after a failed resolution."""
+    _SESSION_STORE_RETRY_AFTER[url] = time.monotonic() + _STORE_RETRY_COOLDOWN_SECONDS
 
 
 def _resolve_session_store() -> SessionStore | None:
@@ -477,9 +496,10 @@ def _resolve_session_store() -> SessionStore | None:
     ReadWriteOnce/local-path, so replicas share it only while co-scheduled.
     """
     url = os.environ.get("DATABASE_URL", "").strip()
-    if not url or url in _SESSION_STORE_UNAVAILABLE:
-        # Remembering the failure matters: without it every PlanService in a
-        # process retries the connection and builds (then discards) a store.
+    if not url or _store_retry_blocked(url):
+        # Backing off matters: without it every PlanService in a process (and
+        # every call on the property) retries the connection and builds — then
+        # discards — a store, leaking a loop, a thread and a pool each time.
         return None
     with _SESSION_STORE_LOCK:
         cached = _SESSION_STORE_CACHE.get(url)
@@ -494,7 +514,7 @@ def _resolve_session_store() -> SessionStore | None:
                 # connection pool, and a process that builds many PlanServices
                 # would leak all three per construction.
                 store.close()
-                _SESSION_STORE_UNAVAILABLE.add(url)
+                _hold_off_store_retry(url)
                 logger.warning(
                     "DATABASE_URL is set but the plan_sessions table is not "
                     "ready (DB unreachable or migrations not applied); plan "
@@ -509,7 +529,7 @@ def _resolve_session_store() -> SessionStore | None:
             )
             return typed
         except Exception as exc:  # noqa: BLE001 — degrade, never fatal
-            _SESSION_STORE_UNAVAILABLE.add(url)
+            _hold_off_store_retry(url)
             logger.warning(
                 "DATABASE_URL is set but the shared plan-session store is "
                 "unavailable (%s); plan sessions stay PER-PROCESS, which is "
@@ -580,12 +600,46 @@ class PlanService:
         self._job_store = job_store if job_store is not None else _resolve_job_store()
         # #755: the authoritative, cross-replica copy of every session. None
         # keeps today's per-process behaviour (local dev, the CLI, tests).
-        self._session_store: SessionStore | None = (
-            session_store if session_store is not None else _resolve_session_store()
-        )
-        if self._session_store is not None:
+        #
+        # NOT resolved here (#774): routes import SERVICE at module scope, so
+        # this runs before the lifespan applies migrations — the table does not
+        # exist yet and the pod served its whole life per-process. The property
+        # below resolves on first use, so nothing has to know when migrations
+        # run. An injected store (tests) is used as-is and never re-resolved.
+        self.__store: SessionStore | None = session_store
+        self.__store_injected = session_store is not None
+        if session_store is not None:
             self._import_sessions_into_store()
-        _warn_if_multi_replica_without_store(self._session_store)
+        _warn_if_multi_replica_without_store(session_store)
+
+    @property
+    def _session_store(self) -> SessionStore | None:
+        """The shared store, resolved on first use and retried after failure.
+
+        Every caller (reads, saves, the #758 emit lease, the #766 compare-and-
+        set) goes through here, so one resolution point serves them all.
+        """
+        if self.__store is not None or self.__store_injected:
+            return self.__store
+        store = _resolve_session_store()
+        if store is None:
+            return None
+        self.__store = store
+        # First success may be long after boot (the migration that created the
+        # table ran in the lifespan). Do the work __init__ would have done.
+        logger.info(
+            "PFactory plan sessions became SHARED after boot: picked up the "
+            "plan_sessions table (#774)."
+        )
+        self._import_sessions_into_store()
+        _warn_if_multi_replica_without_store(store)
+        return store
+
+    @_session_store.setter
+    def _session_store(self, value: SessionStore | None) -> None:
+        # Assignable so tests can inject a fake/broken store mid-run.
+        self.__store = value
+        self.__store_injected = value is not None
 
     # ── persistence (opt-in via PFACTORY_PLAN_PERSIST) ──────────────────
 

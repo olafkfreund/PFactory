@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import time
+
 import pytest
 
 _BACKEND = Path(__file__).parent.parent / "apps" / "backend"
@@ -202,7 +204,7 @@ def test_an_unusable_store_is_resolved_once_not_per_service(monkeypatch):
 
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://nobody@127.0.0.1:1/none")
     monkeypatch.setattr(svc, "_SESSION_STORE_CACHE", {})
-    monkeypatch.setattr(svc, "_SESSION_STORE_UNAVAILABLE", set())
+    monkeypatch.setattr(svc, "_SESSION_STORE_RETRY_AFTER", {})
 
     built = []
 
@@ -229,3 +231,63 @@ def test_an_unusable_store_is_resolved_once_not_per_service(monkeypatch):
 
     assert len(built) == 1, "the store was rebuilt per call"
     assert built[0].closed is True, "the unusable store was not closed"
+
+
+def test_the_store_is_retried_once_the_back_off_expires(monkeypatch):
+    """#774: the failure must not be permanent.
+
+    Routes import SERVICE at module scope, so the store resolves BEFORE the
+    lifespan applies migrations. A permanent negative meant that pod ran
+    per-process for its whole life with the #755/#758/#766 safety work off.
+    """
+    from plan import service as svc
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://nobody@127.0.0.1:1/none")
+    monkeypatch.setattr(svc, "_SESSION_STORE_CACHE", {})
+    monkeypatch.setattr(svc, "_SESSION_STORE_RETRY_AFTER", {})
+
+    built = []
+    ready = {"value": False}
+
+    class _Store:
+        def __init__(self, *_a, **_kw):
+            built.append(self)
+
+        def is_ready(self):
+            return ready["value"]
+
+        def close(self):
+            pass
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "server.jobstore",
+        type("M", (), {"PlanSessionStore": _Store})(),
+    )
+
+    assert svc._resolve_session_store() is None  # table not there yet
+    assert svc._resolve_session_store() is None  # inside the back-off
+    assert len(built) == 1
+
+    # The migration lands, and the clock moves past the back-off.
+    ready["value"] = True
+    # Capture the real clock FIRST: `svc.time` is the time module itself, so a
+    # lambda calling time.monotonic() would call the patched one (recursion).
+    real_monotonic = time.monotonic
+    monkeypatch.setattr(
+        svc.time,
+        "monotonic",
+        lambda: real_monotonic() + svc._STORE_RETRY_COOLDOWN_SECONDS + 1,
+    )
+
+    assert svc._resolve_session_store() is not None
+    assert len(built) == 2, "the store was never retried after the back-off"
+
+
+def test_the_back_off_is_short_enough_to_be_a_back_off():
+    """The retry tests advance a fake clock BY the cooldown, so they pass for
+    any value — including one so long it is a permanent negative in disguise.
+    This pins the constant itself."""
+    from plan.service import _STORE_RETRY_COOLDOWN_SECONDS
+
+    assert 1.0 <= _STORE_RETRY_COOLDOWN_SECONDS <= 300.0
