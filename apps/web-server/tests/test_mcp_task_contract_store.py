@@ -44,7 +44,7 @@ def service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[svc.Pla
     monkeypatch.setattr(engine_mod, "DATABASE_URL", url)
     command.upgrade(engine_mod._alembic_config(), "head")  # type: ignore[no-untyped-call]
     store = PlanSessionStore(database_url=url)
-    service = svc.PlanService(persist=False, session_store=store)  # type: ignore[arg-type]
+    service = svc.PlanService(persist=False, session_store=store)
     monkeypatch.setattr(svc, "SERVICE", service, raising=False)
     yield service
     store.close()
@@ -72,7 +72,8 @@ def _processed_session(service: svc.PlanService) -> str:
         gates_passed=True,
     )
     service._save(session)
-    return session.session_id
+    sid: str = session.session_id
+    return sid
 
 
 def test_task_contract_tool_returns_the_contract_it_built(service: svc.PlanService) -> None:

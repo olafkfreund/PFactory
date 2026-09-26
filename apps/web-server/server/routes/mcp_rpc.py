@@ -253,9 +253,10 @@ def _tool_get_task_contract(args: dict[str, Any]) -> dict[str, Any]:
             "failed to build task contract for session %s", sanitize_log(sess.session_id)
         )
         raise _ToolError("failed to build task contract") from exc
-    if sess.contract_result is None:
+    built: dict[str, Any] | None = sess.contract_result
+    if built is None:
         raise _ToolError("task contract could not be built")
-    return sess.contract_result
+    return built
 
 
 def _tool_get_review_status(args: dict[str, Any]) -> dict[str, Any]:
