@@ -88,8 +88,9 @@ def db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     monkeypatch.setattr(svc, "_JOB_STORE_CACHE", {})
     monkeypatch.setattr(svc, "_DEFER_REPLICA_GUARD", False, raising=False)
     # setitem then delitem: the undo then removes the SERVICE a test builds.
-    monkeypatch.setitem(svc.__dict__, "SERVICE", None)
-    monkeypatch.delitem(svc.__dict__, "SERVICE")
+    module_dict: dict[str, object] = vars(svc)
+    monkeypatch.setitem(module_dict, "SERVICE", None)
+    monkeypatch.delitem(module_dict, "SERVICE")
     # engine.py snapshots DATABASE_URL at import; point the migrations here.
     monkeypatch.setattr(engine_mod, "DATABASE_URL", url)
     yield url
@@ -97,8 +98,15 @@ def db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         store.close()  # type: ignore[attr-defined]
 
 
+def _service() -> svc.PlanService:
+    """The lazily built SERVICE singleton, typed (PEP 562 __getattr__ is untyped)."""
+    service = getattr(svc, "SERVICE")  # noqa: B009 - resolved by the module __getattr__
+    assert isinstance(service, svc.PlanService)
+    return service
+
+
 def _migrate() -> None:
-    command.upgrade(engine_mod._alembic_config(), "head")
+    command.upgrade(engine_mod._alembic_config(), "head")  # type: ignore[no-untyped-call]
 
 
 def _seed_on_disk_session() -> str:
@@ -109,7 +117,7 @@ def _seed_on_disk_session() -> str:
 
 def test_attach_after_migrating_uses_the_store_and_imports(db_url: str) -> None:
     sid = _seed_on_disk_session()
-    service = svc.SERVICE  # built before the table exists, as at app import
+    service = _service()  # built before the table exists, as at app import
     assert service._session_store is None
     assert db_url in svc._SESSION_STORE_UNAVAILABLE
 
@@ -132,7 +140,7 @@ def test_the_replica_guard_waits_for_migrations(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("PFACTORY_REQUIRE_SHARED_STORE", "1")
     svc.defer_replica_guard()
 
-    service = svc.SERVICE  # no table yet: must not raise at import
+    service = _service()  # no table yet: must not raise at import
     assert service._session_store is None
 
     with pytest.raises(RuntimeError, match="PER-PROCESS"):
@@ -158,7 +166,7 @@ def test_app_boot_attaches_the_store_after_its_own_migrations(
         app = create_app()
         # Built by the route import, unless an earlier test already imported
         # the routes; either way it exists before the lifespan migrates.
-        service = svc.SERVICE
+        service = _service()
         assert service._session_store is None
         with TestClient(app):
             store = service._session_store
