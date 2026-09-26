@@ -42,6 +42,7 @@ from plan.review.readiness.models import (  # noqa: E402
 from plan.review.readiness.revision import gate_revision  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import PlanService  # noqa: E402
+from tests.conftest import persist  # noqa: E402
 
 # The 029 shape: a Python/FastAPI spec whose only "rust" is inside "untrusted".
 _PYTHON_PLAN = """# VAT quote endpoint
@@ -126,6 +127,7 @@ def _session(svc: PlanService, text: str, *, stale: bool) -> str:
         else run_readiness(session.plan, session.epic)
     )
     session.review = review
+    persist(svc, session)
     return session.session_id
 
 

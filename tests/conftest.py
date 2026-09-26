@@ -8,6 +8,7 @@ Provides common test fixtures for the Auto-Build Framework test suite.
 
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -81,6 +82,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "apps" / "backend"))
 # names ahead of apps/backend for every test in the suite.
 sys.path.append(str(Path(__file__).parent.parent / "scripts"))
 
+# And apps/web-server, so `server.jobstore` (the shared plan-session store)
+# imports in every run. Without it the store's availability depended on test
+# order: run alone, a test got "No module named 'server'" and silently ran
+# per-process; in a full run an earlier test had put the web-server on the path
+# (#779). Appended for the same reason as scripts/.
+_WEB_SERVER = Path(__file__).parent.parent / "apps" / "web-server"
+sys.path.append(str(_WEB_SERVER))
+
 
 # =============================================================================
 # MODULE MOCK CLEANUP - Prevents test isolation issues
@@ -127,6 +136,95 @@ def _cleanup_mocked_modules():
 def pytest_sessionstart(session):
     """Clean up any mocked modules before the test session starts."""
     _cleanup_mocked_modules()
+    _migrate_session_store()
+
+
+# =============================================================================
+# SHARED PLAN-SESSION STORE (#779)
+# =============================================================================
+# With DATABASE_URL set, PlanService reads and writes the shared plan_sessions
+# table, as production does. Two things make that mode real and repeatable:
+# the schema exists before the first PlanService is built, and every test
+# starts with an empty table. With DATABASE_URL unset none of this runs.
+
+
+def _migrate_session_store() -> None:
+    """Bring DATABASE_URL to the Alembic head before collection starts.
+
+    A hook, not a session fixture: collection already builds SERVICE (e.g.
+    plan.agent_api imports it at module level), and a store resolved before
+    the table exists marks the URL unavailable, so the whole run would stay
+    per-process. `upgrade head` is a no-op on a database already at head.
+    """
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url or ":memory:" in url:
+        return
+    _refuse_unless_test_database(url)
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=_WEB_SERVER,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+
+def _refuse_unless_test_database(url: str) -> None:
+    """The suite migrates and empties plan_sessions: never on a real database."""
+    from sqlalchemy.engine import make_url  # noqa: PLC0415
+
+    name = make_url(url).database or ""
+    if "test" not in name:
+        raise RuntimeError(
+            f"refusing to migrate or empty plan_sessions in database {name!r}: "
+            "the test suite only touches a database whose name contains 'test' (#779)"
+        )
+
+
+@pytest.fixture(autouse=True)
+def _empty_session_store():
+    """Each test sees only the sessions it creates, as it does per-process."""
+    if not os.environ.get("DATABASE_URL", "").strip():
+        yield
+        return
+    from sqlalchemy import delete, update  # noqa: PLC0415
+
+    from plan import service as plan_service  # noqa: PLC0415
+    from server.jobstore.plan_session_models import (  # noqa: PLC0415
+        PlanSessionCounter,
+        PlanSessionRow,
+    )
+
+    # A mark left by a test that pointed DATABASE_URL elsewhere must not
+    # switch the rest of the run to per-process.
+    plan_service._SESSION_STORE_UNAVAILABLE.clear()
+    store = plan_service._resolve_session_store()
+    if store is not None:
+        _refuse_unless_test_database(os.environ["DATABASE_URL"])
+
+        async def _wipe() -> None:
+            async with store._sessionmaker() as db, db.begin():
+                await db.execute(delete(PlanSessionRow))
+                await db.execute(update(PlanSessionCounter).values(value=0))
+
+        store._run(_wipe())
+    yield
+
+
+def persist(svc, session) -> None:
+    """Save a session a test changed by hand, through the service's own save.
+
+    `get()` returns a copy when a store is set, so an edit to it is invisible
+    until saved. This goes through the same compare-and-set as every
+    production transition, against the version stored now: the test means
+    its copy to win.
+    """
+    store = svc._session_store
+    if store is not None:
+        row = store.get(session.session_id)
+        session._store_version = row[1] if row is not None else 0
+    svc._save(session)
 
 
 def pytest_runtest_setup(item):

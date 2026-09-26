@@ -553,7 +553,9 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
         # RFC-0016 (#217): offload the blocking pipeline off the event loop (this
         # handler is async) under the admission cap; await keeps behaviour/return
         # identical while /api/health and other requests stay served.
-        await SERVICE.process_async(session.session_id)
+        # Render from the processed session it returns: with the shared store,
+        # `session` above is an ingest-time copy that never sees the gates (#779).
+        session = await SERVICE.process_async(session.session_id)
     except (PlanServiceError, ValueError) as exc:
         # PlanServiceError's own text is curated, but the bare `ValueError` arm
         # catches whatever the whole ingest/process pipeline raises - a json
