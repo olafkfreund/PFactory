@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 779
 author: Olaf Krasicki-Freund
 ---
@@ -81,6 +81,8 @@ surface these failures.
   today).
 
 ## Open questions
+
+Resolved 2026-09-26 (approved): 1 = (a) truncate per test; 2 = yes; 3 = wide audit.
 
 1. **Test isolation in shared-store mode:**
    - (a) truncate `plan_sessions` and reset the counter before each test (an
