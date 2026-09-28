@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 777
 author: Olaf Krasicki-Freund
 ---
@@ -68,6 +68,8 @@ though.
 - Reuse #774's mechanism rather than adding a parallel one.
 
 ## Open questions
+
+Resolved 2026-09-28 (approved): 1 = (a) extend and rename, keeping an alias; 2 = confirm in the spec.
 
 1. **Shape of the fix:**
    - (a) extend `attach_session_store_after_migrations()` to also attach the
