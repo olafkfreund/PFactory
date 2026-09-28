@@ -529,15 +529,17 @@ def defer_replica_guard() -> None:
     _DEFER_REPLICA_GUARD = True
 
 
-def attach_session_store_after_migrations() -> bool:
-    """Give an already-built ``SERVICE`` the shared store once migrations ran (#774).
+def attach_stores_after_migrations() -> bool:
+    """Give an already-built ``SERVICE`` its stores once migrations ran (#774, #777).
 
     The web server imports its routes, and so builds ``SERVICE``, before the
-    lifespan hook applies migrations. On the first boot after a store
-    migration the table was missing then, and the pod kept per-process
-    sessions until a restart. Called once right after ``init_db()``; returns
-    whether a store is attached. Raises under PFACTORY_REQUIRE_SHARED_STORE=1
-    when there is still none.
+    lifespan hook applies migrations. On the first boot after a migration the
+    tables were missing then, and the pod kept per-process sessions (#774) and
+    an in-memory job store, which means no durable admission and no KEDA queue
+    signal (#777), until a restart. Called once right after ``init_db()``, when
+    no request can be in flight, so attaching is a plain assignment. Returns
+    whether a session store is attached. Raises under
+    PFACTORY_REQUIRE_SHARED_STORE=1 when there is still none.
     """
     url = os.environ.get("DATABASE_URL", "").strip()
     if not url:
@@ -554,8 +556,20 @@ def attach_session_store_after_migrations() -> bool:
                 service._session_store = store
                 service._import_sessions_into_store()
             logger.info("plan sessions attached to the shared store after boot migrations (#774)")
+    if service._job_store is None:
+        # _resolve_job_store re-checks on every call; no unavailable mark to clear.
+        job_store = _resolve_job_store()
+        if job_store is not None:
+            service._job_store = job_store
+            logger.info(
+                "plan state attached to the durable job-state store after boot migrations (#777)"
+            )
     _warn_if_multi_replica_without_store(service._session_store)
     return service._session_store is not None
+
+
+# #777 renamed the hook; the #774 name stays as an alias. Remove after 0.6.22.
+attach_session_store_after_migrations = attach_stores_after_migrations
 
 
 class PlanService:
@@ -625,7 +639,7 @@ class PlanService:
         if self._session_store is not None:
             self._import_sessions_into_store()
         # #774: the web server builds SERVICE before its boot migrations, so it
-        # runs the guard in attach_session_store_after_migrations() instead.
+        # runs the guard in attach_stores_after_migrations() instead.
         if not _DEFER_REPLICA_GUARD:
             _warn_if_multi_replica_without_store(self._session_store)
 

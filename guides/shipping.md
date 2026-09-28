@@ -231,6 +231,11 @@ A pod that applies migrations on boot (#774):
   SHARED` line appears instead. If the log shows `plan_sessions table is not
   ready` and neither of those lines follows it, the pod is running
   per-process.
+- **Attaches the durable job-state store the same way (#777).** Admission and
+  the KEDA queue signal (`job_states`) need it. When that table only appeared
+  with this boot's migrations, the log has `plan state attached to the durable
+  job-state store after boot migrations (#777)`; otherwise the usual
+  `PFactory plan state is DURABLE` line appears at startup.
 - **Refuses after migrations, not before.** With
   `PFACTORY_REQUIRE_SHARED_STORE=1` and more than one replica, a pod with no
   store fails in the startup hook, after the migrations have run, instead of
