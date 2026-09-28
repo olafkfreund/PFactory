@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.6.22 — durable job-state store after boot migrations (2026-09-28)
+
+- **A pod that migrates on boot now gets the durable job-state store without
+  a restart (#777).** This is the job-store half of #774. Before this fix, a
+  boot that created `job_states` ran with in-memory admission and wrote no
+  durable job-state rows until the pod restarted, so its queue was invisible
+  to the KEDA scaler. The post-migration hook is now
+  `attach_stores_after_migrations`. The old name stays as an alias until
+  after this release (#792). On a deploy that creates `job_states`, look for
+  "plan state attached to the durable job-state store after boot migrations
+  (#777)".
+- The secrets acceptance tests name the sync Postgres driver instead of
+  taking SQLAlchemy's default (#780).
+- GitHub Actions dependencies bumped (#776).
+
 ## 0.6.21 — shared session store fixes (2026-09-26)
 
 - **Three production stale reads in shared-store mode are fixed (#779).**
