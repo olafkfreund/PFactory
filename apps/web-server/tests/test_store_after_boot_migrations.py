@@ -41,6 +41,7 @@ Add a REST API endpoint to the payments microservice.
 """
 
 _ATTACHED = "attached to the shared store after boot migrations (#774)"
+_JOB_ATTACHED = "plan state attached to the durable job-state store after boot migrations (#777)"
 
 
 class _ListHandler(logging.Handler):
@@ -85,7 +86,8 @@ def db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     stores: dict[str, object] = {}
     monkeypatch.setattr(svc, "_SESSION_STORE_CACHE", stores)
     monkeypatch.setattr(svc, "_SESSION_STORE_UNAVAILABLE", set())
-    monkeypatch.setattr(svc, "_JOB_STORE_CACHE", {})
+    jobs: dict[str, object] = {}
+    monkeypatch.setattr(svc, "_JOB_STORE_CACHE", jobs)
     monkeypatch.setattr(svc, "_DEFER_REPLICA_GUARD", False, raising=False)
     # setitem then delitem: the undo then removes the SERVICE a test builds.
     module_dict: dict[str, object] = vars(svc)
@@ -94,7 +96,7 @@ def db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     # engine.py snapshots DATABASE_URL at import; point the migrations here.
     monkeypatch.setattr(engine_mod, "DATABASE_URL", url)
     yield url
-    for store in stores.values():
+    for store in [*stores.values(), *jobs.values()]:
         store.close()  # type: ignore[attr-defined]
 
 
@@ -119,6 +121,7 @@ def test_attach_after_migrating_uses_the_store_and_imports(db_url: str) -> None:
     sid = _seed_on_disk_session()
     service = _service()  # built before the table exists, as at app import
     assert service._session_store is None
+    assert service._job_store is None  # #777: no job_states table yet either
     assert db_url in svc._SESSION_STORE_UNAVAILABLE
 
     _migrate()
@@ -129,9 +132,13 @@ def test_attach_after_migrating_uses_the_store_and_imports(db_url: str) -> None:
     assert store is not None
     assert sid in store.session_ids(), "the on-disk session was not imported"
     assert any(_ATTACHED in r.getMessage() for r in records)
+    job_store = service._job_store
+    assert job_store is not None, "the pod kept an in-memory job store after migrating"
+    assert any(_JOB_ATTACHED in r.getMessage() for r in records)
 
     assert svc.attach_session_store_after_migrations() is True
     assert service._session_store is store, "a second call replaced the store"
+    assert service._job_store is job_store, "a second call replaced the job store"
 
 
 @pytest.mark.usefixtures("db_url")
@@ -170,6 +177,13 @@ def test_app_boot_attaches_the_store_after_its_own_migrations(
         assert service._session_store is None
         with TestClient(app):
             store = service._session_store
+            job_store = service._job_store
 
     assert store is not None, "the pod kept per-process sessions after migrating"
     assert any(_ATTACHED in r.getMessage() for r in records)
+    assert job_store is not None, "the pod kept an in-memory job store after migrating"
+
+
+def test_the_old_hook_name_is_an_alias() -> None:
+    # #777 renamed the hook; the #774 name stays until after 0.6.22.
+    assert svc.attach_session_store_after_migrations is svc.attach_stores_after_migrations

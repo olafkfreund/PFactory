@@ -103,9 +103,9 @@ async def lifespan(app: FastAPI):
 
     # #774: SERVICE was built when the routes were imported, before the
     # migrations above; give it the shared session store now, in this boot.
-    from plan.service import attach_session_store_after_migrations  # noqa: PLC0415
+    from plan.service import attach_stores_after_migrations  # noqa: PLC0415
 
-    await asyncio.to_thread(attach_session_store_after_migrations)
+    await asyncio.to_thread(attach_stores_after_migrations)
 
     # Initialize skills service singleton once at startup
     init_skills_service()
