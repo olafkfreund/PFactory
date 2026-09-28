@@ -162,6 +162,8 @@ def test_multi_replica_without_a_shared_store_is_an_error(monkeypatch, caplog):
     monkeypatch.setenv("PFACTORY_REPLICA_COUNT", "4")
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("PFACTORY_REQUIRE_SHARED_STORE", raising=False)
+    # Any create_app() earlier in the run defers the guard process-wide (#774).
+    monkeypatch.setattr("plan.service._DEFER_REPLICA_GUARD", False)
 
     with caplog.at_level("ERROR", logger="plan.service"):
         PlanService()
@@ -175,6 +177,8 @@ def test_require_shared_store_refuses_to_start(monkeypatch):
     monkeypatch.setenv("PFACTORY_REPLICA_COUNT", "2")
     monkeypatch.setenv("PFACTORY_REQUIRE_SHARED_STORE", "1")
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    # Any create_app() earlier in the run defers the guard process-wide (#774).
+    monkeypatch.setattr("plan.service._DEFER_REPLICA_GUARD", False)
 
     with pytest.raises(RuntimeError, match="#755"):
         PlanService()

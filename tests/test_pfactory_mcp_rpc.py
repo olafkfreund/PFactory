@@ -22,11 +22,13 @@ for p in (str(_BACKEND), str(_WEBSERVER)):
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+
 from plan.decompose.models import ChildIssue, EpicPlan  # noqa: E402
 from plan.models import Criterion, NormalizedPlan  # noqa: E402
 from plan.review.models import LensScore, PlanReview  # noqa: E402
 from plan.service import SERVICE, PlanSession  # noqa: E402
 from server.routes import mcp_rpc  # noqa: E402
+from tests.conftest import persist  # noqa: E402
 
 ISSUE = 4242
 SESSION_ID = "plan-mcp-test"
@@ -65,6 +67,7 @@ def seeded_session():
     session.emitted_issue_number = ISSUE
     session.contract_result = {"ok": True, "contract": {"schema": "task-contract/v2", "plan_id": SESSION_ID}}
     SERVICE._sessions[SESSION_ID] = session
+    persist(SERVICE, session)  # the tools read through the store when one is set
     yield session
     SERVICE._sessions.pop(SESSION_ID, None)
 
@@ -253,6 +256,7 @@ def test_resolve_plan_doc_derives_key_from_session(
 ):
     """With no key, resolve from a session's stored correlation_key."""
     seeded_session.correlation_key = "derived-key"
+    persist(SERVICE, seeded_session)
     _seed_registry(tmp_path, monkeypatch, "derived-key", {
         "plan_id": SESSION_ID, "doc_file": "x.md", "dependencies": [],
     })

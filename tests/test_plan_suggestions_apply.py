@@ -30,6 +30,7 @@ from plan.annotate.remediate import draft_replacement, with_replacements  # noqa
 from plan.review.models import Citation  # noqa: E402
 from plan.service import PlanInputError, PlanService  # noqa: E402
 from plan.templates.loader import build_context  # noqa: E402
+from tests.conftest import persist  # noqa: E402
 
 _PLAN = """# Refund API
 Add a REST API endpoint to the payments microservice.
@@ -50,11 +51,12 @@ def processed(service):
     return service.process(session.session_id)
 
 
-def _seed(session, *suggestions: SuggestedEdit):
-    """Attach suggestions to a session as the annotate stage would."""
+def _seed(service, session, *suggestions: SuggestedEdit):
+    """Attach suggestions to a session as the annotate stage would, and save it."""
     from plan.annotate.models import AnnotationResult
 
     session.annotation = AnnotationResult(suggestions=with_replacements(list(suggestions)))
+    persist(service, session)
     return session
 
 
@@ -109,7 +111,7 @@ def test_a_finding_with_no_curated_remedy_gets_no_draft():
 
 
 def test_accepting_a_tag_suggestion_puts_the_tag_in_the_plan(service, processed):
-    _seed(processed, SuggestedEdit(id="S1", suggestion="missing required tag 'owner'"))
+    _seed(service, processed, SuggestedEdit(id="S1", suggestion="missing required tag 'owner'"))
 
     session, applied = service.apply_suggestions(processed.session_id, [{"id": "S1"}])
 
@@ -119,7 +121,7 @@ def test_accepting_a_tag_suggestion_puts_the_tag_in_the_plan(service, processed)
 
 def test_the_human_edited_text_is_what_lands(service, processed):
     """The whole flow is 'propose, human approves' — their edit must win."""
-    _seed(processed, SuggestedEdit(id="S1", suggestion="missing required tag 'owner'"))
+    _seed(service, processed, SuggestedEdit(id="S1", suggestion="missing required tag 'owner'"))
 
     session, _ = service.apply_suggestions(
         processed.session_id, [{"id": "S1", "replacement": "owner: platform-team"}]
@@ -131,6 +133,7 @@ def test_the_human_edited_text_is_what_lands(service, processed):
 def test_accepting_a_criterion_rewrite_replaces_that_criterion(service, processed):
     target = processed.plan.criteria[0].id
     _seed(
+        service,
         processed,
         SuggestedEdit(id="S1", suggestion=f"Ambiguous, untestable criterion ({target})"),
     )
@@ -145,7 +148,7 @@ def test_accepting_a_criterion_rewrite_replaces_that_criterion(service, processe
 
 
 def test_applying_invalidates_the_review_like_any_edit(service, processed):
-    _seed(processed, SuggestedEdit(id="S1", suggestion="missing required tag 'owner'"))
+    _seed(service, processed, SuggestedEdit(id="S1", suggestion="missing required tag 'owner'"))
     service.approve(processed.session_id, approver="olaf")
 
     session, _ = service.apply_suggestions(processed.session_id, [{"id": "S1"}])
@@ -158,7 +161,7 @@ def test_applying_invalidates_the_review_like_any_edit(service, processed):
 
 
 def test_an_unknown_id_is_refused(service, processed):
-    _seed(processed, SuggestedEdit(id="S1", suggestion="missing required tag 'owner'"))
+    _seed(service, processed, SuggestedEdit(id="S1", suggestion="missing required tag 'owner'"))
 
     with pytest.raises(PlanInputError):
         service.apply_suggestions(processed.session_id, [{"id": "S9"}])
@@ -166,7 +169,7 @@ def test_an_unknown_id_is_refused(service, processed):
 
 def test_a_suggestion_with_no_draft_is_refused_not_skipped(service, processed):
     """An accepted suggestion that quietly did not land is the worst outcome."""
-    _seed(processed, SuggestedEdit(id="S1", suggestion="Oversized epic"))
+    _seed(service, processed, SuggestedEdit(id="S1", suggestion="Oversized epic"))
 
     with pytest.raises(PlanInputError) as caught:
         service.apply_suggestions(processed.session_id, [{"id": "S1"}])
@@ -175,7 +178,11 @@ def test_a_suggestion_with_no_draft_is_refused_not_skipped(service, processed):
 
 
 def test_a_stale_criterion_target_is_refused(service, processed):
-    _seed(processed, SuggestedEdit(id="S1", suggestion="Ambiguous, untestable criterion (AC#99)"))
+    _seed(
+        service,
+        processed,
+        SuggestedEdit(id="S1", suggestion="Ambiguous, untestable criterion (AC#99)"),
+    )
 
     with pytest.raises(PlanInputError) as caught:
         service.apply_suggestions(processed.session_id, [{"id": "S1", "replacement": "x"}])
