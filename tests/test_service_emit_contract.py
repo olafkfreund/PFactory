@@ -17,6 +17,7 @@ from plan.decompose.models import ChildIssue, EpicPlan  # noqa: E402
 from plan.review.gates import run_gates  # noqa: E402
 from plan.review.models import LensScore, PlanReview  # noqa: E402
 from plan.service import PlanService, PlanServiceError  # noqa: E402
+from tests.conftest import persist  # noqa: E402
 
 _PLAN = """# Widget service
 A FastAPI service tested with pytest.
@@ -48,6 +49,7 @@ def _processed_session(svc: PlanService) -> str:
         aggregate_score=0.95,
         gates_passed=True,
     )
+    persist(svc, session)
     return session.session_id
 
 
@@ -108,6 +110,7 @@ def test_emit_contract_live_refused_on_unwaived_hard_readiness() -> None:
     session.review = run_gates(session.plan, session.epic)
     session.review.gates_passed = True  # isolate readiness from lens scoring
     assert session.review.readiness.unwaived_hard_failures(session.plan)
+    persist(svc, session)
 
     with pytest.raises(PlanServiceError, match="unwaived hard readiness"):
         svc.emit_contract(

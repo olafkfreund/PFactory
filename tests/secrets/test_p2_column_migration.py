@@ -45,6 +45,19 @@ def pg_url() -> str:
     return url
 
 
+# The sync driver is NAMED, never inferred (#780). Stripping `+asyncpg` leaves a
+# bare `postgresql://`, whose driver is whatever SQLAlchemy defaults to —
+# psycopg2 through 2.0, psycopg 3 from 2.1, which is not installed. That turned
+# `secrets (P2 acceptance)` red on every PR the day 2.1 shipped, with no commit
+# of ours involved. psycopg2-binary is in tests/requirements-test.txt for this.
+_SYNC_DRIVER = "postgresql+psycopg2://"
+
+
+def _sync_url(async_url: str) -> str:
+    """The sync-driver URL for ``async_url`` (an `+asyncpg` test URL)."""
+    return async_url.replace("postgresql+asyncpg://", _SYNC_DRIVER)
+
+
 def _reset_schema(url: str) -> None:
     """Drop + recreate the public schema (idempotent test setup)."""
     async def _drop():
@@ -77,8 +90,7 @@ def _run_alembic(target: str, url: str, fernet_key: str) -> subprocess.Completed
 
 def _seed_email_account(url: str, plaintext: str) -> str:
     """Insert one EmailAccount row with a plaintext access_token. Returns id."""
-    # Sync URL for sync create_engine (the test URL is async-driver-prefixed).
-    sync_url = url.replace("+asyncpg", "")
+    sync_url = _sync_url(url)
     engine = create_engine(sync_url)
     owner_id = str(uuid.uuid4())
     row_id = str(uuid.uuid4())
@@ -119,7 +131,7 @@ def test_migration_backfills_plaintext_to_encrypted(fernet_key: str, pg_url: str
     from server.database.models import EmailAccount  # noqa: E402
     from sqlalchemy.orm import Session
 
-    sync_url = pg_url.replace("+asyncpg", "")
+    sync_url = _sync_url(pg_url)
     engine = create_engine(sync_url)
     try:
         with Session(engine) as session:
@@ -146,7 +158,7 @@ def test_pg_dump_contains_no_plaintext_credentials(fernet_key: str, pg_url: str)
     result = _run_alembic("head", pg_url, fernet_key)
     assert result.returncode == 0, f"P2.3 alembic failed:\n{result.stderr[-1500:]}"
 
-    sync_url = pg_url.replace("+asyncpg", "")
+    sync_url = _sync_url(pg_url)
     engine = create_engine(sync_url)
     try:
         with engine.connect() as conn:

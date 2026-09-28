@@ -519,6 +519,45 @@ def _resolve_session_store() -> SessionStore | None:
             return None
 
 
+# #774: set by the web server only, whose SERVICE predates its boot migrations.
+_DEFER_REPLICA_GUARD = False
+
+
+def defer_replica_guard() -> None:
+    """Move the multi-replica guard from construction to the post-migration attach (#774)."""
+    global _DEFER_REPLICA_GUARD  # noqa: PLW0603 — a one-way process switch
+    _DEFER_REPLICA_GUARD = True
+
+
+def attach_session_store_after_migrations() -> bool:
+    """Give an already-built ``SERVICE`` the shared store once migrations ran (#774).
+
+    The web server imports its routes, and so builds ``SERVICE``, before the
+    lifespan hook applies migrations. On the first boot after a store
+    migration the table was missing then, and the pod kept per-process
+    sessions until a restart. Called once right after ``init_db()``; returns
+    whether a store is attached. Raises under PFACTORY_REQUIRE_SHARED_STORE=1
+    when there is still none.
+    """
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        return False
+    # The one sanctioned retry: the table may exist now that migrations ran.
+    _SESSION_STORE_UNAVAILABLE.discard(url)
+    service = globals().get("SERVICE")
+    if not isinstance(service, PlanService):
+        return False  # not built yet: its lazy construction resolves normally
+    if service._session_store is None:
+        store = _resolve_session_store()
+        if store is not None:
+            with service._store_lock:
+                service._session_store = store
+                service._import_sessions_into_store()
+            logger.info("plan sessions attached to the shared store after boot migrations (#774)")
+    _warn_if_multi_replica_without_store(service._session_store)
+    return service._session_store is not None
+
+
 class PlanService:
     """Orchestrator for plan sessions, with durable + disk-backed persistence.
 
@@ -585,7 +624,10 @@ class PlanService:
         )
         if self._session_store is not None:
             self._import_sessions_into_store()
-        _warn_if_multi_replica_without_store(self._session_store)
+        # #774: the web server builds SERVICE before its boot migrations, so it
+        # runs the guard in attach_session_store_after_migrations() instead.
+        if not _DEFER_REPLICA_GUARD:
+            _warn_if_multi_replica_without_store(self._session_store)
 
     # ── persistence (opt-in via PFACTORY_PLAN_PERSIST) ──────────────────
 

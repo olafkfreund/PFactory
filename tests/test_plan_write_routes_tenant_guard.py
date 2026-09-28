@@ -33,10 +33,12 @@ pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
 from fastapi import HTTPException  # noqa: E402
+
 from plan.annotate.models import AnnotationResult, SuggestedEdit  # noqa: E402
 from plan.service import PlanService  # noqa: E402
 from server import tenancy  # noqa: E402
 from server.routes import plan_pipeline as pp  # noqa: E402
+from tests.conftest import persist  # noqa: E402
 
 _PLAN = """# Refund API
 Add a REST API endpoint to the payments microservice.
@@ -82,6 +84,7 @@ def owned(service):
             )
         ]
     )
+    persist(service, processed)
     return processed
 
 

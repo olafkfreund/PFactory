@@ -41,6 +41,7 @@ from server.jobstore import JobStateStore  # noqa: E402
 from server.jobstore.models import JobState  # noqa: E402
 from server.routes import plan_pipeline as pp  # noqa: E402
 from server.tenancy import DEFAULT_TENANT, multi_tenant_enabled, resolve_tenant  # noqa: E402
+from tests.conftest import persist  # noqa: E402
 
 _PLAN = """# Widget service
 A FastAPI service tested with pytest.
@@ -277,5 +278,6 @@ def test_contract_provenance_omits_the_default_tenant(service) -> None:
 def test_emit_contract_threads_the_session_tenant(service) -> None:
     session, epic = _plan_and_epic(service)
     session.epic = epic
+    persist(service, session)
     out = service.emit_contract(session.session_id, repo="acme/widget", dry_run=True)
     assert out.contract_result["contract"]["provenance"]["tenant_id"] == "acme"
