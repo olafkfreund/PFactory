@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 777
 intent: intent/2026-09-28-777-job-store-after-migrations.md
 ---
