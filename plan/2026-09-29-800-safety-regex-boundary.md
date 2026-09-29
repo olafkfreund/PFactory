@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 800
 spec: spec/2026-09-29-800-safety-regex-boundary.md
 ---
