@@ -6,8 +6,17 @@ echo "Running pre-commit checks..."
 # worktree there is no apps/backend/.venv — it is gitignored and lives only in
 # the checkout that created it — so this falls back to the main checkout's.
 # Sets BACKEND_VENV (absolute, possibly empty) and MAIN_TREE.
-# shellcheck source=scripts/resolve_backend_venv.sh
-. ./scripts/resolve_backend_venv.sh || true
+BACKEND_VENV=""
+MAIN_TREE="$(pwd)"
+if [ -f ./scripts/resolve_backend_venv.sh ]; then
+  # shellcheck source=scripts/resolve_backend_venv.sh
+  . ./scripts/resolve_backend_venv.sh || true
+elif [ -d "apps/backend/.venv" ]; then
+  # The hook run from outside the repo - tests/test_precommit_ruff_pin.py copies
+  # just this file into a sandbox - keeps its pre-#796 behaviour instead of
+  # dying on the missing source.
+  BACKEND_VENV="$(pwd)/apps/backend/.venv"
+fi
 
 # =============================================================================
 # VERSION SYNC - Keep all version references in sync with root package.json

@@ -27,6 +27,13 @@ Approved decisions (from the intent and spec):
    resolved to a tree other than the caller's. Sourced, so it must not `exit`
    — an unresolvable venv leaves `BACKEND_VENV` empty and returns non-zero.
 2. **`.husky/pre-commit`** — source the script once, before the ruff section,
+   **guarded by `[ -f ]`, with an inline fallback to `apps/backend/.venv`.**
+   (Deviation, found by CI on PR #818: `tests/test_precommit_ruff_pin.py`
+   copies *only* this file into a sandbox repo and runs `sh ./pre-commit` there,
+   so an unconditional `. ./scripts/…` dies with "cannot open". Those two tests
+   are the standing negative control for the guard. Missed locally twice because
+   the hook's pytest section only fires on a staged `apps/backend/**.py`, and
+   because `-x` stopped the worktree e2e at an earlier failure.)
    and replace the four hardcoded prefixes:
    - `:99` ruff → `"$BACKEND_VENV/bin/ruff"` / `Scripts/ruff.exe`, then global,
      then skip (unchanged order)
