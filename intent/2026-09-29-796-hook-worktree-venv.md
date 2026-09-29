@@ -17,7 +17,22 @@ directory, at three sites:
 | :258 | `apps/backend/.venv/bin/pytest` | `python -m pytest` |
 
 A git worktree has no `.venv` — it is gitignored and exists only in the
-checkout where it was created. The ruff half degrades honestly (the #452
+checkout where it was created. Measured in a throwaway worktree of this repo
+(`git worktree add --detach`):
+
+    $ ls apps/backend/.venv
+    ls: cannot access 'apps/backend/.venv': No such file or directory
+    $ command -v python3
+    /nix/store/…-python3-3.13.13-env/bin/python3
+    $ python3 -c "import pytest"
+    ModuleNotFoundError: No module named 'pytest'
+
+and the main checkout is reachable from there without hardcoding anything:
+
+    $ git rev-parse --git-common-dir
+    /mnt/data/Source-home/GitHub/PFactory/.git      # parent is the main tree
+    $ git rev-parse --git-dir
+    /mnt/data/Source-home/GitHub/PFactory/.git/worktrees/wt796 The ruff half degrades honestly (the #452
 version guard skips the rewrite and says so). The pytest half does not: the
 bare-`python` fallback has no pytest, so the commit is blocked with
 
@@ -52,12 +67,13 @@ test call for completely different actions.
 - Do not widen the fix into the ratchet's `--package` parity — that was #786,
   already merged.
 
-## Open questions
+## Decisions (were open questions, answered at approval)
 
-1. When the main checkout's venv is found from a worktree, should the hook say
-   so, or resolve silently? (A silent cross-tree venv could surprise someone
-   whose worktree is on a branch with different dependencies.)
-2. Should a missing venv make the pytest half **skip with a clear message**, or
-   keep **blocking** with a corrected message? Skipping weakens the gate on a
-   machine that never had a venv; blocking keeps it, at the cost of refusing
-   commits until setup is done.
+1. **The hook announces a cross-tree venv.** One line naming the venv it
+   resolved to. A worktree on a branch with different dependencies would
+   otherwise be tested silently against the wrong ones, which is the kind of
+   check-that-measures-nothing this repo keeps finding.
+2. **A venv findable nowhere keeps blocking, with a corrected message.**
+   Skipping would turn a setup gap into a silently weakened gate. The message
+   must say the working tree has no interpreter, not that tests failed — the
+   two call for completely different actions.
