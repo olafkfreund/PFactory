@@ -50,7 +50,7 @@ CSV_COLUMNS = [
 def _row_for_csv(row: AuditLog) -> list[str]:
     """Flatten an AuditLog row into the CSV column order."""
 
-    def _str(v):
+    def _str(v: object) -> str:
         if v is None:
             return ""
         if isinstance(v, datetime):
