@@ -23,6 +23,7 @@ from ..websockets.events import (
     emit_task_status,
     emit_task_update,
 )
+from . import run_leases
 from .agent_failover import AgentFailoverMixin
 from .agent_process_monitor import AgentProcessMonitorMixin
 from .agent_worktree_sync import AgentWorktreeSyncMixin
@@ -679,14 +680,19 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         master_fd, slave_fd = pty.openpty()
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=slave_fd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(project_path),
-            env=env,
-        )
+        await self._claim_lease(task_id)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=slave_fd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(project_path),
+                env=env,
+            )
+        except BaseException:
+            await run_leases.release("task", task_id)
+            raise
 
         # Close slave fd in parent process
         os.close(slave_fd)
@@ -719,6 +725,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         # Pass project_path so monitor can detect created spec and check for review state
         # Pass cmd and env so model fallback can retry with a different model on failure
         spawn(self._monitor_process(task_id, proc, project_path=project_path, cmd=cmd, env=env))
+        self._watch_lease(task_id)
 
         return proc
 
@@ -1022,14 +1029,19 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         except OSError as _e:
             logger.debug("[AgentService] could not prep spawn_stderr.log: %s", sanitize_log(_e))
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=slave_fd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(project_path),
-            env=env,
-        )
+        await self._claim_lease(task_id)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=slave_fd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(project_path),
+                env=env,
+            )
+        except BaseException:
+            await run_leases.release("task", task_id)
+            raise
 
         # Close slave fd in parent process
         os.close(slave_fd)
@@ -1093,6 +1105,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         # Start process monitor to clean up when finished (with file syncing and failover support)
         spawn(self._monitor_process(task_id, proc, project_path, spec_id, cmd, env))
+        self._watch_lease(task_id)
 
         # Epic #44 R1 — opt-in Live Agent Console. No-op when
         # PFACTORY_RMUX_ENABLED is unset/false (the default), so the
@@ -1241,6 +1254,30 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
     def get_running_tasks(self) -> list[str]:
         """Get list of running task IDs."""
         return list(self.running_tasks.keys())
+
+    # #805: across replicas. `is_running` above stays local: websockets, the
+    # monitor and the delegation runner care about this pod's process.
+    async def is_running_anywhere(self, task_id: str) -> bool:
+        """True when this pod or another replica runs the task."""
+        return self.is_running(task_id) or await run_leases.is_active("task", task_id)
+
+    async def get_running_tasks_anywhere(self) -> list[str]:
+        """Running task ids on this pod and on every other replica."""
+        return sorted(set(self.running_tasks) | set(await run_leases.active_keys("task")))
+
+    async def _claim_lease(self, task_id: str) -> None:
+        if not await run_leases.acquire("task", task_id):
+            raise run_leases.RunAlreadyActiveError(
+                f"Task {task_id} is already running on another replica"
+            )
+
+    def _watch_lease(self, task_id: str) -> None:
+        run_leases.watch(
+            "task",
+            task_id,
+            alive=lambda: task_id in self.running_tasks,
+            stop=lambda: self.stop_task(task_id),
+        )
 
 
 # Global service instance

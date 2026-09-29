@@ -420,6 +420,26 @@ class TestTargetCredential(Base):
 # ---------------------------------------------------------------------------
 
 
+class RunLease(Base):
+    """Which replica runs a task, insights reply, changelog or PR review (#805).
+
+    One row per running thing, keyed by ``(kind, key)``: at most one owner
+    across all pods. The owner renews ``lease_until`` on a heartbeat, so a pod
+    that dies stops claiming its runs within one TTL. ``stop_requested`` is how
+    a replica that does not own the run asks the owner to stop it.
+    """
+
+    __tablename__ = "run_leases"
+
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False)
+    lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    stop_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+
+
 class OAuthConnectState(Base):
     """A pending email OAuth connect (#807): the CSRF ``state`` and who asked.
 
