@@ -36,7 +36,6 @@ from plan.service import (  # noqa: E402
     PlanServiceError,
     StaleSessionError,
 )
-
 from server.services.audit_service import (  # noqa: E402
     ACTION_PLAN_SESSION_DELETE,
     log_audit_event,
@@ -558,7 +557,7 @@ async def delete_session(
     try:
         # Annotated: SERVICE is untyped here, so an unannotated result makes the
         # return Any and costs the ratchet a net-new no-any-return (#798).
-        result: dict[str, str] = SERVICE.delete_session(
+        result: dict[str, str] = cast(PlanService, SERVICE).delete_session(
             session_id, actor=body.actor, tenant_id=tenant
         )
     except PlanInputError as exc:

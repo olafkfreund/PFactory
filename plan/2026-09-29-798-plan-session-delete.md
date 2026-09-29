@@ -117,11 +117,29 @@ show parity where CI sees +1. The stubs are now installed in
 `apps/backend/.venv`. A gate reproduced without its inputs is another check that
 measures nothing.
 
-Lesson for future steps: run
-`scripts/ratchet_lint.py --base origin/dev --package ...` — or, where its mypy
-half cannot run locally, compare per-file counts against a worktree at
-`origin/dev` — before pushing. Comparing against the branch's own committed
-state measures nothing.
+Lesson for future steps, arrived at after three failed CI rounds: run the gate
+itself, exactly as CI runs it —
+
+    PATH="$PWD/apps/backend/.venv/bin:$PATH" \
+      apps/backend/.venv/bin/python scripts/ratchet_lint.py --base origin/dev \
+        --package apps/backend --package apps/web-server --package scripts
+
+Two things make a hand-rolled substitute disagree with it, and both bit this PR:
+
+- **The venv must be first on `PATH`.** `ratchet_lint.run_mypy` resolves `mypy`
+  from `PATH` (a comment at :386 says so). Otherwise a global mypy runs, the
+  `pydantic.mypy` plugin fails to import, and the script reports "mypy exited 2
+  having reported nothing — it did not run".
+- **The argv is not `mypy --strict <file>`.** It runs from *inside* the package
+  with the file named relative to it, sets `MYPYPATH`, passes
+  `--python-version`, `--explicit-package-bases`, `--namespace-packages`, and
+  takes strictness from `standards/mypy.ini` rather than the flag. Different cwd
+  and `MYPYPATH` give different absolute counts (25 by hand vs 35 through the
+  gate), so a hand comparison can read parity where the gate sees +1.
+
+Also: `ruff` config matters — the gate uses the root `ruff.toml`, under which
+`server.*` is first-party, so an import block that `standards/ruff.toml` accepts
+can still be `I001`.
 
 ## Deviation: two defects found by the independent review
 
