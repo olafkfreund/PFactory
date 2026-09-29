@@ -17,6 +17,7 @@ from server.background.tasks import spawn
 
 from ..config import get_settings
 from ..websockets.events import broadcast_event
+from . import run_leases
 
 
 class ChangelogPhase(str, Enum):
@@ -78,6 +79,10 @@ class ChangelogService:
     def is_running(self, project_id: str) -> bool:
         """Check if changelog generation is running for a project."""
         return project_id in self.running_tasks
+
+    async def is_running_anywhere(self, project_id: str) -> bool:
+        """True when this pod or another replica is generating (#805)."""
+        return self.is_running(project_id) or await run_leases.is_active("changelog", project_id)
 
     def get_status(self, project_id: str) -> dict:
         """Get the current status for a project's changelog generation."""
@@ -219,6 +224,10 @@ class ChangelogService:
                 except Exception as e:
                     logger.warning("Failed to read OAuth token from .env: %s", sanitize_log(e))
 
+        # #805: one generation per project across replicas.
+        if not await run_leases.acquire("changelog", project_id):
+            raise run_leases.RunAlreadyActiveError("Generation already in progress")
+
         try:
             # Start the subprocess - run from backend directory
             proc = await asyncio.create_subprocess_exec(
@@ -239,11 +248,18 @@ class ChangelogService:
 
             # Start output processing in background
             spawn(self._process_output(project_id, project_path, proc))
+            run_leases.watch(
+                "changelog",
+                project_id,
+                alive=lambda: project_id in self.running_tasks,
+                stop=lambda: self.stop_generation(project_id),
+            )
 
             return True
 
         except Exception as e:
             logger.error("Failed to start changelog generation: %s", sanitize_log(e))
+            await run_leases.release("changelog", project_id)
             await self._emit_error(project_id, str(e))
             return False
 

@@ -15,6 +15,7 @@ from pydantic import BaseModel
 # git_utils's own import already put apps/backend on sys.path.
 from client_errors import client_error
 from factory_common.logsafe import sanitize_log
+from server.services import run_leases
 from server.services.git_utils import assert_safe_git_ref, safe_spec_component  # #335
 from server.services.project_paths import (
     load_projects,
@@ -245,7 +246,7 @@ async def generate_changelog(projectId: str = Path(...), request: ChangelogGener
     service = get_changelog_service()
 
     # Check if already running
-    if service.is_running(projectId):
+    if await service.is_running_anywhere(projectId):
         return {"success": False, "error": "Generation already in progress"}
 
     # Convert request to dict for service
@@ -281,9 +282,12 @@ async def generate_changelog(projectId: str = Path(...), request: ChangelogGener
         }
 
     # Start generation in background
-    success = await service.start_generation(
-        project_id=projectId, project_path=project_path, request=request_dict
-    )
+    try:
+        success = await service.start_generation(
+            project_id=projectId, project_path=project_path, request=request_dict
+        )
+    except run_leases.RunAlreadyActiveError:
+        return {"success": False, "error": "Generation already in progress"}
 
     if not success:
         return {"success": False, "error": "Failed to start generation"}

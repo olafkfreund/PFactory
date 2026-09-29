@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
 from server.error_ref import error_message
+from server.services import run_leases
 from server.services.git_base_url import safe_git_base_url  # #610
 from server.services.project_paths import load_projects, resolve_project_path_or_error
 
@@ -2105,7 +2106,7 @@ async def trigger_pr_review(
 
     service = get_pr_review_service()
 
-    if service.is_running(projectId, prNumber):
+    if await service.is_running_anywhere(projectId, prNumber):
         return JSONResponse(
             status_code=409,
             content={
@@ -2114,12 +2115,21 @@ async def trigger_pr_review(
             },
         )
 
-    started = await service.start_review(
-        project_id=projectId,
-        pr_number=prNumber,
-        project_path=project_path,
-        followup=followup,
-    )
+    try:
+        started = await service.start_review(
+            project_id=projectId,
+            pr_number=prNumber,
+            project_path=project_path,
+            followup=followup,
+        )
+    except run_leases.RunAlreadyActiveError:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": f"A review is already running for PR #{prNumber}",
+            },
+        )
 
     if not started:
         return JSONResponse(
@@ -2407,6 +2417,9 @@ async def cancel_pr_review(
     service = get_pr_review_service()
 
     if not service.is_running(projectId, prNumber):
+        # #805: the review may run on another replica; its owner cancels it.
+        if await run_leases.request_stop("pr_review", f"{projectId}:{prNumber}"):
+            return {"success": True, "data": {"cancelled": True, "requested": True}}
         return {"success": True, "data": {"cancelled": False, "reason": "No review is running"}}
 
     cancelled = await service.cancel_review(projectId, prNumber)

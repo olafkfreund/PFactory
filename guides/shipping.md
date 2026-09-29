@@ -260,11 +260,14 @@ The audit log hash chain (#806):
 
 **Do not raise the replica count yet.** The KEDA scaler pins PFactory to one
 replica (factory-gitops#268). The shared session store covers plan sessions,
-but other state is still held per pod: WebSocket fan-out (#804), running-task
-registries (#805), and phantom `queued` rows in the KEDA metric (#808). (The
-email OAuth connect state is shared since #807, and the portal's GitHub CLI
-sign-in refuses when `PFACTORY_REPLICA_COUNT` is above 1.) Lifting the pin is factory-gitops#273, which waits on
-those.
+but other state is still held per pod: WebSocket fan-out (#804) and phantom
+`queued` rows in the KEDA metric (#808). Already shared: the email OAuth connect
+state (#807; the portal's GitHub CLI sign-in refuses when
+`PFACTORY_REPLICA_COUNT` is above 1), and running tasks, insights replies,
+changelogs and PR reviews (#805: `run_leases`, so status, the duplicate-run
+guard and stop work from any replica; a stop sent to another replica takes
+effect within one `PFACTORY_RUN_LEASE_HEARTBEAT_SECONDS`). Lifting the pin is
+factory-gitops#273, which waits on the rest.
 
 ### Validate before applying
 
