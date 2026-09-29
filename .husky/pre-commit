@@ -172,9 +172,28 @@ if [ -n "$STAGED_PY_FILES" ]; then
     elif [ -f "apps/backend/.venv/Scripts/python.exe" ]; then
       RATCHET_PY="apps/backend/.venv/Scripts/python.exe"
     fi
+    # The three --package trees MUST match cq-ratchet.yml's invocation, or a
+    # violation passes here and fails there. They did not: `scripts/` was gated
+    # in CI only (#786), which is asserted now by
+    # tests/test_ruff_pin_agreement.py::test_the_hook_gates_the_same_packages_as_ci.
+    #
+    # Staged mode is ruff-only by design (ratchet_lint.py: --staged implies
+    # --no-mypy), so a mypy --strict regression still reaches CI unseen -- that
+    # is what bit #778 and #785. PFACTORY_HOOK_MYPY=1 adds the mypy half here.
+    # Measured on one staged file: 1.4s cold / 0.6s warm for a scripts/ file,
+    # ~12s cold for a web-server route -- the cost tracks the file's import
+    # graph. Default OFF so the common commit stays fast. Caveat, also in
+    # --mypy's help: the mypy half
+    # type-checks files as they sit on DISK, so with a partially staged file its
+    # verdict describes the worktree, not the index (the ruff half uses the index).
+    RATCHET_MYPY=""
+    case "${PFACTORY_HOOK_MYPY:-}" in
+      1 | true | TRUE | yes | YES) RATCHET_MYPY="--mypy" ;;
+    esac
     echo "Running lint ratchet (net-new violations vs HEAD)..."
     PATH="$(pwd)/apps/backend/.venv/bin:$(pwd)/apps/backend/.venv/Scripts:$PATH" \
-      "$RATCHET_PY" scripts/ratchet_lint.py --staged --package apps/backend --package apps/web-server
+      "$RATCHET_PY" scripts/ratchet_lint.py --staged \
+        --package apps/backend --package apps/web-server --package scripts $RATCHET_MYPY
     if [ $? -ne 0 ]; then
       echo "Lint ratchet failed: this commit ADDS ruff violations (pre-existing debt never blocks)."
       exit 1
