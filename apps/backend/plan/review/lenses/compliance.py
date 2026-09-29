@@ -80,9 +80,21 @@ _STORE_RE = re.compile(
 )
 
 # ── "the plan already addressed it" patterns (suppress the finding) ────────
+#
+# Every pattern here wraps its alternation in \b(...)\b, so an alternative that
+# ends in a word STEM cannot match the inflected form: the closing \b demands a
+# non-word character right after the stem, and "-ing"/"-s" supply a word one.
+# Four of these escapes shipped broken that way (#800) -- "blocking and
+# reporting", "legitimate interests", "automated decisions", "age gates" all
+# failed, each refusing a brief that satisfied the finding it guards. Final stems
+# therefore carry \w* (or an explicit inflection); see the '16+' note below for
+# the same trap from the other direction.
 
 _LAWFUL_BASIS_OK_RE = re.compile(
-    r"(?i)\b(lawful\s+basis|legal\s+basis|purpose\s+limitation|legitimate\s+interest)\b"
+    # bas[ie]s, not basis\w*: the plural is irregular, and "lawful bases" is
+    # ordinary GDPR wording that \w* would still reject (#800).
+    r"(?i)\b(lawful\s+bas[ie]s|legal\s+bas[ie]s|purpose\s+limitation\w*|"
+    r"legitimate\s+interest\w*)\b"
 )
 _LOCATION_OK_RE = re.compile(
     r"(?i)\bconsent\b.*\b(coarse|precision|minimi[sz]\w+)\b"
@@ -90,15 +102,19 @@ _LOCATION_OK_RE = re.compile(
     re.DOTALL,
 )
 _PROFILING_OK_RE = re.compile(
-    r"(?i)\b(profiling|automated\s+(?:decision|processing)|art(?:icle)?\.?\s*22)\b"
+    r"(?i)\b(profiling|automated\s+(?:decision\w*|processing)|art(?:icle)?\.?\s*22)\b"
 )
 _SAFETY_OK_RE = re.compile(
-    r"(?i)\b(block(?:ing)?\s+(?:and\s+report|users?)|report(?:ing)?\s+"
+    # report\w* stays INSIDE the block...and branch rather than being hoisted, so
+    # "reporting to investors" still does not suppress the safety finding.
+    r"(?i)\b(block(?:ing)?\s+(?:and\s+report\w*|users?)|report(?:ing)?\s+"
     r"(?:abuse|users?|content)|moderat\w+|notice[\s-]and[\s-]action)\b"
 )
 # NOTE: '16+' ends in a non-word char, so it must not sit before a closing \b.
+# gat\w+, not gate\w*: "age gating" is gat+ing, so anchoring on the whole word
+# "gate" misses it (#800).
 _AGE_OK_RE = re.compile(
-    r"(?i)\b(?:age\s+(?:gate|assurance|verification|check)\b|minimum\s+age\b|"
+    r"(?i)\b(?:age\s+(?:gat\w+|assurance|verification\w*|check\w*)\b|minimum\s+age\b|"
     r"under[\s-]?1[38]\b|1[368]\s*\+|coppa\b|age[\s-]appropriate\b|"
     r"parental\s+consent\b)"
 )
