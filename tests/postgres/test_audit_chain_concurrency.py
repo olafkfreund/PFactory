@@ -29,23 +29,17 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from server.database.models import AuditLog  # noqa: E402
 from server.services.audit_chain import row_as_mapping, verify_chain  # noqa: E402
 from server.services.audit_service import log_audit_event  # noqa: E402
-from tests.postgres.helpers import run_alembic  # noqa: E402
+from tests.postgres.helpers import reset_schema, run_alembic  # noqa: E402
 
 WRITERS = 8
 
 
 @pytest.fixture
 def migrated_url(test_postgres_url: str) -> str:
+    reset_schema(test_postgres_url)  # see helpers.reset_schema
     result = run_alembic(["upgrade", "head"], env={"DATABASE_URL": test_postgres_url})
     assert result.returncode == 0, f"alembic upgrade head failed: {result.stderr[-1000:]}"
 
-    async def _empty() -> None:
-        engine = create_async_engine(test_postgres_url)
-        async with engine.begin() as conn:
-            await conn.execute(text("DELETE FROM audit_logs"))
-        await engine.dispose()
-
-    asyncio.run(_empty())
     return test_postgres_url
 
 
