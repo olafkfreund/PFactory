@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.6.23 — audit hash chain holds under concurrency (2026-09-29)
+
+- **Concurrent audit writes no longer fork the hash chain (#806).** The chain
+  head was read with no lock, so two requests (or two replicas) could link to
+  the same row. On Postgres, every audit write and the GDPR re-chain now take
+  one transaction-scoped advisory lock. The chain is ordered by a new
+  `audit_logs.chain_seq` column (migration `e5b8c3f1a7d2`) instead of
+  `created_at`, the transaction start time. `chain_seq` is not hashed, so
+  existing chains still verify. Exports carry `chain_seq`; in CSV it is the
+  last column.
+- **Background audit rows join the chain (#806).** `log_audit_event_bg`, the
+  path the MCP write routes use, wrote rows with no `prev_hash`. It now uses
+  the same write path as every other audit event.
+- The KMS root-rotation runbook (`python -m server.crypto rotate-root`) runs
+  in the shipped image (#781).
+- The pre-commit hook gates the same packages as CI and says which half of the
+  ratchet ran (#786).
+- Internal: the `attach_session_store_after_migrations` alias is removed
+  (#792).
+
 ## 0.6.22 — durable job-state store after boot migrations (2026-09-28)
 
 - **A pod that migrates on boot now gets the durable job-state store without
