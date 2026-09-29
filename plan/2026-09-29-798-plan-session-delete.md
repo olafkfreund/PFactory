@@ -158,6 +158,12 @@ the new obligation.
    `include_discarded` through rather than hardcoding it. Both mutations the
    review named as uncatchable now fail.
 
+5. **The audit row carried no principal.** `user_id`, `org_id` and `ip` were all
+   omitted although `request` was in hand, leaving `details.actor` — free text
+   the caller picks — as the only identity on an irreversible action. Now records
+   the same three fields `rmux/bridge.py` does, read by direct attribute access
+   rather than `getattr`, which defeats mypy's narrowing of `Address | None`.
+
 A remaining finding — on two replicas, a deleted session stays readable from the
 other pod's cache and a later write **re-inserts** it, because `_all_sessions`
 re-caches without `_store_version` and `_upsert_session` then treats `None` as

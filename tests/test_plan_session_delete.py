@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -45,8 +46,10 @@ Add a refund flow to the orders web app.
 class _Request:
     """Header-carrying Request stand-in for direct route calls."""
 
-    def __init__(self, headers: dict | None = None) -> None:
+    def __init__(self, headers: dict | None = None, user_id: str | None = None) -> None:
         self.headers = headers or {}
+        self.state = SimpleNamespace(user_id=user_id, org_id="acme-org" if user_id else None)
+        self.client = SimpleNamespace(host="203.0.113.7") if user_id else None
 
 
 def _ingested(svc: PlanService | None = None, **kwargs) -> tuple[PlanService, str]:
@@ -379,3 +382,26 @@ def test_the_route_passes_include_discarded_through(monkeypatch):
     assert hidden["sessions"] == []
     shown = asyncio.run(pp.list_sessions(_Request(), include_discarded=True))
     assert [s["session_id"] for s in shown["sessions"]] == [sid]
+
+
+def test_the_audit_row_carries_the_principal_not_just_the_actor_string(monkeypatch):
+    """An irreversible action must be attributable (#798).
+
+    ``details.actor`` is free text the caller picks. Without ``user_id`` /
+    ``org_id`` / ``ip`` the row cannot be tied to a principal or filtered by org —
+    the three fields ``rmux/bridge.py`` already records.
+    """
+    svc, sid = _discarded()
+    _use_service(monkeypatch, svc)
+    captured: dict = {}
+
+    async def _capture(db, **kwargs) -> None:  # noqa: ARG001
+        captured.update(kwargs)
+
+    monkeypatch.setattr(pp, "log_audit_event", _capture)
+    request = _Request(user_id="u-123")
+    asyncio.run(pp.delete_session(sid, pp.DeleteBody(actor="olafkfreund"), request, db=_Db()))
+
+    assert captured["user_id"] == "u-123"
+    assert captured["org_id"] == "acme-org"
+    assert captured["ip"] == "203.0.113.7"

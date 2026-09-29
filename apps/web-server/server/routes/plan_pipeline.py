@@ -569,6 +569,12 @@ async def delete_session(
         raise HTTPException(status_code=status, detail=client_error(exc)) from exc
     await log_audit_event(
         db,
+        # An irreversible action must be attributable to a principal, not only to
+        # the free-text `actor` the caller chose. Same three fields rmux/bridge.py
+        # records. Found reviewing #798.
+        user_id=getattr(request.state, "user_id", None),
+        org_id=getattr(request.state, "org_id", None),
+        ip=request.client.host if request.client else None,
         action=ACTION_PLAN_SESSION_DELETE,
         resource_type="plan_session",
         resource_id=session_id,
