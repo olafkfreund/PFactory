@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 826
 intent: intent/2026-09-29-826-routable-planning-model.md
 ---
