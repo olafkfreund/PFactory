@@ -20,8 +20,8 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import AsyncIterator
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +43,7 @@ CSV_COLUMNS = [
     "details_json",
     "prev_hash",
     "retention_until",
+    "chain_seq",  # #806: appended last so existing positions hold
 ]
 
 
@@ -68,6 +69,7 @@ def _row_for_csv(row: AuditLog) -> list[str]:
         _str(row.details_json),
         _str(row.prev_hash),
         _str(row.retention_until),
+        _str(row.chain_seq),
     ]
 
 
@@ -78,8 +80,8 @@ async def stream_json(
     from_ts: datetime | None = None,
     to_ts: datetime | None = None,
 ) -> AsyncIterator[bytes]:
-    """Yield NDJSON lines for matching audit rows, ordered by created_at."""
-    q = select(AuditLog).order_by(AuditLog.created_at.asc())
+    """Yield NDJSON lines for matching audit rows, in chain order (#806)."""
+    q = select(AuditLog).order_by(AuditLog.chain_seq.asc())
     if org_id is not None:
         q = q.where(AuditLog.org_id == org_id)
     if from_ts is not None:
@@ -104,7 +106,7 @@ async def stream_csv(
     csv.writer(buf).writerow(CSV_COLUMNS)
     yield buf.getvalue().encode("utf-8")
 
-    q = select(AuditLog).order_by(AuditLog.created_at.asc())
+    q = select(AuditLog).order_by(AuditLog.chain_seq.asc())
     if org_id is not None:
         q = q.where(AuditLog.org_id == org_id)
     if from_ts is not None:

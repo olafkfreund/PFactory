@@ -241,11 +241,29 @@ A pod that applies migrations on boot (#774):
   store fails in the startup hook, after the migrations have run, instead of
   crashing while the routes load.
 
+The audit log hash chain (#806):
+
+- **Writes are serialized.** On Postgres, every audit write, and the GDPR
+  erasure's re-chain, takes one transaction-scoped advisory lock before
+  reading the chain head. It is held until that transaction commits. So
+  concurrent requests and replicas extend one linear chain instead of forking
+  it. On SQLite, the database's single writer does the same job.
+- **The chain order is `chain_seq`,** not `created_at`. `created_at` is the
+  transaction's start time, so concurrent writers can sort out of link order.
+  `chain_seq` is gapless, set to head + 1 under the lock, and not part of the
+  hash, so every existing `prev_hash` stays valid. The migration numbers the
+  existing rows in `created_at, id` order.
+- **Exports carry it.** `/api/audit/export` streams rows in `chain_seq`
+  order. JSON rows have a `chain_seq` key, and CSV has `chain_seq` as its
+  last column. Verify an export in that order:
+  `python -m server.audit verify-chain <export.ndjson>`.
+
 **Do not raise the replica count yet.** The KEDA scaler pins PFactory to one
-replica (factory-gitops#268). Lift that pin only after both this change and
-#767 (the session id counter seed) are released and `alembic upgrade head`
-has run against the production database. Until the migration has run, live
-emits are refused with 409.
+replica (factory-gitops#268). The shared session store covers plan sessions,
+but other state is still held per pod: WebSocket fan-out (#804), running-task
+registries (#805), in-memory OAuth state (#807), and phantom `queued` rows in
+the KEDA metric (#808). Lifting the pin is factory-gitops#273, which waits on
+those.
 
 ### Validate before applying
 

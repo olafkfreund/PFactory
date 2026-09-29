@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -540,6 +541,7 @@ class AuditLog(Base):
         Index("ix_audit_logs_user_id", "user_id"),
         Index("ix_audit_logs_action", "action"),
         Index("ix_audit_logs_created_at", "created_at"),
+        Index("ux_audit_logs_chain_seq", "chain_seq", unique=True),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
@@ -570,6 +572,11 @@ class AuditLog(Base):
     # Threat model: tamper-detection within the audit log only.
     # Signed external anchor = v1.1.
     prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # #806: the chain's order. Set to head + 1 under the audit-chain lock, so
+    # it is gapless and matches link order; `created_at` (transaction start)
+    # cannot order concurrent writers. Not part of the hash. Unique, so a
+    # writer that ever bypassed the lock fails instead of forking the chain.
+    chain_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     # Relationships (read-only lookups, no back_populates needed)
     organization: Mapped["Organization | None"] = relationship(
