@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 792
 spec: spec/2026-09-29-792-remove-attach-alias.md
 ---
