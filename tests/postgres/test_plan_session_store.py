@@ -271,3 +271,21 @@ def test_upsert_is_a_compare_and_set_on_version(test_postgres_url):
 
     assert store.upsert("002-y", payload="x", seq=2, tenant_id=None, expected_version=3) is None
     assert store.get("002-y") is None
+
+
+@pytest.mark.usefixtures("pg_schema")
+def test_delete_removes_the_row_and_reports_it(test_postgres_url):
+    """PlanSessionStore.delete (#798): True when a row was actually removed."""
+    store = _store(test_postgres_url)
+    store.upsert("001-x", payload="v1", seq=1, tenant_id=None, expected_version=0)
+
+    assert store.delete("001-x") is True
+    assert store.get("001-x") is None
+
+
+@pytest.mark.usefixtures("pg_schema")
+def test_delete_of_an_absent_id_returns_false(test_postgres_url):
+    store = _store(test_postgres_url)
+    assert store.get("no-such-session") is None
+
+    assert store.delete("no-such-session") is False

@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
+from ..services.audit_service import ACTION_PLAN_SESSION_DELETE, log_audit_event
 from ..tenancy import multi_tenant_enabled, resolve_tenant
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
@@ -97,6 +98,13 @@ class DiscardBody(_StrictBody):
     reason: str
 
 
+class DeleteBody(_StrictBody):
+    """Erase a terminal session (#798) — see ``PlanService.delete_session``."""
+
+    actor: str
+    reason: str | None = None
+
+
 class WaiveBody(_StrictBody):
     check_ids: list[str]
     reason: str
@@ -171,11 +179,13 @@ def _session_dict(session) -> dict:
 
 
 @router.get("")
-async def list_sessions(request: Request) -> dict:
+async def list_sessions(request: Request, include_discarded: bool = False) -> dict:
     # Multi-tenancy (#308): with the flag on, list only the caller's tenant;
     # off (the default) the filter is None and behaviour is unchanged.
     tenant = resolve_tenant(request) if multi_tenant_enabled() else None
-    return {"sessions": SERVICE.list_sessions(tenant_id=tenant)}
+    return {
+        "sessions": SERVICE.list_sessions(tenant_id=tenant, include_discarded=include_discarded)
+    }
 
 
 @router.post("/ingest-text")
@@ -519,6 +529,47 @@ async def discard(session_id: str, body: DiscardBody) -> dict:
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
+
+
+@router.delete("/{session_id}")
+async def delete_session(
+    session_id: str,
+    body: DeleteBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Erase a terminal session outright (#798) — discarded/rejected only.
+
+    Unlike ``/discard``, which still records the session as abandoned, this
+    removes the row: the audit-pipeline probe rows a nightly regression job
+    leaves behind have no reason to accumulate in the store forever. Refused
+    (409) on any status but ``discarded``/``rejected`` — ``emitted`` is
+    deliberately never deletable, since that record is the audit trail for
+    real GitHub epics (see ``DELETABLE_STATUSES``). 404 for an unknown id or
+    another tenant's session, matching every other read/write here.
+    """
+    tenant = resolve_tenant(request) if multi_tenant_enabled() else None
+    try:
+        result = SERVICE.delete_session(session_id, actor=body.actor, tenant_id=tenant)
+    except PlanInputError as exc:
+        # Same PlanInputError for both cases (#798) — told apart by message,
+        # matching the "unknown session" text `get()`/`_guard_tenant` use, so
+        # unknown-id and wrong-tenant share one 404 that reveals nothing.
+        status = 404 if str(exc).startswith("unknown session") else 409
+        raise HTTPException(status_code=status, detail=client_error(exc)) from exc
+    await log_audit_event(
+        db,
+        action=ACTION_PLAN_SESSION_DELETE,
+        resource_type="plan_session",
+        resource_id=session_id,
+        details={
+            "actor": body.actor,
+            "reason": body.reason,
+            "status": result["status"],
+            "title": result["title"],
+        },
+    )
+    return result
 
 
 async def _load_docs_connections(request: Request, db: AsyncSession) -> list[dict] | None:

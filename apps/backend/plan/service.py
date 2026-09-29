@@ -282,6 +282,15 @@ class StaleSessionError(PlanServiceError):
     """
 
 
+# A session may be deleted only from these statuses (#798). Deliberately NOT
+# `plan.completion.TERMINAL_STATUSES` — that set also includes "emitted", and
+# an emitted session's record IS the audit trail for the real GitHub epics and
+# issues it produced. Reusing TERMINAL_STATUSES here would let a caller delete
+# that audit trail; only an abandoned (`discarded`) or refused (`rejected`)
+# session, which produced nothing, is safe to remove outright.
+DELETABLE_STATUSES = frozenset({"discarded", "rejected"})
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -394,6 +403,10 @@ class SessionStore(Protocol):
     def next_seq(self) -> int: ...
 
     def session_ids(self) -> set[str]: ...
+
+    def delete(self, session_id: str) -> bool:
+        """Remove the row; True when one was removed (#798)."""
+        ...
 
     def is_ready(self) -> bool: ...
 
@@ -931,13 +944,24 @@ class PlanService:
 
     # ── query ──────────────────────────────────────────────────────────
 
-    def list_sessions(self, *, tenant_id: str | None = None) -> list[dict]:
+    def list_sessions(
+        self, *, tenant_id: str | None = None, include_discarded: bool = False
+    ) -> list[dict]:
         """Session summaries; ``tenant_id`` filters to one tenant (#308).
 
         ``None`` (the default, and the single-tenant path) lists everything.
+        ``discarded`` sessions are hidden by default (#798) — they are
+        abandoned probes, not work anyone needs to see on the board — unless
+        ``include_discarded`` asks for them. ``rejected`` is unaffected: that
+        is a plan someone may still fix.
         """
         sessions = self._all_sessions()
-        return [s.summary() for s in sessions if tenant_id is None or s.tenant_id == tenant_id]
+        return [
+            s.summary()
+            for s in sessions
+            if (tenant_id is None or s.tenant_id == tenant_id)
+            and (include_discarded or s.status != "discarded")
+        ]
 
     def _all_sessions(self) -> list[PlanSession]:
         """Every session: from the shared store when set, else the local dict."""
@@ -1773,6 +1797,54 @@ class PlanService:
         notify_completion(session)
         self._save(session)
         return session
+
+    def delete_session(
+        self,
+        session_id: str,
+        *,
+        actor: str,  # noqa: ARG002 — see the docstring: unused, but the contract requires it
+        tenant_id: str | None = None,
+    ) -> dict[str, str]:
+        """Remove a terminal session outright — the row, not just a status (#798).
+
+        Unlike ``discard`` (which still records the session, marked abandoned),
+        this erases it: the discarded/rejected probe rows a nightly regression
+        job leaves behind have no reason to accumulate forever. Restricted to
+        :data:`DELETABLE_STATUSES` — see that constant for why ``emitted`` is
+        excluded.
+
+        Raises :class:`PlanInputError` for an unknown id, naming the status for
+        one not yet deletable, and — with ``tenant_id`` set and mismatched —
+        the SAME unknown-id error, so the endpoint cannot be used to probe
+        another tenant's session ids (matching ``_guard_tenant``'s 404).
+
+        ``actor`` is required by the audit-log contract the route follows
+        (matching ``discard``/``reject``'s signatures) but unused here: unlike
+        ``discard``, there is no surviving record to attach it to once the
+        session is gone — the route logs it instead.
+        """
+        try:
+            session = self.get(session_id)
+        except PlanServiceError:
+            raise PlanInputError(f"unknown session '{session_id}'") from None
+        if tenant_id is not None and session.tenant_id != tenant_id:
+            raise PlanInputError(f"unknown session '{session_id}'")
+        if session.status not in DELETABLE_STATUSES:
+            raise PlanInputError(
+                f"cannot delete session '{session_id}' with status '{session.status}'"
+            )
+        # Store first (#798): a store failure must not leave a session the
+        # store still has but this process has already forgotten.
+        store = self._session_store
+        if store is not None:
+            store.delete(session_id)
+        with self._store_lock:
+            self._sessions.pop(session_id, None)
+        return {
+            "session_id": session.session_id,
+            "status": session.status,
+            "title": session.plan.title,
+        }
 
     # ── emit ───────────────────────────────────────────────────────────
 
