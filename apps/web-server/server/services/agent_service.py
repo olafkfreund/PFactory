@@ -10,12 +10,14 @@ import json
 import os
 import sys
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
 from server.services.git_utils import safe_spec_component
+from server.websockets import relay
 
 from ..config import get_settings
 from ..utils.subprocess_env import make_subprocess_env
@@ -107,8 +109,8 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         self._progress_callbacks[task_id].append(callback)
         return lambda: self._progress_callbacks.get(task_id, []).remove(callback)
 
-    async def _emit_log(self, log: TaskLog) -> None:
-        """Emit a log to all registered callbacks."""
+    async def _deliver_local_log(self, log: TaskLog) -> None:
+        """Emit a log to all callbacks registered on THIS pod."""
         callbacks = self._log_callbacks.get(log.task_id, [])
         for callback in callbacks:
             try:
@@ -118,6 +120,16 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                     callback(log)
             except Exception:
                 pass
+
+    async def _emit_log(self, log: TaskLog) -> None:
+        """Emit a log to all registered callbacks.
+
+        Delivers locally first — unconditionally, so a relay hiccup never
+        drops a log line on this pod — then relays to other pods (#804) so a
+        browser connected there sees it too.
+        """
+        await self._deliver_local_log(log)
+        await relay.publish("task:log", asdict(log))
 
     def _get_next_sequence_number(self, task_id: str) -> int:
         """Get the next sequence number for a task (for out-of-order detection)."""
@@ -274,6 +286,17 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             )
 
         # Also emit to local callbacks
+        await self._deliver_local_progress(progress)
+        await relay.publish("task:progress", asdict(progress))
+
+    async def _deliver_local_progress(self, progress: TaskProgress) -> None:
+        """Emit progress to all callbacks registered on THIS pod.
+
+        This is the per-task callback registry (``_progress_callbacks``), a
+        separate delivery path from the WebSocket broadcast above — that
+        broadcast already relays across pods via ``events.py`` (#804); this
+        registry did not, hence the split.
+        """
         callbacks = self._progress_callbacks.get(progress.task_id, [])
         for callback in callbacks:
             try:
