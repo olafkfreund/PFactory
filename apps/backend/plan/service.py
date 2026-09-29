@@ -1840,6 +1840,14 @@ class PlanService:
             store.delete(session_id)
         with self._store_lock:
             self._sessions.pop(session_id, None)
+            # The JSON mirror too, or the delete does not survive a restart:
+            # _load_all() re-reads the file at boot and _import_sessions_into_store()
+            # re-INSERTs it (a deleted id is not "already stored"), so the row and
+            # the board entry both come back. Found reviewing #798.
+            try:
+                (self._store_dir / f"{session_id}.json").unlink(missing_ok=True)
+            except OSError as exc:  # a disk hiccup must not fail the request
+                logger.warning("failed to remove persisted session %s: %s", session_id, exc)
         return {
             "session_id": session.session_id,
             "status": session.status,

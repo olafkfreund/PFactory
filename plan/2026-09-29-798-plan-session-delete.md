@@ -114,6 +114,40 @@ half cannot run locally, compare per-file counts against a worktree at
 `origin/dev` — before pushing. Comparing against the branch's own committed
 state measures nothing.
 
+## Deviation: two defects found by the independent review
+
+A fresh Opus review of the diff against this plan (per the managed model-split
+policy) found that the delete did not actually delete in either production
+configuration. Both were reproduced before fixing.
+
+1. **The JSON disk mirror was left behind.** `_save` writes
+   `<store_dir>/<id>.json` on every transition and production sets
+   `PFACTORY_PLAN_PERSIST`. Popping `_sessions` and the Postgres row was not
+   enough: at boot `_load_all` re-reads the file and
+   `_import_sessions_into_store` re-INSERTs it, since a deleted id is not
+   "already stored". Reproduced: after a delete, a fresh `PlanService` listed the
+   session again and the row was back. `delete_session` now unlinks the mirror.
+   Every test in this plan's step 4 builds a bare `PlanService()`
+   (`persist=False`), so none of them could see it — the new test sets the env.
+
+2. **The audit row was never committed.** `get_db` documents "Commits must be
+   done explicitly within the route handler" and its `finally` closes the
+   session, which rolls back; `log_audit_event` only flushes inside
+   `begin_nested()`. So an irreversible delete would have left no trail in
+   production. The route now commits. The original audit test monkeypatched
+   `log_audit_event` and asserted only the call arguments, so it passed with the
+   row discarded — the new test asserts the commit.
+
+Both fixes have negative controls: removing the `unlink` fails the restart test,
+removing the `commit` fails the commit test. Adding the commit also broke two
+earlier route tests that passed `db=None`, which is the suite correctly noticing
+the new obligation.
+
+A third finding (a deleted session still readable from another replica's cache,
+and resurrectable by a later write) is real but latent while the KEDA pin holds
+replicas at 1. It belongs with #804/#805 and is filed separately rather than
+widened into this change.
+
 ## Rollback
 
 Revert the commit. The endpoint disappears, the list shows discarded sessions

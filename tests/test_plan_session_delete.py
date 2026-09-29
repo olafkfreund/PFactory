@@ -188,16 +188,26 @@ def _use_service(monkeypatch, svc: PlanService) -> None:
     monkeypatch.setattr(pp, "SERVICE", svc)
 
 
+class _Db:
+    """Stands in for the request session: the route must commit the audit row."""
+
+    def __init__(self) -> None:
+        self.commits = 0
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
 def test_route_delete_returns_200_then_404_on_a_second_delete(monkeypatch):
     svc, sid = _discarded()
     _use_service(monkeypatch, svc)
 
     body = pp.DeleteBody(actor="olafkfreund")
-    out = asyncio.run(pp.delete_session(sid, body, _Request(), db=None))
+    out = asyncio.run(pp.delete_session(sid, body, _Request(), db=_Db()))
     assert out["session_id"] == sid
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(pp.delete_session(sid, body, _Request(), db=None))
+        asyncio.run(pp.delete_session(sid, body, _Request(), db=_Db()))
     assert exc.value.status_code == 404
 
 
@@ -207,7 +217,7 @@ def test_route_delete_of_a_non_deletable_status_is_409(monkeypatch):
 
     body = pp.DeleteBody(actor="olafkfreund")
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(pp.delete_session(sid, body, _Request(), db=None))
+        asyncio.run(pp.delete_session(sid, body, _Request(), db=_Db()))
     assert exc.value.status_code == 409
 
 
@@ -228,7 +238,7 @@ def test_route_delete_writes_an_audit_record(monkeypatch):
     monkeypatch.setattr(pp, "log_audit_event", _capture)
 
     body = pp.DeleteBody(actor="olafkfreund", reason="nightly probe cleanup")
-    asyncio.run(pp.delete_session(sid, body, _Request(), db=None))
+    asyncio.run(pp.delete_session(sid, body, _Request(), db=_Db()))
 
     assert captured["action"] == "plan_session.delete"
     assert captured["resource_type"] == "plan_session"
@@ -250,5 +260,52 @@ def test_a_refused_delete_writes_no_audit_record(monkeypatch):
     monkeypatch.setattr(pp, "log_audit_event", _capture)
 
     with pytest.raises(HTTPException):
-        asyncio.run(pp.delete_session(sid, pp.DeleteBody(actor="olafkfreund"), _Request(), db=None))
+        asyncio.run(pp.delete_session(sid, pp.DeleteBody(actor="olafkfreund"), _Request(), db=_Db()))
     assert calls == []
+
+
+# ── the delete must survive a restart, and leave a trail ─────────────────────
+
+
+def test_delete_removes_the_disk_mirror_so_a_restart_does_not_resurrect_it(tmp_path, monkeypatch):
+    """A deleted session must not come back on the next pod start (#798).
+
+    ``_save`` writes ``<store_dir>/<id>.json`` on every transition and
+    production sets ``PFACTORY_PLAN_PERSIST``. Popping ``_sessions`` and the
+    Postgres row is not enough: ``_load_all`` re-reads the file at boot and
+    ``_import_sessions_into_store`` re-INSERTs it, because a deleted id is not
+    "already stored". Every other test here builds a bare ``PlanService()``,
+    which is ``persist=False``, so none of them can see this.
+    """
+    monkeypatch.setenv("PFACTORY_PLAN_PERSIST", "1")
+    monkeypatch.setenv("PFACTORY_PLAN_STORE_DIR", str(tmp_path))
+
+    svc = PlanService()
+    sid = svc.ingest_text(_PLAN, title="Refund flow").session_id
+    svc.discard(sid, actor="probe", reason="e2e")
+    assert list(tmp_path.glob("*.json"))  # the mirror exists before the delete
+
+    svc.delete_session(sid, actor="olafkfreund")
+    assert list(tmp_path.glob("*.json")) == []
+
+    restarted = PlanService()
+    assert [s["session_id"] for s in restarted.list_sessions(include_discarded=True)] == []
+
+
+def test_route_delete_commits_the_audit_row(monkeypatch):
+    """``get_db`` never commits, and its finally closes (rolling back) (#798).
+
+    ``test_route_delete_writes_an_audit_record`` only captures the call
+    arguments, so it passes even when the row is discarded at request end. This
+    asserts the commit the route owes.
+    """
+    svc, sid = _discarded()
+    _use_service(monkeypatch, svc)
+
+    async def _noop(db, **kwargs) -> None:  # noqa: ANN001, ARG001
+        return None
+
+    monkeypatch.setattr(pp, "log_audit_event", _noop)
+    db = _Db()
+    asyncio.run(pp.delete_session(sid, pp.DeleteBody(actor="olafkfreund"), _Request(), db=db))
+    assert db.commits == 1

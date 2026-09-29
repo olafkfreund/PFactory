@@ -579,6 +579,11 @@ async def delete_session(
             "title": result["title"],
         },
     )
+    # get_db() never commits ("Commits must be done explicitly within the route
+    # handler") and its finally closes the session, which rolls back. Without
+    # this, log_audit_event's flush inside begin_nested() is discarded and an
+    # irreversible delete leaves no trail. Found reviewing #798.
+    await db.commit()
     return result
 
 
