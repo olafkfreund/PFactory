@@ -90,6 +90,30 @@ Negative controls (run, then revert — neither is committed):
 - widen `DELETABLE_STATUSES` to `TERMINAL_STATUSES` ⇒ test 3 fails;
 - drop the `include_discarded` filter ⇒ test 7 fails.
 
+## Deviation: the cq-ratchet counts net-new per rule per file
+
+Found by CI on PR #821, which failed seven jobs. The first implementation used a
+relative parent import for `audit_service` (two net-new TID252, one per imported
+name), `db: AsyncSession = Depends(get_db)` (net-new B008), a bare `-> dict` and
+an unannotated `result` (net-new `type-arg` and `no-any-return`), and read
+`result.rowcount` directly (net-new `attr-defined`, because SQLAlchemy's
+`Result` has no declared `rowcount`).
+
+Each of those matches a pattern the touched files already contain, which is why
+it looked acceptable — but the ratchet compares counts per rule per file, so
+matching precedent still fails. Corrected to: an absolute
+`from server.services.audit_service import ...`, `Annotated[AsyncSession,
+Depends(get_db)]`, `-> dict[str, str]` with an annotated `result`, and the
+existing `_rowcount` helper in `jobstore/store.py` (which exists for exactly
+this reason). All four counters now equal `origin/dev`'s, measured in a worktree
+at `origin/dev` rather than against the branch.
+
+Lesson for future steps: run
+`scripts/ratchet_lint.py --base origin/dev --package ...` — or, where its mypy
+half cannot run locally, compare per-file counts against a worktree at
+`origin/dev` — before pushing. Comparing against the branch's own committed
+state measures nothing.
+
 ## Rollback
 
 Revert the commit. The endpoint disappears, the list shows discarded sessions

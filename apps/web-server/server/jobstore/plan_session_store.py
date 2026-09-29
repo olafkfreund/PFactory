@@ -31,6 +31,7 @@ from .plan_session_models import (
     PlanSessionCounter,
     PlanSessionRow,
 )
+from .store import _rowcount
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,9 @@ class PlanSessionStore:
         async with self._sessionmaker() as session, session.begin():
             stmt = sa_delete(PlanSessionRow).where(PlanSessionRow.session_id == session_id)
             result = await session.execute(stmt)
-            return bool(result.rowcount)
+            # _rowcount (store.py) exists because SQLAlchemy's Result has no
+            # declared rowcount, so a direct read is a net-new strict error.
+            return _rowcount(result) > 0
 
     def list_payloads(self, *, tenant_id: str | None = None) -> list[str]:
         """Every stored payload, oldest session number first."""

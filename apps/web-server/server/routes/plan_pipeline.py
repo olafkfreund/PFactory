@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
-from ..services.audit_service import ACTION_PLAN_SESSION_DELETE, log_audit_event
 from ..tenancy import multi_tenant_enabled, resolve_tenant
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
@@ -36,6 +35,11 @@ from plan.service import (  # noqa: E402
     PlanService,
     PlanServiceError,
     StaleSessionError,
+)
+
+from server.services.audit_service import (  # noqa: E402
+    ACTION_PLAN_SESSION_DELETE,
+    log_audit_event,
 )
 
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
@@ -536,8 +540,10 @@ async def delete_session(
     session_id: str,
     body: DeleteBody,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
+    # Annotated, not a Depends() default: a call in a default is B008, and the
+    # ratchet blocks net-new per rule per file (#798).
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
     """Erase a terminal session outright (#798) — discarded/rejected only.
 
     Unlike ``/discard``, which still records the session as abandoned, this
@@ -550,7 +556,11 @@ async def delete_session(
     """
     tenant = resolve_tenant(request) if multi_tenant_enabled() else None
     try:
-        result = SERVICE.delete_session(session_id, actor=body.actor, tenant_id=tenant)
+        # Annotated: SERVICE is untyped here, so an unannotated result makes the
+        # return Any and costs the ratchet a net-new no-any-return (#798).
+        result: dict[str, str] = SERVICE.delete_session(
+            session_id, actor=body.actor, tenant_id=tenant
+        )
     except PlanInputError as exc:
         # Same PlanInputError for both cases (#798) — told apart by message,
         # matching the "unknown session" text `get()`/`_guard_tenant` use, so
