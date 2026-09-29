@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 786
 spec: spec/2026-09-29-786-hook-ratchet-parity.md
 ---
