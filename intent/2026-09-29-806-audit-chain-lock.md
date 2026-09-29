@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 806
 author: Olaf Krasicki-Freund
 ---
@@ -68,6 +68,8 @@ concurrency cannot tell tampering from a race.
 - No measurable latency for normal request volumes; audit writes are rare.
 
 ## Open questions
+
+Resolved 2026-09-29 (approved): 1 = (a) a monotonic sequence column; 2 = one global chain lock.
 
 1. **Ordering fix:**
    - (a) add a monotonic sequence column (`BIGSERIAL`/identity) assigned
