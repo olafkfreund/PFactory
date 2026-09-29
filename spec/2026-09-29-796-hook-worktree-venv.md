@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 796
 intent: intent/2026-09-29-796-hook-worktree-venv.md
 ---
