@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 798
 ---
 
@@ -62,16 +62,12 @@ present the dead as live.
 - Changing the list default is a visible behaviour change for any existing
   consumer that counts on seeing discarded rows.
 
-## Open questions
+## Decisions (were open questions, answered at approval)
 
-1. **Does a delete need an audit record?** The repo has a hash-chained audit
-   log (#806). A destructive operation with no trace is the kind of thing that
-   log exists for — but the record would outlive the thing it describes, which
-   may be exactly right or may be pointless. My inclination: record it, because
-   "who removed this and when" is the one question a missing session provokes.
-2. **Does `DELETE` require an `actor`,** as `/discard` and `/reject` do? Same
-   argument as above; it also makes the audit record meaningful rather than
-   anonymous.
-3. **Should the list default change in the same PR** as the endpoint, or ship
-   second once the probe is cleaning up after itself? Doing both at once means
-   one behaviour change for portal consumers instead of two.
+1. **A delete is audited.** "Who removed this and when" is the one question a
+   missing session provokes, and the hash-chained log (#806) exists for exactly
+   this class of operation. The record outliving the session is the point.
+2. **`DELETE` requires an `actor`,** as `/discard` and `/reject` do — it is what
+   makes the audit record something other than anonymous.
+3. **Endpoint and list default ship together.** One visible behaviour change for
+   portal consumers instead of two.
