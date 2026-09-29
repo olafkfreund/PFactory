@@ -202,15 +202,56 @@ per-language. Docstring corrected to say what it actually guards (cross-language
 double-claimed tokens, a shadowed canonical name) and to point at the behaviour rows
 for the rest.
 
+## Deviations, round three: four of those "false negatives" were my regression
+
+The reviewer's closing note said the lowercase tool cases were a **live regression from
+this change**, not a pre-existing gap. I measured it and got "zero regressions" — then
+noticed the answer contradicted my own reasoning and found the harness was wrong: it
+diffed against `origin/dev`, which by then already contained this change, so it compared
+the code against itself. Against the true pre-#827 baseline (`22b4550`):
+
+    Use cargo to build it.                       rust   -> None    REGRESSION
+    Run the flask app under gunicorn.            python -> None    REGRESSION
+    Add a maven profile for the release.         java   -> None    REGRESSION
+    The django settings module needs splitting.  python -> None    REGRESSION
+    markdown / label / hyphen / verb cases       None   -> None    pre-existing
+
+So the reviewer was right, my measurement was vacuous, and the "eleven false negatives"
+framing was wrong: four were mine to fix, not to defer.
+
+8. **Rule C no longer requires capitalisation for the ecosystem tokens.**
+   `_ENGLISH_WORD_TOKENS` narrows to `{go, swift}` — the two genuine high-frequency
+   English words. `flask`, `cargo`, `django` and `maven` are tool names people write
+   lowercase, and the following-noun requirement alone already refuses "track cargo
+   across the fleet" and "sterilise the flask before each run". A separate
+   `_ACRONYM_RISK_TOKENS` set keeps rule B's ALL-CAPS refusal for all six.
+
+9. **`_QUALIFIER_ANY` for those tokens**, since "Use cargo **to** build it" needs a
+   lowercase qualifier. `_LANG_NOUN` also gains tool-shaped nouns (`build`, `settings`,
+   `profile`, `workspace`, `manifest`, `crate`, `dependency`, `plugin`, `config`) —
+   deliberately **not** `run`, which would reopen "before each run".
+
+   Known cost, measured and accepted: freight prose now resolves. "The freight cargo
+   manifest lists two crates." and "We ship cargo dependencies by sea." both read as
+   Rust. Two contrived leaks against four genuine detections, in a software planning
+   tool — worth it, and recorded rather than discovered later.
+
+10. **I corrected one of my own test rows' expectations.**
+    `("The cargo build must be reproducible.", None)` now expects `"rust"`: "cargo
+    build" is the Rust build command, so a brief saying it *is* naming Rust and my
+    expectation was simply wrong. Flagged loudly because adjusting an assertion to
+    make a suite pass is the exact thing I told the implementer never to do — the
+    distinction is that this row is from this same unmerged change, not shipped
+    behaviour, and the row was wrong rather than the code.
+
 ## Known false negatives, NOT fixed here — they need a decision
 
 The same review constructed eleven cases that *should* resolve and do not. All
 verified. This matters more than usual because the plan's own argument is that on a
 hard gate a false negative is the worse error:
 
-- **Lowercase genuine tool uses**, a regression from the tier move and untested:
-  `"Use cargo to build it."`, `"Run the flask app under gunicorn."`,
-  `"Add a maven profile for the release."` — all resolved before, all `None` now.
+- ~~Lowercase genuine tool uses~~ — **fixed**, see deviations 8 and 9 above. These
+  were my regression, not a pre-existing gap.
 - **Markdown**: `` "… in `go`." ``, `"… in **Go**."` → `None`. Briefs pasted from issue
   bodies are full of backticked language names.
 - **Hyphenated compounds**: `"A Go-based microservice."`, `"A Swift-based iOS app."`.

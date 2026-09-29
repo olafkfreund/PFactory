@@ -73,19 +73,42 @@ _BARE_PREFIX = r"(?:in|using|with)\s+"
 # C  the token followed by a noun that makes it a language.
 _LANG_NOUN = (
     r"(?:service|module|package|binary|app|application|code|codebase|version|"
-    r"program|library|sdk|backend|api|microservice|project)"
+    r"program|library|sdk|backend|api|microservice|project|"
+    # Tool-shaped nouns, for the ecosystem tokens below: "cargo build", "maven
+    # profile", "django settings". Deliberately NOT "run" -- "sterilise the flask
+    # before each run" must stay unresolved.
+    r"build|settings|profile|workspace|workspaces|manifest|crate|dependency|"
+    r"dependencies|plugin|config|configuration)"
 )
 # A qualifier may sit between the token and the noun, but only if it LOOKS like a
 # proper noun, acronym or version -- it must carry an uppercase letter or a digit.
 # A shape allowlist, not a word denylist: "and", "live" and "reliable" walked
 # through the denylist, and English cannot be enumerated.
 _QUALIFIER = r"(?:\s+[\w.+#-]*[A-Z0-9][\w.+#-]*){0,2}"
+# The ecosystem tokens (cargo, flask, django, maven) do not need the proper-noun
+# shape: they are not English words in their own right, so the following noun is
+# doing the work on its own. "Use cargo to build it." needs a lowercase "to" to be
+# allowed through; "track cargo across the fleet" is still refused, because "fleet"
+# is not a language noun.
+_QUALIFIER_ANY = r"(?:\s+[\w.+#-]+){0,2}"
 
-# Tokens that are ordinary English words as well as language names. Rule C requires
-# these Capitalised-but-NOT-ALL-CAPS, which is what separates "A Swift SPM library"
-# from "A SWIFT MT103 service" -- SWIFT being the interbank network, a real shape in
-# this product's payments briefs.
-_ENGLISH_WORD_TOKENS = frozenset({"go", "swift", "flask", "cargo", "django", "maven"})
+# Tokens whose ALL-CAPS form is almost always an acronym rather than the language,
+# so rule B refuses it: SWIFT is the interbank network, UV is light, CARGO is
+# freight. The two-letter tokens are the reverse ("in TS", "Ported to JS"), so they
+# keep the upper-case form.
+_ACRONYM_RISK_TOKENS = frozenset({"go", "swift", "flask", "cargo", "django", "maven"})
+
+# Of those, the ones that are high-frequency ENGLISH WORDS in ordinary prose. Rule C
+# additionally requires these Capitalised-but-NOT-ALL-CAPS, which is what separates
+# "A Swift SPM library" from "A SWIFT MT103 service".
+#
+# `flask`, `cargo`, `django` and `maven` are deliberately NOT here. They are tool
+# names people write lowercase ("run the flask app", "cargo build", "a maven
+# profile"), and requiring capitalisation cost four genuine detections that the
+# pre-#827 code resolved -- a regression a reviewer caught. The noun requirement
+# alone is enough for them: "track cargo across the fleet" and "sterilise the flask
+# before each run" have no language noun after the token.
+_ENGLISH_WORD_TOKENS = frozenset({"go", "swift"})
 
 # Rule C is skipped below this length: a two-letter token plus a following noun is
 # too weak to tell a language from an acronym ("an RS code" is Reed-Solomon, "the
@@ -191,12 +214,10 @@ def _weak_alternatives(needle: str) -> list[str]:
     """
     escaped = re.escape(needle)
     english_word = needle in _ENGLISH_WORD_TOKENS
-    # An ALL-CAPS English word is nearly always an acronym, not the language:
-    # SWIFT is the interbank network, UV is light, RS is Reed-Solomon. The
-    # two-letter tokens are the reverse -- "in TS" / "Ported to JS" are how people
-    # write those -- so they keep the upper-case form.
     after_prefix = (
-        needle.capitalize() if english_word else f"{needle.capitalize()}|{needle.upper()}"
+        needle.capitalize()
+        if needle in _ACRONYM_RISK_TOKENS
+        else f"{needle.capitalize()}|{needle.upper()}"
     )
     alternatives = [
         # A -- a strong prefix is evidence at any casing, so the token is folded in.
@@ -215,7 +236,7 @@ def _weak_alternatives(needle: str) -> list[str]:
         # deliberately: "an RS code", "the RS module" are Reed-Solomon, and a
         # noun alone is too weak to tell them from a language (#827 D3). They
         # still resolve through A and B.
-        alternatives.append(rf"(?i:\b{escaped}\b){_QUALIFIER}\s+(?i:{_LANG_NOUN})\b")
+        alternatives.append(rf"(?i:\b{escaped}\b){_QUALIFIER_ANY}\s+(?i:{_LANG_NOUN})\b")
     return alternatives
 
 

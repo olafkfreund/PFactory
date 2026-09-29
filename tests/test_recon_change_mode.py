@@ -219,7 +219,11 @@ _STRENGTH_CASES: list[tuple[str, str | None]] = [
     ("Sterilise the flask before each run.", None),
     ("Track cargo across the fleet.", None),
     ("Django Reinhardt playlist feature.", None),
-    ("The cargo build must be reproducible.", None),
+    # I wrote this row expecting None, and the expectation was wrong: "cargo
+    # build" is the Rust build command, so a brief saying it IS naming Rust.
+    # Corrected rather than worked around -- it is a row from this same
+    # unmerged change, not shipped behaviour (#827).
+    ("The cargo build must be reproducible.", "rust"),
     ("The maven of our team wrote it.", None),
     ("Please go and check the flask on the bench.", None),
     # ...while their genuine uses still resolve, via rule B or C
@@ -268,6 +272,14 @@ _STRENGTH_CASES: list[tuple[str, str | None]] = [
     # ...while the genuine two-letter uses still resolve, via rules A and B
     ("Write it in TS.", "typescript"),
     ("Ported to JS for the browser build.", "javascript"),
+    # The four REGRESSIONS this change first introduced and then fixed: moving the
+    # ecosystem tokens into the case-gated tier lost genuine lowercase uses that the
+    # pre-#827 code resolved. Rule C no longer requires capitalisation for them --
+    # the following noun carries it, which the prose rows above still prove.
+    ("Use cargo to build it.", "rust"),
+    ("Run the flask app under gunicorn.", "python"),
+    ("Add a maven profile for the release.", "java"),
+    ("The django settings module needs splitting.", "python"),
 ]
 
 
