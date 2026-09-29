@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 792
 author: Olaf Krasicki-Freund
 ---
@@ -49,6 +49,8 @@ While it stays:
   name; they are history.
 
 ## Open questions
+
+Resolved 2026-09-29 (approved): 1 = delete the alias test.
 
 1. **`test_the_old_hook_name_is_an_alias`:** delete it, or turn it into a
    test that the old name is gone (`not hasattr(svc, ...)`)?
