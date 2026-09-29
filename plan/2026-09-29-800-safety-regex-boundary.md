@@ -60,6 +60,18 @@ on the shipped patterns; the candidate patterns above give **0 mismatches across
 7. Commit (the hook runs ruff, the ratchet and the full backend suite), push, open
    the PR against `dev` linking intent, spec and plan.
 
+## Deviation recorded while implementing
+
+The plan said 45 cases; the table shipped with **59** (46 positive, 13 negative).
+Writing it out per branch rather than per measured probe added the branches my
+audit script had not probed — `_AGE_OK_RE`'s `assurance` / `verification` /
+`check` arms, `_PROFILING_OK_RE`'s `art. 22` short form, and the two negatives
+that pin `report\w*` inside its branch (`reporting to investors`,
+`blocking the request`). Same shape, same intent, more of it; no case was dropped.
+
+Per-regex: `_AGE` 14, `_SAFETY` 13, `_LAWFUL_BASIS` 11, `_PROFILING` 9,
+`_RETENTION` 6, `_LOCATION` 3, `_ACCOUNT_DELETION` 3.
+
 ## Tests
 
     apps/backend/.venv/bin/pytest tests/test_compliance_lens.py -q
