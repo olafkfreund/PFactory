@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 825
 spec: spec/2026-09-29-825-running-route-order.md
 ---
