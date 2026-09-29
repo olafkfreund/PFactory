@@ -32,9 +32,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Iterable, Mapping
+from collections.abc import Iterable, Mapping
 
 GENESIS = "GENESIS"
+# #806: the Postgres advisory-lock key that serializes chain writers (every
+# `log_audit_event` and the GDPR re-chain). b"pf-audit" as a signed bigint;
+# fixed, because every replica must take the same lock.
+AUDIT_CHAIN_LOCK_KEY = 0x70662D6175646974
 _SEP = b"\x1f"
 
 
@@ -88,8 +92,10 @@ def verify_chain(rows: Iterable[Mapping]) -> tuple[bool, int | None, str | None]
       - ok=False with the 0-based index of the first row that fails
         + a human-readable reason.
 
-    Rows must be ordered by ascending ``created_at`` (or any total
-    order — the chain is order-sensitive).
+    Rows must be ordered by ascending ``chain_seq`` (#806), the order
+    the chain was written in. ``created_at`` is not a safe order: it is
+    the transaction start time, so concurrent writers can sort out of
+    link order.
     """
     prev_hash: str | None = None
     rows_list = list(rows)
@@ -129,6 +135,7 @@ def row_as_mapping(audit_row) -> dict:
 def serialize_for_export(audit_row) -> dict:
     """Stable JSON-serializable shape for /api/audit/export?format=json."""
     d = row_as_mapping(audit_row)
+    d["chain_seq"] = audit_row.chain_seq  # #806: the order to verify in; not hashed
     d["created_at"] = _iso(d["created_at"])
     if d.get("details_json"):
         try:

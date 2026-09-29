@@ -38,6 +38,14 @@ aiosqlite>=0.20.0
 # asyncpg is the production driver; aiosqlite is kept for local dev
 # (engine.py picks via DATABASE_URL scheme — see P1.1).
 asyncpg>=0.30.0
+# A SYNC driver, for the one sync-engine caller: the KMS root-key rotation
+# runbook (`python -m server.crypto rotate-root`), whose rotate_root() takes a
+# sync Engine on purpose. Without it that runbook — the recovery path for a
+# compromised key — died in create_engine with ModuleNotFoundError in the
+# shipped image, on every SQLAlchemy version (#781). ~10MB with the binary
+# wheel; psycopg 3 rather than psycopg2 because it is the maintained driver and
+# what SQLAlchemy 2.1 resolves `postgresql://` to anyway.
+psycopg[binary]>=3.2
 # Alembic for schema migrations (see apps/web-server/alembic.ini)
 alembic>=1.13.0
 
