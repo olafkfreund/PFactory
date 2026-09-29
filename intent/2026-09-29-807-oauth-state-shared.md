@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 807
 author: Olaf Krasicki-Freund
 ---
@@ -68,6 +68,8 @@ moment the pin is lifted.
   factory-gitops#273 sets it to the scaler ceiling.
 
 ## Open questions
+
+Resolved 2026-09-29 (approved): 1 = (a) a state table consumed with DELETE ... RETURNING; 2 = (a) refuse with more than one replica.
 
 1. **Where the email OAuth state lives:**
    - (a) a small table (`oauth_connect_states`: state PK, user_id, provider,
