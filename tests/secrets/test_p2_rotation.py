@@ -231,3 +231,62 @@ def test_rotation_invalidates_in_process_cache() -> None:
     # The cache entry's rotated_at advanced (proves invalidation fired).
     post_cache_entry = manager._cache[org_id]  # type: ignore[attr-defined]
     assert post_cache_entry.rotated_at > pre_rotated_at
+
+
+# ── the CLI's sync URL (#781) ──────────────────────────────────────────────────
+# `rotate-root` is the recovery path for a compromised root key, and it could not
+# run in the shipped image at all: it stripped the async driver, leaving a bare
+# `postgresql://`, whose driver SQLAlchemy picks — psycopg2 through 2.0, psycopg 3
+# from 2.1 — and the image carries neither. It died inside create_engine.
+
+
+@pytest.mark.secrets
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        # the shape the chart actually supplies
+        ("postgresql+asyncpg://u:p@h:5432/db", "postgresql+psycopg://u:p@h:5432/db"),
+        # a bare URL: previously the default driver, now named
+        ("postgresql://u@h/db", "postgresql+psycopg://u@h/db"),
+        # already names a driver the image does not carry
+        ("postgresql+psycopg2://u@h/db", "postgresql+psycopg://u@h/db"),
+        # sqlite keeps the stdlib driver — no third-party dependency
+        ("sqlite+aiosqlite:///./x.db", "sqlite:///./x.db"),
+        ("sqlite:///./x.db", "sqlite:///./x.db"),
+        # anything else is left alone rather than guessed at
+        ("mysql://u@h/db", "mysql://u@h/db"),
+    ],
+)
+def test_sync_url_names_the_driver(given: str, expected: str) -> None:
+    from server.crypto.__main__ import _sync_url
+
+    assert _sync_url(given) == expected
+
+
+@pytest.mark.secrets
+def test_sync_url_keeps_the_password() -> None:
+    """`str(url)` renders the password as `***`; the engine would use that
+    literal. The rewrite must render the real one."""
+    from server.crypto.__main__ import _sync_url
+
+    out = _sync_url("postgresql+asyncpg://user:s3cret@host:5432/db")
+    assert "s3cret" in out
+    assert "***" not in out
+
+
+@pytest.mark.secrets
+def test_a_malformed_database_url_exits_with_a_message(capsys, monkeypatch) -> None:
+    """A bad URL must read as a bad URL, not a traceback."""
+    import argparse
+
+    from server.crypto.__main__ import _cmd_rotate_root
+
+    monkeypatch.setenv("DATABASE_URL", "://not-a-url")
+    monkeypatch.setenv("APP_KMS_BACKEND", "fernet")
+    monkeypatch.setenv("KMS_FERNET_KEY", _new_fernet_key())
+    monkeypatch.setenv("KMS_FERNET_KEY_NEW", _new_fernet_key())
+
+    code = _cmd_rotate_root(argparse.Namespace(new_kms_key_id="probe", batch_size=100))
+
+    assert code == 2
+    assert "not a valid database URL" in capsys.readouterr().err
