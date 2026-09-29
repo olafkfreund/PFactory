@@ -21,6 +21,7 @@
   is unchanged.
 - A passing deployment-pipeline gate reports what it found (#797).
 - Four compliance-review escapes accept inflected wording (#800).
+- The pre-commit hook finds the backend venv from a git worktree (#796).
 
 ## 0.6.24 — email OAuth state shared across replicas (2026-09-29)
 
