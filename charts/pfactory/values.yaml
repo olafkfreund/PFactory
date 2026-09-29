@@ -3,7 +3,8 @@
 #
 # Sections:
 #   image           — container image + pull config
-#   replicaCount    — pinned to 1 for v1.0 (WebSocket fan-out limitation)
+#   replicaCount    — pinned to 1; see the note on the value itself for what
+#                     still blocks >1 (#804 relayed the WebSocket half)
 #   resources       — CPU/memory requests + limits
 #   securityContext — PSS-restricted defaults; do not relax without review
 #   service         — ClusterIP by default; Ingress controls public exposure
@@ -28,7 +29,22 @@ image:
   pullPolicy: IfNotPresent
   pullSecrets: []
 
-replicaCount: 1  # v1.1 will support >1 via Redis pub/sub for WS fan-out
+# Still pinned to 1, but no longer for the WebSocket reason: #804 relays events,
+# task logs and progress between pods through Postgres LISTEN/NOTIFY, so a browser
+# attached to any pod now receives events emitted on any other. No Redis is
+# involved — Postgres is already a hard dependency, and a second broker was not
+# worth a new failure domain.
+#
+# What still has to be fixed before raising this:
+#   #805 — running-task registries are per pod, so status/stop/recover reach the
+#          wrong pod and the duplicate-run guard does not hold
+#   #828 — a deleted plan session is resurrected by a write from another pod's
+#          cache, and is then neither hidden nor deletable
+#   #829 — task detail reads task_logs.json from the serving pod, and the volume
+#          is ReadWriteOnce, so the file is simply absent on the other pod
+# Tracked for the cluster in factory-gitops#273, whose KEDA ScaledObject also
+# pins maxReplicaCount: 1.
+replicaCount: 1
 
 # What the pod is TOLD about how many replicas may run (#755, review on #760).
 # `replicaCount` is only the chart's desired count -- KEDA (factory-gitops
@@ -296,8 +312,11 @@ affinity: {}
 #   • ``emptyDir`` volumes mounted at ``/var/run/pfactory/rmux/`` and
 #     ``/var/run/pfactory/panes/`` (owned by the pod user, tmpfs-backed
 #     by default for low-latency pipe-pane I/O)
-#   • Replicas are pinned to 1 regardless of HPA — multi-replica rmux
-#     requires v1.1's Redis pub/sub for session visibility across pods
+#   • Replicas are pinned to 1 regardless of HPA — an rmux session's FIFOs
+#     live in this pod's ``emptyDir``, so the session exists on exactly one
+#     pod. Event fan-out (#804) does not help: there is nothing to relay,
+#     the pane is simply not there. Cross-pod rmux needs the ownership
+#     registry #805 is about, plus pod-to-pod forwarding.
 rmux:
   enabled: false
   # Memory cap for the panes ``emptyDir`` (FIFOs + buffered bytes).
@@ -328,9 +347,11 @@ rmux:
 # clone-from-URL flow keep working exactly as they did pre-#82.
 #
 # Multi-replica caveat: ``accessMode: ReadWriteOnce`` is fine for the
-# v1.0 single-replica web-server.  v1.1's Redis-fan-out (#40) will let
-# replicas > 1 share state, but the workspace PVC will then need to be
-# RWX (NFS / Azure Files / EFS / CephFS) for cross-pod access.
+# single-replica web-server.  Event fan-out across pods is solved (#804,
+# via Postgres LISTEN/NOTIFY — the old note here promised Redis and cited
+# an issue number from another repo's numbering), but FILES are not: this
+# PVC must become RWX (NFS / Azure Files / EFS / CephFS) before replicas
+# > 1 can read each other's workspaces and task logs.  See #829.
 workspaces:
   # Master toggle.  False means: no PVC, no env var, behaviour unchanged.
   enabled: false
@@ -342,8 +363,8 @@ workspaces:
   # default; set explicitly for clusters with multiple classes (e.g.
   # ``gp3``, ``managed-premium``, ``standard-rwo``).
   storageClass: ""
-  # Access mode.  Stay on RWO for v1.0 (single replica); v1.1 will need
-  # RWX when Redis fan-out lets replicas > 1.
+  # Access mode.  Stay on RWO while replicaCount is 1; RWX is required
+  # before raising it (#829), independently of the event relay (#804).
   accessMode: ReadWriteOnce
   # In-container mount path + ``PROJECT_WORKSPACE_ROOT`` value.  Keep
   # under /var/lib so it's clearly out-of-tree from the app code; the
