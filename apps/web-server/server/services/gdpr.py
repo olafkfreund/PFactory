@@ -47,6 +47,7 @@ from factory_common.logsafe import sanitize_log
 
 from ..database.models import AuditLog, EmailAccount, User
 from .audit_chain import GENESIS, compute_hash, row_as_mapping
+from .audit_service import lock_audit_chain
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -127,6 +128,10 @@ async def erase_user(db: AsyncSession, user_id: str) -> dict:
 
     hashed = _hash_user_id(user_id)
 
+    # #806: hold the audit-chain lock from the first audit-row change to the
+    # commit, so no writer links to a row this erasure is about to re-chain.
+    await lock_audit_chain(db)
+
     # 2. Anonymize audit_logs. Update both user_id and details_json.
     audit_result = await db.execute(select(AuditLog).where(AuditLog.user_id == user_id))
     audit_rows = list(audit_result.scalars())
@@ -145,14 +150,14 @@ async def erase_user(db: AsyncSession, user_id: str) -> dict:
         await db.delete(ea)
 
     # 4. Re-chain the audit log so verify_chain still passes
-    # post-erasure. Walk all rows in created_at order; for each row,
+    # post-erasure. Walk all rows in chain_seq order (#806); for each row,
     # set its prev_hash = compute_hash(prev_row's prev_hash, prev_row's
     # content). Includes rows we just modified — their post-erasure
     # content is now the canonical content. This is O(total rows) so
     # erasure on a 1M-row audit log walks the whole table once.
     # Acceptable for a one-time operator action; v1.1 will optimize
     # by re-chaining from the first modified row only.
-    all_rows_result = await db.execute(select(AuditLog).order_by(AuditLog.created_at.asc()))
+    all_rows_result = await db.execute(select(AuditLog).order_by(AuditLog.chain_seq.asc()))
     prev_hash_for_next = GENESIS
     for row in all_rows_result.scalars():
         row.prev_hash = prev_hash_for_next

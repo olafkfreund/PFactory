@@ -24,29 +24,123 @@ if TYPE_CHECKING:
     from plan.models import NormalizedPlan
     from plan.recon.models import RepoMap
 
-# Intended-language signals in spec prose. Ordered so the first hit wins; values
-# are the canonical language name (matching project/stack_detector output).
+# Intended-language signals in spec prose, split into three tiers consulted in
+# order of how much a match actually proves (#801). Within a tier, order does not
+# matter because no two entries in a tier share a token; across tiers, order *is*
+# the design -- a name beats a weak English word beats a shared build tool.
 #
-# Written as plain tokens: matching is word-boundary aware (see _SIGNAL_PATTERNS),
-# so nothing here needs the space-padding these once carried. That padding was a
+# Written as plain tokens: matching is word-boundary aware (see boundary()), so
+# nothing here needs the space-padding these once carried. That padding was a
 # per-needle patch for a whole-class defect -- a bare "rust" still matched inside
 # "untrusted", which is the most natural word in a security criterion, so every
 # spec that satisfied the security lens then hard-failed the language gate as a
-# Rust spec (#397). Boundaries also make the ordering non-load-bearing: "java" no
-# longer matches inside "javascript".
-_LANGUAGE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
-    ("rust", ("rust", "cargo", "rs", "tokio", "actix")),
-    ("go", ("golang", "go", "goroutine", "go.mod")),
-    ("typescript", ("typescript", "ts", "deno", "node.js", "nodejs")),
-    ("javascript", ("javascript", "js", "express.js")),
-    ("python", ("python", "pytest", "fastapi", "django", "flask", "uv")),
-    ("java", ("java", "spring boot", "maven", "gradle")),
+# Rust spec (#397).
+
+# Tier 1: tokens that name exactly one language. A match resolves immediately --
+# this is what fixes the reported defect (#801): "Kotlin ... Gradle" hits kotlin
+# here and never reaches "gradle" in tier 3.
+_LANGUAGE_NAMES: list[tuple[str, tuple[str, ...]]] = [
+    ("rust", ("rust",)),
+    ("go", ("golang", "go.mod", "goroutine", "gofmt")),
+    ("typescript", ("typescript", "deno")),
+    ("javascript", ("javascript", "express.js", "node.js", "nodejs")),
+    ("python", ("python",)),
+    ("java", ("java", "spring boot")),
     ("csharp", ("c#", ".net", "dotnet", "asp.net")),
     ("ruby", ("ruby", "rails")),
     ("php", ("php", "laravel", "symfony")),
     ("kotlin", ("kotlin",)),
+    ("swift", ("swiftui",)),
+    ("cpp", ("c++",)),
+]
+
+# A weak token resolves under exactly one of three rules (#827). #822's first
+# attempt at this was a prefix list plus a ten-word function-word denylist, and
+# both leaked: "responded in swift succession" and "a swift and reliable api" each
+# HALTed a valid plan on the hard language-reconciled gate.
+#
+# A  a STRONG prefix -- evidence on its own, at any casing.
+_STRONG_PREFIX = (
+    r"(?:written\s+in|rewritten\s+in|rewrite\s+in|ported\s+to|"
+    r"migrate[ds]?\s+to|implemented\s+in)\s+"
+)
+# B  a BARE prefix, which proves nothing by itself, so the token must also be
+#    capitalised in the ORIGINAL text: "write it in Go" resolves, "in swift
+#    succession" does not. Case RAISES confidence here; it never gates tier 1,
+#    because briefs arrive lowercased (issue bodies, pasted logs) and on a hard
+#    gate a false negative -- missing a real mismatch -- is the worse error.
+_BARE_PREFIX = r"(?:in|using|with)\s+"
+# C  the token followed by a noun that makes it a language.
+_LANG_NOUN = (
+    r"(?:service|module|package|binary|app|application|code|codebase|version|"
+    r"program|library|sdk|backend|api|microservice|project)"
+)
+# A qualifier may sit between the token and the noun, but only if it LOOKS like a
+# proper noun, acronym or version -- it must carry an uppercase letter or a digit.
+# A shape allowlist, not a word denylist: "and", "live" and "reliable" walked
+# through the denylist, and English cannot be enumerated.
+_QUALIFIER = r"(?:\s+[\w.+#-]*[A-Z0-9][\w.+#-]*){0,2}"
+
+# Tokens that are ordinary English words as well as language names. Rule C requires
+# these Capitalised-but-NOT-ALL-CAPS, which is what separates "A Swift SPM library"
+# from "A SWIFT MT103 service" -- SWIFT being the interbank network, a real shape in
+# this product's payments briefs.
+_ENGLISH_WORD_TOKENS = frozenset({"go", "swift", "flask", "cargo", "django", "maven"})
+
+# Tier 2: tokens with an everyday meaning of their own. #397 only half-fixed this
+# class -- word boundaries stopped matching *inside* words, but not words that are
+# ordinary English on their own, so "users can go to the next screen" read as Go.
+# `cargo`, `flask`, `django` and `maven` live here rather than in the tool tier for
+# exactly that reason: "track cargo across the fleet" is not a Rust plan (#827).
+_WEAK_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
+    ("go", ("go",)),
     ("swift", ("swift",)),
-    ("cpp", ("c++", "cmake")),
+    ("typescript", ("ts",)),
+    ("javascript", ("js",)),
+    ("rust", ("rs", "cargo")),
+    ("python", ("uv", "flask", "django")),
+    ("java", ("maven",)),
+]
+
+# Tier 3: build tools and ecosystems, reached only when tiers 1 and 2 say nothing.
+# Only tokens with no everyday English meaning belong here -- this tier has no
+# context requirement, so anything ambiguous placed in it fires on prose (#827).
+_TOOL_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
+    ("rust", ("tokio", "actix")),
+    ("python", ("pytest", "fastapi")),
+    ("kotlin", ("jetpack compose",)),
+    ("cpp", ("cmake",)),
+]
+
+# Tokens that legitimately belong to several languages -- these deliberately
+# resolve to None rather than guessing or tie-breaking on the repo language.
+# `None` already means "unstated" to reconcile_language, which then grounds on
+# the repo language with no conflict: the honest answer when the spec genuinely
+# has not said. #585 requires that a real conflict HALT rather than resolve
+# quietly, so a repo-preferring tie-break here would be a back door around it.
+_SHARED_TOOLS: dict[str, tuple[str, ...]] = {
+    "gradle": ("java", "kotlin", "scala", "groovy"),
+    "android": ("java", "kotlin"),
+}
+
+# Back-compat alias for two consumers that still import the pre-#801 flat table
+# directly: `plan/detect/migration_classifier.py` (builds its token→language
+# `_CANON` map) and `tests/test_synthesize.py`'s #475 drift guard (every
+# detectable language has a source extension). Derived, not hand-maintained --
+# the per-language union of the three tiers, in `_LANGUAGE_NAMES` order so all
+# 12 languages appear. `_SHARED_TOOLS` is deliberately excluded: its tokens are
+# ambiguous by construction, and folding `gradle` back into java's token set is
+# the exact defect #801 fixed.
+_LANGUAGE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
+    (
+        lang,
+        tuple(
+            dict.fromkeys(
+                needles + dict(_WEAK_SIGNALS).get(lang, ()) + dict(_TOOL_SIGNALS).get(lang, ())
+            )
+        ),
+    )
+    for lang, needles in _LANGUAGE_NAMES
 ]
 
 
@@ -66,10 +160,50 @@ def boundary(needle: str) -> str:
     )
 
 
-_SIGNAL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    (lang, re.compile("|".join(boundary(n) for n in needles)))
-    for lang, needles in _LANGUAGE_SIGNALS
+# The spec text keeps its original casing (rules B and C read it), so every pattern
+# that should ignore case says so explicitly. A missing `re.I` here is a silent
+# false negative, which on this gate is the worse failure -- hence the table covers
+# each tier's tokens in both casings.
+_NAME_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (lang, re.compile("|".join(boundary(n) for n in needles), re.I))
+    for lang, needles in _LANGUAGE_NAMES
 ]
+
+
+def _weak_alternatives(needle: str) -> list[str]:
+    """Rules A, B and C for one weak token (#827); see the constants above."""
+    escaped = re.escape(needle)
+    alternatives = [
+        # A -- a strong prefix is evidence at any casing, so the token is folded in.
+        rf"(?i:{_STRONG_PREFIX}{escaped})\b",
+        # B -- a bare prefix plus a capitalised token.
+        rf"(?i:{_BARE_PREFIX})(?:{needle.capitalize()}|{needle.upper()})\b",
+    ]
+    if needle in _ENGLISH_WORD_TOKENS:
+        # C -- Capitalised, and NOT all-caps: "Swift SPM library" yes, "SWIFT
+        # MT103 service" no.
+        alternatives.append(
+            rf"\b{needle.capitalize()}\b(?![A-Z]){_QUALIFIER}\s+(?i:{_LANG_NOUN})\b"
+        )
+    else:
+        alternatives.append(rf"(?i:\b{escaped}\b){_QUALIFIER}\s+(?i:{_LANG_NOUN})\b")
+    return alternatives
+
+
+_WEAK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        lang,
+        re.compile("|".join(alt for n in needles for alt in _weak_alternatives(n))),
+    )
+    for lang, needles in _WEAK_SIGNALS
+]
+
+_TOOL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (lang, re.compile("|".join(boundary(n) for n in needles), re.I))
+    for lang, needles in _TOOL_SIGNALS
+]
+
+_SHARED_TOOL_PATTERN = re.compile("|".join(boundary(n) for n in _SHARED_TOOLS), re.I)
 
 
 def detect_spec_language_signal(plan: NormalizedPlan) -> tuple[str | None, str | None]:
@@ -78,6 +212,18 @@ def detect_spec_language_signal(plan: NormalizedPlan) -> tuple[str | None, str |
     The token is what makes a language conflict diagnosable: the failure names
     only the detected language, so an author who never mentioned Rust has no way
     to see that the word "untrusted" is what produced it (#397).
+
+    Consults three tiers in order of how much a match actually proves (#801):
+    an unambiguous language name, then a weak English word that only counts as
+    evidence under rules A/B/C above, then a build tool/ecosystem. A token several
+    languages share (``gradle``, ``android``) is a real ambiguity, not a guess --
+    it resolves to ``(None, None)`` so #585's conflict gate stays honest.
+
+    The text is NOT lowercased (#827): rules B and C read original casing, since a
+    capitalised "Go" is evidence where "go" is a verb. Tier 1 never requires case --
+    briefs arrive lowercased from issue bodies and pasted logs, and on a hard gate
+    failing to catch a real mismatch is worse than reporting a spurious one. The
+    returned token is lowered so the author-facing evidence string is unchanged.
     """
     text = " ".join(
         [
@@ -86,11 +232,30 @@ def detect_spec_language_signal(plan: NormalizedPlan) -> tuple[str | None, str |
             *(c.text for c in plan.criteria),
             plan.raw_text or "",
         ]
-    ).lower()
-    for lang, pattern in _SIGNAL_PATTERNS:
+    )
+
+    for lang, pattern in _NAME_PATTERNS:
         match = pattern.search(text)
         if match:
-            return lang, match.group(0)
+            return lang, match.group(0).lower()
+
+    for lang, pattern in _WEAK_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return lang, match.group(0).strip().lower()
+
+    for lang, pattern in _TOOL_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return lang, match.group(0).lower()
+
+    # A token several languages share proves nothing on its own -- resolving it
+    # to a guess (or tie-breaking on the repo language) would be a back door
+    # around #585's requirement that a real conflict HALT rather than resolve
+    # quietly. Deliberately None, not a fall-through accident.
+    if _SHARED_TOOL_PATTERN.search(text):
+        return None, None
+
     return None, None
 
 

@@ -13,11 +13,14 @@ Run: apps/backend/.venv/bin/pytest tests/test_compliance_lens.py
 
 from __future__ import annotations
 
+import pytest
+
 from plan.decompose.models import EpicPlan
 from plan.models import Criterion, NormalizedPlan
 from plan.review import extension_registry
 from plan.review.gates import run_gates
 from plan.review.lenses.base import default_lenses
+from plan.review.lenses import compliance as compliance_module
 from plan.review.lenses.compliance import (
     ComplianceLens,
     declared_jurisdictions,
@@ -315,3 +318,100 @@ def test_run_gates_actually_runs_the_compliance_lens() -> None:
     assert compliance.findings, "the social spec must produce findings through the gate"
     assert compliance.has_blocking_finding()
     assert not review.gates_passed
+
+
+# ── the escape patterns, per branch, bare and inflected (#800) ─────────────
+#
+# Every _*_OK_RE suppresses a finding, four of them blocking ones, so a branch
+# that cannot match the ordinary phrasing REFUSES a brief that satisfied it.
+# Four shipped that way: each wrapped its alternation in \b(...)\b with an
+# alternative ending in a word stem, and the closing \b then rejected the "-ing"
+# and "-s" forms. "legitimate interests" -- the GDPR term as it is normally
+# written -- was told it had not stated a lawful basis.
+#
+# This is the FOURTH boundary defect in compliance.py (see the #397 note on
+# _LANGUAGE_SIGNALS for "untrusted", and the '16+' comment sitting directly above
+# the regex that was still broken for "age gates"). A warning comment did not
+# stop it recurring, so the branches are pinned here instead: every branch of all
+# seven escapes, bare and inflected, plus negatives proving the escapes did not
+# become patterns that match anything.
+
+_ESCAPE_CASES: list[tuple[str, str, bool]] = [
+    # _LAWFUL_BASIS_OK_RE
+    ("_LAWFUL_BASIS_OK_RE", "lawful basis", True),
+    ("_LAWFUL_BASIS_OK_RE", "lawful bases", True),  # irregular plural
+    ("_LAWFUL_BASIS_OK_RE", "legal basis", True),
+    ("_LAWFUL_BASIS_OK_RE", "legal bases are listed", True),
+    ("_LAWFUL_BASIS_OK_RE", "purpose limitation", True),
+    ("_LAWFUL_BASIS_OK_RE", "purpose limitations", True),
+    ("_LAWFUL_BASIS_OK_RE", "legitimate interest", True),
+    ("_LAWFUL_BASIS_OK_RE", "legitimate interests", True),  # the #800 report's sibling
+    ("_LAWFUL_BASIS_OK_RE", "we store some data", False),
+    ("_LAWFUL_BASIS_OK_RE", "basis", False),
+    ("_LAWFUL_BASIS_OK_RE", "interests of users", False),
+    # _PROFILING_OK_RE
+    ("_PROFILING_OK_RE", "profiling", True),
+    ("_PROFILING_OK_RE", "automated decision", True),
+    ("_PROFILING_OK_RE", "automated decisions", True),
+    ("_PROFILING_OK_RE", "automated decision-making", True),
+    ("_PROFILING_OK_RE", "automated processing", True),
+    ("_PROFILING_OK_RE", "article 22", True),
+    ("_PROFILING_OK_RE", "art. 22", True),
+    ("_PROFILING_OK_RE", "we match users", False),
+    ("_PROFILING_OK_RE", "decisions were made", False),
+    # _SAFETY_OK_RE — the branch #800 reported
+    ("_SAFETY_OK_RE", "blocking and report", True),
+    ("_SAFETY_OK_RE", "blocking and reporting", True),  # the reported false block
+    ("_SAFETY_OK_RE", "blocking and reports", True),
+    ("_SAFETY_OK_RE", "block and reporting", True),
+    ("_SAFETY_OK_RE", "blocking users", True),
+    ("_SAFETY_OK_RE", "block users", True),
+    ("_SAFETY_OK_RE", "reporting abuse", True),
+    ("_SAFETY_OK_RE", "report abuse", True),
+    ("_SAFETY_OK_RE", "moderation queue", True),
+    ("_SAFETY_OK_RE", "notice-and-action", True),
+    ("_SAFETY_OK_RE", "a social feed for friends", False),
+    # report\w* must stay inside the block...and branch, not be hoisted:
+    ("_SAFETY_OK_RE", "reporting to investors", False),
+    ("_SAFETY_OK_RE", "blocking the request", False),
+    # _AGE_OK_RE
+    ("_AGE_OK_RE", "age gate", True),
+    ("_AGE_OK_RE", "age gates", True),
+    ("_AGE_OK_RE", "age gating", True),  # gat+ing, not gate+ing
+    ("_AGE_OK_RE", "age assurance", True),
+    ("_AGE_OK_RE", "age verification", True),
+    ("_AGE_OK_RE", "age checks", True),
+    ("_AGE_OK_RE", "minimum age", True),
+    ("_AGE_OK_RE", "16+", True),  # must not sit before a closing \b
+    ("_AGE_OK_RE", "under 18", True),
+    ("_AGE_OK_RE", "coppa", True),
+    ("_AGE_OK_RE", "age-appropriate", True),
+    ("_AGE_OK_RE", "parental consent", True),
+    ("_AGE_OK_RE", "anyone can sign up", False),
+    ("_AGE_OK_RE", "the average age", False),
+    # the three that measured clean — pinned so they stay that way
+    ("_LOCATION_OK_RE", "consent for coarse location", True),
+    ("_LOCATION_OK_RE", "coarse location with consent", True),
+    ("_LOCATION_OK_RE", "we use gps", False),
+    ("_RETENTION_OK_RE", "retention", True),
+    ("_RETENTION_OK_RE", "erasure", True),
+    ("_RETENTION_OK_RE", "storage limitation", True),
+    ("_RETENTION_OK_RE", "deleting profile data", True),
+    ("_RETENTION_OK_RE", "data lifecycle", True),
+    ("_RETENTION_OK_RE", "we keep things", False),
+    ("_ACCOUNT_DELETION_OK_RE", "account deletion", True),
+    ("_ACCOUNT_DELETION_OK_RE", "delete their account", True),
+    ("_ACCOUNT_DELETION_OK_RE", "accounts exist", False),
+]
+
+
+@pytest.mark.parametrize(("regex_name", "phrase", "expected"), _ESCAPE_CASES)
+def test_every_compliance_escape_matches_the_way_people_write_it(
+    regex_name: str, phrase: str, expected: bool
+) -> None:
+    """Each escape's branches, bare and inflected, with negatives per regex."""
+    pattern = getattr(compliance_module, regex_name)
+    assert bool(pattern.search(phrase)) is expected, (
+        f"{regex_name} {'should' if expected else 'must not'} match {phrase!r}; "
+        f"pattern: {pattern.pattern}"
+    )

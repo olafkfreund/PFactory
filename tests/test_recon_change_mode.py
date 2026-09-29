@@ -116,6 +116,138 @@ def test_language_conflict_names_the_offending_word():
     assert rec.spec_language_signal == "tokio"
 
 
+# ── language signal resolves by strength, not list order (#801) ─────────
+
+# (prose, expected_language) — from spec/2026-09-29-801-language-signal-ambiguity.md
+# "Measured" section, one row per case quoted there, commented with the tier
+# that decides it.
+_STRENGTH_CASES: list[tuple[str, str | None]] = [
+    # the reported defect: tier 1 (name "kotlin") resolves before tier 3 ever
+    # sees "gradle".
+    ("Kotlin Android app, Gradle build.", "kotlin"),
+    # the two worse cases the intent found: tier 2 (weak "go"/"swift") requires
+    # a language context that ordinary prose does not have.
+    ("Users can go to the next screen and confirm.", None),
+    ("The system must give a swift response under load.", None),
+    # existing suite assertions, tier 1 (unambiguous names)
+    ("Build a Rust service with cargo", "rust"),
+    ("port it to C# please", "csharp"),
+    ("a javascript bundler", "javascript"),
+    ("a java service", "java"),
+    ("a C++ library with cmake", "cpp"),
+    ("an ASP.NET service", "csharp"),
+    # existing suite assertions, tier 2 (weak signal, in a language context)
+    ("write it in Go", "go"),
+    # existing suite assertions, tier 3 (tool/ecosystem)
+    ("A FastAPI app", "python"),
+    # existing suite assertions that must stay None: no tier matches
+    ("the meeting is going ahead", None),
+    ("we trust the caller", None),
+    ("a swiftly delivered feature", None),
+    ("just some prose", None),
+    # adversarial cases: tier 2 context absent, or punctuation breaks it
+    ("The build will go green in CI.", None),
+    ("The migration will go to production on Friday.", None),
+    ("Sign in; go to settings.", None),
+    # adversarial case: shared token, deliberately None (#585)
+    ("An Android app built with Gradle.", None),
+    # adversarial case: tier 1 (name "kotlin") resolves despite the shared
+    # "android" token also being present
+    ("An Android app in Kotlin.", "kotlin"),
+    # adversarial case: tier 2 (weak "ts", corroborated by "ported to" context)
+    ("Ported to TS for type safety.", "typescript"),
+    # additional cases supplied by the reviewer from the full 41-case measured
+    # set (the spec's prose only quoted 21 of them) -- not present verbatim in
+    # the spec/intent text.
+    # tier 1 (unambiguous names)
+    ("A Kotlin Android app built with Gradle.", "kotlin"),
+    ("A Kotlin multiplatform module, Gradle build.", "kotlin"),
+    ("A Java Spring Boot service built with Maven.", "java"),
+    ("A Java service built with Gradle.", "java"),
+    ("Rewritten in Rust for the hot path.", "rust"),
+    ("A SwiftUI view for the profile screen.", "swift"),
+    ("Use TypeScript for the front end.", "typescript"),
+    ("Everything is in Python 3.12.", "python"),
+    ("reject oversized input so an untrusted caller cannot trigger unbounded "
+     "computation. the service is python.", "python"),
+    ("Build a Rust service", "rust"),
+    # tier 2 (weak signal, in a language context)
+    ("Write the API in Go with a Postgres store.", "go"),
+    ("A Go service exposing a gRPC endpoint.", "go"),
+    ("An iOS app written in Swift.", "swift"),
+    # tier 3 (tool/ecosystem)
+    ("The pipeline runs pytest against the FastAPI app.", "python"),
+    # None: weak signal without a language context
+    ("Approvals go through a review queue.", None),
+    ("Let the operator go back to the previous step.", None),
+    ("Reduce p99 latency; responses must be swift.", None),
+    # None: shared token (#585)
+    ("A Scala service built with Gradle.", None),
+    ("A Groovy script in a Gradle build.", None),
+    # None: boundary() still refuses a substring match (#397)
+    ("Untrusted input must be rejected at the boundary.", None),
+    ("AC#1: factorial(0) == 1", None),
+    # tier 2: qualifier-gap cases -- a qualifier may sit between the weak token
+    # and the context noun, but a function word ("to", "the", ...) still blocks it
+    ("A Swift SPM library for the iOS app matching logic.", "swift"),
+    ("Swift iOS app; the marketing frontend pages show live data.", "swift"),
+    ("A Go HTTP service behind the gateway.", "go"),
+    ("A Go 1.22 module for the parser.", "go"),
+    ("Users go to the api docs page.", None),
+    ("Approvals go to the backend queue.", None),
+    ("Operators go into the application menu.", None),
+    # ── #827: the rules that replaced the prefix list + function-word denylist ──
+    #
+    # Those two leaked, and each of these nine HALTed a valid plan on the hard
+    # language-reconciled gate (five with conflict=True). A bare "in"/"using"/"with"
+    # required nothing after the token, and the denylist let "and", "live" and
+    # "reliable" through. Found by a review of #822, not by #822's own 49 cases.
+    #
+    # rule B: a bare prefix now needs the token capitalised, so prose does not pass
+    ("The team responded in swift succession.", None),
+    ("The enclosure is tested in uv light for 500 hours.", None),
+    ("Sales dropped in go-to-market velocity.", None),
+    ("In go we have a saying about naming.", None),
+    # rule C: a qualifier must carry an uppercase letter or a digit
+    ("A swift and reliable api for partners.", None),
+    ("We go live with backend changes on Friday.", None),
+    ("The handler must go and fetch application state.", None),
+    ("We go GDPR compliant service-wide.", None),
+    # tier 2 now holds the English-word tool tokens, so prose no longer resolves
+    ("Sterilise the flask before each run.", None),
+    ("Track cargo across the fleet.", None),
+    ("Django Reinhardt playlist feature.", None),
+    ("The cargo build must be reproducible.", None),
+    ("The maven of our team wrote it.", None),
+    ("Please go and check the flask on the bench.", None),
+    # ...while their genuine uses still resolve, via rule B or C
+    ("A Django app for the admin console.", "python"),
+    ("Built with Django and Postgres.", "python"),
+    ("A Flask API for the webhook receiver.", "python"),
+    ("A Rust service using cargo workspaces.", "rust"),
+    ("Rewritten in Cargo workspaces.", "rust"),
+    ("A Maven module for the shared DTOs.", "java"),
+    # rule C requires Capitalised-but-not-ALL-CAPS: SWIFT is the interbank network,
+    # which is an ordinary shape in this product's payments briefs
+    ("SWIFT payment api for cross-border transfers.", None),
+    ("Send the SWIFT message before cut-off.", None),
+    ("A SWIFT MT103 service.", None),
+    ("A swift KYC api for onboarding.", None),
+    # an acronym qualifier must not smuggle an English "go" past rule C
+    ("Users go 2FA app enrolment.", None),
+    # rule B, genuine: capitalised after a bare prefix
+    ("Using Go conventions for naming.", "go"),
+    ("Go live on Friday.", None),
+    ("Go to settings.", None),
+    ("Go to the api docs.", None),
+]
+
+
+@pytest.mark.parametrize("prose,expected", _STRENGTH_CASES)
+def test_the_spec_language_resolves_by_strength_not_list_order(prose, expected):
+    assert detect_spec_language(_plan(desc=prose)) == expected
+
+
 # ── language reconciliation (#585) ──────────────────────────────────────
 
 
@@ -188,3 +320,28 @@ def test_language_check_passes_for_migration():
     )
     r = _results(plan)["language-reconciled"]
     assert r.status == "pass"
+
+
+def test_the_derived_signal_union_still_canonicalises_every_token() -> None:
+    """Moving a token between tiers must not change what it canonicalises to (#827).
+
+    `_LANGUAGE_SIGNALS` is derived as the per-language union of the three tiers, and
+    `migration_classifier` builds its token->language `_CANON` map from it. #801's
+    deviation 7 is this check missing: four tokens moved and the behaviour change went
+    unnoticed until a reviewer read the consumer. So assert the invariant directly
+    rather than trusting that a union is order-insensitive.
+    """
+    from plan.detect import migration_classifier
+    from plan.recon.language_reconcile import _LANGUAGE_SIGNALS
+
+    for language, needles in _LANGUAGE_SIGNALS:
+        assert migration_classifier._CANON.get(language) == language, (
+            f"the canonical name {language!r} must map to itself"
+        )
+        for needle in needles:
+            if " " in needle:
+                continue  # _CANON skips multi-word needles by design
+            assert migration_classifier._CANON.get(needle) == language, (
+                f"{needle!r} is a {language} signal but _CANON maps it to "
+                f"{migration_classifier._CANON.get(needle)!r}"
+            )
