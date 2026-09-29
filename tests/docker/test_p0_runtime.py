@@ -131,3 +131,35 @@ def test_dropped_capabilities(built_image: str, container_name: str, free_port: 
     assert not detail, (
         "container failed with --cap-drop ALL; remove any cap-requiring operations" + "\n" + detail
     )
+
+
+@pytest.mark.docker
+@pytest.mark.slow
+def test_the_rotation_runbook_runs_in_the_image(built_image: str) -> None:
+    """#781 — `rotate-root` must reach its own logic inside the shipped image.
+
+    It could not: the CLI stripped the async driver from DATABASE_URL, leaving a
+    bare `postgresql://` whose driver SQLAlchemy chooses, and the image carried
+    neither psycopg2 nor psycopg. Root-key rotation — the recovery path for a
+    compromised key — died inside `create_engine` on every SQLAlchemy version,
+    and no test invoked the entry point, so nothing said so.
+
+    Run with no DATABASE_URL: the CLI's own guard must answer. An import error
+    here means the runbook is unrunnable again.
+    """
+    result = docker_run(
+        built_image,
+        "python",
+        "-m",
+        "server.crypto",
+        "rotate-root",
+        "--new-kms-key-id",
+        "probe",
+        timeout=60,
+    )
+    output = result.stdout + result.stderr
+    assert "ModuleNotFoundError" not in output, (
+        f"the rotation runbook cannot import its driver in the image:\n{output}"
+    )
+    assert result.returncode == 2, f"expected the DATABASE_URL guard (exit 2), got:\n{output}"
+    assert "DATABASE_URL not set" in output, output
