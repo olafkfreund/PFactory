@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.26 — running-tasks endpoint reachable; plan-session delete (2026-09-29)
+
+- **`GET /api/tasks/running` works (#825).** The tasks router's `GET
+  /{task_id}` was mounted first and caught `/running`, which answered 400 in
+  the real app. The execution router is now mounted first, and an app-level
+  test pins the order.
+- A terminal plan session can be deleted, and discarded sessions are no
+  longer listed (#798).
+- Spec language detection resolves by signal strength, not list order
+  (#801), and weak language tokens need evidence, not just adjacency (#827).
+
 ## 0.6.25 — running work is visible and stoppable from any replica (2026-09-29)
 
 - **Running tasks, insights replies, changelogs and PR reviews are shared
