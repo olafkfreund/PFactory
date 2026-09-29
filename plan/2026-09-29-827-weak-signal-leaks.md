@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 827
 spec: spec/2026-09-29-827-weak-signal-leaks.md
 ---
