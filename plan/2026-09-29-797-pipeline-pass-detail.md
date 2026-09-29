@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 797
 spec: spec/2026-09-29-797-pipeline-pass-detail.md
 ---
