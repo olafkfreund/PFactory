@@ -143,10 +143,28 @@ removing the `commit` fails the commit test. Adding the commit also broke two
 earlier route tests that passed `db=None`, which is the suite correctly noticing
 the new obligation.
 
-A third finding (a deleted session still readable from another replica's cache,
-and resurrectable by a later write) is real but latent while the KEDA pin holds
-replicas at 1. It belongs with #804/#805 and is filed separately rather than
-widened into this change.
+3. **`store.delete()`'s return value was discarded**, so a delete that removed
+   nothing still answered 200 and wrote an audit record. It now raises the
+   unknown-session error and drops the stale cache entry, which is the honest
+   answer on a replica whose copy came from the cache.
+
+4. **Nothing exercised `delete_session` with a store at all.** Every test left
+   `store is None`, making `store.delete` dead code under test — the review
+   showed that deleting those lines entirely kept all 12 tests green, and that
+   the plan's stated invariant (store delete before the cache pop) had no
+   coverage either. Four tests added: the row leaves the store; an
+   already-gone row is not reported as deleted; a store failure leaves the
+   session locally known (pinning the order); and the route passes
+   `include_discarded` through rather than hardcoding it. Both mutations the
+   review named as uncatchable now fail.
+
+A remaining finding — on two replicas, a deleted session stays readable from the
+other pod's cache and a later write **re-inserts** it, because `_all_sessions`
+re-caches without `_store_version` and `_upsert_session` then treats `None` as
+"insert" — is real but latent while the KEDA pin holds replicas at 1. Honouring
+`store.delete`'s False removes the false success; the resurrect-on-write path
+belongs with #804/#805 and is filed separately rather than widened into this
+change.
 
 ## Rollback
 

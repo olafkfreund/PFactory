@@ -1836,8 +1836,16 @@ class PlanService:
         # Store first (#798): a store failure must not leave a session the
         # store still has but this process has already forgotten.
         store = self._session_store
-        if store is not None:
-            store.delete(session_id)
+        if store is not None and not store.delete(session_id):
+            # The row was already gone: this copy came from the local cache, which
+            # `get()` falls back to when the store returns nothing — another
+            # replica deleted it. Reporting 200 for a deletion that did not happen
+            # would be a lie, and would write an audit record for it. Drop the
+            # stale cache entry and answer as for any unknown id. Found reviewing
+            # #798.
+            with self._store_lock:
+                self._sessions.pop(session_id, None)
+            raise PlanInputError(f"unknown session '{session_id}'")
         with self._store_lock:
             self._sessions.pop(session_id, None)
             # The JSON mirror too, or the delete does not survive a restart:

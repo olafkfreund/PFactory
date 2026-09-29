@@ -29,9 +29,10 @@ pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
 from fastapi import HTTPException  # noqa: E402
-
 from plan.service import PlanInputError, PlanService  # noqa: E402
 from server.routes import plan_pipeline as pp  # noqa: E402
+
+from tests.fake_session_store import FakeSessionStore  # noqa: E402
 
 _PLAN = """# Refund flow
 Add a refund flow to the orders web app.
@@ -232,7 +233,7 @@ def test_route_delete_writes_an_audit_record(monkeypatch):
     _use_service(monkeypatch, svc)
     captured: dict = {}
 
-    async def _capture(db, **kwargs) -> None:  # noqa: ANN001, ARG001
+    async def _capture(db, **kwargs) -> None:  # noqa: ARG001
         captured.update(kwargs)
 
     monkeypatch.setattr(pp, "log_audit_event", _capture)
@@ -254,13 +255,15 @@ def test_a_refused_delete_writes_no_audit_record(monkeypatch):
     _use_service(monkeypatch, svc)
     calls: list = []
 
-    async def _capture(db, **kwargs) -> None:  # noqa: ANN001, ARG001
+    async def _capture(db, **kwargs) -> None:  # noqa: ARG001
         calls.append(kwargs)
 
     monkeypatch.setattr(pp, "log_audit_event", _capture)
 
     with pytest.raises(HTTPException):
-        asyncio.run(pp.delete_session(sid, pp.DeleteBody(actor="olafkfreund"), _Request(), db=_Db()))
+        asyncio.run(
+            pp.delete_session(sid, pp.DeleteBody(actor="olafkfreund"), _Request(), db=_Db())
+        )
     assert calls == []
 
 
@@ -302,10 +305,77 @@ def test_route_delete_commits_the_audit_row(monkeypatch):
     svc, sid = _discarded()
     _use_service(monkeypatch, svc)
 
-    async def _noop(db, **kwargs) -> None:  # noqa: ANN001, ARG001
+    async def _noop(db, **kwargs) -> None:  # noqa: ARG001
         return None
 
     monkeypatch.setattr(pp, "log_audit_event", _noop)
     db = _Db()
     asyncio.run(pp.delete_session(sid, pp.DeleteBody(actor="olafkfreund"), _Request(), db=db))
     assert db.commits == 1
+
+
+# ── with a store: the paths above never exercised store.delete at all ────────
+
+
+def _store_backed() -> tuple[PlanService, str, FakeSessionStore]:
+    store = FakeSessionStore()
+    svc = PlanService(session_store=store)
+    sid = svc.ingest_text(_PLAN, title="Refund flow").session_id
+    svc.discard(sid, actor="probe", reason="e2e")
+    return svc, sid, store
+
+
+def test_delete_removes_the_row_from_the_shared_store():
+    """Every other test leaves ``store is None``, so store.delete was dead code."""
+    svc, sid, store = _store_backed()
+    assert sid in store.rows
+
+    svc.delete_session(sid, actor="olafkfreund")
+    assert sid not in store.rows
+    assert svc.list_sessions(include_discarded=True) == []
+
+
+def test_a_row_already_gone_from_the_store_is_not_reported_as_deleted():
+    """A no-op store delete must not answer 200 (#798).
+
+    ``get()`` falls back to the local cache when the store returns nothing, so on
+    another replica a deleted session still reads. Without honouring
+    ``store.delete``'s False, that replica would report success and write an
+    audit record for a deletion that did not happen.
+    """
+    svc, sid, store = _store_backed()
+    store.rows.pop(sid)  # another replica deleted it
+
+    with pytest.raises(PlanInputError, match="unknown session"):
+        svc.delete_session(sid, actor="olafkfreund")
+
+
+def test_the_store_delete_happens_before_the_cache_is_dropped():
+    """The plan's stated invariant, which nothing pinned.
+
+    A store failure must not leave this process without a session the store still
+    has. Reordering the two statements, or swallowing the store error, would let
+    that happen.
+    """
+    svc, sid, store = _store_backed()
+
+    def _boom(_session_id: str) -> bool:
+        raise RuntimeError("store down")
+
+    store.delete = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        svc.delete_session(sid, actor="olafkfreund")
+    # Still known locally, because the store still has it.
+    assert svc.get(sid).status == "discarded"
+
+
+def test_the_route_passes_include_discarded_through(monkeypatch):
+    """Plan step 5c: the flag must reach the service, not be hardcoded."""
+    svc, sid, _ = _store_backed()
+    _use_service(monkeypatch, svc)
+
+    hidden = asyncio.run(pp.list_sessions(_Request()))
+    assert hidden["sessions"] == []
+    shown = asyncio.run(pp.list_sessions(_Request(), include_discarded=True))
+    assert [s["session_id"] for s in shown["sessions"]] == [sid]
