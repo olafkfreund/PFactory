@@ -12,6 +12,8 @@
   longer listed (#798).
 - Spec language detection resolves by signal strength, not list order
   (#801), and weak language tokens need evidence, not just adjacency (#827).
+- Chainguard python base bumped to `8772916` (#790), and the baked agent CLI
+  pins bumped: claude-code 2.1.283, gemini-cli 0.61.0, codex 0.158.0 (#789).
 
 ## 0.6.25 — running work is visible and stoppable from any replica (2026-09-29)
 
