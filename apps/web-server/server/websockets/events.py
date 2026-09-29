@@ -12,12 +12,14 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from factory_common.logsafe import sanitize_log
 
 from ..auth import WebSocketAuthError, authenticate_websocket
+from . import relay
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +70,8 @@ def _unregister_client(ws: WebSocket) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def broadcast_event(event_type: str, payload: dict):
-    """Broadcast an event to all connected clients (legacy behavior)."""
+async def _deliver_local_broadcast(event_type: str, payload: dict[str, Any]) -> None:
+    """Send an event to every client connected to THIS pod (legacy behavior)."""
     message = json.dumps({"type": event_type, "payload": payload})
     disconnected: list[WebSocket] = []
 
@@ -83,8 +85,19 @@ async def broadcast_event(event_type: str, payload: dict):
         _unregister_client(ws)
 
 
-async def send_to_user(user_id: str, event_type: str, payload: dict):
-    """Send an event to a specific user (all their connections)."""
+async def broadcast_event(event_type: str, payload: dict):
+    """Broadcast an event to all connected clients (legacy behavior).
+
+    Delivers locally first — unconditionally, so a relay hiccup never
+    silences a browser on this pod — then relays to other pods over
+    Postgres so their own locally-connected clients get it too (#804).
+    """
+    await _deliver_local_broadcast(event_type, payload)
+    await relay.publish("ws:broadcast", {"event_type": event_type, "payload": payload})
+
+
+async def _deliver_local_to_user(user_id: str, event_type: str, payload: dict[str, Any]) -> None:
+    """Send an event to a specific user's connections on THIS pod."""
     message = json.dumps({"type": event_type, "payload": payload})
     disconnected: list[WebSocket] = []
 
@@ -99,8 +112,20 @@ async def send_to_user(user_id: str, event_type: str, payload: dict):
         _unregister_client(ws)
 
 
-async def send_to_org(org_id: str, event_type: str, payload: dict):
-    """Send an event only to members of a specific organization.
+async def send_to_user(user_id: str, event_type: str, payload: dict):
+    """Send an event to a specific user (all their connections).
+
+    Delivers locally first, then relays to other pods (#804) — the user's
+    other connections may be on a different pod.
+    """
+    await _deliver_local_to_user(user_id, event_type, payload)
+    await relay.publish(
+        "ws:user", {"user_id": user_id, "event_type": event_type, "payload": payload}
+    )
+
+
+async def _deliver_local_to_org(org_id: str, event_type: str, payload: dict[str, Any]) -> None:
+    """Send an event to members of an org connected to THIS pod.
 
     Falls back to broadcast for legacy (non-JWT) connections so they
     aren't excluded.
@@ -118,6 +143,16 @@ async def send_to_org(org_id: str, event_type: str, payload: dict):
 
     for ws in disconnected:
         _unregister_client(ws)
+
+
+async def send_to_org(org_id: str, event_type: str, payload: dict):
+    """Send an event only to members of a specific organization.
+
+    Delivers locally first, then relays to other pods (#804) — org
+    members may be connected to a different pod.
+    """
+    await _deliver_local_to_org(org_id, event_type, payload)
+    await relay.publish("ws:org", {"org_id": org_id, "event_type": event_type, "payload": payload})
 
 
 def update_client_orgs(user_id: str, org_ids: set[str]) -> None:
