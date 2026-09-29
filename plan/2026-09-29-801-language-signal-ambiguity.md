@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 801
 spec: spec/2026-09-29-801-language-signal-ambiguity.md
 ---
