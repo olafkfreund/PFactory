@@ -119,10 +119,23 @@ async def lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001 — relay is best-effort, the server must still boot (#804)
         logger.warning("WebSocket relay failed to start; running without cross-pod fan-out")
     else:
-        logger.info(
-            "WebSocket relay %s",
-            "listener started" if relay._listener_task is not None else "inert (no DATABASE_URL)",
-        )
+        if relay._listener_task is None:
+            logger.info("WebSocket relay inert (no DATABASE_URL)")
+        else:
+            # `is_connected()` (not `_listener_task is not None`, which is
+            # true whether connected or still retrying) is the honest answer
+            # here (#804 fix 7) — and the honest answer, checked this early,
+            # is very likely still False: `start_listener` only SCHEDULES the
+            # connect, it doesn't wait for it (#804 fix 8's no-op window).
+            # That isn't a bug in this log line, it's what's true at this
+            # instant; an operator debugging "events aren't arriving on pod
+            # B" should call `relay.is_connected()` again later, not read
+            # this one boot-time line as a health check.
+            logger.info(
+                "WebSocket relay listener scheduled; connected=%s so far "
+                "(connect races startup, so False here is normal)",
+                relay.is_connected(),
+            )
 
     # Initialize skills service singleton once at startup
     init_skills_service()

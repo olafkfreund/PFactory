@@ -55,15 +55,36 @@ async def _dispatch_task_progress(data: dict[str, Any]) -> None:
     # str Enum, so json.dumps already emitted its bare value) — rebuild the
     # enum so callbacks that read ``progress.phase.value`` still work
     # (e.g. websockets/progress.py).
-    data = {**data, "phase": TaskPhase(data["phase"])}
+    raw_phase = data.get("phase")
+    try:
+        phase = TaskPhase(raw_phase)
+    except ValueError:
+        # A newer pod's TaskPhase value this pod doesn't know yet (rolling
+        # deploy) — same dedupe reasoning as the unknown-``kind`` branch in
+        # ``dispatch()`` below: task:progress fires roughly every UI tick, so
+        # logging every occurrence would bury the log the same way (#804 fix
+        # 9a). Dropped rather than delivered with the raw string: the
+        # receiving callback (``websockets/progress.py``) reads
+        # ``progress.phase.value``, which a bare string doesn't have, and
+        # that failure would surface with NO log at all —
+        # ``_deliver_local_progress`` swallows each callback's own exception
+        # silently. A dropped, logged-once progress tick beats a silently
+        # broken one.
+        if raw_phase not in _warned_unknown_phases:
+            _warned_unknown_phases.add(raw_phase)
+            logger.warning("[relay] ignoring task:progress with unknown phase=%s", raw_phase)
+        return
+    data = {**data, "phase": phase}
     await get_agent_service()._deliver_local_progress(TaskProgress(**data))
 
 
-# Unknown kinds already warned about. A rolling deploy puts an older pod beside a
-# newer one for minutes, and the newer one may publish a kind this pod has never
-# heard of — once per kind is a useful signal, once per notification would bury
-# the log under the task-logs stream (#804).
+# Unknown kinds/phases already warned about. A rolling deploy puts an older
+# pod beside a newer one for minutes, and the newer one may publish a kind or
+# a TaskPhase value this pod has never heard of — once per value is a useful
+# signal, once per notification would bury the log under the task-logs
+# stream (#804).
 _warned_unknown: set[str] = set()
+_warned_unknown_phases: set[Any] = set()
 
 _HANDLERS: dict[str, _Handler] = {
     "ws:broadcast": _dispatch_broadcast,
