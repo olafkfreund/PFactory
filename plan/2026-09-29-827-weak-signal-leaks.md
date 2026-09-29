@@ -130,6 +130,31 @@ Measured already, quoted rather than re-run: 49/49 shipped rows, 9/9 reported le
     #801 that step found three defects my own controls missed, and this change is in
     the same file with the same blind-spot risk.
 
+## Deviations recorded while implementing
+
+1. **Control (b) fails one row, not the two the spec predicted.** Removing the
+   uppercase-or-digit requirement from `_QUALIFIER` was supposed to fail the
+   `swift and reliable api` and `go live with backend` rows. It fails only
+   `Go to the api docs.` — because rule C additionally requires the English-word
+   token to be *Capitalised*, and those two rows have a lowercase `swift`/`go`, so
+   rule C never applies to them whatever the qualifier permits. Rule C's case guard
+   subsumes part of the qualifier's job.
+
+   So the qualifier requirement is **less load-bearing than the spec claimed**: it
+   carries exactly one row, not two. It stays — one row is still a real leak
+   ("Go to the api docs." would resolve as Go) — but the spec overstated it, and a
+   reader comparing the control's output against the spec would rightly query it.
+
+2. **28 rows became 33.** Writing them out by rule rather than by measured set added
+   five cases the scratch harness had not probed: `In go we have a saying about
+   naming.`, `We go GDPR compliant service-wide.`, `Go live on Friday.`,
+   `Go to settings.`, `Go to the api docs.`. All pass; the last is the one control (b)
+   depends on.
+
+3. **Step 6's `_CANON` guard passes, and asserts more than planned.** It also checks
+   that each canonical language name maps to itself, which the plan did not ask for
+   but falls out of the same loop.
+
 ## Tests
 
     apps/backend/.venv/bin/pytest tests/test_recon_change_mode.py -q
