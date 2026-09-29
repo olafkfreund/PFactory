@@ -178,6 +178,51 @@ Three, two of them defects in my own approved documents:
    A fourth negative control was added for it: removing the function-word exclusion
    must fail exactly the three "go to the …" rows and nothing else. It does.
 
+5. **Independent review (fresh Opus agent, plan + diff only) found the tier-2
+   context guard is leaky, and it is right.** Verified by running its probes:
+
+       in swift succession        -> swift   (conflict=True: a false HALT)
+       in uv light                -> python
+       in go-to-market velocity   -> go
+       a swift and reliable api   -> swift   (conflict=True)
+       we go live with backend    -> go      (conflict=True)
+       go and fetch application   -> go
+       sterilise the flask        -> python  (tier 3, no context requirement)
+       track cargo across         -> rust
+       Django Reinhardt playlist  -> python
+
+   Two causes: `_CTX_BEFORE` accepts a bare `in`/`using`/`with` with **no trailing
+   requirement**, and `_GAP` is a 10-word denylist that `and`, `live`, `reliable`
+   and friends walk through. Tier 3 has no context requirement at all and contains
+   ordinary English nouns (`flask`, `cargo`, `django`).
+
+   **Measured old-vs-new on all nine: zero regressions — every one leaked
+   identically before this change.** So this change is a strict improvement (it
+   fixes the reported Kotlin defect and four prose cases) but it does **not** close
+   the class, and the spec's claim that a brief whose only signal is an English word
+   "resolves to no language at all" is **false** for the shapes above. The claim is
+   withdrawn here and in the PR; the residual leaks are filed as their own issue
+   rather than smuggled in as fixed.
+
+6. **The table is 49 rows, not the 42 deviation 2 claims.** Seven qualifier-gap rows
+   were added with deviation 4 and the count was not updated.
+
+7. **`migration_classifier` behaviour changed, which deviation 3 understated.** It
+   said "neither consumer changed" — true of the files, not of their behaviour. The
+   derived union is not token-equivalent to the old flat table, and `_CANON` is built
+   by `setdefault` in order, so: `node.js`/`nodejs` move from **typescript to
+   javascript** (so "port it to nodejs" now classifies as javascript), `gradle` is
+   gone from `_CANON` entirely, and `gofmt` is added. The first is arguably more
+   correct and the second follows from the fix's intent, but both are semantic
+   changes to another module and belong on the record.
+
+8. **The three `_SHARED_TOOLS` rows do not test the `_SHARED_TOOLS` branch.** The
+   branch returns `(None, None)` and the fall-through one line later returns the
+   same, so the rows pass with the branch deleted. They do pin the *contract*
+   ("gradle resolves to None"), which is what matters, but the branch itself is
+   exercised only by the uncommitted step-7(c) control. Recorded so nobody reads
+   those rows as coverage of it.
+
 ## Filed separately, found on the way
 
 `build_tfactory()` resolves an unset language to **python** rather than refusing.

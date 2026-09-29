@@ -144,6 +144,17 @@ Both are errors in this document, recorded here rather than quietly fixed:
   (excluding `_SHARED_TOOLS`, since restoring `gradle` to java is the defect
   itself). See the plan's deviation section.
 
+### Withdrawn: "an English word resolves to no language at all"
+
+The Desired-outcome claim above is too strong, and an independent review proved it.
+A weak token still resolves when a bare `in`/`using`/`with` precedes it ("in swift
+succession") or when a non-function word sits in the gap ("a swift and reliable
+api") — and tier 3 never required context at all ("sterilise the flask" → python).
+Measured old-vs-new: **zero regressions**, every one of those leaked identically
+before this change, so the tiers are a strict improvement over first-match-wins —
+but they narrow the class rather than closing it. The residual leaks are filed as
+their own issue. See the plan's deviation 5.
+
 ## Verification
 
 - **Reproduction, before:** `reconcile_language` reports `conflict=True` for the
