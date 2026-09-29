@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 825
 author: Olaf Krasicki-Freund
 ---
@@ -63,6 +63,8 @@ mismatch. Production confirms it: `/{id}/status` returns 200.
 - No change to the MCP stdio proxy, which already works.
 
 ## Open questions
+
+Resolved 2026-09-29 (approved): 1 = (a) mount execution.router before tasks.router.
 
 1. **Fix shape:**
    - (a) mount `execution.router` before `tasks.router` (swap two lines);
