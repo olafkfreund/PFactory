@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 798
 spec: spec/2026-09-29-798-plan-session-delete.md
 ---
