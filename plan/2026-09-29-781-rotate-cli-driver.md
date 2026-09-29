@@ -57,6 +57,20 @@ venv on PATH, so `python -m server.crypto …` is the whole command.
 8. Build the image once and run the docker group, so step 5 is exercised rather
    than left to CI.
 
+## Deviation recorded during step 7
+
+The spec claimed the rewrite "also fixes" a `DATABASE_URL` that already names
+`+psycopg2`. **Measured: it does not, and cannot.** `rotate_root()` imports
+`..database.models`, which imports `database/engine.py`, which builds a
+module-level async engine from the *raw* `DATABASE_URL` — that dies on
+`+psycopg2` before `_sync_url`'s output is ever used. A deployment with that
+value has never booted the web server either, so the shape is out of scope. The
+mapping stays (it falls out of one `set(drivername=…)` for every postgres URL)
+and its unit test still holds for `_sync_url` itself; only the claim is
+withdrawn. Step 1's real load-bearing evidence is control (b2): SQLAlchemy
+2.0.51 + the old stripping → `ModuleNotFoundError: psycopg2`; with the rewrite →
+rotation runs.
+
 ## Tests
 
     apps/backend/.venv/bin/pytest tests/secrets/ -m secrets -q
