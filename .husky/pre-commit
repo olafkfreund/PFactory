@@ -2,6 +2,22 @@
 
 echo "Running pre-commit checks..."
 
+# Resolve the backend venv once for every Python section below (#796). In a git
+# worktree there is no apps/backend/.venv — it is gitignored and lives only in
+# the checkout that created it — so this falls back to the main checkout's.
+# Sets BACKEND_VENV (absolute, possibly empty) and MAIN_TREE.
+BACKEND_VENV=""
+MAIN_TREE="$(pwd)"
+if [ -f ./scripts/resolve_backend_venv.sh ]; then
+  # shellcheck source=scripts/resolve_backend_venv.sh
+  . ./scripts/resolve_backend_venv.sh || true
+elif [ -d "apps/backend/.venv" ]; then
+  # The hook run from outside the repo - tests/test_precommit_ruff_pin.py copies
+  # just this file into a sandbox - keeps its pre-#796 behaviour instead of
+  # dying on the missing source.
+  BACKEND_VENV="$(pwd)/apps/backend/.venv"
+fi
+
 # =============================================================================
 # VERSION SYNC - Keep all version references in sync with root package.json
 # =============================================================================
@@ -96,10 +112,10 @@ STAGED_PY_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep "^apps/
 if [ -n "$STAGED_PY_FILES" ]; then
   # Determine ruff command (venv or global)
   RUFF=""
-  if [ -f "apps/backend/.venv/bin/ruff" ]; then
-    RUFF="apps/backend/.venv/bin/ruff"
-  elif [ -f "apps/backend/.venv/Scripts/ruff.exe" ]; then
-    RUFF="apps/backend/.venv/Scripts/ruff.exe"
+  if [ -n "$BACKEND_VENV" ] && [ -f "$BACKEND_VENV/bin/ruff" ]; then
+    RUFF="$BACKEND_VENV/bin/ruff"
+  elif [ -n "$BACKEND_VENV" ] && [ -f "$BACKEND_VENV/Scripts/ruff.exe" ]; then
+    RUFF="$BACKEND_VENV/Scripts/ruff.exe"
   elif command -v ruff >/dev/null 2>&1; then
     RUFF="ruff"
   fi
@@ -167,14 +183,33 @@ if [ -n "$STAGED_PY_FILES" ]; then
   if [ -n "$RUFF" ]; then
     # Block only NET-NEW violations, exactly as CI does (index vs HEAD).
     RATCHET_PY="python3"
-    if [ -f "apps/backend/.venv/bin/python" ]; then
-      RATCHET_PY="apps/backend/.venv/bin/python"
-    elif [ -f "apps/backend/.venv/Scripts/python.exe" ]; then
-      RATCHET_PY="apps/backend/.venv/Scripts/python.exe"
+    if [ -n "$BACKEND_VENV" ] && [ -f "$BACKEND_VENV/bin/python" ]; then
+      RATCHET_PY="$BACKEND_VENV/bin/python"
+    elif [ -n "$BACKEND_VENV" ] && [ -f "$BACKEND_VENV/Scripts/python.exe" ]; then
+      RATCHET_PY="$BACKEND_VENV/Scripts/python.exe"
     fi
+    # The three --package trees MUST match cq-ratchet.yml's invocation, or a
+    # violation passes here and fails there. They did not: `scripts/` was gated
+    # in CI only (#786), which is asserted now by
+    # tests/test_ruff_pin_agreement.py::test_the_hook_gates_the_same_packages_as_ci.
+    #
+    # Staged mode is ruff-only by design (ratchet_lint.py: --staged implies
+    # --no-mypy), so a mypy --strict regression still reaches CI unseen -- that
+    # is what bit #778 and #785. PFACTORY_HOOK_MYPY=1 adds the mypy half here.
+    # Measured on one staged file: 1.4s cold / 0.6s warm for a scripts/ file,
+    # ~12s cold for a web-server route -- the cost tracks the file's import
+    # graph. Default OFF so the common commit stays fast. Caveat, also in
+    # --mypy's help: the mypy half
+    # type-checks files as they sit on DISK, so with a partially staged file its
+    # verdict describes the worktree, not the index (the ruff half uses the index).
+    RATCHET_MYPY=""
+    case "${PFACTORY_HOOK_MYPY:-}" in
+      1 | true | TRUE | yes | YES) RATCHET_MYPY="--mypy" ;;
+    esac
     echo "Running lint ratchet (net-new violations vs HEAD)..."
-    PATH="$(pwd)/apps/backend/.venv/bin:$(pwd)/apps/backend/.venv/Scripts:$PATH" \
-      "$RATCHET_PY" scripts/ratchet_lint.py --staged --package apps/backend --package apps/web-server
+    PATH="${BACKEND_VENV:+$BACKEND_VENV/bin:$BACKEND_VENV/Scripts:}$PATH" \
+      "$RATCHET_PY" scripts/ratchet_lint.py --staged \
+        --package apps/backend --package apps/web-server --package scripts $RATCHET_MYPY
     if [ $? -ne 0 ]; then
       echo "Lint ratchet failed: this commit ADDS ruff violations (pre-existing debt never blocks)."
       exit 1
@@ -236,18 +271,23 @@ if git diff --cached --name-only | grep -q "^apps/backend/.*\.py$"; then
     --ignore=../../tests/test_spec_pipeline.py \
     --ignore=../../tests/test_test_plan_validator_resilience.py \
     --ignore=../../tests/test_validation_strategy.py"
-  if [ -d ".venv" ]; then
-    # Use venv if it exists
-    if [ -f ".venv/bin/pytest" ]; then
-      PYTHONPATH=. .venv/bin/pytest ../../tests/ -v --tb=short -x -m "not slow and not integration" $IGNORE_TESTS
-    elif [ -f ".venv/Scripts/pytest.exe" ]; then
-      # Windows
-      PYTHONPATH=. .venv/Scripts/pytest.exe ../../tests/ -v --tb=short -x -m "not slow and not integration" $IGNORE_TESTS
-    else
-      PYTHONPATH=. python -m pytest ../../tests/ -v --tb=short -x -m "not slow and not integration" $IGNORE_TESTS
-    fi
-  else
+  # BACKEND_VENV is absolute (#796), so it survives the `cd apps/backend` above.
+  if [ -n "$BACKEND_VENV" ] && [ -f "$BACKEND_VENV/bin/pytest" ]; then
+    PYTHONPATH=. "$BACKEND_VENV/bin/pytest" ../../tests/ -v --tb=short -x -m "not slow and not integration" $IGNORE_TESTS
+  elif [ -n "$BACKEND_VENV" ] && [ -f "$BACKEND_VENV/Scripts/pytest.exe" ]; then
+    # Windows
+    PYTHONPATH=. "$BACKEND_VENV/Scripts/pytest.exe" ../../tests/ -v --tb=short -x -m "not slow and not integration" $IGNORE_TESTS
+  elif python -c "import pytest" >/dev/null 2>&1; then
     PYTHONPATH=. python -m pytest ../../tests/ -v --tb=short -x -m "not slow and not integration" $IGNORE_TESTS
+  else
+    # No interpreter with pytest anywhere: a setup gap, not a test failure. The
+    # old message here said "Python tests failed", which named the wrong cause
+    # and cost two sessions their commits (#796).
+    echo "No Python interpreter with pytest in this working tree, and none in"
+    echo "the main checkout ($MAIN_TREE/apps/backend/.venv)."
+    echo "No test was run - this is a setup gap, not a test failure."
+    echo "Set one up:  cd apps/backend && uv venv && uv pip install -r requirements.txt"
+    exit 1
   fi
   if [ $? -ne 0 ]; then
     echo "Python tests failed. Please fix failing tests before committing."

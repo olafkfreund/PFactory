@@ -103,9 +103,9 @@ async def lifespan(app: FastAPI):
 
     # #774: SERVICE was built when the routes were imported, before the
     # migrations above; give it the shared session store now, in this boot.
-    from plan.service import attach_session_store_after_migrations  # noqa: PLC0415
+    from plan.service import attach_stores_after_migrations  # noqa: PLC0415
 
-    await asyncio.to_thread(attach_session_store_after_migrations)
+    await asyncio.to_thread(attach_stores_after_migrations)
 
     # Initialize skills service singleton once at startup
     init_skills_service()
@@ -297,9 +297,11 @@ def create_app() -> FastAPI:
 
     # Include API routers
     app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
-    app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
-    # Execution routes also under /api/tasks for frontend compatibility
+    # Execution routes also under /api/tasks for frontend compatibility.
+    # Order matters (#825): mounted after tasks.router, its GET /{task_id}
+    # caught GET /running. Starlette takes the first full match.
     app.include_router(execution.router, prefix="/api/tasks", tags=["Task Execution"])
+    app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
     # PFactory portal endpoints (Task 9 / #10) — read-only over the
     # PFactory workspace filesystem at ~/.pfactory/workspaces/.
     from .routes import pfactory_tasks as pfactory_tasks_routes

@@ -231,16 +231,43 @@ A pod that applies migrations on boot (#774):
   SHARED` line appears instead. If the log shows `plan_sessions table is not
   ready` and neither of those lines follows it, the pod is running
   per-process.
+- **Attaches the durable job-state store the same way (#777).** Admission and
+  the KEDA queue signal (`job_states`) need it. When that table only appeared
+  with this boot's migrations, the log has `plan state attached to the durable
+  job-state store after boot migrations (#777)`; otherwise the usual
+  `PFactory plan state is DURABLE` line appears at startup.
 - **Refuses after migrations, not before.** With
   `PFACTORY_REQUIRE_SHARED_STORE=1` and more than one replica, a pod with no
   store fails in the startup hook, after the migrations have run, instead of
   crashing while the routes load.
 
+The audit log hash chain (#806):
+
+- **Writes are serialized.** On Postgres, every audit write, and the GDPR
+  erasure's re-chain, takes one transaction-scoped advisory lock before
+  reading the chain head. It is held until that transaction commits. So
+  concurrent requests and replicas extend one linear chain instead of forking
+  it. On SQLite, the database's single writer does the same job.
+- **The chain order is `chain_seq`,** not `created_at`. `created_at` is the
+  transaction's start time, so concurrent writers can sort out of link order.
+  `chain_seq` is gapless, set to head + 1 under the lock, and not part of the
+  hash, so every existing `prev_hash` stays valid. The migration numbers the
+  existing rows in `created_at, id` order.
+- **Exports carry it.** `/api/audit/export` streams rows in `chain_seq`
+  order. JSON rows have a `chain_seq` key, and CSV has `chain_seq` as its
+  last column. Verify an export in that order:
+  `python -m server.audit verify-chain <export.ndjson>`.
+
 **Do not raise the replica count yet.** The KEDA scaler pins PFactory to one
-replica (factory-gitops#268). Lift that pin only after both this change and
-#767 (the session id counter seed) are released and `alembic upgrade head`
-has run against the production database. Until the migration has run, live
-emits are refused with 409.
+replica (factory-gitops#268). The shared session store covers plan sessions,
+but other state is still held per pod: WebSocket fan-out (#804) and phantom
+`queued` rows in the KEDA metric (#808). Already shared: the email OAuth connect
+state (#807; the portal's GitHub CLI sign-in refuses when
+`PFACTORY_REPLICA_COUNT` is above 1), and running tasks, insights replies,
+changelogs and PR reviews (#805: `run_leases`, so status, the duplicate-run
+guard and stop work from any replica; a stop sent to another replica takes
+effect within one `PFACTORY_RUN_LEASE_HEARTBEAT_SECONDS`). Lifting the pin is
+factory-gitops#273, which waits on the rest.
 
 ### Validate before applying
 

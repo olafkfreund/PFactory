@@ -34,12 +34,14 @@ import json
 import logging
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
 
 from ..database import AuditLog
 from ..database.engine import async_session_factory
+from .audit_chain import AUDIT_CHAIN_LOCK_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,8 @@ ACTION_PROJECT_DELETE = "project.delete"
 ACTION_TASK_CREATE = "task.create"
 ACTION_TASK_START = "task.start"
 ACTION_TASK_MERGE = "task.merge"
+
+ACTION_PLAN_SESSION_DELETE = "plan_session.delete"
 
 ACTION_API_KEY_CREATE = "api_key.create"
 ACTION_API_KEY_REVOKE = "api_key.revoke"
@@ -90,6 +94,18 @@ ACTION_MCP_PLAN_APPROVE = "mcp.plan.approve"
 # ---------------------------------------------------------------------------
 # Core audit logging function
 # ---------------------------------------------------------------------------
+
+
+async def lock_audit_chain(db: AsyncSession) -> None:
+    """Serialize hash-chain writers until ``db``'s transaction ends (#806).
+
+    A transaction-scoped Postgres advisory lock: released on commit or
+    rollback, never explicitly. SQLite has no advisory locks, but it allows one
+    writer at a time, which serializes the chain the same way.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": AUDIT_CHAIN_LOCK_KEY})
 
 
 async def log_audit_event(
@@ -154,25 +170,25 @@ async def log_audit_event(
         # that touches the DB goes inside -- the chain-head SELECT too, since
         # a failed statement poisons the transaction just as an insert does.
         async with db.begin_nested():
-            # Epic #26 P5.2 — hash chain on write. Look up the most-recent
-            # row's hash; this row's prev_hash = compute_hash(that, this).
-            # Concurrency note: SQLAlchemy serializes within a session, but
-            # parallel writers across sessions can race. Worst case: two
-            # rows share the same prev_hash, breaking the chain at that
-            # point. v1.0 mitigates via the FastAPI single-replica
-            # constraint; v1.1 multi-replica adds a SELECT FOR UPDATE on
-            # the chain head.
+            # Epic #26 P5.2 — hash chain on write: this row's prev_hash =
+            # compute_hash(head). #806: the head read and the insert must be
+            # atomic across every writer (other requests, other replicas), or
+            # two rows link to the same head and the chain forks. The lock is
+            # held until the caller's transaction ends, so the next writer's
+            # head read sees this row. chain_seq = head + 1 fixes the order.
             from sqlalchemy import select as _select
 
             from .audit_chain import GENESIS, compute_hash, row_as_mapping
 
-            last = await db.execute(_select(AuditLog).order_by(AuditLog.created_at.desc()).limit(1))
+            await lock_audit_chain(db)
+            last = await db.execute(_select(AuditLog).order_by(AuditLog.chain_seq.desc()).limit(1))
             last_row = last.scalar_one_or_none()
             prev_hash_value = (
                 compute_hash(last_row.prev_hash, row_as_mapping(last_row))
                 if last_row is not None
                 else GENESIS
             )
+            chain_seq = last_row.chain_seq + 1 if last_row is not None else 1
 
             # Default retention: 13 months (SOC2 12mo + buffer).
             retention_until = datetime.utcnow() + timedelta(days=395)
@@ -187,6 +203,7 @@ async def log_audit_event(
                 ip=ip,
                 retention_until=retention_until,
                 prev_hash=prev_hash_value,
+                chain_seq=chain_seq,
             )
             db.add(entry)
             await db.flush()
@@ -231,16 +248,17 @@ async def log_audit_event_bg(
     """
     try:
         async with async_session_factory() as session:
-            entry = AuditLog(
+            # #806: the one write path, so background rows join the chain.
+            await log_audit_event(
+                session,
                 user_id=user_id,
                 org_id=org_id,
                 action=action,
                 resource_type=resource_type,
                 resource_id=resource_id,
-                details_json=json.dumps(details) if details is not None else None,
+                details=details,
                 ip=ip,
             )
-            session.add(entry)
             await session.commit()
     except Exception:
         logger.warning(
