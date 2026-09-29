@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 806
 intent: intent/2026-09-29-806-audit-chain-lock.md
 ---
