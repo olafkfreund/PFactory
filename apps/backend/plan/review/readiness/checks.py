@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -503,6 +503,27 @@ def _env_buildable(
     )
 
 
+def _pipeline_pass_detail(block: dict[str, Any]) -> str:
+    """Human-readable detail for a passing ``deployment-pipeline-present`` (#797).
+
+    Built only from facts the derived block holds — ``has_deploy`` is not
+    reconstructable here (``deploy_manifests`` never reaches the block), so the
+    detail says what was found rather than guessing why none was needed.
+    """
+    if block.get("ci_exists"):
+        detail = f"{block.get('ci_system') or 'CI'} pipeline found"
+        paths = block.get("ci_pipeline_paths") or []
+        if paths:
+            detail += ": " + ", ".join(str(x) for x in paths)
+        detail += "."
+    else:
+        detail = "No CI pipeline detected, and this change needs none (needs_pipeline=false)."
+    deploy = block.get("deploy_system")
+    if deploy and deploy != "none":
+        detail += f" Deploy system: {deploy}."
+    return detail
+
+
 @check("deployment-pipeline-present")
 def _deployment_pipeline_present(
     _plan: NormalizedPlan, epic: EpicPlan, _ctx: ReadinessContext
@@ -534,7 +555,7 @@ def _deployment_pipeline_present(
         hard=True,
         waivable=True,
         detail=(
-            ""
+            _pipeline_pass_detail(block)
             if not needs
             else (
                 "A deployable surface was found but no usable CI pipeline exists "
@@ -548,15 +569,13 @@ def _deployment_pipeline_present(
             if not needs
             else "Create or extend a CI/CD pipeline that builds, scans, and deploys this change."
         ),
-        evidence=(
-            {}
-            if not needs
-            else {
-                "ci_system": block.get("ci_system"),
-                "deploy_system": block.get("deploy_system"),
-                "risk_class": block.get("risk_class"),
-            }
-        ),
+        evidence={
+            "ci_system": block.get("ci_system"),
+            "ci_exists": block.get("ci_exists"),
+            "ci_pipeline_paths": block.get("ci_pipeline_paths"),
+            "deploy_system": block.get("deploy_system"),
+            "risk_class": block.get("risk_class"),
+        },
     )
 
 
