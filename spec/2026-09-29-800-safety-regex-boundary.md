@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 800
 intent: intent/2026-09-29-800-safety-regex-boundary.md
 ---
