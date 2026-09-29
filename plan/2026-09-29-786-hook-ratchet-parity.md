@@ -38,6 +38,11 @@ a throwaway git repo with ruff on `PATH`.
 3. `scripts/ratchet_lint.py`: add `--mypy` (help text carries the on-disk
    caveat); `no_mypy = args.no_mypy or (args.staged and not args.mypy)`; parser
    error when both flags are given. → verify by steps 6b and 6c.
+   *Deviation (implementation):* the contradiction is enforced by an argparse
+   mutually-exclusive group rather than a hand-rolled `parser.error`. The
+   hand-rolled check pushed `main()` to 13 branches and the ratchet blocked its
+   own change (PLR0912) — which is the gate working. argparse's wording is
+   "not allowed with argument", so the test asserts that instead.
 4. `.husky/pre-commit`: when `PFACTORY_HOOK_MYPY` is truthy, append `--mypy`;
    comment records the measured cost and the caveat. → verify by step 7's
    measurement.
