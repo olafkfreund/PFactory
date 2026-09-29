@@ -129,6 +129,21 @@ The candidate resolver over 41 cases — **0 mismatches**. That set is:
   `migration_classifier.py`) read the resolved language. More `None` means more
   repo-grounded resolutions, which is the status quo for an unstated spec.
 
+## Corrections found during implementation
+
+Both are errors in this document, recorded here rather than quietly fixed:
+
+- **"41 cases" is the count from the measurement script, not from this section.**
+  The prose below enumerates about 21 of them. An implementer told to source 41
+  cases from here cannot; the remaining 20 live only in the script. A spec that
+  claims more evidence than it carries invites someone to invent the difference.
+- **"Only two files change" is wrong.** `_LANGUAGE_SIGNALS` is imported *by name* by
+  `plan/detect/migration_classifier.py` and by the #475 drift guard in
+  `tests/test_synthesize.py`, so removing it breaks collection of 41 test files.
+  The implementation keeps the name as a derived union of the three tiers
+  (excluding `_SHARED_TOOLS`, since restoring `gradle` to java is the defect
+  itself). See the plan's deviation section.
+
 ## Verification
 
 - **Reproduction, before:** `reconcile_language` reports `conflict=True` for the

@@ -129,6 +129,63 @@ Measured already, quoted rather than re-run: the candidate resolver scores
    for the wider consumers, then commit (the hook runs ruff, the ratchet and the full
    backend suite), push, and open the PR against `dev` linking intent, spec and plan.
 
+## Deviations recorded while implementing
+
+Three, two of them defects in my own approved documents:
+
+1. **The spec claimed "0 mismatches over 41 cases" but only enumerated ~21 of them
+   in prose.** The implementer was told to source the cases from that section, found
+   21, and *stopped to report it rather than inventing 20 more to reach the number* —
+   which is the correct response, and the reason the committed table is real evidence
+   rather than partly fabricated. The spec's count was accurate about the script I
+   measured with; the document under-recorded it. The missing 20 were supplied
+   verbatim from that script. **Spec defect, not an implementation one.**
+
+2. **The committed table has 42 rows, not 41.** One row,
+   `("Kotlin Android app, Gradle build.", "kotlin")`, is a paraphrase the implementer
+   wrote that is not in my measured set. It passes; it is kept, and flagged here as
+   an addition rather than measured evidence.
+
+3. **The spec was wrong that only two files are affected.** It stated
+   `migration_classifier.py` and the other consumers "are not touched". In fact two
+   places import `_LANGUAGE_SIGNALS` *by name* — `plan/detect/migration_classifier.py`
+   (builds its `_CANON` token→language map from it) and
+   `tests/test_synthesize.py::test_code_exts_covers_every_detectable_language` (the
+   #475 drift guard). Removing the name broke collection of 41 test files, which the
+   plan's own step 5 could not see because it runs one file. Fixed by reintroducing
+   `_LANGUAGE_SIGNALS` as a **derived** per-language union of the three tiers,
+   deliberately excluding `_SHARED_TOOLS` — putting `gradle` back into java's tokens
+   is the defect this issue is about. Neither consumer changed.
+
+   Step 8's wider run is what caught this, so it stays in the plan ahead of any
+   commit rather than being treated as optional.
+
+4. **The approved tier-2 design was too narrow, and had to change.** `_CTX_AFTER`
+   required the context noun *immediately* after the weak token. Real prose inserts
+   a qualifier — `tests/test_language_descriptor_paths.py` has "A Swift SPM library"
+   and "Swift iOS app" — so a genuine Swift plan resolved to `None`. All 41 measured
+   cases happened to use the immediate form, so **the spec's own evidence could not
+   see this**; two fixtures in a file the plan never named did.
+
+   `_CTX_AFTER` now tolerates up to two intervening words via `_GAP`, which
+   **excludes function words** (`to`, `the`, `a`, `an`, `through`, `into`, `from`,
+   `onto`, `for`, `of`). Without that exclusion "users go to the api" reads as Go
+   again — the exact false positive tier 2 exists to stop. Measured: 0 mismatches
+   over 23 cases (both fixtures, every approved weak-token case unchanged, and new
+   adversarial rows). This is a change to approved spec behaviour, not a
+   presentational tidy-up, and should be reviewed as such.
+
+   A fourth negative control was added for it: removing the function-word exclusion
+   must fail exactly the three "go to the …" rows and nothing else. It does.
+
+## Filed separately, found on the way
+
+`build_tfactory()` resolves an unset language to **python** rather than refusing.
+That is why the Swift fixtures failed as `assert 'python' == 'swift'` instead of
+surfacing "unknown". The tier fix removes the trigger, but a silent language
+default on a block that selects test lanes is its own defect and is being filed on
+its own — it is not in this change's scope.
+
 ## Tests
 
     apps/backend/.venv/bin/pytest tests/test_recon_change_mode.py -q
