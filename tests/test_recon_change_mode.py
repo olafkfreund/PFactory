@@ -205,7 +205,9 @@ _STRENGTH_CASES: list[tuple[str, str | None]] = [
     #
     # rule B: a bare prefix now needs the token capitalised, so prose does not pass
     ("The team responded in swift succession.", None),
-    ("The enclosure is tested in uv light for 500 hours.", None),
+    # "UV light" is how anyone writes it; the lowercase spelling made this row
+    # pass for the wrong reason, which a reviewer caught (#827).
+    ("The enclosure is tested in UV light for 500 hours.", None),
     ("Sales dropped in go-to-market velocity.", None),
     ("In go we have a saying about naming.", None),
     # rule C: a qualifier must carry an uppercase letter or a digit
@@ -224,7 +226,9 @@ _STRENGTH_CASES: list[tuple[str, str | None]] = [
     ("A Django app for the admin console.", "python"),
     ("Built with Django and Postgres.", "python"),
     ("A Flask API for the webhook receiver.", "python"),
-    ("A Rust service using cargo workspaces.", "rust"),
+    # NB: no bare "rust" in this one -- it has to be decided by the cargo token
+    # itself, or it proves nothing about the tier move.
+    ("A Cargo package for the parser.", "rust"),
     ("Rewritten in Cargo workspaces.", "rust"),
     ("A Maven module for the shared DTOs.", "java"),
     # rule C requires Capitalised-but-not-ALL-CAPS: SWIFT is the interbank network,
@@ -240,6 +244,30 @@ _STRENGTH_CASES: list[tuple[str, str | None]] = [
     ("Go live on Friday.", None),
     ("Go to settings.", None),
     ("Go to the api docs.", None),
+    # ── #827 round two: what an independent review constructed and this missed ──
+    #
+    # Every row below resolved a language before the fix; the first ten HALTed a
+    # valid plan. They are here because my own 33 rows could not see them -- the
+    # cases were all shaped by the same assumptions as the rules.
+    #
+    # rule B accepted the ALL-CAPS form, so acronyms walked in -- including SWIFT,
+    # the exact case rule C was built to exclude
+    ("Payments are settled in SWIFT format before cut-off.", None),
+    ("Reconcile the ledger with SWIFT confirmations nightly.", None),
+    # no left boundary meant any word ENDING in "in" donated the prefix
+    ("We begin GO week on Monday.", None),
+    ("Within Swift boundaries, the retry budget is 3.", None),
+    ("The check-in Go/No-Go meeting is Friday.", None),
+    ("Store the plugin UV export under /assets.", None),
+    # ...which made every non-English brief a minefield: German ein/kein/sein
+    ("Das ist ein Swift Modul fuer die Bank.", None),
+    # two-letter tokens are dense English acronyms, so a following noun is too
+    # weak to tell Reed-Solomon from Rust
+    ("Add an RS code for erasure repair.", None),
+    ("The RS module is Reed-Solomon.", None),
+    # ...while the genuine two-letter uses still resolve, via rules A and B
+    ("Write it in TS.", "typescript"),
+    ("Ported to JS for the browser build.", "javascript"),
 ]
 
 
@@ -328,8 +356,14 @@ def test_the_derived_signal_union_still_canonicalises_every_token() -> None:
     `_LANGUAGE_SIGNALS` is derived as the per-language union of the three tiers, and
     `migration_classifier` builds its token->language `_CANON` map from it. #801's
     deviation 7 is this check missing: four tokens moved and the behaviour change went
-    unnoticed until a reviewer read the consumer. So assert the invariant directly
-    rather than trusting that a union is order-insensitive.
+    unnoticed until a reviewer read the consumer.
+
+    What this guards, precisely, because the first version of this docstring claimed
+    more than the test delivers (#827 review): it catches a token claimed by two
+    languages, a canonical name shadowed by an earlier needle, and a token moved
+    BETWEEN languages. It cannot catch a token moved between tiers *within* one
+    language -- which is what #827 did -- because the union is per-language and
+    identical either way. That case is covered by the behaviour rows above instead.
     """
     from plan.detect import migration_classifier
     from plan.recon.language_reconcile import _LANGUAGE_SIGNALS

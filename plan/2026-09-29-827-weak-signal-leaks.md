@@ -155,6 +155,76 @@ Measured already, quoted rather than re-run: 49/49 shipped rows, 9/9 reported le
    that each canonical language name maps to itself, which the plan did not ask for
    but falls out of the same loop.
 
+## Deviations, round two: the independent review found ten more false positives
+
+The fresh reviewer (plan step 10) constructed prose the 33 rows could not see. All
+verified by running them — **21/21 of its findings reproduced.** Four corrections to
+the approved design, all of them defects in it rather than in the implementation:
+
+4. **Rule B accepted the ALL-CAPS form**, so an acronym only had to follow a bare
+   preposition — including SWIFT, the exact case rule C was built to exclude:
+   `"Payments are settled in SWIFT format"` → swift, `conflict=True`. Fixed by
+   accepting only `Capitalize()` for `_ENGLISH_WORD_TOKENS` while `ts`/`js`/`rs` keep
+   the upper-case form, since "in TS" is how people write those.
+
+5. **Rules A and B had no left word boundary**, so any word *ending* in the prefix
+   donated one: `"We be**gin GO** week"`, `"With**in Swift** boundaries"`,
+   `"the check-**in Go**/No-Go meeting"`, and the German `"e**in Swift** Modul"` — which
+   made every non-English brief a minefield. Fixed with `(?<![\w-])`; `\b` alone is not
+   enough, because it still matches across "check-in".
+
+6. **Rule C's non-English branch had no case requirement**, so a two-letter acronym
+   resolved off any following noun: `"Add an RS code for erasure repair."` → rust.
+   Rule C is now skipped for two-letter tokens; they still resolve through A and B,
+   and `"Write it in TS."` / `"Ported to JS for the browser build."` are pinned.
+
+7. **`uv` is removed from the table, not moved.** Its ALL-CAPS form is ultraviolet
+   ("tested in UV light") and its genuine form is lowercase ("uv pip install"), so no
+   case rule separates them. Python is already detectable by `python`, `pytest`,
+   `fastapi`, `flask`, `django`.
+
+### Two of my test rows were not honest, and the review caught both
+
+- `("The enclosure is tested in uv light for 500 hours.", None)` passed **only because
+  I spelled it lowercase**. "UV light" is how anyone writes it, and it leaked. Row
+  corrected to the natural casing.
+- `("A Rust service using cargo workspaces.", "rust")` was decided by the tier-1
+  `rust` token, not by `cargo` — so the one row claiming to show cargo's genuine use
+  surviving the tier move proved nothing, and negative control (d) was blind to it for
+  the same reason. Replaced with `("A Cargo package for the parser.", "rust")`, which
+  has no bare `rust` in it.
+
+### The `_CANON` guard claimed more than it delivers
+
+It passes for a real reason, but it cannot fail for a token moved between tiers
+*within* one language — which is exactly what this change did, since the union is
+per-language. Docstring corrected to say what it actually guards (cross-language moves,
+double-claimed tokens, a shadowed canonical name) and to point at the behaviour rows
+for the rest.
+
+## Known false negatives, NOT fixed here — they need a decision
+
+The same review constructed eleven cases that *should* resolve and do not. All
+verified. This matters more than usual because the plan's own argument is that on a
+hard gate a false negative is the worse error:
+
+- **Lowercase genuine tool uses**, a regression from the tier move and untested:
+  `"Use cargo to build it."`, `"Run the flask app under gunicorn."`,
+  `"Add a maven profile for the release."` — all resolved before, all `None` now.
+- **Markdown**: `` "… in `go`." ``, `"… in **Go**."` → `None`. Briefs pasted from issue
+  bodies are full of backticked language names.
+- **Hyphenated compounds**: `"A Go-based microservice."`, `"A Swift-based iOS app."`.
+- **Label and list shapes**: `"Language: Go"`, `"Stack: Go, Postgres, Redis."` — very
+  common in a structured brief.
+- **Verbs missing from `_STRONG_PREFIX`**: `"Port the CLI to Swift."`,
+  `"Convert the service to Go."`.
+
+Each wants its own pattern, which is the third round of epicycles on this file
+(#397 → #801 → #827). That is the argument for the approved intent's open question 4,
+which is still unanswered: a *blocking* verdict derived from prose heuristics is the
+thing that keeps failing, and a non-blocking finding with identical evidence would make
+every one of these a nuisance rather than a stoppage. Not this change's call to make.
+
 ## Tests
 
     apps/backend/.venv/bin/pytest tests/test_recon_change_mode.py -q

@@ -87,6 +87,11 @@ _QUALIFIER = r"(?:\s+[\w.+#-]*[A-Z0-9][\w.+#-]*){0,2}"
 # this product's payments briefs.
 _ENGLISH_WORD_TOKENS = frozenset({"go", "swift", "flask", "cargo", "django", "maven"})
 
+# Rule C is skipped below this length: a two-letter token plus a following noun is
+# too weak to tell a language from an acronym ("an RS code" is Reed-Solomon, "the
+# ts column" is a timestamp). They still resolve through rules A and B (#827).
+_MIN_LEN_FOR_NOUN_RULE = 3
+
 # Tier 2: tokens with an everyday meaning of their own. #397 only half-fixed this
 # class -- word boundaries stopped matching *inside* words, but not words that are
 # ordinary English on their own, so "users can go to the next screen" read as Go.
@@ -98,7 +103,12 @@ _WEAK_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
     ("typescript", ("ts",)),
     ("javascript", ("js",)),
     ("rust", ("rs", "cargo")),
-    ("python", ("uv", "flask", "django")),
+    # `uv` is gone, not moved: its ALL-CAPS form is ultraviolet ("tested in UV
+    # light") and its genuine form is lowercase ("uv pip install"), so no case rule
+    # can separate them -- and python is already detectable by `python`, `pytest`,
+    # `fastapi`, `flask` and `django`. A signal that cannot be told from a noun
+    # about lightbulbs earns its removal (#827).
+    ("python", ("flask", "django")),
     ("java", ("maven",)),
 ]
 
@@ -171,21 +181,40 @@ _NAME_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 
 def _weak_alternatives(needle: str) -> list[str]:
-    """Rules A, B and C for one weak token (#827); see the constants above."""
+    """Rules A, B and C for one weak token (#827); see the constants above.
+
+    ``(?<![\\w-])`` before every prefix is load-bearing, not tidiness: without it
+    any word ENDING in the prefix donates one, so "We be**gin GO** week",
+    "With**in Swift** boundaries", "the check-**in Go**/No-Go meeting" and the
+    German "e**in Swift** Modul" all resolved a language. The hyphen has to be in
+    the class too -- ``\\b`` alone still matches across "check-in".
+    """
     escaped = re.escape(needle)
+    english_word = needle in _ENGLISH_WORD_TOKENS
+    # An ALL-CAPS English word is nearly always an acronym, not the language:
+    # SWIFT is the interbank network, UV is light, RS is Reed-Solomon. The
+    # two-letter tokens are the reverse -- "in TS" / "Ported to JS" are how people
+    # write those -- so they keep the upper-case form.
+    after_prefix = (
+        needle.capitalize() if english_word else f"{needle.capitalize()}|{needle.upper()}"
+    )
     alternatives = [
         # A -- a strong prefix is evidence at any casing, so the token is folded in.
-        rf"(?i:{_STRONG_PREFIX}{escaped})\b",
+        rf"(?<![\w-])(?i:{_STRONG_PREFIX}{escaped})\b",
         # B -- a bare prefix plus a capitalised token.
-        rf"(?i:{_BARE_PREFIX})(?:{needle.capitalize()}|{needle.upper()})\b",
+        rf"(?<![\w-])(?i:{_BARE_PREFIX})(?:{after_prefix})\b",
     ]
-    if needle in _ENGLISH_WORD_TOKENS:
+    if english_word:
         # C -- Capitalised, and NOT all-caps: "Swift SPM library" yes, "SWIFT
         # MT103 service" no.
         alternatives.append(
             rf"\b{needle.capitalize()}\b(?![A-Z]){_QUALIFIER}\s+(?i:{_LANG_NOUN})\b"
         )
-    else:
+    elif len(needle) >= _MIN_LEN_FOR_NOUN_RULE:
+        # C for the remaining multi-letter tokens. Two-letter ones are excluded
+        # deliberately: "an RS code", "the RS module" are Reed-Solomon, and a
+        # noun alone is too weak to tell them from a language (#827 D3). They
+        # still resolve through A and B.
         alternatives.append(rf"(?i:\b{escaped}\b){_QUALIFIER}\s+(?i:{_LANG_NOUN})\b")
     return alternatives
 
