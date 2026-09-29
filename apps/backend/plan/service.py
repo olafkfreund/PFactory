@@ -417,7 +417,6 @@ class SessionStore(Protocol):
 
     def delete(self, session_id: str) -> bool:
         """Remove the row; True when one was removed (#798)."""
-        ...
 
     def is_ready(self) -> bool: ...
 
