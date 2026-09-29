@@ -76,6 +76,31 @@ a fresh agent against this plan.
    rather than `planner_session_never_ran`.
 9. **PR → `main`** with the before/after contract blocks; close #826.
 
+## Deviations recorded during implementation
+
+- **The spec's claim about superseded entries was wrong, and a step 5 was added
+  to fix it.** Design item 3 said the superseded `claude-sonnet-4-6` /
+  `claude-sonnet-4-5-20250929` entries would "stay pinnable but stop being the
+  cheapest at their class". They do not: measured, they price **identically** to
+  the current models —
+
+  ```
+  claude-opus-5-5    frontier 5/25     claude-opus-4-8    frontier 5/25
+  claude-sonnet-5    balanced 3/15     claude-sonnet-4-6  balanced 3/15
+  ```
+
+  so it is an exact tie broken by sort order, and the older id wins.
+  `select_phase_models` resolved `planning` to `claude-sonnet-4-6`, and to
+  `claude-opus-4-8` for governed contracts — which defeats the part of this
+  issue that was meant to stop the contract contradicting the fleet's model
+  policy.
+
+  Step 5 reuses the availability mechanism from step 1: the superseded Claude
+  entries are marked `available: false` with a reason that distinguishes them
+  from `gemini` — not broken, simply not current, and still selectable by an
+  explicit pin. Caught by the coder's own test pinning `claude-opus-4-8`, which
+  honestly recorded what the code did rather than what the spec asserted.
+
 ## Tests
 
 ```sh
