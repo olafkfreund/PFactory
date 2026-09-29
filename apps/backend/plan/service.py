@@ -568,10 +568,6 @@ def attach_stores_after_migrations() -> bool:
     return service._session_store is not None
 
 
-# #777 renamed the hook; the #774 name stays as an alias. Remove after 0.6.22.
-attach_session_store_after_migrations = attach_stores_after_migrations
-
-
 class PlanService:
     """Orchestrator for plan sessions, with durable + disk-backed persistence.
 

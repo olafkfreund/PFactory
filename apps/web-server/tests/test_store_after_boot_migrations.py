@@ -127,7 +127,7 @@ def test_attach_after_migrating_uses_the_store_and_imports(db_url: str) -> None:
     _migrate()
 
     with captured() as records:
-        assert svc.attach_session_store_after_migrations() is True
+        assert svc.attach_stores_after_migrations() is True
     store = service._session_store
     assert store is not None
     assert sid in store.session_ids(), "the on-disk session was not imported"
@@ -136,7 +136,7 @@ def test_attach_after_migrating_uses_the_store_and_imports(db_url: str) -> None:
     assert job_store is not None, "the pod kept an in-memory job store after migrating"
     assert any(_JOB_ATTACHED in r.getMessage() for r in records)
 
-    assert svc.attach_session_store_after_migrations() is True
+    assert svc.attach_stores_after_migrations() is True
     assert service._session_store is store, "a second call replaced the store"
     assert service._job_store is job_store, "a second call replaced the job store"
 
@@ -151,10 +151,10 @@ def test_the_replica_guard_waits_for_migrations(monkeypatch: pytest.MonkeyPatch)
     assert service._session_store is None
 
     with pytest.raises(RuntimeError, match="PER-PROCESS"):
-        svc.attach_session_store_after_migrations()
+        svc.attach_stores_after_migrations()
 
     _migrate()
-    assert svc.attach_session_store_after_migrations() is True
+    assert svc.attach_stores_after_migrations() is True
     assert service._session_store is not None
 
 
@@ -182,8 +182,3 @@ def test_app_boot_attaches_the_store_after_its_own_migrations(
     assert store is not None, "the pod kept per-process sessions after migrating"
     assert any(_ATTACHED in r.getMessage() for r in records)
     assert job_store is not None, "the pod kept an in-memory job store after migrating"
-
-
-def test_the_old_hook_name_is_an_alias() -> None:
-    # #777 renamed the hook; the #774 name stays until after 0.6.22.
-    assert svc.attach_session_store_after_migrations is svc.attach_stores_after_migrations
