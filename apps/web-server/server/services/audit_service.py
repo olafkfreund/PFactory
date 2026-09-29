@@ -67,6 +67,8 @@ ACTION_TASK_CREATE = "task.create"
 ACTION_TASK_START = "task.start"
 ACTION_TASK_MERGE = "task.merge"
 
+ACTION_PLAN_SESSION_DELETE = "plan_session.delete"
+
 ACTION_API_KEY_CREATE = "api_key.create"
 ACTION_API_KEY_REVOKE = "api_key.revoke"
 
