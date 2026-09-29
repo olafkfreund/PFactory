@@ -116,6 +116,94 @@ def test_language_conflict_names_the_offending_word():
     assert rec.spec_language_signal == "tokio"
 
 
+# ── language signal resolves by strength, not list order (#801) ─────────
+
+# (prose, expected_language) — from spec/2026-09-29-801-language-signal-ambiguity.md
+# "Measured" section, one row per case quoted there, commented with the tier
+# that decides it.
+_STRENGTH_CASES: list[tuple[str, str | None]] = [
+    # the reported defect: tier 1 (name "kotlin") resolves before tier 3 ever
+    # sees "gradle".
+    ("Kotlin Android app, Gradle build.", "kotlin"),
+    # the two worse cases the intent found: tier 2 (weak "go"/"swift") requires
+    # a language context that ordinary prose does not have.
+    ("Users can go to the next screen and confirm.", None),
+    ("The system must give a swift response under load.", None),
+    # existing suite assertions, tier 1 (unambiguous names)
+    ("Build a Rust service with cargo", "rust"),
+    ("port it to C# please", "csharp"),
+    ("a javascript bundler", "javascript"),
+    ("a java service", "java"),
+    ("a C++ library with cmake", "cpp"),
+    ("an ASP.NET service", "csharp"),
+    # existing suite assertions, tier 2 (weak signal, in a language context)
+    ("write it in Go", "go"),
+    # existing suite assertions, tier 3 (tool/ecosystem)
+    ("A FastAPI app", "python"),
+    # existing suite assertions that must stay None: no tier matches
+    ("the meeting is going ahead", None),
+    ("we trust the caller", None),
+    ("a swiftly delivered feature", None),
+    ("just some prose", None),
+    # adversarial cases: tier 2 context absent, or punctuation breaks it
+    ("The build will go green in CI.", None),
+    ("The migration will go to production on Friday.", None),
+    ("Sign in; go to settings.", None),
+    # adversarial case: shared token, deliberately None (#585)
+    ("An Android app built with Gradle.", None),
+    # adversarial case: tier 1 (name "kotlin") resolves despite the shared
+    # "android" token also being present
+    ("An Android app in Kotlin.", "kotlin"),
+    # adversarial case: tier 2 (weak "ts", corroborated by "ported to" context)
+    ("Ported to TS for type safety.", "typescript"),
+    # additional cases supplied by the reviewer from the full 41-case measured
+    # set (the spec's prose only quoted 21 of them) -- not present verbatim in
+    # the spec/intent text.
+    # tier 1 (unambiguous names)
+    ("A Kotlin Android app built with Gradle.", "kotlin"),
+    ("A Kotlin multiplatform module, Gradle build.", "kotlin"),
+    ("A Java Spring Boot service built with Maven.", "java"),
+    ("A Java service built with Gradle.", "java"),
+    ("Rewritten in Rust for the hot path.", "rust"),
+    ("A SwiftUI view for the profile screen.", "swift"),
+    ("Use TypeScript for the front end.", "typescript"),
+    ("Everything is in Python 3.12.", "python"),
+    ("reject oversized input so an untrusted caller cannot trigger unbounded "
+     "computation. the service is python.", "python"),
+    ("Build a Rust service", "rust"),
+    # tier 2 (weak signal, in a language context)
+    ("Write the API in Go with a Postgres store.", "go"),
+    ("A Go service exposing a gRPC endpoint.", "go"),
+    ("An iOS app written in Swift.", "swift"),
+    # tier 3 (tool/ecosystem)
+    ("The pipeline runs pytest against the FastAPI app.", "python"),
+    # None: weak signal without a language context
+    ("Approvals go through a review queue.", None),
+    ("Let the operator go back to the previous step.", None),
+    ("Reduce p99 latency; responses must be swift.", None),
+    # None: shared token (#585)
+    ("A Scala service built with Gradle.", None),
+    ("A Groovy script in a Gradle build.", None),
+    # None: boundary() still refuses a substring match (#397)
+    ("Untrusted input must be rejected at the boundary.", None),
+    ("AC#1: factorial(0) == 1", None),
+    # tier 2: qualifier-gap cases -- a qualifier may sit between the weak token
+    # and the context noun, but a function word ("to", "the", ...) still blocks it
+    ("A Swift SPM library for the iOS app matching logic.", "swift"),
+    ("Swift iOS app; the marketing frontend pages show live data.", "swift"),
+    ("A Go HTTP service behind the gateway.", "go"),
+    ("A Go 1.22 module for the parser.", "go"),
+    ("Users go to the api docs page.", None),
+    ("Approvals go to the backend queue.", None),
+    ("Operators go into the application menu.", None),
+]
+
+
+@pytest.mark.parametrize("prose,expected", _STRENGTH_CASES)
+def test_the_spec_language_resolves_by_strength_not_list_order(prose, expected):
+    assert detect_spec_language(_plan(desc=prose)) == expected
+
+
 # ── language reconciliation (#585) ──────────────────────────────────────
 
 
