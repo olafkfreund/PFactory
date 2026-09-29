@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 807
 intent: intent/2026-09-29-807-oauth-state-shared.md
 ---
