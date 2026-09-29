@@ -124,6 +124,23 @@ database, stopped afterwards.
      /api/github/auth/start` is not refused. Not exercised end to end:
      production does not use the device flow.
 
+### Deviation recorded during step 6 (gates)
+
+The full `tests/postgres` run failed `test_oauth_state_race`, although it
+passed on its own. `test_jobstore_for_update`'s teardown `drop_all()`s the
+shared `Base.metadata` but leaves `alembic_version` at head, so a later bare
+`alembic upgrade head` is a no-op over missing tables. The #806 audit test
+(`test_audit_chain_concurrency.py`) has the same latent dependency: it passes
+in CI only because it sorts before the jobstore test on a fresh database, and
+it fails on a second local run.
+
+The fix adds `tests/postgres/helpers.py:reset_schema(url)`, which drops and
+recreates `public` and refuses unless the database name contains "test".
+Both tests call it before migrating, and the audit fixture's now-redundant
+`DELETE FROM audit_logs` is removed.
+→ verify: `tests/postgres -m postgres` passes twice in a row on the same
+database.
+
 ## Tests
 
 ```bash

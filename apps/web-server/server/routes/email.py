@@ -13,7 +13,6 @@ import json
 import logging
 import os
 import secrets
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -23,6 +22,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import delete, select
+
+from server.database.models import OAuthConnectState
 
 from .._get_email_oauth_credentials import get_email_oauth_credentials, get_google_oauth_credentials
 from ..config import get_settings
@@ -98,31 +99,60 @@ def _opener_origin(request: Request) -> str | None:
 
 router = APIRouter(prefix="/api/email", tags=["Email"])
 
-# In-memory CSRF-state store for the OAuth connect flow:
-#   state_token -> {user_id, provider, created_at, origin}
-# Entries expire after 10 minutes.
+# CSRF state for the OAuth connect flow (#807): one `oauth_connect_states` row
+# per pending connect, {state -> user_id, provider, origin, expires_at}. It
+# lived in a per-process dict, so a provider callback that reached another
+# replica was rejected; the table is shared by every pod.
 #
 # Named for what it holds rather than for the protocol it belongs to. It holds
 # no credential -- no access token, no refresh token, no client secret; those
-# never enter this dict, they go straight from the token exchange into the
-# EmailAccount row. The old name (`_oauth_states`) made CodeQL classify every
-# value read out of it as a password by identifier heuristic, which is why
-# `logger.info(... user_id ...)` in both callbacks reported as
-# py/clear-text-logging-sensitive-data while logging nothing but a UUID -- the
-# `_mask_email` fix from #517 could not close it, because the address was never
-# the flagged expression.
-_pending_connect_states: dict[str, dict] = {}
+# go straight from the token exchange into the EmailAccount row. (A name like
+# `_oauth_states` made CodeQL classify every value read out of it as a password
+# by identifier heuristic, #517.)
 _STATE_TTL_SECONDS = 600
 
 
-def _cleanup_expired_states() -> None:
-    """Remove expired OAuth state entries."""
-    now = time.time()
-    expired = [
-        k for k, v in _pending_connect_states.items() if now - v["created_at"] > _STATE_TTL_SECONDS
-    ]
-    for k in expired:
-        del _pending_connect_states[k]
+async def _save_connect_state(user_id: str, provider: str, origin: str | None) -> str:
+    """Record a pending connect and return its unguessable state token.
+
+    Sweeps expired rows first, the job the old in-memory cleanup did.
+    """
+    now = datetime.now(UTC)
+    state = secrets.token_urlsafe(32)
+    async with async_session_factory() as session:
+        await session.execute(delete(OAuthConnectState).where(OAuthConnectState.expires_at <= now))
+        session.add(
+            OAuthConnectState(
+                state=state,
+                user_id=user_id,
+                provider=provider,
+                origin=origin,
+                expires_at=now + timedelta(seconds=_STATE_TTL_SECONDS),
+            )
+        )
+        await session.commit()
+    return state
+
+
+async def _consume_connect_state(state: str, provider: str) -> dict[str, str | None] | None:
+    """Take a pending connect for ``provider``, or None if unknown or expired.
+
+    One DELETE ... RETURNING: single-use even when two pods race for it, and a
+    state issued for one provider cannot complete another's callback.
+    """
+    async with async_session_factory() as session:
+        result = await session.execute(
+            delete(OAuthConnectState)
+            .where(
+                OAuthConnectState.state == state,
+                OAuthConnectState.provider == provider,
+                OAuthConnectState.expires_at > datetime.now(UTC),
+            )
+            .returning(OAuthConnectState.user_id, OAuthConnectState.origin)
+        )
+        row = result.first()
+        await session.commit()
+    return {"user_id": row.user_id, "origin": row.origin} if row is not None else None
 
 
 def _get_user_id(request: Request) -> str:
@@ -282,14 +312,7 @@ async def start_outlook_oauth(request: Request):
     client_id, _client_secret = creds
 
     # Generate state token
-    _cleanup_expired_states()
-    state = secrets.token_urlsafe(32)
-    _pending_connect_states[state] = {
-        "user_id": user_id,
-        "provider": "outlook",
-        "created_at": time.time(),
-        "origin": _opener_origin(request),
-    }
+    state = await _save_connect_state(user_id, "outlook", _opener_origin(request))
 
     callback_url = _get_oauth_redirect_uri(request)
 
@@ -335,8 +358,7 @@ async def outlook_oauth_callback(
         )
 
     # Validate state
-    _cleanup_expired_states()
-    state_data = _pending_connect_states.pop(state, None)
+    state_data = await _consume_connect_state(state, "outlook")
     if not state_data:
         return _oauth_result_html(
             success=False,
@@ -497,14 +519,7 @@ async def start_gmail_oauth(request: Request):
     client_id, _client_secret = creds
 
     # Generate state token
-    _cleanup_expired_states()
-    state = secrets.token_urlsafe(32)
-    _pending_connect_states[state] = {
-        "user_id": user_id,
-        "provider": "gmail",
-        "created_at": time.time(),
-        "origin": _opener_origin(request),
-    }
+    state = await _save_connect_state(user_id, "gmail", _opener_origin(request))
 
     callback_url = _get_oauth_redirect_uri(request, provider="gmail")
 
@@ -552,8 +567,7 @@ async def gmail_oauth_callback(
         )
 
     # Validate state
-    _cleanup_expired_states()
-    state_data = _pending_connect_states.pop(state, None)
+    state_data = await _consume_connect_state(state, "gmail")
     if not state_data:
         return _oauth_result_html(
             success=False,
