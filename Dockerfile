@@ -60,7 +60,7 @@ RUN mkdir -p apps/web-server/static \
 # digest as frontend-build, so both move together in one Dependabot bump.
 FROM docker.io/node:26-bookworm-slim@sha256:c8fedd782bcd1b68d8a7d1ed2577b5f820eba820871323f605292651ff11e3c6 AS node-runtime
 
-FROM cgr.dev/chainguard/python:latest-dev@sha256:2d5551e22013aa1bb69c070398273171941c4a0d80414e7f786db8e6d966bb83 AS runtime
+FROM cgr.dev/chainguard/python:latest-dev@sha256:87729167739190d9309588120a8ac0ffbf2eb95dd895abb9bada6bb9ecbf5a04 AS runtime
 
 USER root
 
@@ -245,9 +245,9 @@ RUN mkdir -p /home/nonroot/.npm-global \
 # because nothing asserted the CLI works. Full path, since PATH is set for the
 # runtime user rather than for RUN.
 RUN npm install -g \
-        @anthropic-ai/claude-code@2.1.278 \
-        @openai/codex@0.155.1 \
-        @google/gemini-cli@0.60.0 \
+        @anthropic-ai/claude-code@2.1.283 \
+        @openai/codex@0.158.0 \
+        @google/gemini-cli@0.61.0 \
  && node /home/nonroot/.npm-global/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
  && /home/nonroot/.npm-global/bin/claude --version \
  && npm cache clean --force \
