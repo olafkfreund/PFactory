@@ -7,6 +7,7 @@ Handles GitHub OAuth, repository management, issues, PRs, and releases.
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -770,9 +771,28 @@ async def auto_detect_github(projectId: str | None = Query(None)):
     }
 
 
-# Background state for GitHub auth flow
+# Background state for GitHub auth flow. Per process by nature: the `gh`
+# subprocess, and the credential it writes under this pod's HOME (#807).
 _gh_auth_proc: asyncio.subprocess.Process | None = None
 _gh_auth_status: dict | None = None
+
+_MULTI_REPLICA_GH_AUTH = (
+    "GitHub sign-in from the portal is disabled when PFactory runs more than one "
+    "replica: the credential would exist on one pod only. Set GITHUB_TOKEN in the "
+    "PFactory Secret instead."
+)
+
+
+def _replica_count() -> int:
+    """The replica ceiling from PFACTORY_REPLICA_COUNT; missing or bad means 1.
+
+    ponytail: same parse as plan/service.py's #755 guard; extract a shared
+    helper when a third reader appears.
+    """
+    try:
+        return int(os.environ.get("PFACTORY_REPLICA_COUNT", "1").strip() or "1")
+    except ValueError:
+        return 1
 
 
 async def _monitor_gh_auth(proc: asyncio.subprocess.Process):
@@ -833,6 +853,8 @@ async def start_github_auth():
     Poll GET /auth/status or listen for the github:auth-complete WebSocket event.
     """
     global _gh_auth_proc, _gh_auth_status
+    if _replica_count() > 1:
+        return {"success": True, "data": {"success": False, "message": _MULTI_REPLICA_GH_AUTH}}
     gh_path = shutil.which("gh")
     if not gh_path:
         return {
