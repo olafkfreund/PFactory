@@ -420,6 +420,27 @@ class TestTargetCredential(Base):
 # ---------------------------------------------------------------------------
 
 
+class OAuthConnectState(Base):
+    """A pending email OAuth connect (#807): the CSRF ``state`` and who asked.
+
+    Shared by every replica, so the provider's callback may reach any pod. The
+    callback consumes a row with one ``DELETE ... RETURNING``, which keeps it
+    single-use across pods. Holds no credential: tokens go straight from the
+    code exchange into ``EmailAccount``.
+    """
+
+    __tablename__ = "oauth_connect_states"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # No FK: with auth disabled, `_get_user_id` returns a fixed id.
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+
 class EmailAccount(Base):
     """OAuth-connected email account for sending notifications."""
 

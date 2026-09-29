@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.6.24 — email OAuth state shared across replicas (2026-09-29)
+
+- **An email OAuth connect works whichever replica gets the callback (#807).**
+  The Outlook or Gmail connect state lived in the memory of the pod that
+  started the flow, so a provider callback that reached another pod was
+  rejected as invalid or expired. It now lives in `oauth_connect_states`
+  (migration `f2c7a9d4e1b3`) and is consumed with one `DELETE ... RETURNING`:
+  single-use across pods, and bound to its provider (a Gmail state no longer
+  completes the Outlook callback).
+- **The portal's GitHub CLI sign-in refuses when PFactory may run as several
+  pods (#807).** `gh auth login` writes its credential on the pod that ran it,
+  so with `PFACTORY_REPLICA_COUNT` above 1, `/api/github/auth/start` refuses
+  and points to `GITHUB_TOKEN` in the Secret. With one replica: unchanged.
+- Docs: `PFACTORY_REPLICA_COUNT` and `PFACTORY_REQUIRE_SHARED_STORE` in the
+  environment reference.
+
 ## 0.6.23 — audit hash chain holds under concurrency (2026-09-29)
 
 - **Concurrent audit writes no longer fork the hash chain (#806).** The chain
