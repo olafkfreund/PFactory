@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 781
 intent: intent/2026-09-29-781-rotate-cli-driver.md
 ---
