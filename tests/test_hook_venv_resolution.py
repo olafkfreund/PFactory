@@ -16,6 +16,13 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
+# NOTE: when the suite itself runs inside a worktree — which is exactly what
+# this fix enables — _REPO is that worktree, not the main checkout. So these
+# tests assert on behaviour (a usable venv outside the temp tree) rather than on
+# a path computed from _REPO, which would re-implement the resolver and pass
+# for a broken one.
 _REPO = Path(__file__).resolve().parents[1]
 _SCRIPT = _REPO / "scripts" / "resolve_backend_venv.sh"
 _PROBE = f'. "{_SCRIPT}"; echo "rc=$?"; echo "venv=$BACKEND_VENV"'
@@ -43,8 +50,12 @@ def test_worktree_falls_back_to_the_main_checkout_venv(tmp_path: Path) -> None:
     try:
         assert not (worktree / "apps" / "backend" / ".venv").exists()
         out = _run(worktree)
-        assert f"venv={_REPO}/apps/backend/.venv" in out
         assert "rc=0" in out
+        resolved = Path(out.split("venv=", 1)[1].strip())
+        # A usable venv, and not one inside the venv-less worktree.
+        assert resolved.is_dir()
+        assert (resolved / "bin" / "pytest").exists()
+        assert worktree not in resolved.parents
         # The cross-tree resolution is announced: a worktree on a branch with
         # different dependencies would otherwise be tested silently against the
         # main checkout's.
@@ -58,9 +69,12 @@ def test_worktree_falls_back_to_the_main_checkout_venv(tmp_path: Path) -> None:
         )
 
 
-def test_main_checkout_resolves_its_own_venv_without_announcing() -> None:
+def test_a_tree_with_its_own_venv_uses_it_without_announcing() -> None:
+    own = _REPO / "apps" / "backend" / ".venv"
+    if not own.is_dir():
+        pytest.skip("this tree has no venv of its own (running from a worktree)")
     out = _run(_REPO)
-    assert f"venv={_REPO}/apps/backend/.venv" in out
+    assert f"venv={own}" in out
     assert "rc=0" in out
     assert "Using the main checkout's venv" not in out
 

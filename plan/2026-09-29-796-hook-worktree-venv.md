@@ -43,10 +43,20 @@ Approved decisions (from the intent and spec):
    convention:
    a. `git worktree add --detach` into `tmp_path`, run
       `sh -c '. scripts/resolve_backend_venv.sh; echo "$BACKEND_VENV"'` with cwd
-      in the worktree → resolves to `_REPO/apps/backend/.venv`, and stdout
-      carries the announcement;
-   b. same script run in `_REPO` → resolves to `_REPO/apps/backend/.venv` with
-      **no** announcement line (main-checkout behaviour unchanged);
+      in the worktree → resolves to a usable venv outside that worktree, and
+      stdout carries the announcement;
+   b. same script run in `_REPO` → resolves to `_REPO`'s own venv with **no**
+      announcement, skipped when `_REPO` has none;
+
+   **Deviation from the approved plan, found by step 6.** (a) and (b) were
+   written to assert the resolved path equals `_REPO/apps/backend/.venv`. But
+   `_REPO` is `Path(__file__).parents[1]`, so when the suite runs *inside a
+   worktree* — the very thing this fix enables — `_REPO` is that worktree and
+   both assertions invert: (a) demanded the worktree's venv, (b) demanded no
+   announcement where one is correct. The e2e commit from a worktree failed on
+   (a); `-x` stopped before (b). They now assert behaviour (a usable venv, with
+   `bin/pytest`, outside the temp tree) instead of a path derived from `_REPO`,
+   which would re-implement the resolver and pass for a broken one.
    c. a tree where neither venv exists (`HOME`-less temp clone, or a monkeyed
       candidate path) → `BACKEND_VENV` empty, non-zero return;
    d. the hook actually sources the script — assert `.husky/pre-commit`
