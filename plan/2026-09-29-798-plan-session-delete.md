@@ -108,6 +108,15 @@ existing `_rowcount` helper in `jobstore/store.py` (which exists for exactly
 this reason). All four counters now equal `origin/dev`'s, measured in a worktree
 at `origin/dev` rather than against the branch.
 
+Second lesson, learned the hard way on the same PR: the local mypy measurement
+was **not the measurement CI makes**. CI installs
+`apps/backend/requirements-typestubs.txt` first (PFACTORY#468 — without stubs
+mypy treats those libraries as `Any` and the strict bar stops applying at the
+boundary), so a local run without them reports a different, smaller set and can
+show parity where CI sees +1. The stubs are now installed in
+`apps/backend/.venv`. A gate reproduced without its inputs is another check that
+measures nothing.
+
 Lesson for future steps: run
 `scripts/ratchet_lint.py --base origin/dev --package ...` — or, where its mypy
 half cannot run locally, compare per-file counts against a worktree at
