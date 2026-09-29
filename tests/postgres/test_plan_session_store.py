@@ -99,8 +99,12 @@ def test_a_write_on_one_replica_is_visible_to_another(test_postgres_url, tmp_pat
     pod_a.discard(sid, actor="olaf", reason="teardown")
 
     assert pod_b.get(sid).status == "discarded"
-    summaries = {s["session_id"]: s["status"] for s in pod_b.list_sessions()}
+    # include_discarded: the board hides discarded sessions by default (#798).
+    # What this test is about is cross-replica visibility, not the board filter.
+    summaries = {s["session_id"]: s["status"] for s in pod_b.list_sessions(include_discarded=True)}
     assert summaries[sid] == "discarded"
+    # ...and the default view hides it, on this replica too.
+    assert sid not in {s["session_id"] for s in pod_b.list_sessions()}
 
 
 @pytest.mark.usefixtures("pg_schema")

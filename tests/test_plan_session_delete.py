@@ -30,7 +30,11 @@ pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
 from fastapi import HTTPException  # noqa: E402
-from plan.service import PlanInputError, PlanService  # noqa: E402
+from plan.service import (  # noqa: E402
+    PlanInputError,
+    PlanService,
+    SessionNotDeletableError,
+)
 from server.routes import plan_pipeline as pp  # noqa: E402
 
 from tests.fake_session_store import FakeSessionStore  # noqa: E402
@@ -75,8 +79,12 @@ def _emitted(svc: PlanService | None = None, **kwargs) -> tuple[PlanService, str
     svc.process(sid)
     # Directly set the status rather than driving a real emit (#758's lease/
     # dry-run machinery is orthogonal here) — the established pattern, see
-    # tests/test_hard_routing.py:119.
-    svc.get(sid).status = "emitted"
+    # tests/test_hard_routing.py:119. Persisted via _save because with a shared
+    # store get() returns a fresh copy per call, so an unsaved mutation is lost
+    # (the P1-against-Postgres suite runs this file with DATABASE_URL set).
+    session = svc.get(sid)
+    session.status = "emitted"
+    svc._save(session)  # noqa: SLF001 — no public setter for a synthetic status
     return svc, sid
 
 
@@ -108,7 +116,7 @@ def test_deleting_a_rejected_session_is_allowed():
 def test_deleting_an_ingested_session_is_refused():
     svc, sid = _ingested()
 
-    with pytest.raises(PlanInputError, match="ingested"):
+    with pytest.raises(SessionNotDeletableError, match="ingested"):
         svc.delete_session(sid, actor="olafkfreund")
     # Refused, not silently dropped: still there afterwards.
     assert svc.get(sid).status == "ingested"
@@ -124,7 +132,7 @@ def test_deleting_an_emitted_session_is_refused_by_status_name():
     """
     svc, sid = _emitted()
 
-    with pytest.raises(PlanInputError, match="emitted"):
+    with pytest.raises(SessionNotDeletableError, match="emitted"):
         svc.delete_session(sid, actor="olafkfreund")
     assert svc.get(sid).status == "emitted"
 
@@ -148,8 +156,11 @@ def test_another_tenants_id_fails_with_the_same_message_as_unknown():
 
     # The message a genuinely unknown id with this exact text produces —
     # `_load_from_store`/`get()`'s literal, which `delete_session` also raises.
+    # Its own empty store, so it has genuinely never heard of the id even when
+    # the suite runs with a shared DATABASE_URL.
+    stranger = PlanService(session_store=FakeSessionStore())
     with pytest.raises(PlanInputError) as unknown_exc:
-        PlanService().delete_session(sid, actor="olafkfreund")
+        stranger.delete_session(sid, actor="olafkfreund")
     reference_message = str(unknown_exc.value)
 
     with pytest.raises(PlanInputError) as tenant_exc:

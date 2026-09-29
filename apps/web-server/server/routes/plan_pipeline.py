@@ -34,6 +34,7 @@ from plan.service import (  # noqa: E402
     PlanInputError,
     PlanService,
     PlanServiceError,
+    SessionNotDeletableError,
     StaleSessionError,
 )
 from server.services.audit_service import (  # noqa: E402
@@ -560,12 +561,13 @@ async def delete_session(
         result: dict[str, str] = cast(PlanService, SERVICE).delete_session(
             session_id, actor=body.actor, tenant_id=tenant
         )
+    except SessionNotDeletableError as exc:
+        # Exists, but not in a deletable state.
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanInputError as exc:
-        # Same PlanInputError for both cases (#798) — told apart by message,
-        # matching the "unknown session" text `get()`/`_guard_tenant` use, so
-        # unknown-id and wrong-tenant share one 404 that reveals nothing.
-        status = 404 if str(exc).startswith("unknown session") else 409
-        raise HTTPException(status_code=status, detail=client_error(exc)) from exc
+        # Unknown id, or another tenant's session: one 404 for both, so the
+        # endpoint reveals nothing about ids it will not act on.
+        raise HTTPException(status_code=404, detail=client_error(exc)) from exc
     await log_audit_event(
         db,
         # An irreversible action must be attributable to a principal, not only to

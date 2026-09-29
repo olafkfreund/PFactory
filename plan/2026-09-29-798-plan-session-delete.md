@@ -191,6 +191,32 @@ the new obligation.
    the same three fields `rmux/bridge.py` does, read by direct attribute access
    rather than `getattr`, which defeats mypy's narrowing of `Address | None`.
 
+6. **Gate 5 (`raw-exception-in-response`) rejected deciding the HTTP status from
+   an exception's message.** The original `str(exc).startswith("unknown session")`
+   is gone; `SessionNotDeletableError` (a new `PlanServiceError` subclass) maps to
+   409 and `PlanInputError` to 404, so no string matching picks a status. The
+   review had judged the string form "brittle but acceptable"; the gate was right
+   and it is not.
+
+7. **The tests assumed no shared store**, which only shows up under
+   `tests/postgres/test_p1_suite_against_postgres.py` (it re-runs the whole suite
+   with `DATABASE_URL` set):
+   - `_emitted()` mutated `svc.get(sid).status` without saving — with a store,
+     `get()` returns a fresh copy per call, so the mutation was discarded. Now
+     persisted via `_save`.
+   - the tenant test used a second bare `PlanService()` as "a service that never
+     heard of this id", but it shares the ambient store. It now gets its own
+     `FakeSessionStore`.
+   - `tests/postgres/test_plan_session_store.py::test_a_write_on_one_replica_is_visible_to_another`
+     asserted a *discarded* session appears in `list_sessions()` — the consumer
+     -visible change this spec flagged as a risk, and the one consumer nobody
+     grepped for. It now asserts both views explicitly. Confirmed mine by running
+     it at `origin/dev`, where it passes.
+
+   Verified against a real Postgres in Docker (`postgres:16-alpine`), which also
+   ran the two store-level `delete` tests for the first time — they had been
+   skipping for want of `TEST_POSTGRES_URL`.
+
 A remaining finding — on two replicas, a deleted session stays readable from the
 other pod's cache and a later write **re-inserts** it, because `_all_sessions`
 re-caches without `_store_version` and `_upsert_session` then treats `None` as

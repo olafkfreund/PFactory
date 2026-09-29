@@ -264,6 +264,17 @@ class PlanInputError(PlanServiceError):
     """
 
 
+class SessionNotDeletableError(PlanServiceError):
+    """A delete was asked for a session that is not in a deletable state (#798).
+
+    Split from :class:`PlanInputError` so the route answers 409 for "this session
+    exists but cannot be deleted yet" and 404 for "no such session", **without**
+    reading the exception's message to tell them apart. String-sniffing a status
+    out of `str(exc)` is what Gate 5's ``raw-exception-in-response`` bans, and it
+    breaks silently the moment a message is reworded.
+    """
+
+
 class EmitInProgressError(PlanServiceError):
     """A live emit of this session is running, or cannot be ruled out (#758).
 
@@ -1830,7 +1841,7 @@ class PlanService:
         if tenant_id is not None and session.tenant_id != tenant_id:
             raise PlanInputError(f"unknown session '{session_id}'")
         if session.status not in DELETABLE_STATUSES:
-            raise PlanInputError(
+            raise SessionNotDeletableError(
                 f"cannot delete session '{session_id}' with status '{session.status}'"
             )
         # Store first (#798): a store failure must not leave a session the
