@@ -28,6 +28,7 @@ from server.error_ref import error_reference
 
 from ..config import get_settings
 from ..websockets.events import broadcast_event
+from . import run_leases
 
 
 class PRReviewPhase(str, Enum):
@@ -181,6 +182,28 @@ class PRReviewService:
         """Check if a review is running for this project + PR."""
         return self._review_key(project_id, pr_number) in self.running_reviews
 
+    async def _claim_lease(self, key: str, pr_number: int) -> None:
+        """One review per PR across replicas (#805)."""
+        if not await run_leases.acquire("pr_review", key):
+            self._cleanup(key)
+            raise run_leases.RunAlreadyActiveError(
+                f"A review is already running for PR #{pr_number}"
+            )
+
+    def _watch_lease(self, key: str, project_id: str, pr_number: int) -> None:
+        run_leases.watch(
+            "pr_review",
+            key,
+            alive=lambda: key in self.running_reviews,
+            stop=lambda: self.cancel_review(project_id, pr_number),
+        )
+
+    async def is_running_anywhere(self, project_id: str, pr_number: int) -> bool:
+        """True when this pod or another replica runs the review (#805)."""
+        return self.is_running(project_id, pr_number) or await run_leases.is_active(
+            "pr_review", self._review_key(project_id, pr_number)
+        )
+
     def get_status(self, project_id: str, pr_number: int) -> dict:
         """Get the current status for a PR review."""
         key = self._review_key(project_id, pr_number)
@@ -274,6 +297,8 @@ class PRReviewService:
         log_writer = PRReviewLogWriter(logs_file, pr_number)
         self._log_writers[key] = log_writer
 
+        await self._claim_lease(key, pr_number)
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -304,6 +329,7 @@ class PRReviewService:
 
             # Process output in background
             spawn(self._process_output(project_id, pr_number, project_path, proc))
+            self._watch_lease(key, project_id, pr_number)
 
             return True
 
@@ -319,6 +345,7 @@ class PRReviewService:
                 project_id, pr_number, f"the review could not be started (reference {ref})"
             )
             self._cleanup(key)
+            await run_leases.release("pr_review", key)
             return False
 
     async def cancel_review(self, project_id: str, pr_number: int) -> bool:

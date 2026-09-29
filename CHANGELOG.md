@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.6.25 — running work is visible and stoppable from any replica (2026-09-29)
+
+- **Running tasks, insights replies, changelogs and PR reviews are shared
+  across replicas (#805).** Each used to be tracked only in the memory of
+  the pod that started it, so another replica reported it idle, allowed a
+  duplicate start, and could not stop it. A new `run_leases` table
+  (migration `a8d3e6b2c9f4`) records which replica owns each run, renewed
+  on a heartbeat:
+  - status and running lists see every replica;
+  - a duplicate start gets 409 (changelog: "already in progress");
+  - a stop sent to another replica becomes a stop request that the owner
+    carries out within one heartbeat;
+  - a replica that dies stops claiming its runs within one TTL.
+
+  It is tuned by `PFACTORY_RUN_LEASE_TTL_SECONDS` (60) and
+  `PFACTORY_RUN_LEASE_HEARTBEAT_SECONDS` (15). With one replica, behaviour
+  is unchanged.
+- A passing deployment-pipeline gate reports what it found (#797).
+- Four compliance-review escapes accept inflected wording (#800).
+- The pre-commit hook finds the backend venv from a git worktree (#796).
+
 ## 0.6.24 — email OAuth state shared across replicas (2026-09-29)
 
 - **An email OAuth connect works whichever replica gets the callback (#807).**
