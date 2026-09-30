@@ -594,9 +594,30 @@ async def start_listener(deliver: Callable[[str, dict[str, Any]], Awaitable[None
     _listener_task = asyncio.create_task(_run_listener(url, deliver))
 
     outbox: asyncio.Queue[str] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
-    # See the module-level comment near `_connection` for why this is
-    # `min_size=0`, not `min_size=1`.
-    pool = await asyncpg.create_pool(url, min_size=0, max_size=2)
+    try:
+        # See the module-level comment near `_connection` for why this is
+        # `min_size=0`, not `min_size=1`.
+        pool = await asyncpg.create_pool(url, min_size=0, max_size=2)
+    except Exception:
+        # #804 round 9 finding 1: `start_listener` must fully start or fully
+        # fail — my own round-6 re-entry-guard fix claimed `_listener_task`
+        # BEFORE this await to close a concurrent-call race, but left THIS
+        # window open: if `create_pool` itself raises (Postgres not yet
+        # accepting connections during a rolling deploy — the exact case
+        # `main.py`'s own startup catch anticipates), `_listener_task` stayed
+        # claimed forever while `_drain_task`/`_outbox` were never assigned.
+        # That pod's inbound listener still works (it retries and connects
+        # fine on its own), but `publish()` no-ops forever at its
+        # `_drain_task is None` guard — the pod relays NOTHING outbound for
+        # its entire lifetime — and the re-entry guard above refuses every
+        # retry since `_listener_task` is still set. Undo the claim before
+        # propagating, so the caller (`main.py`'s own catch) gets a pod that
+        # can actually retry, not one that's silently, permanently half-alive.
+        _listener_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            await asyncio.wait_for(_listener_task, timeout=_LISTENER_SHUTDOWN_TIMEOUT)
+        _listener_task = None
+        raise
 
     _outbox = outbox
     _publish_pool = pool

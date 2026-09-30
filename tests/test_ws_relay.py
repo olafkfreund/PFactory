@@ -1596,9 +1596,11 @@ async def test_pong_reply_is_bounded_on_a_wedged_socket(monkeypatch) -> None:
 async def test_evict_clients_close_is_bounded(monkeypatch) -> None:
     """#804 round 6 finding B: `_evict_client`'s `await ws.close()` usually
     runs on a socket that just raised from `send_text`, but a half-open peer
-    can hang `close()` too — and it runs SEQUENTIALLY, after `gather`, once
-    per evicted client, so one hung `close()` would stall eviction of every
-    OTHER client behind it in that list.
+    can hang `close()` too. Pins the PER-CLIENT bound in isolation; see
+    `test_evicting_several_half_open_clients_costs_about_one_timeout_not_n`
+    (#804 round 9 finding 2) for the separate BATCH-cost concern — bounding
+    one client's close doesn't help if the batch loop calling it is
+    sequential.
 
     MUTATION: remove the `asyncio.wait_for(ws.close(), timeout=_SEND_TIMEOUT)`
     wrap in `_evict_client` (call `ws.close()` bare) ⇒ this fails — bounded
@@ -1612,6 +1614,58 @@ async def test_evict_clients_close_is_bounded(monkeypatch) -> None:
 
     ws = _HangingCloseWebSocket()
     await asyncio.wait_for(events._evict_client(ws), timeout=5.0)
+
+
+class _DeadWithHangingCloseWebSocket:
+    """A client whose send fails IMMEDIATELY (a genuine failure, evicted on
+    the first try, no `_SEND_TIMEOUT` delay from the send itself) but whose
+    `close()` hangs like a half-open peer — isolates the EVICTION BATCH's
+    own cost from the separate cost of the send `gather` earlier in the same
+    call."""
+
+    async def send_text(self, _message: str) -> None:
+        raise ConnectionResetError("boom: connection reset")
+
+    async def close(self) -> None:
+        await asyncio.sleep(3600)
+
+
+async def test_evicting_several_half_open_clients_costs_about_one_timeout_not_n(
+    monkeypatch,
+) -> None:
+    """#804 round 9 finding 2: bounding each `_evict_client`'s own `close()`
+    (finding B) caps the PER-CLIENT cost, but the batch loop calling it
+    SEQUENTIALLY still paid N x that bound — measured at 5 half-open
+    clients, ~5x`_SEND_TIMEOUT` of serial closes on top of the ~1x
+    `_SEND_TIMEOUT` the send `gather` already costs. That sits inline on the
+    `_emit_progress` -> stdout path and, because `_listen_on` awaits
+    `deliver(...)` inline in its own receive loop, stalls INBOUND relayed
+    events from every OTHER pod for the same stretch too — the exact
+    pod-wide stall this module exists to prevent, relocated from send to
+    close. Worse, timeout-eviction reaches exactly the clients whose
+    `close()` is most likely to hang the full timeout — half-open ones — so
+    a NAT or load-balancer drop strands a whole cohort at once.
+
+    MUTATION: revert `_deliver_local_broadcast`'s `asyncio.gather(*(
+    _evict_client(ws) for ws in disconnected), return_exceptions=True)` back
+    to a sequential `for ws in disconnected: await _evict_client(ws)` loop
+    ⇒ this fails — 5 half-open clients would cost ~5x`_SEND_TIMEOUT`
+    (~1.0s), not ~1x (~0.2s).
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.2)
+    dead_clients = [_DeadWithHangingCloseWebSocket() for _ in range(5)]
+    for ws in dead_clients:
+        events._register_client(ws, None)
+    try:
+        loop = asyncio.get_event_loop()
+        start = loop.time()
+        await asyncio.wait_for(events._deliver_local_broadcast("task:test", {"x": 1}), timeout=5.0)
+        elapsed = loop.time() - start
+
+        assert elapsed < 0.6, f"evicting 5 half-open clients took {elapsed}s — looks serialized"
+    finally:
+        for ws in dead_clients:
+            events._unregister_client(ws)
 
 
 # ── finding C: publish-pool teardown is untested and leaks ─────────────────
@@ -1733,6 +1787,55 @@ async def test_start_listener_concurrent_calls_only_start_once(monkeypatch) -> N
     await asyncio.gather(relay.start_listener(deliver), relay.start_listener(deliver))
 
     assert call_count["n"] == 1
+
+
+async def test_start_listener_fully_fails_and_can_be_retried_if_create_pool_raises(
+    monkeypatch,
+) -> None:
+    """#804 round 9 finding 1 — a blocker created by round 6 finding E's own
+    fix (mine, per the team lead, not a new defect this round introduces):
+    claiming `_listener_task` before `await asyncpg.create_pool(...)` closed
+    the concurrent-call race, but opened this one — if `create_pool` itself
+    raises (Postgres not yet accepting connections during a rolling deploy,
+    the exact case `main.py`'s own startup catch anticipates),
+    `_listener_task` stayed claimed forever while `_drain_task`/`_outbox`
+    were never assigned. That pod's LISTENER still works fine (it retries
+    and connects on its own), but `publish()` no-ops forever at its
+    `_drain_task is None` guard — the pod relays NOTHING outbound for its
+    entire remaining lifetime — and the re-entry guard refuses every retry
+    since `_listener_task` is still set. No test in the suite covered
+    `create_pool` raising at all: every `create_pool` monkeypatch elsewhere
+    returns a `_FakePool`.
+
+    MUTATION: remove the `except Exception: ... _listener_task = None;
+    raise` rollback (restore the pre-round-9 behaviour) ⇒ this fails —
+    `_listener_task` stays non-`None` after the failed call, and the second
+    `start_listener` call is silently ignored by the re-entry guard instead
+    of actually starting.
+    """
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", AsyncMock(return_value=_FakeConnection([])))
+    create_pool_mock = AsyncMock(
+        side_effect=[RuntimeError("boom: Postgres not up yet"), _FakePool()]
+    )
+    monkeypatch.setattr(relay.asyncpg, "create_pool", create_pool_mock)
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    with pytest.raises(RuntimeError, match="boom: Postgres not up yet"):
+        await relay.start_listener(deliver)
+
+    assert relay._listener_task is None, "a failed start left the re-entry guard permanently set"
+    assert relay._drain_task is None
+    assert relay._outbox is None
+
+    # A retry (main.py's own catch calling start_listener again, e.g. on the
+    # next request) must actually start, not be silently ignored.
+    await relay.start_listener(deliver)
+
+    assert relay._listener_task is not None
+    assert relay._drain_task is not None
 
 
 # ── finding F: the outbox drop policy was unpinned (which items survive) ───

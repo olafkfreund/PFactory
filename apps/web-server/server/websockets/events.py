@@ -210,13 +210,24 @@ async def _send_or_skip(ws: WebSocket, message: str, disconnected: list[WebSocke
             state.consecutive_timeouts += 1
             state.last_counted_at = now
         if state.consecutive_timeouts >= _MAX_CONSECUTIVE_TIMEOUTS:
+            # #804 round 9 finding 3: neither eviction branch used to log at
+            # all, and by eviction time `warned` is already `True` (set on
+            # the FIRST of the stalls that led here), so not even the skip
+            # warning above fires again — a client got silently dropped with
+            # nothing in the server log explaining why.
+            logger.info(
+                "[events] evicting client after %d consecutive stall windows (threshold %d)",
+                state.consecutive_timeouts,
+                _MAX_CONSECUTIVE_TIMEOUTS,
+            )
             disconnected.append(ws)
             return
         if not state.warned:
             state.warned = True
             logger.warning("[events] client send timed out, skipping for this message")
         return
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — one client's failure must not kill the batch (#804)
+        logger.info("[events] evicting client after a genuine send failure: %s", exc)
         disconnected.append(ws)
         return
     _slow_client_state.pop(ws, None)
@@ -245,8 +256,16 @@ async def _deliver_local_broadcast(event_type: str, payload: dict[str, Any]) -> 
         return_exceptions=True,
     )
 
-    for ws in disconnected:
-        await _evict_client(ws)
+    # Evict CONCURRENTLY (#804 round 9 finding 2): bounding each
+    # `_evict_client`'s own `close()` caps the per-client cost, but a
+    # sequential loop still pays N x that bound for the batch — measured
+    # at 5 half-open clients, ~5x`_SEND_TIMEOUT` of serial closes on top of
+    # the ~1x`_SEND_TIMEOUT` the `gather` above already costs, which sits
+    # inline on the `_emit_progress` -> stdout path AND stalls `_listen_on`'s
+    # inbound receive loop behind it (it awaits `deliver(...)` inline) — the
+    # exact pod-wide stall this module exists to prevent, relocated from
+    # send to close.
+    await asyncio.gather(*(_evict_client(ws) for ws in disconnected), return_exceptions=True)
 
 
 async def broadcast_event(event_type: str, payload: dict):
@@ -273,8 +292,8 @@ async def _deliver_local_to_user(user_id: str, event_type: str, payload: dict[st
         *(_send_or_skip(ws, message, disconnected) for ws in targets), return_exceptions=True
     )
 
-    for ws in disconnected:
-        await _evict_client(ws)
+    # Evict CONCURRENTLY — see `_deliver_local_broadcast` for why.
+    await asyncio.gather(*(_evict_client(ws) for ws in disconnected), return_exceptions=True)
 
 
 async def send_to_user(user_id: str, event_type: str, payload: dict):
@@ -309,8 +328,8 @@ async def _deliver_local_to_org(org_id: str, event_type: str, payload: dict[str,
         *(_send_or_skip(ws, message, disconnected) for ws in targets), return_exceptions=True
     )
 
-    for ws in disconnected:
-        await _evict_client(ws)
+    # Evict CONCURRENTLY — see `_deliver_local_broadcast` for why.
+    await asyncio.gather(*(_evict_client(ws) for ws in disconnected), return_exceptions=True)
 
 
 async def send_to_org(org_id: str, event_type: str, payload: dict):
@@ -392,6 +411,19 @@ async def events_websocket(websocket: WebSocket):
                         await asyncio.wait_for(websocket.send_text("pong"), timeout=_SEND_TIMEOUT)
                     except Exception:
                         break
+                    # #804 round 9 finding 3: `consecutive_timeouts` used to
+                    # reset ONLY on a successful `_deliver_local_*` send, and
+                    # the pong reply — the definitive "this client is alive"
+                    # signal, firing every 25s from the frontend — never
+                    # touched `_slow_client_state` at all. That let two
+                    # stalls during a burst, then an HOUR of idle pongs
+                    # proving the client is alive, then one more transient
+                    # stall, evict it — inverting the "~15s of UNBROKEN
+                    # silence" the threshold's own docstring promises into
+                    # "3 stalls ever, unbounded in time". A successful pong
+                    # is direct proof this socket drains; reset here exactly
+                    # like a successful delivery does.
+                    _slow_client_state.pop(websocket, None)
 
             except TimeoutError:
                 try:
