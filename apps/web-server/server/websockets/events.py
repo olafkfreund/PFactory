@@ -9,6 +9,7 @@ compatible).
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -77,24 +78,88 @@ def _unregister_client(ws: WebSocket) -> None:
     active_connections.discard(ws)
 
 
+async def _evict_client(ws: WebSocket) -> None:
+    """Unregister a client AND close its socket (#804 finding 3 FINAL call).
+
+    Reserved for a GENUINE send failure, not a timeout (see `_send_or_skip`).
+    `_unregister_client` alone leaves the actual connection open: the
+    browser still looks connected, and `events_websocket`'s own 30s
+    keepalive loop keeps writing to it, but the client is no longer in
+    `_clients`/`active_connections` so it will never again receive anything
+    through `_deliver_local_*` — a silent blackhole. Closing here causes
+    `events_websocket`'s `receive_text()` (running in ITS OWN task) to raise
+    `WebSocketDisconnect`, which it already handles via its existing
+    `except WebSocketDisconnect: pass` + `finally: _unregister_client(...)`
+    (a harmless, idempotent second unregister) — so the browser's own
+    reconnect logic kicks in instead of talking to a phantom socket forever.
+    """
+    with contextlib.suppress(Exception):
+        await ws.close()
+    _unregister_client(ws)
+
+
+# Dedupes the slow-client-skip log the same way relay.py dedupes its own
+# warnings — a sustained slow client must not become a log flood, but an
+# invisible skip is exactly what made this bug hard to see in the first
+# place (#804 finding 3), so it still logs once per outage.
+_slow_client_warned = False
+
+
+async def _send_or_skip(ws: WebSocket, message: str, disconnected: list[WebSocket]) -> None:
+    """Send one message to one client; append to ``disconnected`` only on a
+    genuine failure.
+
+    #804 finding 3, final call: a `TimeoutError` (a slow-but-alive client —
+    a full TCP window on a mobile link during a `task-logs:stream` burst,
+    not a dead peer) is deliberately NOT treated as a disconnect. Evicting on
+    a mere timeout converts "slow" into "disconnected", and under the exact
+    burst load that caused the timeout in the first place, that produces
+    flapping: burst -> close -> reconnect -> burst -> close. Skipping loses
+    one message and self-heals on the next event, which is what happened
+    before this PR. Any OTHER exception (a genuinely dead socket) still goes
+    through `_evict_client` — the bug this file actually had was `except
+    Exception` treating a timeout identically to a dead socket; the fix is
+    to tell them apart, not to make both evict, and not to make neither.
+    """
+    global _slow_client_warned  # noqa: PLW0603 — module-level dedupe state (#804)
+    try:
+        await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
+    except TimeoutError:
+        if not _slow_client_warned:
+            _slow_client_warned = True
+            logger.warning("[events] client send timed out, skipping for this message")
+        return
+    except Exception:
+        disconnected.append(ws)
+        return
+    _slow_client_warned = False
+
+
 # ---------------------------------------------------------------------------
 # Event routing
 # ---------------------------------------------------------------------------
 
 
 async def _deliver_local_broadcast(event_type: str, payload: dict[str, Any]) -> None:
-    """Send an event to every client connected to THIS pod (legacy behavior)."""
+    """Send an event to every client connected to THIS pod (legacy behavior).
+
+    Sends CONCURRENTLY (#804 round 5 finding 3), not one client at a time:
+    finding 4 already took Postgres off the stdout path
+    (`_emit_progress` → `broadcast_event` → here), but a sequential loop
+    still costs N x `_SEND_TIMEOUT` inline on that same path when N clients
+    are all slow at once. Each client gets its own message and its own
+    independent outcome, so there is no ordering requirement between them.
+    """
     message = json.dumps({"type": event_type, "payload": payload})
     disconnected: list[WebSocket] = []
 
-    for ws in list(active_connections):
-        try:
-            await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
-        except Exception:
-            disconnected.append(ws)
+    await asyncio.gather(
+        *(_send_or_skip(ws, message, disconnected) for ws in list(active_connections)),
+        return_exceptions=True,
+    )
 
     for ws in disconnected:
-        _unregister_client(ws)
+        await _evict_client(ws)
 
 
 async def broadcast_event(event_type: str, payload: dict):
@@ -109,19 +174,20 @@ async def broadcast_event(event_type: str, payload: dict):
 
 
 async def _deliver_local_to_user(user_id: str, event_type: str, payload: dict[str, Any]) -> None:
-    """Send an event to a specific user's connections on THIS pod."""
+    """Send an event to a specific user's connections on THIS pod.
+
+    Sends CONCURRENTLY — see `_deliver_local_broadcast` for why.
+    """
     message = json.dumps({"type": event_type, "payload": payload})
     disconnected: list[WebSocket] = []
+    targets = [ws for ws, client in list(_clients.items()) if client.user_id == user_id]
 
-    for ws, client in list(_clients.items()):
-        if client.user_id == user_id:
-            try:
-                await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
-            except Exception:
-                disconnected.append(ws)
+    await asyncio.gather(
+        *(_send_or_skip(ws, message, disconnected) for ws in targets), return_exceptions=True
+    )
 
     for ws in disconnected:
-        _unregister_client(ws)
+        await _evict_client(ws)
 
 
 async def send_to_user(user_id: str, event_type: str, payload: dict):
@@ -140,21 +206,24 @@ async def _deliver_local_to_org(org_id: str, event_type: str, payload: dict[str,
     """Send an event to members of an org connected to THIS pod.
 
     Falls back to broadcast for legacy (non-JWT) connections so they
-    aren't excluded.
+    aren't excluded. Sends CONCURRENTLY — see `_deliver_local_broadcast` for
+    why.
     """
     message = json.dumps({"type": event_type, "payload": payload})
     disconnected: list[WebSocket] = []
+    # Send to: org members, or legacy clients (no user_id)
+    targets = [
+        ws
+        for ws, client in list(_clients.items())
+        if client.user_id is None or org_id in client.org_ids
+    ]
 
-    for ws, client in list(_clients.items()):
-        # Send to: org members, or legacy clients (no user_id)
-        if client.user_id is None or org_id in client.org_ids:
-            try:
-                await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
-            except Exception:
-                disconnected.append(ws)
+    await asyncio.gather(
+        *(_send_or_skip(ws, message, disconnected) for ws in targets), return_exceptions=True
+    )
 
     for ws in disconnected:
-        _unregister_client(ws)
+        await _evict_client(ws)
 
 
 async def send_to_org(org_id: str, event_type: str, payload: dict):

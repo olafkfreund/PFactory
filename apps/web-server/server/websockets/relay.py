@@ -50,10 +50,40 @@ _MAX_PAYLOAD = 7900
 # Capped backoff for the listener's reconnect loop, in seconds.
 _RECONNECT_BACKOFF = (1, 2, 5, 10, 30)
 
-# The relay's own asyncpg connection, held only while the listener is
-# running. The outbox drain task below uses it too, so a single connection
-# carries both directions for this process.
-_connection: asyncpg.Connection | None = None
+# The listener keeps its OWN dedicated connection; publishing goes through
+# its OWN small connection POOL (#804 round 4 — see below). They used to
+# share one connection on the theory that one drain task serialises
+# publishing by construction — true for drain-vs-drain, but the listener is a
+# SECOND, independent task, and asyncpg does not support two tasks issuing
+# operations on the same connection concurrently at all. A reproduction
+# against real Postgres hit `InterfaceError: another operation is in
+# progress` when a `LISTEN` (issued by the listener after a reconnect) raced
+# a queued `execute` (issued by the drain), destroying the whole backlog —
+# and the mirror failure at shutdown (the listener's teardown corrupting the
+# connection's protocol state while the drain was still using it).
+#
+# The FIRST fix for this (still round-3-era) gave the drain its own
+# hand-rolled connection with its own connect/reconnect/backoff loop,
+# duplicating the listener's. That was rejected before landing: getting that
+# duplicate wrong risks a NEW form of the round-1 hazard — a dead publish
+# connection with no path back, while `is_connected()` (which reads only the
+# LISTENER) reports healthy. A small `asyncpg.Pool` (`max_size=2`) gives
+# reconnect AND `acquire()`-scoped exclusion for free, is asyncpg's own
+# well-tested code instead of ours, and is the smaller diff.
+#
+# `min_size=0`, NOT `min_size=1` (flagged as a deviation from round 5's
+# instruction, not silently changed): `create_pool(..., min_size=1)`
+# eagerly opens that one connection before returning, and blocks
+# `start_listener` on it — measured directly against an unroutable host,
+# `create_pool(min_size=1, ...)` hangs until asyncpg's own connect timeout
+# instead of returning. That breaks this module's documented contract that
+# `start_listener` never needs Postgres to be up to return (the listener's
+# own dedicated connection is already lazy/retrying for the same reason).
+# `min_size=0` returns in under 1ms against an unroutable host, no network
+# attempted, and the first `acquire()` still connects (and keeps retrying on
+# failure) exactly as `min_size=1` would once warm.
+_connection: asyncpg.Connection | None = None  # the LISTENER's own connection
+_publish_pool: asyncpg.Pool | None = None  # the DRAIN's own connection pool
 _listener_task: asyncio.Task[None] | None = None
 _drain_task: asyncio.Task[None] | None = None
 
@@ -64,6 +94,13 @@ _drain_task: asyncio.Task[None] | None = None
 # ``_MAX_PAYLOAD`` bytes each is a worst case of ~15MB, which is a price
 # worth paying to never grow without bound.
 _QUEUE_MAXSIZE = 2000
+
+# Bounds shutdown and per-connection teardown (#804 fix 6 / round-3 finding):
+# without it, a partitioned socket stalls `remove_listener`/`close()` with no
+# timeout, and the process's shutdown sequence stalls with it, all the way to
+# SIGKILL. Defined here (not near `stop_listener`) because `_listen_on`'s own
+# teardown needs it too.
+_STOP_TIMEOUT = 5.0
 
 
 def _locate_truncatable_content(data: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
@@ -192,13 +229,15 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
     (see `_drain_outbox`) is now the only signal a failure happened at all.
 
     Bounded no-op window (#804 fix 8): between `start_listener` returning
-    and the background connect landing — and again, briefly, on every
-    reconnect — nothing is listening on the outbox yet. Unlike before #804
-    finding 4, publishes during that window are now QUEUED, not dropped —
-    the drain task catches up once connected — so this window shrank to
-    "relay never started at all" (`_drain_task is None`, the check below).
-    `is_connected()` above is how a caller can see whether the underlying
-    connection is currently live.
+    and the publish POOL's first successful `acquire()` — and again,
+    briefly, whenever the pool's current connection needs replacing — the
+    outbox may sit undrained. Unlike before #804 finding 4, publishes during
+    that window are now QUEUED, not dropped — the drain task catches up once
+    a connection is available — so this window shrank to "relay never
+    started at all" (`_drain_task is None`, the check below). `is_connected()`
+    above reports the LISTENER's connection specifically (#804 fix 7's
+    concern was inbound delivery); the drain has its own, independent
+    connection pool since round 3/4 of review.
     """
     global _outbox_full_warned  # noqa: PLW0603 — module-level relay state (#804)
 
@@ -223,30 +262,69 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
     _outbox_full_warned = False
 
 
-async def _drain_outbox(outbox: asyncio.Queue[str]) -> None:
-    """The single task that actually talks to Postgres for publishing.
+# Dedupes the drain-failure warning — the only warning in this module that
+# wasn't already deduped before round 3 of review. Reset on the next
+# successful publish so a LATER, separate outage still warns.
+_drain_failure_warned = False
 
-    One task draining one queue onto one connection serialises writes by
-    construction — the `_publish_lock` this replaces is dead weight once
-    this is the only caller of `execute` (#804 finding 4).
+# How long a single `pool.acquire()` (which may itself need to (re)connect)
+# may take before this item is given up on. Bounds the drain loop against a
+# Postgres that's simply unreachable, rather than inheriting asyncpg's own
+# (much longer) default connect timeout for every queued item during an
+# outage.
+_ACQUIRE_TIMEOUT = 5.0
 
-    A drain failure must not kill this task: if it did, every `publish`
-    after the first failure would queue forever with nothing ever draining
-    it. Log and keep draining — the next notification gets its own attempt.
+
+# Capped backoff for RETRYING one drain item, distinct from
+# `_RECONNECT_BACKOFF` (that one paces the LISTENER's own reconnect loop).
+# Same values, different purpose: this one paces the drain's retry of the
+# item AT THE HEAD of the outbox, not a full reconnect cycle.
+_DRAIN_RETRY_BACKOFF = (1, 2, 5, 10, 30)
+
+
+async def _drain_outbox(pool: asyncpg.Pool, outbox: asyncio.Queue[str]) -> None:
+    """Drain the outbox via a small connection pool dedicated to publishing
+    (#804 round 4 — see the module-level comment near `_connection` for why
+    this replaced a hand-rolled second connection with its own reconnect
+    logic).
+
+    #804 round 5 finding 5: a failed item is HELD and RETRIED against the
+    pool with capped backoff — the loop does NOT move on to the next queued
+    item until this one succeeds. Round 4 dropped a failed item and moved on,
+    on the theory that the pool's own `acquire()` already recovers for the
+    REST of the queue on its next call — true, but it made `publish()`'s own
+    docstring claim ("publishes during that window are now QUEUED, not
+    dropped") false for the specific item that hit the failing acquire: a
+    1-30s reconnect window silently ate every event queued during it, with
+    no log and no counter. The outbox is a BOUNDED queue precisely so it can
+    hold items across a reconnect window instead of discarding them the
+    instant one `acquire()` times out; the only place items are still lost
+    is the existing outbox-full drop-newest policy in `publish()` (finding 4)
+    when the outage outlasts the queue's capacity — that is a deliberate,
+    already-logged capacity limit, not a per-item failure being silently
+    swallowed.
     """
+    global _drain_failure_warned  # noqa: PLW0603 — module-level relay state (#804)
+
     while True:
         encoded = await outbox.get()
-        if _connection is None:
-            # No live connection right now (mid-reconnect, or between
-            # start_listener returning and the first connect landing) --
-            # drop it. Holding it would just delay every notification queued
-            # after it once a connection does land, and the caller's local
-            # delivery already happened regardless.
-            continue
-        try:
-            await _connection.execute("SELECT pg_notify($1, $2)", _CHANNEL, encoded)
-        except Exception:  # noqa: BLE001 — must not kill the drain task (#804 finding 4)
-            logger.warning("[relay] outbox drain failed", exc_info=True)
+        attempt = 0
+        while True:
+            try:
+                async with pool.acquire(timeout=_ACQUIRE_TIMEOUT) as conn:
+                    await conn.execute("SELECT pg_notify($1, $2)", _CHANNEL, encoded)
+            except Exception:  # noqa: BLE001 — retried below, must not kill the drain task
+                if not _drain_failure_warned:
+                    _drain_failure_warned = True
+                    logger.warning(
+                        "[relay] outbox drain failed, retrying with backoff", exc_info=True
+                    )
+                delay = _DRAIN_RETRY_BACKOFF[min(attempt, len(_DRAIN_RETRY_BACKOFF) - 1)]
+                attempt += 1
+                await asyncio.sleep(delay)
+                continue
+            _drain_failure_warned = False
+            break
 
 
 def _resolve_asyncpg_url() -> str | None:
@@ -380,59 +458,125 @@ async def _listen_on(
             # ``BaseException``: a genuine cancellation must still propagate
             # (#804 fix 6), and ``contextlib.suppress`` already leaves
             # ``CancelledError`` alone since it isn't an ``Exception``.
-            await conn.remove_listener(_CHANNEL, _on_notify)
+            # Bounded (#804 round-3 finding): unbounded, a partitioned
+            # socket stalls this exactly as `stop_listener`'s own teardown
+            # could.
+            await asyncio.wait_for(
+                conn.remove_listener(_CHANNEL, _on_notify), timeout=_STOP_TIMEOUT
+            )
         with contextlib.suppress(Exception):
-            await conn.close()
+            await asyncio.wait_for(conn.close(), timeout=_STOP_TIMEOUT)
+
+
+async def _run_listener(
+    url: str, deliver: Callable[[str, dict[str, Any]], Awaitable[None]]
+) -> None:
+    """Connect, `_listen_on`, and reconnect with capped backoff for as long
+    as the relay is started — the listener's half of #804 round 3's two
+    independent connections."""
+    global _connection  # noqa: PLW0603 — module-level relay state (#804)
+    attempt = 0
+    while True:
+        try:
+            conn = await asyncpg.connect(url)
+            _connection = conn
+            attempt = 0
+            await _listen_on(conn, deliver)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — reconnect on any failure, capped backoff below (#804)
+            logger.warning("[relay] listener connection lost, reconnecting", exc_info=True)
+        finally:
+            _connection = None
+
+        delay = _RECONNECT_BACKOFF[min(attempt, len(_RECONNECT_BACKOFF) - 1)]
+        attempt += 1
+        await asyncio.sleep(delay)
 
 
 async def start_listener(deliver: Callable[[str, dict[str, Any]], Awaitable[None]]) -> None:
-    """Start the relay: connect, LISTEN, and dispatch other pods' events.
-
-    Reconnects with capped backoff on connection loss so a transient DB
-    blip doesn't permanently strand this pod out of the fan-out. Inert (and
-    logged once at INFO) when ``DATABASE_URL`` is unset.
+    """Start the relay: the listener's own dedicated connection, plus a
+    small pool dedicated to publishing (#804 round 4 — see the module-level
+    comment near ``_connection``). Inert (and logged once at INFO) when
+    ``DATABASE_URL`` is unset.
     """
-    global _listener_task, _drain_task, _outbox  # noqa: PLW0603 — module-level relay state (#804)
+    global _listener_task, _drain_task, _outbox, _publish_pool  # noqa: PLW0603 — module-level relay state (#804)
 
     url = _resolve_asyncpg_url()
     if url is None:
         logger.info("[relay] DATABASE_URL not set, WebSocket fan-out relay is inert")
         return
 
-    async def _run() -> None:
-        global _connection  # noqa: PLW0603 — module-level relay state (#804)
-        attempt = 0
-        while True:
-            try:
-                conn = await asyncpg.connect(url)
-                _connection = conn
-                attempt = 0
-                await _listen_on(conn, deliver)
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001 — reconnect on any failure, capped backoff below (#804)
-                logger.warning("[relay] listener connection lost, reconnecting", exc_info=True)
-            finally:
-                _connection = None
+    if _listener_task is not None:
+        # #804 round 5 finding 6: without this guard, a second call
+        # overwrites `_outbox`/`_drain_task`/`_publish_pool` while the OLD
+        # listener and drain tasks keep running — the drain leaks, still
+        # awaiting the queue nobody publishes to anymore, and (pre-pool) this
+        # was finding 1 all over again; with a pool, the leak is a second
+        # pool instead of a second raw connection, but it is still a leak.
+        # Not reachable from `lifespan` today, but reachable from tests and
+        # any future restart path.
+        logger.warning("[relay] start_listener called while already running, ignoring")
+        return
 
-            delay = _RECONNECT_BACKOFF[min(attempt, len(_RECONNECT_BACKOFF) - 1)]
-            attempt += 1
-            await asyncio.sleep(delay)
+    outbox: asyncio.Queue[str] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+    # See the module-level comment near `_connection` for why this is
+    # `min_size=0`, not `min_size=1`.
+    pool = await asyncpg.create_pool(url, min_size=0, max_size=2)
 
-    _listener_task = asyncio.create_task(_run())
-    _outbox = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
-    _drain_task = asyncio.create_task(_drain_outbox(_outbox))
+    _listener_task = asyncio.create_task(_run_listener(url, deliver))
+    _outbox = outbox
+    _publish_pool = pool
+    _drain_task = asyncio.create_task(_drain_outbox(pool, outbox))
 
 
-# Bounds shutdown (#804 fix 6): without it, a partitioned socket stalls
-# `remove_listener`/`close()` with no timeout, and the process's shutdown
-# sequence stalls with it, all the way to SIGKILL.
-_STOP_TIMEOUT = 5.0
+# Headroom over `_STOP_TIMEOUT` for AWAITING the listener task specifically
+# (#804 round 4): `_listen_on`'s own `finally` bounds `remove_listener` AND
+# `close()` each by `_STOP_TIMEOUT`, run one after the other, so the task can
+# legitimately take close to 2x`_STOP_TIMEOUT` to unwind after cancellation.
+# Awaiting it here with only `_STOP_TIMEOUT` would give up mid-cleanup and
+# abandon a task that is still correctly, boundedly finishing — not hung,
+# just not yet done. This is "bound the wait", not "bound the stall"; the
+# STALL is what the two inner timeouts already bound.
+_LISTENER_SHUTDOWN_TIMEOUT = _STOP_TIMEOUT * 3
 
 
 async def stop_listener() -> None:
-    """Stop the relay's listener and drain tasks and close its connection."""
-    global _connection, _listener_task, _drain_task, _outbox  # noqa: PLW0603 — module-level relay state (#804)
+    """Stop the relay's drain and listener tasks and close both.
+
+    Order matters (#804 round-3 finding): the DRAIN is cancelled FIRST, and
+    fully awaited, before the listener's teardown even begins. Stop
+    producing before tearing down whichever connections are involved — with
+    the drain's own connection pool since round 4, a wrong order can no
+    longer corrupt the LISTENER's protocol state the way it could when they
+    shared one connection, but "the producer keeps running while its target
+    tears down" is the wrong shape regardless, and review asked for the
+    order explicitly, so it's pinned by a test, not just left to accident.
+    """
+    global _connection, _publish_pool, _listener_task, _drain_task, _outbox  # noqa: PLW0603 — module-level relay state (#804)
+
+    if _drain_task is not None:
+        _drain_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            # Nothing inside `_drain_outbox` has its own unbounded cleanup
+            # (unlike the listener's `_listen_on`) — cancelling it interrupts
+            # `outbox.get()` or a single `pool.acquire()`/`execute()` and
+            # nothing else, so `_STOP_TIMEOUT` alone is enough headroom here.
+            await asyncio.wait_for(_drain_task, timeout=_STOP_TIMEOUT)
+        _drain_task = None
+        _outbox = None
+
+    if _publish_pool is not None:
+        # `Pool.close()` is graceful (waits for in-flight queries) and
+        # bounded here; `Pool.terminate()` is synchronous and immediate —
+        # used as a hard fallback so a pool that won't close gracefully
+        # within the timeout still cannot outlive `stop_listener()` (#804
+        # round 4: "bounding the wait is not bounding the stall").
+        try:
+            await asyncio.wait_for(_publish_pool.close(), timeout=_STOP_TIMEOUT)
+        except Exception:  # noqa: BLE001 — best-effort close on shutdown (#804 fix 6)
+            _publish_pool.terminate()
+        _publish_pool = None
 
     if _listener_task is not None:
         _listener_task.cancel()
@@ -440,20 +584,17 @@ async def stop_listener() -> None:
             # `_listen_on`'s `finally` only ever suppresses plain
             # ``Exception`` around its own cleanup calls (#804 fix 6) — never
             # ``CancelledError``, which isn't an ``Exception`` — so this
-            # cancellation cannot be swallowed into `_run`'s reconnect branch
-            # and silently replaced with a task that keeps looping forever.
-            # `wait_for` bounds the wait itself in case the task still
-            # doesn't unwind promptly for some other reason.
-            await asyncio.wait_for(_listener_task, timeout=_STOP_TIMEOUT)
+            # cancellation cannot be swallowed into `_run_listener`'s
+            # reconnect branch and silently replaced with a task that keeps
+            # looping forever. See `_LISTENER_SHUTDOWN_TIMEOUT` above for why
+            # the bound here is wider than `_STOP_TIMEOUT`.
+            await asyncio.wait_for(_listener_task, timeout=_LISTENER_SHUTDOWN_TIMEOUT)
         _listener_task = None
 
-    if _drain_task is not None:
-        _drain_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
-            await asyncio.wait_for(_drain_task, timeout=_STOP_TIMEOUT)
-        _drain_task = None
-        _outbox = None
-
+    # `_run_listener`'s own `finally` already resets `_connection` on any
+    # normal exit (cancellation included) once `_listen_on` returns — this
+    # is the defensive fallback for a connection that got set without its
+    # owning task completing cleanly within `_LISTENER_SHUTDOWN_TIMEOUT`.
     if _connection is not None:
         with contextlib.suppress(Exception):  # best-effort close on shutdown (#804 fix 6)
             await asyncio.wait_for(_connection.close(), timeout=_STOP_TIMEOUT)
