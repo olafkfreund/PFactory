@@ -186,20 +186,23 @@ async def _send_or_skip(ws: WebSocket, message: str, disconnected: list[WebSocke
     — what the constant's own docstring already promised — rather than three
     sends that all happened to be in flight during the same 5s window.
     """
-    if ws not in _clients:
-        # Ownership rule (see `_slow_client_state`'s definition): this
-        # client was unregistered by ANOTHER in-flight send (or a delivery
-        # loop that started after it was already gone) while this send was
-        # still pending. Touching state now would recreate an entry keyed by
-        # a dead websocket that `_unregister_client` already cleaned up (or
-        # will never be asked to clean up again), leaking it forever, and
-        # would defeat the per-client dedupe below by resetting `warned` to
-        # `False` for a client nothing will ever evict-or-recover again.
-        return
     try:
         await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
     except TimeoutError:
         if ws not in _clients:
+            # Ownership rule (see `_slow_client_state`'s definition): this
+            # client was unregistered by ANOTHER in-flight send (or a
+            # delivery loop that started after it was already gone) while
+            # THIS send was still pending. Touching state now would recreate
+            # an entry keyed by a dead websocket that `_unregister_client`
+            # already cleaned up (or will never be asked to clean up
+            # again), leaking it forever, and would defeat the per-client
+            # dedupe below by resetting `warned` to `False` for a client
+            # nothing will ever evict-or-recover again. Scoped to this
+            # branch only, not the whole function: a target drawn from
+            # `active_connections` is still owed the SEND attempt itself
+            # regardless of `_clients` membership — only STATE creation is
+            # gated by the ownership rule, not delivery.
             return
         state = _slow_client_state.setdefault(ws, _SlowClientState())
         now = asyncio.get_event_loop().time()

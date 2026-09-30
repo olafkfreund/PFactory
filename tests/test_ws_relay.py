@@ -331,7 +331,7 @@ async def test_publish_failure_does_not_prevent_local_delivery_or_propagate(
     can be observably eventful at all, so that's what this test drives.
     """
     ws = _FakeWebSocket()
-    events.active_connections.add(ws)
+    events._register_client(ws, None)
     # A real (if inert) Task, not a bare sentinel object: `_clean_relay_state`'s
     # teardown calls `stop_listener()` unconditionally, which calls
     # `.cancel()` on whatever `_drain_task` currently is.
@@ -343,7 +343,7 @@ async def test_publish_failure_does_not_prevent_local_delivery_or_propagate(
     try:
         await events.broadcast_event("task:test", {"x": 1})  # must not raise
     finally:
-        events.active_connections.discard(ws)
+        events._unregister_client(ws)
         fake_drain_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await fake_drain_task
@@ -1062,8 +1062,8 @@ async def test_wedged_client_does_not_block_delivery_to_a_healthy_one(monkeypatc
     monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.2)
     wedged = _WedgedWebSocket()
     healthy = _FakeWebSocket()
-    events.active_connections.add(wedged)
-    events.active_connections.add(healthy)
+    events._register_client(wedged, None)
+    events._register_client(healthy, None)
     try:
         await asyncio.wait_for(events._deliver_local_broadcast("task:test", {"x": 1}), timeout=5.0)
 
@@ -1071,8 +1071,8 @@ async def test_wedged_client_does_not_block_delivery_to_a_healthy_one(monkeypatc
         assert wedged in events.active_connections, "a timeout must skip, not evict"
         assert healthy in events.active_connections
     finally:
-        events.active_connections.discard(wedged)
-        events.active_connections.discard(healthy)
+        events._unregister_client(wedged)
+        events._unregister_client(healthy)
 
 
 async def test_a_genuinely_dead_client_is_evicted_and_its_socket_closed(monkeypatch) -> None:
@@ -1095,8 +1095,8 @@ async def test_a_genuinely_dead_client_is_evicted_and_its_socket_closed(monkeypa
     monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.2)
     dead = _DeadWebSocket()
     healthy = _FakeWebSocket()
-    events.active_connections.add(dead)
-    events.active_connections.add(healthy)
+    events._register_client(dead, None)
+    events._register_client(healthy, None)
     try:
         await asyncio.wait_for(events._deliver_local_broadcast("task:test", {"x": 1}), timeout=5.0)
 
@@ -1105,8 +1105,8 @@ async def test_a_genuinely_dead_client_is_evicted_and_its_socket_closed(monkeypa
         assert dead.closed, "socket was unregistered but never closed — a phantom connection"
         assert healthy in events.active_connections
     finally:
-        events.active_connections.discard(dead)
-        events.active_connections.discard(healthy)
+        events._unregister_client(dead)
+        events._unregister_client(healthy)
 
 
 async def test_slow_clients_are_sent_to_concurrently_not_serially(monkeypatch) -> None:
@@ -1123,7 +1123,7 @@ async def test_slow_clients_are_sent_to_concurrently_not_serially(monkeypatch) -
     monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.2)
     wedged_clients = [_WedgedWebSocket() for _ in range(5)]
     for ws in wedged_clients:
-        events.active_connections.add(ws)
+        events._register_client(ws, None)
     try:
         loop = asyncio.get_event_loop()
         start = loop.time()
@@ -1132,7 +1132,7 @@ async def test_slow_clients_are_sent_to_concurrently_not_serially(monkeypatch) -
         assert elapsed < 1.0, f"delivery took {elapsed}s — looks serialized, not concurrent"
     finally:
         for ws in wedged_clients:
-            events.active_connections.discard(ws)
+            events._unregister_client(ws)
 
 
 async def test_slow_client_skip_warning_is_deduped(monkeypatch, caplog) -> None:
@@ -1155,8 +1155,8 @@ async def test_slow_client_skip_warning_is_deduped(monkeypatch, caplog) -> None:
     monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
     wedged = _WedgedWebSocket()
     healthy = _FakeWebSocket()
-    events.active_connections.add(wedged)
-    events.active_connections.add(healthy)
+    events._register_client(wedged, None)
+    events._register_client(healthy, None)
     try:
         with caplog.at_level(logging.WARNING, logger=events.__name__):
             for _ in range(2):
@@ -1168,8 +1168,8 @@ async def test_slow_client_skip_warning_is_deduped(monkeypatch, caplog) -> None:
         assert len(matches) == 1
         assert wedged in events.active_connections, "under the threshold — must still be registered"
     finally:
-        events.active_connections.discard(wedged)
-        events.active_connections.discard(healthy)
+        events._unregister_client(wedged)
+        events._unregister_client(healthy)
 
 
 async def test_a_client_stuck_timing_out_is_evicted_after_max_consecutive_timeouts(
@@ -1187,7 +1187,7 @@ async def test_a_client_stuck_timing_out_is_evicted_after_max_consecutive_timeou
     """
     monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
     wedged = _WedgedWebSocket()
-    events.active_connections.add(wedged)
+    events._register_client(wedged, None)
     try:
         for _ in range(events._MAX_CONSECUTIVE_TIMEOUTS):
             await asyncio.wait_for(
@@ -1197,7 +1197,7 @@ async def test_a_client_stuck_timing_out_is_evicted_after_max_consecutive_timeou
         assert wedged not in events.active_connections
         assert wedged.closed, "socket was unregistered but never closed — a phantom connection"
     finally:
-        events.active_connections.discard(wedged)
+        events._unregister_client(wedged)
 
 
 async def test_inbound_queue_does_not_grow_past_the_cap_under_a_flood(monkeypatch) -> None:
@@ -2134,6 +2134,39 @@ async def test_drain_passes_execute_timeout_so_a_hung_execute_is_escaped(monkeyp
             await task
 
 
+# ── #804 round 8: the ownership rule, and what it fixes ─────────────────────
+
+
+async def test_state_is_not_recreated_by_a_send_that_outlives_unregistration(
+    monkeypatch,
+) -> None:
+    """#804 round 8 finding 3: `_send_or_skip`'s `setdefault` used to race
+    `_unregister_client`'s `pop` — a wedged client with a STAGGERED in-flight
+    send (started before unregistration, timing out AFTER it — e.g. another
+    concurrent send for the same client unregistered it first) would
+    recreate a `_SlowClientState` keyed by a dead websocket, leaking it
+    forever and defeating the per-client dedupe for any future reuse of that
+    object.
+
+    MUTATION: remove the `if ws not in _clients: return` guard inside
+    `_send_or_skip`'s `except TimeoutError` branch ⇒ this fails — the entry
+    is recreated even though `ws` was unregistered before this send's own
+    timeout fired.
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
+    wedged = _WedgedWebSocket()
+    events._register_client(wedged, None)
+
+    disconnected: list[Any] = []
+    send_task = asyncio.create_task(events._send_or_skip(wedged, "hello", disconnected))
+    await asyncio.sleep(0)  # let send_task actually start awaiting send_text
+    events._unregister_client(wedged)  # unregistered WHILE the send is in flight
+
+    await send_task  # waits out `_SEND_TIMEOUT`, then hits the TimeoutError branch
+
+    assert wedged not in events._slow_client_state, "state was recreated after unregistration"
+
+
 # ── #804 round 7: `_slow_client_state`'s lifecycle, previously untested ─────
 
 
@@ -2171,7 +2204,6 @@ async def test_unregistered_clients_slow_state_is_not_resurrected(monkeypatch) -
     monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
     wedged = _WedgedWebSocket()
     events._register_client(wedged, {"id": "user-a"})
-    events.active_connections.add(wedged)
     try:
         # Two timeouts — under the eviction threshold, still registered.
         await events._deliver_local_broadcast("task:test", {"x": 1})
@@ -2185,11 +2217,42 @@ async def test_unregistered_clients_slow_state_is_not_resurrected(monkeypatch) -
         # start counting from zero, not resume at 3 (which would evict this
         # otherwise-fresh client immediately on a single timeout).
         events._register_client(wedged, {"id": "user-a"})
-        events.active_connections.add(wedged)
         await events._deliver_local_broadcast("task:test", {"x": 1})
 
         assert wedged in events.active_connections, "stale count evicted a fresh client early"
         assert events._slow_client_state[wedged].consecutive_timeouts == 1
     finally:
-        events.active_connections.discard(wedged)
+        events._unregister_client(wedged)
+
+
+async def test_a_single_stall_across_concurrent_emitters_does_not_evict(monkeypatch) -> None:
+    """#804 round 8 finding 4: several emitters broadcasting concurrently
+    (e.g. task:log, task:progress, ws:broadcast all firing during one burst)
+    against the SAME wedged client during ONE stall must count as ONE stall
+    window — not one increment per in-flight send. A naive per-timeout
+    counter would reach `_MAX_CONSECUTIVE_TIMEOUTS` from this SINGLE stall
+    event, which is exactly the eviction-on-one-stall behaviour round 5
+    deliberately chose not to do when the send-timeout decision was reversed.
+
+    MUTATION: remove the `if state.last_counted_at is None or now -
+    state.last_counted_at >= _SEND_TIMEOUT:` guard in `_send_or_skip` (always
+    increment on every timeout) ⇒ this fails — 3 concurrent broadcasts, each
+    producing its own timeout for the SAME stall, would evict the client
+    immediately instead of counting as one.
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.2)
+    wedged = _WedgedWebSocket()
+    events._register_client(wedged, None)
+    try:
+        # 3 CONCURRENT emitters, all hitting the SAME wedged client during
+        # the SAME stall.
+        await asyncio.gather(
+            events._deliver_local_broadcast("task:test", {"x": 1}),
+            events._deliver_local_broadcast("task:test", {"x": 2}),
+            events._deliver_local_broadcast("task:test", {"x": 3}),
+        )
+
+        assert wedged in events.active_connections, "a single stall must not evict"
+        assert events._slow_client_state[wedged].consecutive_timeouts == 1
+    finally:
         events._unregister_client(wedged)
