@@ -54,40 +54,60 @@ _LANGUAGE_NAMES: list[tuple[str, tuple[str, ...]]] = [
     ("cpp", ("c++",)),
 ]
 
-_CTX_BEFORE = r"(?:written\s+in|rewritten\s+in|ported\s+to|migrate[ds]?\s+to|in|using|with)\s+"
-_AFTER_WORDS = (
-    r"(?:service|module|package|binary|app|application|code|codebase|"
-    r"version|program|library|sdk|backend|api)"
+# A weak token resolves under exactly one of three rules (#827). #822's first
+# attempt at this was a prefix list plus a ten-word function-word denylist, and
+# both leaked: "responded in swift succession" and "a swift and reliable api" each
+# HALTed a valid plan on the hard language-reconciled gate.
+#
+# A  a STRONG prefix -- evidence on its own, at any casing.
+_STRONG_PREFIX = (
+    r"(?:written\s+in|rewritten\s+in|rewrite\s+in|ported\s+to|"
+    r"migrate[ds]?\s+to|implemented\s+in)\s+"
 )
-# A qualifier may sit between the token and the noun ("Swift SPM library",
-# "Go HTTP service"), but a FUNCTION word may not: without that exclusion
-# "users go to the api" reads as Go again, which is the false positive this
-# tier exists to stop (#801).
-_GAP = (
-    r"(?:\s+(?!to\b|the\b|a\b|an\b|through\b|into\b|from\b|onto\b|for\b|of\b)"
-    r"[\w.+#-]+){0,2}"
+# B  a BARE prefix, which proves nothing by itself, so the token must also be
+#    capitalised in the ORIGINAL text: "write it in Go" resolves, "in swift
+#    succession" does not. Case RAISES confidence here; it never gates tier 1,
+#    because briefs arrive lowercased (issue bodies, pasted logs) and on a hard
+#    gate a false negative -- missing a real mismatch -- is the worse error.
+_BARE_PREFIX = r"(?:in|using|with)\s+"
+# C  the token followed by a noun that makes it a language.
+_LANG_NOUN = (
+    r"(?:service|module|package|binary|app|application|code|codebase|version|"
+    r"program|library|sdk|backend|api|microservice|project)"
 )
-_CTX_AFTER = rf"{_GAP}\s+{_AFTER_WORDS}"
+# A qualifier may sit between the token and the noun, but only if it LOOKS like a
+# proper noun, acronym or version -- it must carry an uppercase letter or a digit.
+# A shape allowlist, not a word denylist: "and", "live" and "reliable" walked
+# through the denylist, and English cannot be enumerated.
+_QUALIFIER = r"(?:\s+[\w.+#-]*[A-Z0-9][\w.+#-]*){0,2}"
 
-# Tier 2: whole words with everyday or ambiguous meanings ("go", "swift" ...).
-# They only count inside a phrase that makes the subject a language (#397 only
-# half-fixed this class: word boundaries stopped matching *inside* words, but not
-# ordinary words used on their own -- "users can go to the next screen" still read
-# as Go).
+# Tokens that are ordinary English words as well as language names. Rule C requires
+# these Capitalised-but-NOT-ALL-CAPS, which is what separates "A Swift SPM library"
+# from "A SWIFT MT103 service" -- SWIFT being the interbank network, a real shape in
+# this product's payments briefs.
+_ENGLISH_WORD_TOKENS = frozenset({"go", "swift", "flask", "cargo", "django", "maven"})
+
+# Tier 2: tokens with an everyday meaning of their own. #397 only half-fixed this
+# class -- word boundaries stopped matching *inside* words, but not words that are
+# ordinary English on their own, so "users can go to the next screen" read as Go.
+# `cargo`, `flask`, `django` and `maven` live here rather than in the tool tier for
+# exactly that reason: "track cargo across the fleet" is not a Rust plan (#827).
 _WEAK_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
     ("go", ("go",)),
     ("swift", ("swift",)),
     ("typescript", ("ts",)),
     ("javascript", ("js",)),
-    ("rust", ("rs",)),
-    ("python", ("uv",)),
+    ("rust", ("rs", "cargo")),
+    ("python", ("uv", "flask", "django")),
+    ("java", ("maven",)),
 ]
 
 # Tier 3: build tools and ecosystems, reached only when tiers 1 and 2 say nothing.
+# Only tokens with no everyday English meaning belong here -- this tier has no
+# context requirement, so anything ambiguous placed in it fires on prose (#827).
 _TOOL_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
-    ("rust", ("cargo", "tokio", "actix")),
-    ("python", ("pytest", "fastapi", "django", "flask")),
-    ("java", ("maven",)),
+    ("rust", ("tokio", "actix")),
+    ("python", ("pytest", "fastapi")),
     ("kotlin", ("jetpack compose",)),
     ("cpp", ("cmake",)),
 ]
@@ -140,27 +160,50 @@ def boundary(needle: str) -> str:
     )
 
 
+# The spec text keeps its original casing (rules B and C read it), so every pattern
+# that should ignore case says so explicitly. A missing `re.I` here is a silent
+# false negative, which on this gate is the worse failure -- hence the table covers
+# each tier's tokens in both casings.
 _NAME_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    (lang, re.compile("|".join(boundary(n) for n in needles))) for lang, needles in _LANGUAGE_NAMES
+    (lang, re.compile("|".join(boundary(n) for n in needles), re.I))
+    for lang, needles in _LANGUAGE_NAMES
 ]
+
+
+def _weak_alternatives(needle: str) -> list[str]:
+    """Rules A, B and C for one weak token (#827); see the constants above."""
+    escaped = re.escape(needle)
+    alternatives = [
+        # A -- a strong prefix is evidence at any casing, so the token is folded in.
+        rf"(?i:{_STRONG_PREFIX}{escaped})\b",
+        # B -- a bare prefix plus a capitalised token.
+        rf"(?i:{_BARE_PREFIX})(?:{needle.capitalize()}|{needle.upper()})\b",
+    ]
+    if needle in _ENGLISH_WORD_TOKENS:
+        # C -- Capitalised, and NOT all-caps: "Swift SPM library" yes, "SWIFT
+        # MT103 service" no.
+        alternatives.append(
+            rf"\b{needle.capitalize()}\b(?![A-Z]){_QUALIFIER}\s+(?i:{_LANG_NOUN})\b"
+        )
+    else:
+        alternatives.append(rf"(?i:\b{escaped}\b){_QUALIFIER}\s+(?i:{_LANG_NOUN})\b")
+    return alternatives
+
 
 _WEAK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         lang,
-        re.compile(
-            "|".join(
-                rf"{_CTX_BEFORE}{re.escape(n)}\b|\b{re.escape(n)}\b{_CTX_AFTER}\b" for n in needles
-            )
-        ),
+        re.compile("|".join(alt for n in needles for alt in _weak_alternatives(n))),
     )
     for lang, needles in _WEAK_SIGNALS
 ]
 
 _TOOL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    (lang, re.compile("|".join(boundary(n) for n in needles))) for lang, needles in _TOOL_SIGNALS
+    (lang, re.compile("|".join(boundary(n) for n in needles), re.I))
+    for lang, needles in _TOOL_SIGNALS
 ]
 
-_SHARED_TOOL_PATTERN = re.compile("|".join(boundary(n) for n in _SHARED_TOOLS))
+_SHARED_TOOL_PATTERN = re.compile("|".join(boundary(n) for n in _SHARED_TOOLS), re.I)
 
 
 def detect_spec_language_signal(plan: NormalizedPlan) -> tuple[str | None, str | None]:
@@ -171,10 +214,16 @@ def detect_spec_language_signal(plan: NormalizedPlan) -> tuple[str | None, str |
     to see that the word "untrusted" is what produced it (#397).
 
     Consults three tiers in order of how much a match actually proves (#801):
-    an unambiguous language name, then a weak English word that only counts in a
-    language context, then a build tool/ecosystem. A token several languages
-    share (``gradle``, ``android``) is a real ambiguity, not a guess -- it
-    resolves to ``(None, None)`` so #585's conflict gate stays honest.
+    an unambiguous language name, then a weak English word that only counts as
+    evidence under rules A/B/C above, then a build tool/ecosystem. A token several
+    languages share (``gradle``, ``android``) is a real ambiguity, not a guess --
+    it resolves to ``(None, None)`` so #585's conflict gate stays honest.
+
+    The text is NOT lowercased (#827): rules B and C read original casing, since a
+    capitalised "Go" is evidence where "go" is a verb. Tier 1 never requires case --
+    briefs arrive lowercased from issue bodies and pasted logs, and on a hard gate
+    failing to catch a real mismatch is worse than reporting a spurious one. The
+    returned token is lowered so the author-facing evidence string is unchanged.
     """
     text = " ".join(
         [
@@ -183,22 +232,22 @@ def detect_spec_language_signal(plan: NormalizedPlan) -> tuple[str | None, str |
             *(c.text for c in plan.criteria),
             plan.raw_text or "",
         ]
-    ).lower()
+    )
 
     for lang, pattern in _NAME_PATTERNS:
         match = pattern.search(text)
         if match:
-            return lang, match.group(0)
+            return lang, match.group(0).lower()
 
     for lang, pattern in _WEAK_PATTERNS:
         match = pattern.search(text)
         if match:
-            return lang, match.group(0).strip()
+            return lang, match.group(0).strip().lower()
 
     for lang, pattern in _TOOL_PATTERNS:
         match = pattern.search(text)
         if match:
-            return lang, match.group(0)
+            return lang, match.group(0).lower()
 
     # A token several languages share proves nothing on its own -- resolving it
     # to a guess (or tie-breaking on the repo language) would be a back door

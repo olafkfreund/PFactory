@@ -196,6 +196,50 @@ _STRENGTH_CASES: list[tuple[str, str | None]] = [
     ("Users go to the api docs page.", None),
     ("Approvals go to the backend queue.", None),
     ("Operators go into the application menu.", None),
+    # ── #827: the rules that replaced the prefix list + function-word denylist ──
+    #
+    # Those two leaked, and each of these nine HALTed a valid plan on the hard
+    # language-reconciled gate (five with conflict=True). A bare "in"/"using"/"with"
+    # required nothing after the token, and the denylist let "and", "live" and
+    # "reliable" through. Found by a review of #822, not by #822's own 49 cases.
+    #
+    # rule B: a bare prefix now needs the token capitalised, so prose does not pass
+    ("The team responded in swift succession.", None),
+    ("The enclosure is tested in uv light for 500 hours.", None),
+    ("Sales dropped in go-to-market velocity.", None),
+    ("In go we have a saying about naming.", None),
+    # rule C: a qualifier must carry an uppercase letter or a digit
+    ("A swift and reliable api for partners.", None),
+    ("We go live with backend changes on Friday.", None),
+    ("The handler must go and fetch application state.", None),
+    ("We go GDPR compliant service-wide.", None),
+    # tier 2 now holds the English-word tool tokens, so prose no longer resolves
+    ("Sterilise the flask before each run.", None),
+    ("Track cargo across the fleet.", None),
+    ("Django Reinhardt playlist feature.", None),
+    ("The cargo build must be reproducible.", None),
+    ("The maven of our team wrote it.", None),
+    ("Please go and check the flask on the bench.", None),
+    # ...while their genuine uses still resolve, via rule B or C
+    ("A Django app for the admin console.", "python"),
+    ("Built with Django and Postgres.", "python"),
+    ("A Flask API for the webhook receiver.", "python"),
+    ("A Rust service using cargo workspaces.", "rust"),
+    ("Rewritten in Cargo workspaces.", "rust"),
+    ("A Maven module for the shared DTOs.", "java"),
+    # rule C requires Capitalised-but-not-ALL-CAPS: SWIFT is the interbank network,
+    # which is an ordinary shape in this product's payments briefs
+    ("SWIFT payment api for cross-border transfers.", None),
+    ("Send the SWIFT message before cut-off.", None),
+    ("A SWIFT MT103 service.", None),
+    ("A swift KYC api for onboarding.", None),
+    # an acronym qualifier must not smuggle an English "go" past rule C
+    ("Users go 2FA app enrolment.", None),
+    # rule B, genuine: capitalised after a bare prefix
+    ("Using Go conventions for naming.", "go"),
+    ("Go live on Friday.", None),
+    ("Go to settings.", None),
+    ("Go to the api docs.", None),
 ]
 
 
@@ -276,3 +320,28 @@ def test_language_check_passes_for_migration():
     )
     r = _results(plan)["language-reconciled"]
     assert r.status == "pass"
+
+
+def test_the_derived_signal_union_still_canonicalises_every_token() -> None:
+    """Moving a token between tiers must not change what it canonicalises to (#827).
+
+    `_LANGUAGE_SIGNALS` is derived as the per-language union of the three tiers, and
+    `migration_classifier` builds its token->language `_CANON` map from it. #801's
+    deviation 7 is this check missing: four tokens moved and the behaviour change went
+    unnoticed until a reviewer read the consumer. So assert the invariant directly
+    rather than trusting that a union is order-insensitive.
+    """
+    from plan.detect import migration_classifier
+    from plan.recon.language_reconcile import _LANGUAGE_SIGNALS
+
+    for language, needles in _LANGUAGE_SIGNALS:
+        assert migration_classifier._CANON.get(language) == language, (
+            f"the canonical name {language!r} must map to itself"
+        )
+        for needle in needles:
+            if " " in needle:
+                continue  # _CANON skips multi-word needles by design
+            assert migration_classifier._CANON.get(needle) == language, (
+                f"{needle!r} is a {language} signal but _CANON maps it to "
+                f"{migration_classifier._CANON.get(needle)!r}"
+            )
