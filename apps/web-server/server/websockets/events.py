@@ -127,29 +127,42 @@ class _SlowClientState:
 
     consecutive_timeouts: int = 0
     warned: bool = False
+    # Wall-clock time (loop-relative, from `loop.time()`) of the last
+    # timeout that actually incremented `consecutive_timeouts` — see finding
+    # 4's use of it below. `None` until the first counted timeout.
+    last_counted_at: float | None = None
 
 
-# Cleaned up in `_unregister_client` — a client that's gone shouldn't leak an
-# entry here forever.
+# OWNERSHIP RULE (#804 round 8): `_slow_client_state` is shared mutable
+# state read and written by an unbounded number of concurrent tasks (one
+# `_send_or_skip` call per client per broadcast, all in flight together via
+# `gather`). Every prior round patched a symptom of not having this rule
+# written down anywhere. The rule: STATE IS ONLY EVER TOUCHED BY A TASK THAT
+# STILL FINDS `ws` IN `_clients`. A task that no longer finds its `ws`
+# registered does not create, read, or mutate an entry for it — it just
+# returns. Enforced at the one call site that can otherwise race
+# `_unregister_client`'s `pop` below: `_send_or_skip`'s `TimeoutError`
+# branch. Cleaned up in `_unregister_client` — a client that's gone doesn't
+# leak an entry here forever.
 _slow_client_state: dict[WebSocket, _SlowClientState] = {}
 
-# How many CONSECUTIVE timeouts (no successful send in between) before a
-# "slow" client is reclassified as dead and evicted (#804 finding 4).
-# `_send_or_skip`'s skip-not-evict policy assumes a TRANSIENT stall that
-# self-heals on the next event; a client that never drains instead sits
-# registered forever, receiving nothing, while taxing every subsequent
-# broadcast with a full `_SEND_TIMEOUT` of `gather` latency. 3, matching
-# `relay.py`'s `_DRAIN_MAX_ATTEMPTS` reasoning: 3 consecutive 5s stalls with
-# zero successful sends in between (15s of unbroken silence from a client
-# that's supposedly still connected) is a dead client by any reasonable
-# reading, not a bad TCP window.
+# How many DISTINCT STALL WINDOWS (#804 round 8 finding 4 — not individual
+# timed-out sends, see `_send_or_skip`) before a "slow" client is
+# reclassified as dead and evicted. `_send_or_skip`'s skip-not-evict policy
+# assumes a TRANSIENT stall that self-heals on the next event; a client that
+# never drains instead sits registered forever, receiving nothing, while
+# taxing every subsequent broadcast with a full `_SEND_TIMEOUT` of `gather`
+# latency. 3, matching `relay.py`'s `_DRAIN_MAX_ATTEMPTS` reasoning: 3
+# separate stalls with zero successful sends in between (~15s of unbroken
+# silence from a client that's supposedly still connected) is a dead client
+# by any reasonable reading, not a bad TCP window during one burst.
 _MAX_CONSECUTIVE_TIMEOUTS = 3
 
 
 async def _send_or_skip(ws: WebSocket, message: str, disconnected: list[WebSocket]) -> None:
     """Send one message to one client; append to ``disconnected`` only on a
     genuine failure OR a client stuck timing out for `_MAX_CONSECUTIVE_TIMEOUTS`
-    sends in a row.
+    distinct stall windows in a row.
 
     #804 finding 3: a `TimeoutError` (a slow-but-alive client — a full TCP
     window on a mobile link during a `task-logs:stream` burst, not a dead
@@ -162,12 +175,37 @@ async def _send_or_skip(ws: WebSocket, message: str, disconnected: list[WebSocke
     that never drains at all — see `_MAX_CONSECUTIVE_TIMEOUTS`. Any genuine
     send exception (not a timeout) still goes through `_evict_client`
     immediately, unchanged.
+
+    #804 round 8 finding 4: several emitters broadcasting concurrently to the
+    SAME wedged client produce several parallel timeouts for ONE stall — a
+    naive per-timeout counter reaches `_MAX_CONSECUTIVE_TIMEOUTS` from a
+    SINGLE stall event, which is exactly the eviction-on-one-stall behaviour
+    round 5 deliberately chose not to do. Only count a timeout toward the
+    threshold if at least `_SEND_TIMEOUT` has elapsed since the last one
+    counted, so three increments require ~15s of genuinely UNBROKEN failure
+    — what the constant's own docstring already promised — rather than three
+    sends that all happened to be in flight during the same 5s window.
     """
+    if ws not in _clients:
+        # Ownership rule (see `_slow_client_state`'s definition): this
+        # client was unregistered by ANOTHER in-flight send (or a delivery
+        # loop that started after it was already gone) while this send was
+        # still pending. Touching state now would recreate an entry keyed by
+        # a dead websocket that `_unregister_client` already cleaned up (or
+        # will never be asked to clean up again), leaking it forever, and
+        # would defeat the per-client dedupe below by resetting `warned` to
+        # `False` for a client nothing will ever evict-or-recover again.
+        return
     try:
         await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
     except TimeoutError:
+        if ws not in _clients:
+            return
         state = _slow_client_state.setdefault(ws, _SlowClientState())
-        state.consecutive_timeouts += 1
+        now = asyncio.get_event_loop().time()
+        if state.last_counted_at is None or now - state.last_counted_at >= _SEND_TIMEOUT:
+            state.consecutive_timeouts += 1
+            state.last_counted_at = now
         if state.consecutive_timeouts >= _MAX_CONSECUTIVE_TIMEOUTS:
             disconnected.append(ws)
             return
@@ -335,9 +373,22 @@ async def events_websocket(websocket: WebSocket):
                     websocket.receive_text(), timeout=_RECEIVE_POLL_INTERVAL
                 )
 
-                # Handle ping/pong
+                # Handle ping/pong. Bounded (#804 round 7 finding 1): this,
+                # not the keepalive branch below, is the HOT path — the
+                # frontend pings every 25s (apps/frontend-web/src/lib/
+                # websocket.ts), so nearly every client takes THIS branch,
+                # not the keepalive fallback. A bare `send_text` here blocks
+                # this task forever on a client that stopped reading but
+                # keeps pinging (a backgrounded tab, a full receive window
+                # during a log burst) — exactly the case
+                # `_send_or_skip`/`_evict_client`/`_MAX_CONSECUTIVE_TIMEOUTS`
+                # exist for on the delivery path, which this path bypasses
+                # entirely since it never goes through `_deliver_local_*`.
                 if data == "ping":
-                    await websocket.send_text("pong")
+                    try:
+                        await asyncio.wait_for(websocket.send_text("pong"), timeout=_SEND_TIMEOUT)
+                    except Exception:
+                        break
 
             except TimeoutError:
                 try:

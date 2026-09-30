@@ -293,6 +293,19 @@ _drain_failure_warned = False
 # outage.
 _ACQUIRE_TIMEOUT = 5.0
 
+# How long a single `execute()` may take (#804 round 7 finding 2). Bounding
+# only `acquire()` was NOT bounding the drain against a Postgres that's
+# simply unreachable, as the module used to claim: once the pool holds a
+# WARM connection, `acquire()` returns instantly, and it's the unbounded
+# `execute()` that then waits — on a half-open socket or a mid-failover
+# partition (the case the listener has an explicit `_POLL_INTERVAL` backstop
+# for), that's however long TCP retransmission takes (Linux default ~15
+# min). During that whole window nothing has raised, so the 3-attempt cap
+# never engages, the outbox silently rolls over via drop-oldest, and
+# `is_connected()` — which reports the LISTENER's health, not the drain's —
+# says the pod is fine.
+_EXECUTE_TIMEOUT = 5.0
+
 
 # Capped backoff for RETRYING one drain item, distinct from
 # `_RECONNECT_BACKOFF` (that one paces the LISTENER's own reconnect loop).
@@ -346,7 +359,9 @@ async def _drain_outbox(pool: asyncpg.Pool, outbox: asyncio.Queue[str]) -> None:
         while True:
             try:
                 async with pool.acquire(timeout=_ACQUIRE_TIMEOUT) as conn:
-                    await conn.execute("SELECT pg_notify($1, $2)", _CHANNEL, encoded)
+                    await conn.execute(
+                        "SELECT pg_notify($1, $2)", _CHANNEL, encoded, timeout=_EXECUTE_TIMEOUT
+                    )
             except Exception:  # noqa: BLE001 — retried/dropped below, must not kill the drain task
                 attempt += 1
                 if attempt >= _DRAIN_MAX_ATTEMPTS:

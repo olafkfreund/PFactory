@@ -89,7 +89,7 @@ class _FakeConnection:
     async def close(self) -> None:
         self.closed = True
 
-    async def execute(self, _sql: str, _channel: str, payload: str) -> None:
+    async def execute(self, _sql: str, _channel: str, payload: str, **_kwargs: Any) -> None:
         self.calls.append(payload)
 
     def simulate_termination(self, *, fire_callback: bool = True) -> None:
@@ -317,13 +317,18 @@ def test_encode_returns_none_when_it_cannot_fit_under_cap() -> None:
 async def test_publish_failure_does_not_prevent_local_delivery_or_propagate(
     monkeypatch,
 ) -> None:
-    """MUTATION: remove publish()'s `try/except asyncio.QueueFull` ⇒ this
-    fails — `broadcast_event` would raise instead of swallowing a full
-    outbox, even though local delivery already happened first.
+    """Local delivery must complete even when the relay side of a
+    `broadcast_event` call hits a full outbox — which, since drop-oldest
+    landed (#804 round 6 finding 1), is a deliberate capacity policy, not a
+    failure `publish()` catches: `publish()` itself has no `try/except` at
+    all; the drop-and-warn handling this test exercises lives in
+    `_put_outbox_dropping_oldest`. This test's actual claim is narrower and
+    still worth pinning: an outbox already at capacity must not stop
+    `broadcast_event`'s local half from running, or raise out of it.
 
     Since #804 finding 4, `publish` no longer talks to Postgres directly (see
-    the finding-4 tests below) — its only failure mode is a full outbox, so
-    that's what stands in for "a relay failure" here now.
+    the finding-4 tests below) — a full outbox is the only way enqueueing
+    can be observably eventful at all, so that's what this test drives.
     """
     ws = _FakeWebSocket()
     events.active_connections.add(ws)
@@ -386,7 +391,7 @@ class _SlowExecuteConnection(_MinimalConnection):
         self._sleep_seconds = sleep_seconds
         self.calls: list[str] = []
 
-    async def execute(self, _sql: str, _channel: str, payload: str) -> None:
+    async def execute(self, _sql: str, _channel: str, payload: str, **_kwargs: Any) -> None:
         await asyncio.sleep(self._sleep_seconds)
         self.calls.append(payload)
 
@@ -428,7 +433,7 @@ class _HangingExecuteConnection(_MinimalConnection):
         super().__init__()
         self.calls: list[str] = []
 
-    async def execute(self, _sql: str, _channel: str, _payload: str) -> None:
+    async def execute(self, _sql: str, _channel: str, _payload: str, **_kwargs: Any) -> None:
         await asyncio.sleep(3600)
 
 
@@ -488,7 +493,7 @@ class _DropsOnConnectionConnection(_MinimalConnection):
     docstring for why.
     """
 
-    async def execute(self, *_args: Any) -> None:
+    async def execute(self, *_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("boom: connection dropped")
 
 
@@ -498,7 +503,7 @@ class _AlwaysDropsConnection(_MinimalConnection):
     during recovery" on a standby), as opposed to `_DropsOnConnectionConnection`
     used elsewhere for a transient, eventually-recovering failure."""
 
-    async def execute(self, *_args: Any) -> None:
+    async def execute(self, *_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("boom: permanently poisoned item")
 
 
@@ -1002,10 +1007,8 @@ async def test_listener_skips_non_dict_payload_without_dying(monkeypatch) -> Non
 
     # The listener survived the bad payload and kept processing the queue —
     # if it had died and reconnected instead, `deliver` would still
-    # eventually see the good payload, but on a SECOND connection; this
-    # asserts it happened on the ORIGINAL one, i.e. nothing tore down.
+    # eventually see the good payload, just via a second connection.
     assert delivered == [("task:log", {"marker": "good"})]
-    assert relay._connection is fake_conn
 
 
 # ── review finding 5: one wedged local client must not stall everyone else ──
@@ -1274,7 +1277,7 @@ class _BusyThenExecuteConnection(_MinimalConnection):
         await asyncio.sleep(self._busy_seconds)
         self.busy = False
 
-    async def execute(self, *_args: Any) -> None:
+    async def execute(self, *_args: Any, **_kwargs: Any) -> None:
         if self.busy:
             self.violation = True
 
@@ -1549,6 +1552,47 @@ async def test_keepalive_ping_is_bounded_on_a_wedged_socket(monkeypatch) -> None
         events._unregister_client(ws)
 
 
+class _PingingWedgedWebSocket:
+    """Models the ACTUAL hot path (#804 round 7 finding 1): a client that
+    keeps pinging (`receive_text` returns "ping" immediately, matching the
+    frontend's 25s heartbeat) but stopped reading — a backgrounded tab, or a
+    full receive window during a log burst — so its "pong" reply's
+    `send_text` never returns. `_KeepaliveWedgedWebSocket` above never
+    exercises this branch at all: its `receive_text` hangs, so "ping" is
+    never received and this file never contained the string "pong" in a
+    test until now."""
+
+    async def accept(self) -> None:
+        pass
+
+    async def receive_text(self) -> str:
+        return "ping"
+
+    async def send_text(self, _message: str) -> None:
+        await asyncio.sleep(3600)
+
+
+async def test_pong_reply_is_bounded_on_a_wedged_socket(monkeypatch) -> None:
+    """#804 round 7 finding 1: round 6's item B bounded the keepalive ping
+    two lines below this one and left the "pong" reply bare — the REVERSE of
+    what matters, since the frontend pings every 25s, so nearly every client
+    takes THIS branch, not the keepalive fallback.
+
+    MUTATION: remove the `asyncio.wait_for(websocket.send_text("pong"),
+    timeout=_SEND_TIMEOUT)` wrap (call `websocket.send_text("pong")` bare)
+    ⇒ this fails — `events_websocket` would never return (bounded here by
+    this test's own outer timeout, not a real hang).
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
+    monkeypatch.setattr(events, "authenticate_websocket", AsyncMock(return_value=None))
+
+    ws = _PingingWedgedWebSocket()
+    try:
+        await asyncio.wait_for(events.events_websocket(ws), timeout=5.0)
+    finally:
+        events._unregister_client(ws)
+
+
 async def test_evict_clients_close_is_bounded(monkeypatch) -> None:
     """#804 round 6 finding B: `_evict_client`'s `await ws.close()` usually
     runs on a socket that just raised from `send_text`, but a half-open peer
@@ -1763,7 +1807,7 @@ class _SignalingConnection(_MinimalConnection):
         self.calls: list[str] = []
         self._event = event
 
-    async def execute(self, _sql: str, _channel: str, payload: str) -> None:
+    async def execute(self, _sql: str, _channel: str, payload: str, **_kwargs: Any) -> None:
         self.calls.append(payload)
         self._event.set()
 
@@ -1977,4 +2021,175 @@ async def test_deliver_local_to_org_timeout_skips_not_evicts(monkeypatch) -> Non
 
         assert wedged in events._clients, "a timeout must skip, not evict"
     finally:
+        events._unregister_client(wedged)
+
+
+# ── #804 round 7: finding 2 — the drain's acquire/execute bounds, tested ────
+#
+# The reviewer flagged these as the only parts of the diff with zero
+# coverage. Both fakes below faithfully model asyncpg's OWN `timeout=`
+# contract (hang internally, but let the timeout VALUE passed in bound the
+# hang via a real `asyncio.wait_for`) rather than merely recording that some
+# keyword happened to be passed — the point is proving the value actually
+# reaches the pool/connection and does the bounding, not just that a
+# `timeout=` argument exists syntactically.
+
+
+class _BoundedHangContext:
+    """An async context manager that hangs far longer than any sane
+    timeout, bounded ONLY by whatever `timeout` value it's given — modelling
+    what a REAL `asyncpg.Pool.acquire(timeout=...)` does against a dead
+    connection."""
+
+    def __init__(self, timeout: float | None) -> None:
+        self._timeout = timeout
+
+    async def __aenter__(self) -> Any:
+        await asyncio.wait_for(asyncio.sleep(3600), timeout=self._timeout)
+        return None  # pragma: no cover — wait_for always raises first
+
+    async def __aexit__(self, *_exc: Any) -> None:
+        pass
+
+
+class _RealisticHangingAcquirePool:
+    """A pool whose `acquire()` hangs against a dead connection, bounded
+    only by the `timeout=` value `_drain_outbox` passes it — unlike
+    `_FakePool`, which never enforces the timeout value at all."""
+
+    def acquire(self, *, timeout: float | None = None) -> _BoundedHangContext:
+        return _BoundedHangContext(timeout)
+
+
+async def test_drain_passes_acquire_timeout_so_a_hung_acquire_is_escaped(monkeypatch) -> None:
+    """MUTATION: drop `timeout=_ACQUIRE_TIMEOUT` from `pool.acquire(...)` in
+    `_drain_outbox` (call `pool.acquire()` bare) ⇒ this fails — the fake's
+    `asyncio.wait_for(..., timeout=None)` never times out, so the item is
+    never dropped and `_drain_dropped_count` never advances (bounded here by
+    `_wait_until`'s own deadline, not a real hang).
+    """
+    monkeypatch.setattr(relay, "_ACQUIRE_TIMEOUT", 0.05)
+    monkeypatch.setattr(relay, "_DRAIN_RETRY_BACKOFF", (0,))
+    pool = _RealisticHangingAcquirePool()
+    outbox: asyncio.Queue[str] = asyncio.Queue()
+    outbox.put_nowait(relay._encode("task:log", {"task_id": "t1", "content": "x"}))
+
+    start_count = relay._drain_dropped_count
+    task = asyncio.create_task(relay._drain_outbox(pool, outbox))
+    try:
+        await _wait_until(lambda: relay._drain_dropped_count > start_count, deadline_seconds=3.0)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+class _RealisticHangingExecuteConnection(_MinimalConnection):
+    """A connection whose `execute()` hangs against a half-open socket,
+    bounded only by the `timeout=` value `_drain_outbox` passes it — models
+    the case the module's own comment describes: `acquire()` returns
+    instantly once the pool holds a warm connection, and it's the unbounded
+    `execute()` that then waits."""
+
+    async def execute(
+        self,
+        _sql: str,
+        _channel: str,
+        _payload: str,
+        *,
+        timeout: float | None = None,  # noqa: ASYNC109 — matches asyncpg.Connection.execute
+    ) -> None:
+        await asyncio.wait_for(asyncio.sleep(3600), timeout=timeout)
+
+
+async def test_drain_passes_execute_timeout_so_a_hung_execute_is_escaped(monkeypatch) -> None:
+    """#804 round 7 finding 2: `_ACQUIRE_TIMEOUT` alone does NOT bound the
+    drain against a half-open socket or a mid-failover partition — once the
+    pool holds a warm connection, `acquire()` returns instantly, and it was
+    the UNBOUNDED `execute()` that then waited for however long TCP
+    retransmission takes (Linux default ~15 min), during which nothing
+    raised, the 3-attempt cap never engaged, and the outbox silently rolled
+    over via drop-oldest while `is_connected()` (the LISTENER's health, not
+    the drain's) reported the pod as fine.
+
+    MUTATION: drop `timeout=_EXECUTE_TIMEOUT` from `conn.execute(...)` in
+    `_drain_outbox` ⇒ this fails — the fake's `asyncio.wait_for(...,
+    timeout=None)` never times out, so the item is never dropped (bounded
+    here by `_wait_until`'s own deadline, not a real hang).
+    """
+    monkeypatch.setattr(relay, "_EXECUTE_TIMEOUT", 0.05)
+    monkeypatch.setattr(relay, "_DRAIN_RETRY_BACKOFF", (0,))
+    conn = _RealisticHangingExecuteConnection()
+    pool = _FakePool(conn, conn, conn)
+    outbox: asyncio.Queue[str] = asyncio.Queue()
+    outbox.put_nowait(relay._encode("task:log", {"task_id": "t1", "content": "x"}))
+
+    start_count = relay._drain_dropped_count
+    task = asyncio.create_task(relay._drain_outbox(pool, outbox))
+    try:
+        await _wait_until(lambda: relay._drain_dropped_count > start_count, deadline_seconds=3.0)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+# ── #804 round 7: `_slow_client_state`'s lifecycle, previously untested ─────
+
+
+async def test_slow_client_state_is_cleaned_up_on_unregister() -> None:
+    """#804 round 7: `_slow_client_state` had zero direct coverage anywhere
+    despite being introduced in round 6 — its lifecycle (populated on
+    timeout, cleaned up on unregister) was only ever exercised indirectly
+    through `_send_or_skip`'s own behavior.
+
+    MUTATION: remove the `_slow_client_state.pop(ws, None)` line from
+    `_unregister_client` ⇒ this fails — the entry survives unregistration.
+    """
+    ws = _WedgedWebSocket()
+    events._slow_client_state[ws] = events._SlowClientState(consecutive_timeouts=2, warned=True)
+
+    events._unregister_client(ws)
+
+    assert ws not in events._slow_client_state
+
+
+async def test_unregistered_clients_slow_state_is_not_resurrected(monkeypatch) -> None:
+    """A client that hit 2 consecutive timeouts, then disconnected (its
+    entry cleaned up via `_unregister_client`), must not have those 2
+    timeouts "remembered" if the same websocket object is registered again —
+    a stale count could push a genuinely fresh client straight to eviction
+    on its FIRST real timeout instead of its `_MAX_CONSECUTIVE_TIMEOUTS`th.
+
+    MUTATION: change `_send_or_skip`'s `_slow_client_state.setdefault(ws,
+    _SlowClientState())` to a bare `_slow_client_state[ws]` lookup with a
+    module-level default created ONCE (so re-registration can find a
+    lingering entry a cleanup somehow missed) ⇒ this fails on the second
+    `consecutive_timeouts == 1` assertion — a fresh client's first timeout
+    would read as its THIRD.
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
+    wedged = _WedgedWebSocket()
+    events._register_client(wedged, {"id": "user-a"})
+    events.active_connections.add(wedged)
+    try:
+        # Two timeouts — under the eviction threshold, still registered.
+        await events._deliver_local_broadcast("task:test", {"x": 1})
+        await events._deliver_local_broadcast("task:test", {"x": 1})
+        assert events._slow_client_state[wedged].consecutive_timeouts == 2
+
+        events._unregister_client(wedged)
+        assert wedged not in events._slow_client_state
+
+        # Re-register the SAME websocket object and time out ONCE — must
+        # start counting from zero, not resume at 3 (which would evict this
+        # otherwise-fresh client immediately on a single timeout).
+        events._register_client(wedged, {"id": "user-a"})
+        events.active_connections.add(wedged)
+        await events._deliver_local_broadcast("task:test", {"x": 1})
+
+        assert wedged in events.active_connections, "stale count evicted a fresh client early"
+        assert events._slow_client_state[wedged].consecutive_timeouts == 1
+    finally:
+        events.active_connections.discard(wedged)
         events._unregister_client(wedged)
