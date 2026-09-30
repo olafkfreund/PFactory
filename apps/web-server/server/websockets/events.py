@@ -47,6 +47,18 @@ _clients: dict[WebSocket, ConnectedClient] = {}
 # references ``active_connections`` directly.
 active_connections: set[WebSocket] = set()
 
+# How long a single client's send may take before it's treated as gone
+# (#804 finding 5). Without this, one wedged client (a browser that stopped
+# reading) blocks `ws.send_text` indefinitely, which — since the three
+# `_deliver_local_*` loops below send to every client from a single task —
+# stalls delivery to every OTHER client too; with the relay now waiting on
+# this loop before it can even queue a notification for other pods, one
+# wedged local client turns into a pod-wide outage. 5 seconds: long enough
+# that a slow-but-alive connection (a mobile client with real latency or a
+# stalled-but-recovering TCP window) survives, short enough that a genuinely
+# dead one can't hold up delivery for more than a few seconds at a time.
+_SEND_TIMEOUT = 5.0
+
 
 def _register_client(ws: WebSocket, user_info: dict | None) -> ConnectedClient:
     """Register a new client connection."""
@@ -77,7 +89,7 @@ async def _deliver_local_broadcast(event_type: str, payload: dict[str, Any]) -> 
 
     for ws in list(active_connections):
         try:
-            await ws.send_text(message)
+            await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
         except Exception:
             disconnected.append(ws)
 
@@ -104,7 +116,7 @@ async def _deliver_local_to_user(user_id: str, event_type: str, payload: dict[st
     for ws, client in list(_clients.items()):
         if client.user_id == user_id:
             try:
-                await ws.send_text(message)
+                await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
             except Exception:
                 disconnected.append(ws)
 
@@ -137,7 +149,7 @@ async def _deliver_local_to_org(org_id: str, event_type: str, payload: dict[str,
         # Send to: org members, or legacy clients (no user_id)
         if client.user_id is None or org_id in client.org_ids:
             try:
-                await ws.send_text(message)
+                await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
             except Exception:
                 disconnected.append(ws)
 

@@ -163,7 +163,13 @@ def is_connected() -> bool:
 # with no other pod listening. Queueing decouples "emit a log line" from
 # "a NOTIFY reaches Postgres" the same way local delivery is already
 # decoupled from the relay hop.
-_outbox: asyncio.Queue[str] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+# ``None`` until `start_listener` creates it. A module-level
+# ``asyncio.Queue`` created once at import time binds to whichever event
+# loop happens to be running the first time it's used and then errors on any
+# other loop — fatal for tests, which give each test its own loop — so this
+# is (re)created fresh inside `start_listener`, on the loop that will
+# actually use it, exactly like `_listen_on`'s own inbound queue already is.
+_outbox: asyncio.Queue[str] | None = None
 
 # Dedupes the outbox-full warning the same way `_dispatch.py` dedupes
 # unknown-kind warnings — a sustained flood must not become a log flood.
@@ -196,7 +202,8 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
     """
     global _outbox_full_warned  # noqa: PLW0603 — module-level relay state (#804)
 
-    if _drain_task is None:
+    outbox = _outbox
+    if _drain_task is None or outbox is None:
         return
 
     encoded = _encode(kind, data)
@@ -205,7 +212,7 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
         return
 
     try:
-        _outbox.put_nowait(encoded)
+        outbox.put_nowait(encoded)
     except asyncio.QueueFull:
         if not _outbox_full_warned:
             _outbox_full_warned = True
@@ -216,7 +223,7 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
     _outbox_full_warned = False
 
 
-async def _drain_outbox() -> None:
+async def _drain_outbox(outbox: asyncio.Queue[str]) -> None:
     """The single task that actually talks to Postgres for publishing.
 
     One task draining one queue onto one connection serialises writes by
@@ -228,7 +235,7 @@ async def _drain_outbox() -> None:
     it. Log and keep draining — the next notification gets its own attempt.
     """
     while True:
-        encoded = await _outbox.get()
+        encoded = await outbox.get()
         if _connection is None:
             # No live connection right now (mid-reconnect, or between
             # start_listener returning and the first connect landing) --
@@ -273,6 +280,41 @@ def _resolve_asyncpg_url() -> str | None:
 _POLL_INTERVAL = 5.0
 
 
+# Dedupes the inbound-queue-full warning, same reasoning as
+# `_outbox_full_warned` (#804 finding 5).
+_inbound_full_warned = False
+
+
+def _put_inbound_dropping_oldest(
+    queue: asyncio.Queue[tuple[str, str] | None], item: tuple[str, str] | None
+) -> None:
+    """Enqueue, evicting the OLDEST entry first if the queue is full.
+
+    Drop-OLDEST, not drop-newest: the value of a queued inbound notification
+    decays with how long it's already been sitting there — the newest
+    task:log/task:progress tick is far more useful to a pod that's catching
+    up than one that arrived seconds earlier in an already-backlogged queue —
+    and evicting the head of a bounded FIFO queue is O(1) either way. This
+    also means the termination sentinel always gets in: if the queue is
+    full, this makes room for it rather than dropping it (#804 finding 5).
+    """
+    global _inbound_full_warned  # noqa: PLW0603 — module-level relay state (#804)
+
+    try:
+        queue.put_nowait(item)
+    except asyncio.QueueFull:
+        with contextlib.suppress(asyncio.QueueEmpty):
+            queue.get_nowait()
+        queue.put_nowait(item)
+        if not _inbound_full_warned:
+            _inbound_full_warned = True
+            logger.warning(
+                "[relay] inbound queue full (%d), dropping oldest notification", _QUEUE_MAXSIZE
+            )
+        return
+    _inbound_full_warned = False
+
+
 async def _listen_on(
     conn: asyncpg.Connection, deliver: Callable[[str, dict[str, Any]], Awaitable[None]]
 ) -> None:
@@ -282,7 +324,7 @@ async def _listen_on(
     the connection dying — either way, the caller's reconnect loop is what
     decides what happens next.
     """
-    queue: asyncio.Queue[tuple[str, str] | None] = asyncio.Queue()
+    queue: asyncio.Queue[tuple[str, str] | None] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
 
     def _on_notify(
         _conn: object,
@@ -291,10 +333,10 @@ async def _listen_on(
         payload: str,
         _queue: asyncio.Queue[tuple[str, str] | None] = queue,
     ) -> None:
-        _queue.put_nowait((_channel, payload))
+        _put_inbound_dropping_oldest(_queue, (_channel, payload))
 
     def _on_terminate(_conn: object, _queue: asyncio.Queue[tuple[str, str] | None] = queue) -> None:
-        _queue.put_nowait(None)
+        _put_inbound_dropping_oldest(_queue, None)
 
     conn.add_termination_listener(_on_terminate)
     await conn.add_listener(_CHANNEL, _on_notify)
@@ -350,7 +392,7 @@ async def start_listener(deliver: Callable[[str, dict[str, Any]], Awaitable[None
     blip doesn't permanently strand this pod out of the fan-out. Inert (and
     logged once at INFO) when ``DATABASE_URL`` is unset.
     """
-    global _listener_task  # noqa: PLW0603 — module-level relay state (#804)
+    global _listener_task, _drain_task, _outbox  # noqa: PLW0603 — module-level relay state (#804)
 
     url = _resolve_asyncpg_url()
     if url is None:
@@ -378,6 +420,8 @@ async def start_listener(deliver: Callable[[str, dict[str, Any]], Awaitable[None
             await asyncio.sleep(delay)
 
     _listener_task = asyncio.create_task(_run())
+    _outbox = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+    _drain_task = asyncio.create_task(_drain_outbox(_outbox))
 
 
 # Bounds shutdown (#804 fix 6): without it, a partitioned socket stalls
@@ -387,8 +431,8 @@ _STOP_TIMEOUT = 5.0
 
 
 async def stop_listener() -> None:
-    """Stop the relay's listener task and close its connection."""
-    global _connection, _listener_task  # noqa: PLW0603 — module-level relay state (#804)
+    """Stop the relay's listener and drain tasks and close its connection."""
+    global _connection, _listener_task, _drain_task, _outbox  # noqa: PLW0603 — module-level relay state (#804)
 
     if _listener_task is not None:
         _listener_task.cancel()
@@ -402,6 +446,13 @@ async def stop_listener() -> None:
             # doesn't unwind promptly for some other reason.
             await asyncio.wait_for(_listener_task, timeout=_STOP_TIMEOUT)
         _listener_task = None
+
+    if _drain_task is not None:
+        _drain_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            await asyncio.wait_for(_drain_task, timeout=_STOP_TIMEOUT)
+        _drain_task = None
+        _outbox = None
 
     if _connection is not None:
         with contextlib.suppress(Exception):  # best-effort close on shutdown (#804 fix 6)

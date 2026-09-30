@@ -12,6 +12,7 @@ database) is ``tests/postgres/test_ws_relay_postgres.py``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from dataclasses import asdict
@@ -241,78 +242,179 @@ def test_encode_returns_none_when_it_cannot_fit_under_cap() -> None:
 # ── 6. a publish failure must not block local delivery ─────────────────────
 
 
-class _RaisingConnection:
-    async def execute(self, *_args: Any) -> None:
-        raise RuntimeError("boom: DB hiccup")
-
-    async def close(self) -> None:
-        pass
-
-
 async def test_publish_failure_does_not_prevent_local_delivery_or_propagate(
     monkeypatch,
 ) -> None:
-    """MUTATION: remove publish()'s try/except around `_connection.execute` ⇒
-    this fails — `broadcast_event` would raise instead of swallowing the
-    relay failure, even though local delivery already happened first.
+    """MUTATION: remove publish()'s `try/except asyncio.QueueFull` ⇒ this
+    fails — `broadcast_event` would raise instead of swallowing a full
+    outbox, even though local delivery already happened first.
+
+    Since #804 finding 4, `publish` no longer talks to Postgres directly (see
+    the finding-4 tests below) — its only failure mode is a full outbox, so
+    that's what stands in for "a relay failure" here now.
     """
     ws = _FakeWebSocket()
     events.active_connections.add(ws)
-    monkeypatch.setattr(relay, "_connection", _RaisingConnection())
+    # A real (if inert) Task, not a bare sentinel object: `_clean_relay_state`'s
+    # teardown calls `stop_listener()` unconditionally, which calls
+    # `.cancel()` on whatever `_drain_task` currently is.
+    fake_drain_task = asyncio.create_task(asyncio.sleep(3600))
+    monkeypatch.setattr(relay, "_drain_task", fake_drain_task)
+    full_outbox: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
+    full_outbox.put_nowait("occupying the only slot")
+    monkeypatch.setattr(relay, "_outbox", full_outbox)
     try:
         await events.broadcast_event("task:test", {"x": 1})  # must not raise
     finally:
         events.active_connections.discard(ws)
+        fake_drain_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await fake_drain_task
 
     assert ws.sent == [json.dumps({"type": "task:test", "payload": {"x": 1}})]
 
 
-# ── 7. concurrent publish calls must not corrupt the shared connection ─────
+# ── 7. review finding 4: publish must not block on Postgres, and the outbox ──
+# ── that replaces it must be bounded and drain-failure-tolerant ────────────
 
 
-class _ReentrancyDetectingConnection:
-    """Raises the asyncpg InterfaceError symptom if two calls overlap.
+class _MinimalConnection:
+    """Everything `_listen_on` needs from a connection besides `execute`,
+    shared by the finding-4 fakes below so each only has to define its own
+    failure mode."""
 
-    ``await asyncio.sleep`` inside ``execute`` yields control back to the
-    event loop, so a second concurrently-gathered ``publish`` call WILL
-    enter while the first is still "in flight" if nothing serialises them —
-    this is deterministic, not a timing gamble.
-    """
+    async def add_listener(self, _channel: str, _callback: Any) -> None:
+        pass
 
-    def __init__(self) -> None:
-        self.in_flight = False
-        self.violation = False
-        self.calls: list[str] = []
+    async def remove_listener(self, _channel: str, _callback: Any) -> None:
+        pass
 
-    async def execute(self, _sql: str, _channel: str, payload: str) -> None:
-        if self.in_flight:
-            self.violation = True
-        self.in_flight = True
-        await asyncio.sleep(0.01)
-        self.calls.append(payload)
-        self.in_flight = False
+    def add_termination_listener(self, _callback: Any) -> None:
+        pass
+
+    def remove_termination_listener(self, _callback: Any) -> None:
+        pass
+
+    def is_closed(self) -> bool:
+        return False
 
     async def close(self) -> None:
         pass
 
 
-async def test_concurrent_publishes_are_serialised_and_all_land(monkeypatch) -> None:
-    """MUTATION: delete `async with _publish_lock:` in publish() (dedent the
-    `execute` call out from under it) ⇒ this fails — concurrent calls
-    interleave inside `_ReentrancyDetectingConnection.execute` and
-    `violation` becomes True.
+class _SlowExecuteConnection(_MinimalConnection):
+    """A connection whose ``execute`` takes far longer than any publish call
+    should ever wait for."""
+
+    def __init__(self, sleep_seconds: float) -> None:
+        self._sleep_seconds = sleep_seconds
+        self.calls: list[str] = []
+
+    async def execute(self, _sql: str, _channel: str, payload: str) -> None:
+        await asyncio.sleep(self._sleep_seconds)
+        self.calls.append(payload)
+
+
+async def test_publish_returns_promptly_when_the_db_is_slow(monkeypatch) -> None:
+    """MUTATION: revert `publish()` to `await _connection.execute(...)`
+    directly (finding 4's original hazard — every agent stdout line paying
+    for a Postgres round-trip, serialised process-wide, inside the stdout
+    reader) ⇒ this fails — `publish` would block for the full slow-DB
+    duration instead of just enqueueing and returning immediately.
     """
-    conn = _ReentrancyDetectingConnection()
-    monkeypatch.setattr(relay, "_connection", conn)
+    conn = _SlowExecuteConnection(sleep_seconds=2.0)
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", AsyncMock(return_value=conn))
 
-    await asyncio.gather(
-        *[relay.publish("task:log", {"task_id": "t1", "content": f"line {i}"}) for i in range(10)]
-    )
+    async def deliver(kind: str, data: dict) -> None:
+        pass
 
-    assert conn.violation is False
-    assert len(conn.calls) == 10
-    # All ten distinct payloads actually reached "the DB", none lost.
-    assert len({json.loads(c)["data"]["content"] for c in conn.calls}) == 10
+    await relay.start_listener(deliver)
+    await _wait_until(lambda: relay._connection is conn)
+
+    loop = asyncio.get_event_loop()
+    start = loop.time()
+    await relay.publish("task:log", {"task_id": "t1", "content": "hi"})
+    elapsed = loop.time() - start
+
+    assert elapsed < 0.5, f"publish() took {elapsed}s — it's blocking on the DB again"
+
+
+class _HangingExecuteConnection(_MinimalConnection):
+    """A connection whose ``execute`` never returns — keeps the drain task
+    permanently busy on its first item, so later ones back up in the
+    outbox."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def execute(self, _sql: str, _channel: str, _payload: str) -> None:
+        await asyncio.sleep(3600)
+
+
+async def test_publish_drops_and_warns_once_when_outbox_is_full(monkeypatch, caplog) -> None:
+    """MUTATION: create the outbox with a bare `asyncio.Queue()` (no
+    `maxsize`) instead of `maxsize=_QUEUE_MAXSIZE` ⇒ this fails — `put_nowait`
+    never raises `QueueFull` no matter how far behind the drain task falls,
+    so nothing is ever dropped or warned about, and the outbox grows without
+    bound during an outage.
+    """
+    monkeypatch.setattr(relay, "_QUEUE_MAXSIZE", 3)
+    conn = _HangingExecuteConnection()
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", AsyncMock(return_value=conn))
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await relay.start_listener(deliver)
+    await _wait_until(lambda: relay._connection is conn)
+
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        for i in range(10):
+            await relay.publish("task:log", {"task_id": "t1", "content": f"x{i}"})  # must not raise
+
+    matches = [r for r in caplog.records if "outbox full" in r.getMessage()]
+    assert len(matches) == 1
+
+
+class _FlakyOnceConnection(_MinimalConnection):
+    """Raises on its first ``execute``, then works normally."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self._raised = False
+
+    async def execute(self, _sql: str, _channel: str, payload: str) -> None:
+        if not self._raised:
+            self._raised = True
+            raise RuntimeError("boom: transient DB hiccup")
+        self.calls.append(payload)
+
+
+async def test_drain_failure_does_not_kill_the_drain_task(monkeypatch) -> None:
+    """MUTATION: remove `_drain_outbox`'s `try/except` around `execute` ⇒ this
+    fails — the first failure propagates and kills the drain task's
+    `while True` loop entirely, so the SECOND notification is never drained
+    either (it sits in the outbox forever with nothing left to drain it).
+    """
+    conn = _FlakyOnceConnection()
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", AsyncMock(return_value=conn))
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await relay.start_listener(deliver)
+    await _wait_until(lambda: relay._connection is conn)
+
+    await relay.publish("task:log", {"task_id": "t1", "content": "first, will raise"})
+    await relay.publish("task:log", {"task_id": "t1", "content": "second, must still land"})
+
+    await _wait_until(lambda: len(conn.calls) >= 1, deadline_seconds=3.0)
+
+    assert len(conn.calls) == 1
+    assert json.loads(conn.calls[0])["data"]["content"] == "second, must still land"
 
 
 # ── 8 & 9. dispatch: unknown kinds and raising handlers never break the loop ─
@@ -698,3 +800,77 @@ async def test_listener_skips_non_dict_payload_without_dying(monkeypatch) -> Non
     # asserts it happened on the ORIGINAL one, i.e. nothing tore down.
     assert delivered == [("task:log", {"marker": "good"})]
     assert relay._connection is fake_conn
+
+
+# ── review finding 5: one wedged local client must not stall everyone else ──
+
+
+class _WedgedWebSocket:
+    """A client whose ``send_text`` never returns — a browser that stopped
+    reading, indistinguishable at the socket level from one that's merely
+    slow."""
+
+    async def send_text(self, _message: str) -> None:
+        await asyncio.sleep(3600)
+
+
+async def test_wedged_client_does_not_block_delivery_to_a_healthy_one(monkeypatch) -> None:
+    """MUTATION: remove the `asyncio.wait_for(ws.send_text(message),
+    timeout=_SEND_TIMEOUT)` wrap in `events._deliver_local_broadcast` (call
+    `ws.send_text(message)` bare) ⇒ this fails — the wedged client's
+    `send_text` never returns, so the healthy client never gets its turn in
+    the same loop (bounded by this test's own timeout, not a real hang). This
+    used to be true for single-replica delivery even before #804; the relay
+    makes it worse (a pod-wide fan-out stall), but the fix is a strict
+    improvement for single-replica too.
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.2)
+    wedged = _WedgedWebSocket()
+    healthy = _FakeWebSocket()
+    events.active_connections.add(wedged)
+    events.active_connections.add(healthy)
+    try:
+        await asyncio.wait_for(events._deliver_local_broadcast("task:test", {"x": 1}), timeout=5.0)
+
+        assert healthy.sent == [json.dumps({"type": "task:test", "payload": {"x": 1}})]
+        assert wedged not in events.active_connections
+        assert healthy in events.active_connections
+    finally:
+        events.active_connections.discard(wedged)
+        events.active_connections.discard(healthy)
+
+
+async def test_inbound_queue_does_not_grow_past_the_cap_under_a_flood(monkeypatch) -> None:
+    """MUTATION: create `_listen_on`'s queue with a bare `asyncio.Queue()`
+    (no `maxsize`) instead of `maxsize=_QUEUE_MAXSIZE` ⇒ this fails — it
+    would grow without bound under a flood instead of staying capped at 5.
+    """
+    monkeypatch.setattr(relay, "_QUEUE_MAXSIZE", 5)
+
+    qsizes: list[int] = []
+    original_put = relay._put_inbound_dropping_oldest
+
+    def _spy_put(queue: asyncio.Queue, item: Any) -> None:
+        original_put(queue, item)
+        qsizes.append(queue.qsize())
+
+    monkeypatch.setattr(relay, "_put_inbound_dropping_oldest", _spy_put)
+
+    # A flood: far more notifications than the cap, all delivered
+    # synchronously inside `add_listener` — mimicking a burst of NOTIFYs
+    # arriving before the listener loop gets a single chance to drain any.
+    flood = [
+        ("pfactory_ws", json.dumps({"origin": "other-pod:x", "kind": "task:log", "data": {}}))
+        for _ in range(50)
+    ]
+    fake_conn = _FakeConnection(flood)
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", AsyncMock(return_value=fake_conn))
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await relay.start_listener(deliver)
+    await _wait_until(lambda: len(qsizes) >= 50)
+
+    assert max(qsizes) <= 5
