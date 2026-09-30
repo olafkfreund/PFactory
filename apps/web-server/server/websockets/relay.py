@@ -137,14 +137,40 @@ def _locate_truncatable_content(data: dict[str, Any]) -> tuple[dict[str, Any], s
     return None
 
 
+# Dedupes the not-JSON-serializable warning (#804 round 9 finding 5), same
+# pattern as this module's other dedupe flags. Reset on the next successful
+# encode so a LATER, separate bad payload still warns.
+_encode_failure_warned = False
+
+
 def _encode(kind: str, data: dict[str, Any]) -> str | None:
     """JSON-encode a notification, truncating oversized content to fit.
 
-    Returns ``None`` if the payload still doesn't fit after truncation —
-    the caller drops it rather than crash the pipeline over a lost log line.
+    Returns ``None`` if the payload still doesn't fit after truncation, OR
+    if it isn't JSON-serializable at all — either way the caller drops it
+    rather than crash the pipeline over a lost log line.
     """
+    global _encode_failure_warned  # noqa: PLW0603 — module-level relay state (#804)
+
     payload: dict[str, Any] = {"origin": _ORIGIN, "kind": kind, "data": data}
-    encoded = json.dumps(payload)
+    try:
+        encoded = json.dumps(payload)
+    except (TypeError, ValueError):
+        # #804 round 9 finding 5: `publish()`'s docstring says "never
+        # raises", but this `dumps()` had no guard — `data` is a free-form
+        # caller-supplied dict (e.g. `TaskProgress.data`), so the first
+        # caller to put a `Path`, a `datetime`, or a `set` in it raised
+        # `TypeError` straight out of `publish()`, through
+        # `_emit_progress`/`_emit_log`, into the stdout pump — breaking
+        # local delivery, the one thing the deliver-then-publish ordering
+        # exists to protect.
+        if not _encode_failure_warned:
+            _encode_failure_warned = True
+            logger.warning(
+                "[relay] dropping %s notification, not JSON-serializable", kind, exc_info=True
+            )
+        return None
+    _encode_failure_warned = False
     if len(encoded.encode()) <= _MAX_PAYLOAD:
         return encoded
 
@@ -248,9 +274,11 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
     Never raises: a DB hiccup must not silence a browser attached to the
     pod that emitted the event, which has already been delivered locally
     by the caller before this runs. Beyond that, since #804 finding 4, this
-    function no longer talks to Postgres at all — it can only fail by the
-    outbox being full, which it handles by dropping and logging (below).
-    That means a real drain failure (a dead connection, a Postgres hiccup)
+    function no longer talks to Postgres at all — the only ways it can fail
+    are `data` not being JSON-serializable (#804 round 9 finding 5 —
+    `_encode`'s own `try/except` around `json.dumps`) or the outbox being
+    full, both of which it handles by dropping and logging. That means a
+    real drain failure (a dead connection, a Postgres hiccup)
     is no longer reported to THIS caller — it never could act on it anyway
     (local delivery already happened) — so the drain task's own logging
     (see `_drain_outbox`) is now the only signal a failure happened at all.

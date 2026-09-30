@@ -2359,3 +2359,112 @@ async def test_a_single_stall_across_concurrent_emitters_does_not_evict(monkeypa
         assert events._slow_client_state[wedged].consecutive_timeouts == 1
     finally:
         events._unregister_client(wedged)
+
+
+class _ControllablePingWebSocket:
+    """`send_text` distinguishes "pong" (always succeeds instantly, proving
+    liveness) from any OTHER message (a real broadcast payload — hangs
+    forever, modelling a stalled outbound delivery on the SAME socket).
+    `receive_text` only returns "ping" when explicitly released via
+    `release_ping()`, so a test can drive exactly ONE pong exchange at a
+    precise point relative to other events."""
+
+    def __init__(self) -> None:
+        self.pongs: list[str] = []
+        self._ping_ready = asyncio.Event()
+
+    def release_ping(self) -> None:
+        self._ping_ready.set()
+
+    async def accept(self) -> None:
+        pass
+
+    async def receive_text(self) -> str:
+        await self._ping_ready.wait()
+        self._ping_ready.clear()
+        return "ping"
+
+    async def send_text(self, message: str) -> None:
+        if message == "pong":
+            self.pongs.append(message)
+            return
+        await asyncio.sleep(3600)
+
+
+async def test_a_client_that_pongs_between_stalls_is_not_evicted(monkeypatch) -> None:
+    """#804 round 9 finding 3: `consecutive_timeouts` used to reset ONLY on
+    a successful `_deliver_local_*` send — the pong reply (the definitive
+    "this client is alive" signal, firing every 25s from the frontend) never
+    touched `_slow_client_state` at all. That let two stalls during a burst,
+    then an HOUR of idle pongs proving the client alive, then one more
+    transient stall, evict it — inverting the "~15s of UNBROKEN silence" the
+    threshold's own docstring promises into "3 stalls ever, unbounded in
+    time".
+
+    MUTATION: remove the `_slow_client_state.pop(websocket, None)` reset
+    from `events_websocket`'s pong branch ⇒ this fails — the third stall
+    below reaches the threshold (3, counting from the earlier 2) instead of
+    starting over at 1, and the client gets evicted.
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.1)
+    monkeypatch.setattr(events, "authenticate_websocket", AsyncMock(return_value=None))
+    ws = _ControllablePingWebSocket()
+
+    keepalive_task = asyncio.create_task(events.events_websocket(ws))
+    await _wait_until(lambda: ws in events._clients, deadline_seconds=3.0)
+
+    try:
+        # Two stalls — under the eviction threshold.
+        await events._deliver_local_broadcast("task:test", {"x": 1})
+        await events._deliver_local_broadcast("task:test", {"x": 2})
+        assert events._slow_client_state[ws].consecutive_timeouts == 2
+
+        # A real pong exchange, driven by events_websocket's own loop.
+        ws.release_ping()
+        await _wait_until(lambda: len(ws.pongs) >= 1, deadline_seconds=3.0)
+        assert ws not in events._slow_client_state, "a successful pong must reset the stall counter"
+
+        # One more stall — must be treated as the FIRST of a new run, not
+        # the third of the old one.
+        await events._deliver_local_broadcast("task:test", {"x": 3})
+
+        assert ws in events.active_connections, "a client that proved liveness was evicted anyway"
+        assert events._slow_client_state[ws].consecutive_timeouts == 1
+    finally:
+        keepalive_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await keepalive_task
+        events._unregister_client(ws)
+
+
+async def test_publish_drops_a_non_serializable_payload_without_raising(
+    monkeypatch, caplog
+) -> None:
+    """#804 round 9 finding 5: `publish()`'s docstring says "never raises",
+    but `_encode`'s first `json.dumps(payload)` had no guard — `data` is a
+    free-form caller-supplied dict (`TaskProgress.data`, or any field on a
+    model dumped via `asdict`), so the first caller to put a `Path`, a
+    `datetime`, or a `set` in it raised `TypeError` straight out of
+    `publish()`, through `_emit_progress`/`_emit_log`, into the stdout pump.
+
+    MUTATION: remove the `try/except (TypeError, ValueError)` guard around
+    `json.dumps(payload)` in `_encode` ⇒ this fails — `TypeError` propagates
+    out of `publish()` instead of being caught, logged, and dropped.
+    """
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", AsyncMock(return_value=_FakeConnection([])))
+    monkeypatch.setattr(relay.asyncpg, "create_pool", AsyncMock(return_value=_FakePool()))
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await relay.start_listener(deliver)
+
+    non_serializable = {"task_id": "t1", "content": {1, 2, 3}}  # a set — not JSON-serializable
+
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        await relay.publish("task:log", non_serializable)  # must not raise
+
+    matches = [r for r in caplog.records if "not JSON-serializable" in r.getMessage()]
+    assert len(matches) == 1
+    assert relay._outbox.empty(), "a non-serializable payload must not reach the outbox at all"
