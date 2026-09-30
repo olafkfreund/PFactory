@@ -44,6 +44,12 @@ image:
 #          is ReadWriteOnce, so the file is simply absent on the other pod
 # Tracked for the cluster in factory-gitops#273, whose KEDA ScaledObject also
 # pins maxReplicaCount: 1.
+# Seconds Kubernetes waits after SIGTERM before SIGKILL. 45, not the 30s
+# default: the #804 relay's teardown (drain task, publish pool close, listener
+# cleanup) is each individually bounded but runs in sequence, for ~25s worst
+# case, and the rest of the app still has to stop inside whatever is left.
+terminationGracePeriodSeconds: 45
+
 replicaCount: 1
 
 # What the pod is TOLD about how many replicas may run (#755, review on #760).
