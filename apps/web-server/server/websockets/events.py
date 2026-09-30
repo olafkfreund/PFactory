@@ -60,6 +60,11 @@ active_connections: set[WebSocket] = set()
 # dead one can't hold up delivery for more than a few seconds at a time.
 _SEND_TIMEOUT = 5.0
 
+# How long `events_websocket`'s own loop waits for a client message before
+# sending a keepalive ping. A named constant (not a bare `30` inline) so
+# tests can bound it down instead of actually waiting 30s.
+_RECEIVE_POLL_INTERVAL = 30.0
+
 
 def _register_client(ws: WebSocket, user_info: dict | None) -> ConnectedClient:
     """Register a new client connection."""
@@ -326,7 +331,9 @@ async def events_websocket(websocket: WebSocket):
         # Keep connection alive and listen for pings
         while True:
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                data = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=_RECEIVE_POLL_INTERVAL
+                )
 
                 # Handle ping/pong
                 if data == "ping":

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib
 import json
 import logging
 from dataclasses import asdict
@@ -1438,3 +1439,542 @@ async def test_listen_on_teardown_is_bounded_when_remove_listener_hangs(monkeypa
     elapsed = loop.time() - start
 
     assert elapsed < 2.0, f"_listen_on() took {elapsed}s — the teardown timeout was not applied"
+
+
+# ── #804 round 6 remainder: finding A — the plan's central invariant ───────
+#
+# "Deliver locally first, unconditionally, so a relay failure can never
+# silence a browser on the emitting pod" is the entire reason publish-then-
+# deliver was rejected when this design was chosen — and nothing pinned the
+# ORDER before these three tests. Local delivery still happening (which
+# every OTHER test already checks) is not the same claim as local delivery
+# happening FIRST.
+
+
+async def test_broadcast_event_delivers_locally_before_publishing(monkeypatch) -> None:
+    """MUTATION: swap the two lines in `broadcast_event` (publish before
+    `_deliver_local_broadcast`) ⇒ this fails — `order` would record
+    `["publish", "deliver"]` instead of `["deliver", "publish"]`.
+    """
+    order: list[str] = []
+
+    async def fake_deliver(_event_type: str, _payload: dict) -> None:
+        order.append("deliver")
+
+    async def fake_publish(_kind: str, _data: dict) -> None:
+        order.append("publish")
+
+    monkeypatch.setattr(events, "_deliver_local_broadcast", fake_deliver)
+    monkeypatch.setattr(relay, "publish", fake_publish)
+
+    await events.broadcast_event("task:test", {"x": 1})
+
+    assert order == ["deliver", "publish"]
+
+
+async def test_send_to_user_delivers_locally_before_publishing(monkeypatch) -> None:
+    """MUTATION: swap the two lines in `send_to_user` ⇒ this fails, same
+    reasoning as the broadcast case above."""
+    order: list[str] = []
+
+    async def fake_deliver(_user_id: str, _event_type: str, _payload: dict) -> None:
+        order.append("deliver")
+
+    async def fake_publish(_kind: str, _data: dict) -> None:
+        order.append("publish")
+
+    monkeypatch.setattr(events, "_deliver_local_to_user", fake_deliver)
+    monkeypatch.setattr(relay, "publish", fake_publish)
+
+    await events.send_to_user("user-a", "task:test", {"x": 1})
+
+    assert order == ["deliver", "publish"]
+
+
+async def test_send_to_org_delivers_locally_before_publishing(monkeypatch) -> None:
+    """MUTATION: swap the two lines in `send_to_org` ⇒ this fails, same
+    reasoning as the broadcast case above."""
+    order: list[str] = []
+
+    async def fake_deliver(_org_id: str, _event_type: str, _payload: dict) -> None:
+        order.append("deliver")
+
+    async def fake_publish(_kind: str, _data: dict) -> None:
+        order.append("publish")
+
+    monkeypatch.setattr(events, "_deliver_local_to_org", fake_deliver)
+    monkeypatch.setattr(relay, "publish", fake_publish)
+
+    await events.send_to_org("org-a", "task:test", {"x": 1})
+
+    assert order == ["deliver", "publish"]
+
+
+# ── finding B: the keepalive is the other half of eviction ─────────────────
+
+
+class _KeepaliveWedgedWebSocket:
+    """Models a client that reaches `events_websocket`'s OWN keepalive path
+    (not the `_deliver_local_*` delivery path): its `receive_text` always
+    times out (so the endpoint falls into the ping branch), and its
+    `send_text` (the ping itself) never returns."""
+
+    async def accept(self) -> None:
+        pass
+
+    async def receive_text(self) -> str:
+        await asyncio.sleep(3600)
+        return ""  # pragma: no cover — never reached
+
+    async def send_text(self, _message: str) -> None:
+        await asyncio.sleep(3600)
+
+
+async def test_keepalive_ping_is_bounded_on_a_wedged_socket(monkeypatch) -> None:
+    """MUTATION: remove the `asyncio.wait_for(websocket.send_text(...),
+    timeout=_SEND_TIMEOUT)` wrap around the keepalive ping (call
+    `websocket.send_text(...)` bare) ⇒ this fails — `events_websocket` would
+    never return (bounded here by this test's own outer timeout, not a real
+    hang), staying parked on the wedged ping forever instead of reaching
+    `finally: _unregister_client`.
+    """
+    monkeypatch.setattr(events, "_RECEIVE_POLL_INTERVAL", 0.05)
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
+    monkeypatch.setattr(events, "authenticate_websocket", AsyncMock(return_value=None))
+
+    ws = _KeepaliveWedgedWebSocket()
+    try:
+        await asyncio.wait_for(events.events_websocket(ws), timeout=5.0)
+    finally:
+        events._unregister_client(ws)
+
+
+async def test_evict_clients_close_is_bounded(monkeypatch) -> None:
+    """#804 round 6 finding B: `_evict_client`'s `await ws.close()` usually
+    runs on a socket that just raised from `send_text`, but a half-open peer
+    can hang `close()` too — and it runs SEQUENTIALLY, after `gather`, once
+    per evicted client, so one hung `close()` would stall eviction of every
+    OTHER client behind it in that list.
+
+    MUTATION: remove the `asyncio.wait_for(ws.close(), timeout=_SEND_TIMEOUT)`
+    wrap in `_evict_client` (call `ws.close()` bare) ⇒ this fails — bounded
+    here by this test's own outer timeout, not a real hang.
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
+
+    class _HangingCloseWebSocket:
+        async def close(self) -> None:
+            await asyncio.sleep(3600)
+
+    ws = _HangingCloseWebSocket()
+    await asyncio.wait_for(events._evict_client(ws), timeout=5.0)
+
+
+# ── finding C: publish-pool teardown is untested and leaks ─────────────────
+
+
+async def test_stop_listener_closes_the_publish_pool(monkeypatch) -> None:
+    """#804 round 6 finding C: every existing shutdown test sets
+    `_publish_pool = None` before calling `stop_listener`, so nothing
+    exercises the close path at all — deleting `stop_listener`'s whole
+    `_publish_pool` close/terminate block left every test green while
+    leaking up to 2 backend connections per stop.
+
+    MUTATION: delete the `if _publish_pool is not None: ...` block from
+    `stop_listener` ⇒ this fails — `pool.closed` stays `False` and
+    `relay._publish_pool` stays set.
+    """
+    pool = _FakePool()
+    monkeypatch.setattr(relay, "_publish_pool", pool)
+    monkeypatch.setattr(relay, "_listener_task", None)
+    monkeypatch.setattr(relay, "_drain_task", None)
+    monkeypatch.setattr(relay, "_outbox", None)
+    monkeypatch.setattr(relay, "_connection", None)
+
+    await relay.stop_listener()
+
+    assert pool.closed
+    assert relay._publish_pool is None
+
+
+async def test_stop_listener_terminates_the_pool_if_close_hangs(monkeypatch) -> None:
+    """MUTATION: remove the `except Exception: _publish_pool.terminate()`
+    fallback in `stop_listener` (let a failing/timed-out `close()` just be
+    swallowed without a hard fallback) ⇒ this fails — `pool.terminated`
+    stays `False` and the pool is never actually torn down.
+    """
+    monkeypatch.setattr(relay, "_STOP_TIMEOUT", 0.05)
+
+    class _HangingClosePool(_FakePool):
+        async def close(self) -> None:
+            await asyncio.sleep(3600)
+
+    pool = _HangingClosePool()
+    monkeypatch.setattr(relay, "_publish_pool", pool)
+    monkeypatch.setattr(relay, "_listener_task", None)
+    monkeypatch.setattr(relay, "_drain_task", None)
+    monkeypatch.setattr(relay, "_outbox", None)
+    monkeypatch.setattr(relay, "_connection", None)
+
+    await asyncio.wait_for(relay.stop_listener(), timeout=5.0)
+
+    assert pool.terminated
+
+
+# ── finding D: dispatch()'s own failure warning was not deduped ────────────
+
+
+async def test_dispatch_failure_warning_is_deduped_per_kind(monkeypatch, caplog) -> None:
+    """#804 round 6 finding D: the third instance of this class after the
+    drain warning and the unknown-phase warning. Concrete scenario: a
+    rolling deploy adds a field to `TaskProgress`, so `TaskProgress(**data)`
+    raises on the older pod for EVERY tick until the deploy finishes.
+
+    MUTATION: remove the `_warned_dispatch_failure` dedupe in `dispatch()`
+    (warn on every failure) ⇒ this fails — three failing dispatches of the
+    SAME kind would log three warnings instead of one.
+    """
+    _dispatch._warned_dispatch_failure.clear()
+
+    async def _boom(_data: dict) -> None:
+        raise RuntimeError("boom: bad payload")
+
+    monkeypatch.setitem(_dispatch._HANDLERS, "task:log", _boom)
+
+    with caplog.at_level(logging.WARNING, logger=_dispatch.__name__):
+        for _ in range(3):
+            await _dispatch.dispatch("task:log", {"task_id": "t1"})  # must not raise
+
+    matches = [r for r in caplog.records if "local delivery failed" in r.getMessage()]
+    assert len(matches) == 1
+
+
+# ── finding E: the re-entry guard was checked before an await ──────────────
+
+
+async def test_start_listener_concurrent_calls_only_start_once(monkeypatch) -> None:
+    """#804 round 6 finding E: `start_listener`'s guard checked
+    `_listener_task is not None` and then awaited `create_pool` — two
+    concurrent calls could both pass the check before either reached that
+    await (asyncio only switches tasks AT an await point), each creating its
+    own pool/listener, with `stop_listener` only ever closing one of them.
+
+    MUTATION: move `_listener_task = asyncio.create_task(...)` back to AFTER
+    `await asyncpg.create_pool(...)` ⇒ this fails — `create_pool` gets
+    awaited (and `pool_mock` called) twice, once per concurrent call,
+    instead of once — both calls' synchronous prefixes (URL resolution, the
+    guard check) run back-to-back before either yields, so both pass the
+    guard while it's still unset.
+    """
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", AsyncMock(return_value=_FakeConnection([])))
+
+    call_count = {"n": 0}
+
+    async def _create_pool(*_args: Any, **_kwargs: Any) -> Any:
+        call_count["n"] += 1
+        # A REAL yield point, unlike a bare `AsyncMock` (which returns
+        # without ever suspending, so it can't reproduce a scheduling race
+        # at all): this is what actually lets the SECOND concurrent call run
+        # its own synchronous prefix while the FIRST is suspended here,
+        # exactly like a real `create_pool` awaiting the network would.
+        await asyncio.sleep(0)
+        return _FakePool()
+
+    monkeypatch.setattr(relay.asyncpg, "create_pool", _create_pool)
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await asyncio.gather(relay.start_listener(deliver), relay.start_listener(deliver))
+
+    assert call_count["n"] == 1
+
+
+# ── finding F: the outbox drop policy was unpinned (which items survive) ───
+
+
+async def test_publish_drops_and_warns_once_when_outbox_is_full_and_keeps_freshest(
+    monkeypatch, caplog
+) -> None:
+    """Supersedes the count-only version of this test (#804 round 6 finding
+    F): asserting only the warning count and that nothing raised passes
+    identically for drop-NEWEST, leaving the drop-OLDEST policy unpinned —
+    the exact inverse of the inbound-queue hole already fixed.
+
+    MUTATION: revert `_put_outbox_dropping_oldest` to drop-newest (reject a
+    new arrival outright once the queue is full, instead of evicting the
+    head to admit it) ⇒ this fails — the outbox would retain `x0`-`x2`
+    instead of the freshest `x7`-`x9`.
+    """
+    monkeypatch.setattr(relay, "_QUEUE_MAXSIZE", 3)
+    drain_conn = _HangingExecuteConnection()
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", _connect_sequence(_FakeConnection([])))
+    monkeypatch.setattr(relay.asyncpg, "create_pool", AsyncMock(return_value=_FakePool(drain_conn)))
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await relay.start_listener(deliver)
+
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        for i in range(10):
+            await relay.publish("task:log", {"task_id": "t1", "content": f"x{i}"})  # must not raise
+
+    matches = [r for r in caplog.records if "outbox full" in r.getMessage()]
+    assert len(matches) == 1
+
+    remaining = [json.loads(item)["data"]["content"] for item in list(relay._outbox._queue)]
+    assert remaining == ["x7", "x8", "x9"], (
+        f"expected the 3 FRESHEST items to survive (drop-oldest), got {remaining}"
+    )
+
+
+# ── finding G: four more mutations that survived ────────────────────────────
+
+
+async def test_encode_does_not_mutate_the_callers_data_dict() -> None:
+    """MUTATION: remove `copy.deepcopy(payload)` in `_encode` (truncate the
+    caller's own dict in place instead of a copy) ⇒ this fails — the
+    caller's `data` dict would come back mutated (`content` shrunk), which
+    matters because callers (e.g. `agent_service._emit_log`) hand the SAME
+    object to local delivery immediately before this runs.
+    """
+    original_content = "x" * 20_000
+    data = {"task_id": "t1", "content": original_content}
+    data_snapshot = {"task_id": "t1", "content": original_content}
+
+    encoded = relay._encode("task:log", data)
+
+    assert encoded is not None
+    assert data == data_snapshot, "caller's data dict was mutated by _encode"
+
+
+class _SignalingConnection(_MinimalConnection):
+    """A healthy connection that sets an `asyncio.Event` the instant its
+    `execute` lands — lets a test await a `Future`-based signal instead of
+    polling with `asyncio.sleep` (#804 round 6 finding G: several of these
+    tests spy on `asyncio.sleep` itself, so polling with it would corrupt
+    the very thing being measured)."""
+
+    def __init__(self, event: asyncio.Event) -> None:
+        super().__init__()
+        self.calls: list[str] = []
+        self._event = event
+
+    async def execute(self, _sql: str, _channel: str, payload: str) -> None:
+        self.calls.append(payload)
+        self._event.set()
+
+
+async def test_drain_retry_backoff_escalates_with_each_attempt(monkeypatch) -> None:
+    """MUTATION: remove `attempt += 1` from `_drain_outbox`'s retry loop ⇒
+    this fails — every retry would compute the same (or a non-escalating)
+    backoff index instead of walking `_DRAIN_RETRY_BACKOFF` forward,
+    hot-looping the retry at a fixed delay instead of backing off further
+    each time.
+    """
+    monkeypatch.setattr(relay, "_DRAIN_RETRY_BACKOFF", (1, 2, 5))
+    delays: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def _spy_sleep(seconds: float) -> None:
+        delays.append(seconds)
+        await real_sleep(0)
+
+    monkeypatch.setattr(relay.asyncio, "sleep", _spy_sleep)
+
+    landed = asyncio.Event()
+    dying = _DropsOnConnectionConnection()
+    healthy = _SignalingConnection(landed)
+    pool = _FakePool(dying, dying, healthy)
+    outbox: asyncio.Queue[str] = asyncio.Queue()
+    outbox.put_nowait(relay._encode("task:log", {"task_id": "t1", "content": "x"}))
+
+    task = asyncio.create_task(relay._drain_outbox(pool, outbox))
+    try:
+        await asyncio.wait_for(landed.wait(), timeout=3.0)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert delays == [1, 2]
+
+
+async def test_listener_reconnect_backoff_escalates_with_each_attempt(monkeypatch) -> None:
+    """MUTATION: remove `attempt += 1` from `_run_listener`'s reconnect loop
+    ⇒ this fails — every reconnect attempt would sleep
+    `_RECONNECT_BACKOFF[0]` forever instead of escalating.
+    """
+    monkeypatch.setattr(relay, "_RECONNECT_BACKOFF", (1, 2, 5))
+    delays: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def _spy_sleep(seconds: float) -> None:
+        delays.append(seconds)
+        await real_sleep(0)
+
+    monkeypatch.setattr(relay.asyncio, "sleep", _spy_sleep)
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+
+    connecting = asyncio.Event()
+    attempts = {"n": 0}
+
+    async def _flaky_connect(_url: str) -> Any:
+        attempts["n"] += 1
+        if attempts["n"] <= 2:
+            raise RuntimeError("boom: connect failed")
+        connecting.set()
+        return _FakeConnection([])
+
+    monkeypatch.setattr(relay.asyncpg, "connect", _flaky_connect)
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    task = asyncio.create_task(relay._run_listener("fake://url", deliver))
+    try:
+        await asyncio.wait_for(connecting.wait(), timeout=3.0)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert delays == [1, 2]
+
+
+async def test_listen_on_exits_when_only_is_closed_is_true(monkeypatch) -> None:
+    """#804 round 6 finding G: `_listen_on`'s second break condition is
+    `if item is None or conn.is_closed(): break` — a defensive
+    belt-and-suspenders check for the connection dying WITHOUT the
+    termination sentinel (`None`) ever landing, even though a real
+    notification (not `None`) is sitting right there in the queue.
+
+    MUTATION: narrow that condition to `if item is None: break` (drop
+    `or conn.is_closed()`) ⇒ this fails — with a REAL, non-`None` item
+    already queued and the connection ALREADY marked closed before the loop
+    even starts, `deliver` would be called with the stale item instead of
+    the loop exiting without ever calling it.
+    """
+    # Bounds the OTHER break condition's own poll (the `conn.is_closed()`
+    # check inside the `TimeoutError` branch) so that, under the mutation,
+    # this test still resolves quickly via that path instead of needing the
+    # full `_POLL_INTERVAL` — it must still resolve FASTER under real code,
+    # via the break this test targets, before ever reaching a timeout.
+    monkeypatch.setattr(relay, "_POLL_INTERVAL", 0.2)
+    notifications = [
+        ("pfactory_ws", json.dumps({"origin": "other-pod:x", "kind": "task:log", "data": {}}))
+    ]
+    conn = _FakeConnection(notifications)
+    conn.closed = True  # already closed BEFORE `_listen_on` even starts
+
+    delivered: list[Any] = []
+
+    async def deliver(kind: str, data: dict) -> None:
+        delivered.append((kind, data))
+
+    await asyncio.wait_for(relay._listen_on(conn, deliver), timeout=3.0)
+
+    assert delivered == [], "deliver() ran on an item queued after the connection was closed"
+
+
+def test_origin_nonce_makes_two_instances_in_one_process_distinct() -> None:
+    """MUTATION: drop the `uuid4` nonce from `_ORIGIN` (HOSTNAME alone) ⇒
+    this fails — two module "instances" sharing one HOSTNAME (simulated here
+    via two reloads in the same process, since a real second instance is a
+    second process) would produce IDENTICAL origins, which is exactly the
+    collision `_ORIGIN`'s own docstring says the nonce exists to prevent.
+    """
+    first = importlib.reload(relay)._ORIGIN
+    second = importlib.reload(relay)._ORIGIN
+
+    assert first != second
+
+
+# ── finding H: `_deliver_local_to_user`/`_deliver_local_to_org` had no tests ─
+
+
+async def test_deliver_local_to_user_reaches_only_the_target_user() -> None:
+    """#804 round 6 finding H: `_deliver_local_to_user` has no test anywhere
+    in the repo despite being rewritten across rounds 4-6.
+
+    MUTATION: change the filter from `client.user_id == user_id` to always
+    `True` (deliver to everyone) ⇒ this fails — `other.sent` would no longer
+    be empty.
+    """
+    target = _FakeWebSocket()
+    other = _FakeWebSocket()
+    events._register_client(target, {"id": "user-a"})
+    events._register_client(other, {"id": "user-b"})
+    try:
+        await events._deliver_local_to_user("user-a", "task:test", {"x": 1})
+
+        assert target.sent == [json.dumps({"type": "task:test", "payload": {"x": 1}})]
+        assert other.sent == []
+    finally:
+        events._unregister_client(target)
+        events._unregister_client(other)
+
+
+async def test_deliver_local_to_org_reaches_members_and_legacy_not_other_orgs() -> None:
+    """#804 round 6 finding H: pins the org path's three-way split — an org
+    member receives, a member of a DIFFERENT org does not, and a legacy
+    (no `user_id`) client — the `client.user_id is None` fallback — still
+    receives despite not being a member of anything.
+
+    MUTATION: drop the `client.user_id is None or` half of the filter
+    (members only) ⇒ this fails — `legacy.sent` would come back empty.
+    """
+    member = _FakeWebSocket()
+    other_org_member = _FakeWebSocket()
+    legacy = _FakeWebSocket()
+    member_client = events._register_client(member, {"id": "user-a"})
+    member_client.org_ids = {"org-a"}
+    other_client = events._register_client(other_org_member, {"id": "user-b"})
+    other_client.org_ids = {"org-b"}
+    events._register_client(legacy, None)
+    try:
+        await events._deliver_local_to_org("org-a", "task:test", {"x": 1})
+
+        expected = json.dumps({"type": "task:test", "payload": {"x": 1}})
+        assert member.sent == [expected]
+        assert other_org_member.sent == []
+        assert legacy.sent == [expected]
+    finally:
+        for ws in (member, other_org_member, legacy):
+            events._unregister_client(ws)
+
+
+async def test_deliver_local_to_user_timeout_skips_not_evicts(monkeypatch) -> None:
+    """The timeout-skip-not-evict policy (finding 3) must hold on the
+    to-user path too, not just broadcast — nothing exercised that before."""
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
+    wedged = _WedgedWebSocket()
+    events._register_client(wedged, {"id": "user-a"})
+    try:
+        await asyncio.wait_for(
+            events._deliver_local_to_user("user-a", "task:test", {"x": 1}), timeout=5.0
+        )
+
+        assert wedged in events._clients, "a timeout must skip, not evict"
+    finally:
+        events._unregister_client(wedged)
+
+
+async def test_deliver_local_to_org_timeout_skips_not_evicts(monkeypatch) -> None:
+    """The timeout-skip-not-evict policy (finding 3) must hold on the
+    to-org path too, not just broadcast — nothing exercised that before."""
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
+    wedged = _WedgedWebSocket()
+    client = events._register_client(wedged, {"id": "user-a"})
+    client.org_ids = {"org-a"}
+    try:
+        await asyncio.wait_for(
+            events._deliver_local_to_org("org-a", "task:test", {"x": 1}), timeout=5.0
+        )
+
+        assert wedged in events._clients, "a timeout must skip, not evict"
+    finally:
+        events._unregister_client(wedged)
