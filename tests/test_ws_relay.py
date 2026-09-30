@@ -457,6 +457,28 @@ async def test_publish_drops_and_warns_once_when_outbox_is_full(monkeypatch, cap
     assert len(matches) == 1
 
 
+async def test_outbox_drops_oldest_so_the_freshest_notification_survives() -> None:
+    """#804 round 6 finding 1: the outbox now matches the inbound queue's
+    drop-OLDEST overflow policy — previously it dropped-newest, which meant a
+    sustained outage retained the 2000 *oldest* queued events and silently
+    discarded every new one, so a pod recovering from the outage flushed
+    stale log lines while having permanently lost the most recent ones.
+
+    MUTATION: revert `_put_outbox_dropping_oldest` to drop-NEWEST (reject a
+    new arrival outright once the queue is full, rather than evicting the
+    head to admit it) ⇒ this fails — the queue would retain items 0-2
+    instead of the freshest 7-9.
+    """
+    outbox: asyncio.Queue[str] = asyncio.Queue(maxsize=3)
+    for i in range(10):
+        relay._put_outbox_dropping_oldest(outbox, str(i))
+
+    remaining = []
+    while not outbox.empty():
+        remaining.append(outbox.get_nowait())
+    assert remaining == ["7", "8", "9"]
+
+
 class _DropsOnConnectionConnection(_MinimalConnection):
     """Every ``execute`` raises — models one failed publish attempt.
 
@@ -467,6 +489,99 @@ class _DropsOnConnectionConnection(_MinimalConnection):
 
     async def execute(self, *_args: Any) -> None:
         raise RuntimeError("boom: connection dropped")
+
+
+class _AlwaysDropsConnection(_MinimalConnection):
+    """Every ``execute`` raises — models an item that fails PERMANENTLY (a
+    real thing: `CharacterNotInRepertoireError`, or "cannot execute NOTIFY
+    during recovery" on a standby), as opposed to `_DropsOnConnectionConnection`
+    used elsewhere for a transient, eventually-recovering failure."""
+
+    async def execute(self, *_args: Any) -> None:
+        raise RuntimeError("boom: permanently poisoned item")
+
+
+async def test_drain_gives_up_after_max_attempts_so_the_next_item_is_not_starved(
+    monkeypatch,
+) -> None:
+    """#804 round 6 finding 1: round 5's retry-forever fixed round 4's
+    silent per-item drop but introduced unbounded head-of-line blocking — a
+    reproduction confirmed 5 healthy items queued behind 1 permanently
+    failing one, 0 published after 1s. The fix is a middle ground: retry up
+    to `_DRAIN_MAX_ATTEMPTS` times, then give up on THAT item and move on.
+
+    MUTATION: remove the `if attempt >= _DRAIN_MAX_ATTEMPTS: ... break`
+    give-up path (retry forever again) ⇒ this fails — the second, healthy
+    item is never drained because the first, permanently-poisoned one is
+    never given up on.
+    """
+    monkeypatch.setattr(relay, "_DRAIN_RETRY_BACKOFF", (0,))  # keep the test fast
+    poisoned = _AlwaysDropsConnection()
+    healthy = _FakeConnection([])
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", _connect_sequence(_FakeConnection([])))
+    monkeypatch.setattr(
+        relay.asyncpg,
+        "create_pool",
+        # `_DRAIN_MAX_ATTEMPTS` (3) failing acquires for the FIRST item, then
+        # the second item's own acquire lands on the healthy connection.
+        AsyncMock(return_value=_FakePool(poisoned, poisoned, poisoned, healthy)),
+    )
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await relay.start_listener(deliver)
+
+    await relay.publish("task:log", {"task_id": "t1", "content": "permanently poisoned"})
+    await relay.publish("task:log", {"task_id": "t1", "content": "must not be starved"})
+    await _wait_until(lambda: len(healthy.calls) >= 1, deadline_seconds=3.0)
+
+    assert len(healthy.calls) == 1
+    assert "must not be starved" in healthy.calls[0]
+
+
+async def test_drain_drop_warning_is_deduped_and_counted(monkeypatch, caplog) -> None:
+    """#804 round 6 finding 1: the give-up-and-drop path logs once per
+    outage (deduped, like its siblings) but tracks a running drop count so
+    the log line still conveys the outage's magnitude.
+
+    MUTATION: remove the `_drain_drop_warned` dedupe (warn on every dropped
+    item) ⇒ this fails — two permanently-poisoned items would each log their
+    own "dropping outbox item" warning instead of just the first.
+    """
+    monkeypatch.setattr(relay, "_DRAIN_RETRY_BACKOFF", (0,))
+    relay._drain_drop_warned = False
+    starting_count = relay._drain_dropped_count
+    poisoned_a = _AlwaysDropsConnection()
+    poisoned_b = _AlwaysDropsConnection()
+    healthy = _FakeConnection([])
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", _connect_sequence(_FakeConnection([])))
+    monkeypatch.setattr(
+        relay.asyncpg,
+        "create_pool",
+        AsyncMock(
+            return_value=_FakePool(
+                poisoned_a, poisoned_a, poisoned_a, poisoned_b, poisoned_b, poisoned_b, healthy
+            )
+        ),
+    )
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await relay.start_listener(deliver)
+
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        await relay.publish("task:log", {"task_id": "t1", "content": "first poisoned item"})
+        await relay.publish("task:log", {"task_id": "t1", "content": "second poisoned item"})
+        await relay.publish("task:log", {"task_id": "t1", "content": "third, healthy item"})
+        await _wait_until(lambda: len(healthy.calls) >= 1, deadline_seconds=3.0)
+
+    matches = [r for r in caplog.records if "dropping outbox item" in r.getMessage()]
+    assert len(matches) == 1
+    assert relay._drain_dropped_count == starting_count + 2
 
 
 async def test_drain_retries_a_failed_item_in_place_until_it_succeeds(monkeypatch) -> None:
@@ -900,8 +1015,14 @@ class _WedgedWebSocket:
     reading, indistinguishable at the socket level from one that's merely
     slow."""
 
+    def __init__(self) -> None:
+        self.closed = False
+
     async def send_text(self, _message: str) -> None:
         await asyncio.sleep(3600)
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 class _DeadWebSocket:
@@ -1011,27 +1132,68 @@ async def test_slow_clients_are_sent_to_concurrently_not_serially(monkeypatch) -
 
 
 async def test_slow_client_skip_warning_is_deduped(monkeypatch, caplog) -> None:
-    """MUTATION: remove the `_slow_client_warned` dedupe in `_send_or_skip`
-    (warn on every timeout) ⇒ this fails — three timed-out sends would log
-    three warnings instead of one; an invisible skip is exactly what made
-    this bug hard to see in the first place, but a flood of identical
-    warnings is its own problem once one slow client sits there for a while.
+    """#804 finding 3 (test previously measured nothing): registers a
+    HEALTHY peer alongside the wedged client so the per-client reset path is
+    actually exercised — with only one client registered, the reset branch
+    (`_slow_client_state.pop(ws, None)` on a SUCCESSFUL send) is unreachable,
+    and a module-level (rather than per-client) dedupe flag would pass this
+    test even though it doesn't dedupe under real concurrent load (see the
+    MUTATION below). Uses 2 calls, under `_MAX_CONSECUTIVE_TIMEOUTS` (3), so
+    this test is about DEDUPE, not the separate eviction behavior.
+
+    MUTATION: revert `_send_or_skip`'s per-client `_SlowClientState.warned`
+    to a single module-level `_slow_client_warned` flag, reset on ANY
+    client's successful send (round 5's design) ⇒ this fails — under
+    `gather`, the healthy peer's near-instant success resets the shared flag
+    before the wedged client's own timeout (5s later) gets a chance to check
+    it, so EVERY call re-warns: 2 calls, 2 warnings, not 1.
     """
     monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
-    monkeypatch.setattr(events, "_slow_client_warned", False)
     wedged = _WedgedWebSocket()
+    healthy = _FakeWebSocket()
     events.active_connections.add(wedged)
+    events.active_connections.add(healthy)
     try:
         with caplog.at_level(logging.WARNING, logger=events.__name__):
-            for _ in range(3):
+            for _ in range(2):
                 await asyncio.wait_for(
                     events._deliver_local_broadcast("task:test", {"x": 1}), timeout=5.0
                 )
+
+        matches = [r for r in caplog.records if "send timed out" in r.getMessage()]
+        assert len(matches) == 1
+        assert wedged in events.active_connections, "under the threshold — must still be registered"
     finally:
         events.active_connections.discard(wedged)
+        events.active_connections.discard(healthy)
 
-    matches = [r for r in caplog.records if "send timed out" in r.getMessage()]
-    assert len(matches) == 1
+
+async def test_a_client_stuck_timing_out_is_evicted_after_max_consecutive_timeouts(
+    monkeypatch,
+) -> None:
+    """#804 finding 4: a client that NEVER drains — `_MAX_CONSECUTIVE_TIMEOUTS`
+    timeouts in a row with no successful send in between — is reclassified
+    as dead and evicted (closed + unregistered), not skipped forever.
+
+    MUTATION: remove the `if state.consecutive_timeouts >=
+    _MAX_CONSECUTIVE_TIMEOUTS: disconnected.append(ws); return` branch (skip
+    unconditionally on every timeout, as finding 3 alone would) ⇒ this fails
+    — the client would still be registered, and its socket still open, after
+    `_MAX_CONSECUTIVE_TIMEOUTS` consecutive timeouts.
+    """
+    monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
+    wedged = _WedgedWebSocket()
+    events.active_connections.add(wedged)
+    try:
+        for _ in range(events._MAX_CONSECUTIVE_TIMEOUTS):
+            await asyncio.wait_for(
+                events._deliver_local_broadcast("task:test", {"x": 1}), timeout=5.0
+            )
+
+        assert wedged not in events.active_connections
+        assert wedged.closed, "socket was unregistered but never closed — a phantom connection"
+    finally:
+        events.active_connections.discard(wedged)
 
 
 async def test_inbound_queue_does_not_grow_past_the_cap_under_a_flood(monkeypatch) -> None:
@@ -1217,16 +1379,18 @@ async def test_start_listener_ignores_a_second_call_instead_of_leaking(monkeypat
 
 async def test_drain_failure_warning_is_deduped(monkeypatch, caplog) -> None:
     """MUTATION: remove the `_drain_failure_warned` dedupe in `_drain_outbox`
-    (warn on every failed attempt) ⇒ this fails — three failed retries of
-    the SAME item before it finally succeeds would log three warnings
-    instead of one — a traceback burst at exactly the moment the pod is
-    already unhealthy.
+    (warn on every failed attempt) ⇒ this fails — two failed retries of
+    the SAME item (under `_DRAIN_MAX_ATTEMPTS`) before it finally succeeds
+    would log two warnings instead of one — a traceback burst at exactly the
+    moment the pod is already unhealthy.
     """
     monkeypatch.setattr(relay, "_DRAIN_RETRY_BACKOFF", (0,))  # keep the test fast
     relay._drain_failure_warned = False
     dying = _DropsOnConnectionConnection()
     healthy = _FakeConnection([])
-    pool = _FakePool(dying, dying, dying, healthy)
+    # Two failures (under the 3-attempt cap, so still retried) then success —
+    # never hits the give-up path this test isn't about.
+    pool = _FakePool(dying, dying, healthy)
     outbox: asyncio.Queue[str] = asyncio.Queue()
     outbox.put_nowait(relay._encode("task:log", {"task_id": "t1", "content": "x"}))
 

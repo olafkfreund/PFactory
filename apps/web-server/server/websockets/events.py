@@ -76,6 +76,7 @@ def _unregister_client(ws: WebSocket) -> None:
     """Remove a client connection."""
     _clients.pop(ws, None)
     active_connections.discard(ws)
+    _slow_client_state.pop(ws, None)
 
 
 async def _evict_client(ws: WebSocket) -> None:
@@ -94,45 +95,85 @@ async def _evict_client(ws: WebSocket) -> None:
     reconnect logic kicks in instead of talking to a phantom socket forever.
     """
     with contextlib.suppress(Exception):
-        await ws.close()
+        # Bounded (#804 round 6 finding B): this usually runs on a socket
+        # that JUST raised from `send_text`, but a half-open peer can hang
+        # `close()` too, and it runs SEQUENTIALLY, after `gather`, for every
+        # evicted client in the batch — one hung `close()` would otherwise
+        # stall eviction of every other client behind it in that list.
+        # `asyncio.wait_for`'s own `TimeoutError` is an `Exception` subclass,
+        # already caught by this `suppress`.
+        await asyncio.wait_for(ws.close(), timeout=_SEND_TIMEOUT)
     _unregister_client(ws)
 
 
-# Dedupes the slow-client-skip log the same way relay.py dedupes its own
-# warnings — a sustained slow client must not become a log flood, but an
-# invisible skip is exactly what made this bug hard to see in the first
-# place (#804 finding 3), so it still logs once per outage.
-_slow_client_warned = False
+@dataclass
+class _SlowClientState:
+    """Per-client timeout tracking (#804 finding 3/4).
+
+    KEYED BY WEBSOCKET, not a single module-level flag: under `gather`, a
+    healthy client's SUCCESS and a wedged client's TIMEOUT land in the same
+    broadcast call, and a shared flag conflates them — a reproduction
+    confirmed 1 wedged + 1 healthy client, 3 broadcasts, logged 3 "send timed
+    out" warnings instead of the claimed 1, because the healthy client's
+    success reset the shared flag before the wedged one's own warning check
+    ran. Per-client state makes "deduped" and "reset" both mean what they say
+    for THAT client specifically.
+    """
+
+    consecutive_timeouts: int = 0
+    warned: bool = False
+
+
+# Cleaned up in `_unregister_client` — a client that's gone shouldn't leak an
+# entry here forever.
+_slow_client_state: dict[WebSocket, _SlowClientState] = {}
+
+# How many CONSECUTIVE timeouts (no successful send in between) before a
+# "slow" client is reclassified as dead and evicted (#804 finding 4).
+# `_send_or_skip`'s skip-not-evict policy assumes a TRANSIENT stall that
+# self-heals on the next event; a client that never drains instead sits
+# registered forever, receiving nothing, while taxing every subsequent
+# broadcast with a full `_SEND_TIMEOUT` of `gather` latency. 3, matching
+# `relay.py`'s `_DRAIN_MAX_ATTEMPTS` reasoning: 3 consecutive 5s stalls with
+# zero successful sends in between (15s of unbroken silence from a client
+# that's supposedly still connected) is a dead client by any reasonable
+# reading, not a bad TCP window.
+_MAX_CONSECUTIVE_TIMEOUTS = 3
 
 
 async def _send_or_skip(ws: WebSocket, message: str, disconnected: list[WebSocket]) -> None:
     """Send one message to one client; append to ``disconnected`` only on a
-    genuine failure.
+    genuine failure OR a client stuck timing out for `_MAX_CONSECUTIVE_TIMEOUTS`
+    sends in a row.
 
-    #804 finding 3, final call: a `TimeoutError` (a slow-but-alive client —
-    a full TCP window on a mobile link during a `task-logs:stream` burst,
-    not a dead peer) is deliberately NOT treated as a disconnect. Evicting on
-    a mere timeout converts "slow" into "disconnected", and under the exact
-    burst load that caused the timeout in the first place, that produces
-    flapping: burst -> close -> reconnect -> burst -> close. Skipping loses
-    one message and self-heals on the next event, which is what happened
-    before this PR. Any OTHER exception (a genuinely dead socket) still goes
-    through `_evict_client` — the bug this file actually had was `except
-    Exception` treating a timeout identically to a dead socket; the fix is
-    to tell them apart, not to make both evict, and not to make neither.
+    #804 finding 3: a `TimeoutError` (a slow-but-alive client — a full TCP
+    window on a mobile link during a `task-logs:stream` burst, not a dead
+    peer) is deliberately NOT treated as an immediate disconnect. Evicting on
+    the FIRST timeout converts "slow" into "disconnected", and under the
+    exact burst load that caused the timeout in the first place, that
+    produces flapping: burst -> close -> reconnect -> burst -> close.
+    Skipping loses one message and self-heals on the next event for a
+    TRANSIENT stall. Finding 4: that reasoning stops holding for a client
+    that never drains at all — see `_MAX_CONSECUTIVE_TIMEOUTS`. Any genuine
+    send exception (not a timeout) still goes through `_evict_client`
+    immediately, unchanged.
     """
-    global _slow_client_warned  # noqa: PLW0603 — module-level dedupe state (#804)
     try:
         await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
     except TimeoutError:
-        if not _slow_client_warned:
-            _slow_client_warned = True
+        state = _slow_client_state.setdefault(ws, _SlowClientState())
+        state.consecutive_timeouts += 1
+        if state.consecutive_timeouts >= _MAX_CONSECUTIVE_TIMEOUTS:
+            disconnected.append(ws)
+            return
+        if not state.warned:
+            state.warned = True
             logger.warning("[events] client send timed out, skipping for this message")
         return
     except Exception:
         disconnected.append(ws)
         return
-    _slow_client_warned = False
+    _slow_client_state.pop(ws, None)
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +334,18 @@ async def events_websocket(websocket: WebSocket):
 
             except TimeoutError:
                 try:
-                    await websocket.send_text(json.dumps({"type": "ping"}))
+                    # Bounded (#804 round 6 finding B): a bare `send_text`
+                    # here blocks THIS task forever on a wedged socket, which
+                    # never reaches `finally: _unregister_client` — so even
+                    # with consecutive-timeout eviction on the DELIVERY path
+                    # (`_send_or_skip`), this endpoint's own task stays
+                    # parked until the OS eventually tears the connection
+                    # down, keeping the client "registered but unreachable"
+                    # far longer than the delivery path's own eviction would
+                    # suggest.
+                    await asyncio.wait_for(
+                        websocket.send_text(json.dumps({"type": "ping"})), timeout=_SEND_TIMEOUT
+                    )
                 except Exception:
                     break
 

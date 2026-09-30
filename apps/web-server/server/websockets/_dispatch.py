@@ -86,6 +86,18 @@ async def _dispatch_task_progress(data: dict[str, Any]) -> None:
 _warned_unknown: set[str] = set()
 _warned_unknown_phases: set[Any] = set()
 
+# Dedupes `dispatch()`'s own failure warning, per `kind` (#804 round 6
+# finding D — the third instance of this class after the drain warning and
+# the unknown-phase warning). Concrete scenario: a rolling deploy adds a
+# field to `TaskProgress`, so `TaskProgress(**data)` raises on the older pod
+# for EVERY tick until the deploy finishes — a full traceback per
+# notification would bury the log the same way the other two dedupes exist
+# to prevent. Keyed by `kind`, not a single flag: a failure streak for one
+# kind must not suppress a genuinely separate failure on another. Discarded
+# on the next SUCCESSFUL dispatch of that kind, so a LATER, separate failure
+# streak for the same kind still warns.
+_warned_dispatch_failure: set[str] = set()
+
 _HANDLERS: dict[str, _Handler] = {
     "ws:broadcast": _dispatch_broadcast,
     "ws:user": _dispatch_to_user,
@@ -113,4 +125,8 @@ async def dispatch(kind: str, data: dict[str, Any]) -> None:
     try:
         await handler(data)
     except Exception:  # noqa: BLE001 — one bad payload must not kill the listener loop (#804)
-        logger.warning("[relay] local delivery failed for kind=%s", kind, exc_info=True)
+        if kind not in _warned_dispatch_failure:
+            _warned_dispatch_failure.add(kind)
+            logger.warning("[relay] local delivery failed for kind=%s", kind, exc_info=True)
+        return
+    _warned_dispatch_failure.discard(kind)

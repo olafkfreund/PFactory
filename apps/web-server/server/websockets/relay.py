@@ -214,6 +214,33 @@ _outbox: asyncio.Queue[str] | None = None
 _outbox_full_warned = False
 
 
+def _put_outbox_dropping_oldest(outbox: asyncio.Queue[str], item: str) -> None:
+    """Enqueue, evicting the OLDEST entry first if the outbox is full.
+
+    #804 round 6 finding 1: matches the inbound queue's drop-OLDEST policy
+    (`_put_inbound_dropping_oldest`) — the value of a queued OUTBOUND
+    notification decays with age at least as strongly as an inbound one, and
+    the previous drop-NEWEST policy had it backwards: during a sustained
+    outage it retained the 2000 *oldest* queued events and silently
+    discarded every new one, so a pod recovering from the outage flushed
+    stale log lines while having permanently lost the most recent ones —
+    exactly the case a catching-up pod cares about least.
+    """
+    global _outbox_full_warned  # noqa: PLW0603 — module-level relay state (#804)
+
+    try:
+        outbox.put_nowait(item)
+    except asyncio.QueueFull:
+        with contextlib.suppress(asyncio.QueueEmpty):
+            outbox.get_nowait()
+        outbox.put_nowait(item)
+        if not _outbox_full_warned:
+            _outbox_full_warned = True
+            logger.warning("[relay] outbox full (%d), dropping oldest notification", _QUEUE_MAXSIZE)
+        return
+    _outbox_full_warned = False
+
+
 async def publish(kind: str, data: dict[str, Any]) -> None:
     """Encode and enqueue an event for other pods. No-op when the relay isn't
     started. Never blocks on Postgres and never raises.
@@ -237,10 +264,11 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
     started at all" (`_drain_task is None`, the check below). `is_connected()`
     above reports the LISTENER's connection specifically (#804 fix 7's
     concern was inbound delivery); the drain has its own, independent
-    connection pool since round 3/4 of review.
+    connection pool since round 3/4 of review. Two things can still lose a
+    queued item once it's in: the outbox filling up (drop-OLDEST, see
+    `_put_outbox_dropping_oldest`), or one item exhausting the drain's own
+    retry budget (see `_drain_outbox`) — both logged.
     """
-    global _outbox_full_warned  # noqa: PLW0603 — module-level relay state (#804)
-
     outbox = _outbox
     if _drain_task is None or outbox is None:
         return
@@ -250,16 +278,7 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
         logger.warning("[relay] dropping oversized %s notification, could not fit under cap", kind)
         return
 
-    try:
-        outbox.put_nowait(encoded)
-    except asyncio.QueueFull:
-        if not _outbox_full_warned:
-            _outbox_full_warned = True
-            logger.warning(
-                "[relay] outbox full (%d), dropping notifications until it drains", _QUEUE_MAXSIZE
-            )
-        return
-    _outbox_full_warned = False
+    _put_outbox_dropping_oldest(outbox, encoded)
 
 
 # Dedupes the drain-failure warning — the only warning in this module that
@@ -281,6 +300,24 @@ _ACQUIRE_TIMEOUT = 5.0
 # item AT THE HEAD of the outbox, not a full reconnect cycle.
 _DRAIN_RETRY_BACKOFF = (1, 2, 5, 10, 30)
 
+# Caps how many times ONE item is retried before it's given up on (#804
+# round 6 finding 1). Round 5 retried forever, which fixed round 4's silent
+# per-item drop but introduced unbounded head-of-line blocking: a single
+# PERMANENTLY failing item (a real thing — `CharacterNotInRepertoireError`,
+# or "cannot execute NOTIFY during recovery" on a standby) parks the drain
+# task on it forever, starving every healthy item queued behind it. 3
+# attempts (roughly a 1s + 2s backoff, ~3s total) is enough to ride out a
+# TRANSIENT failure (a connection the pool is mid-replacing) without holding
+# up the queue for anywhere near as long as a real outage.
+_DRAIN_MAX_ATTEMPTS = 3
+
+# Dedupes the drain's give-up warning, same pattern as `_drain_failure_warned`
+# (reset on the next successfully drained item). `_drain_dropped_count` is a
+# running total, NOT reset — it's a magnitude indicator for whoever reads the
+# log, not a per-outage flag.
+_drain_drop_warned = False
+_drain_dropped_count = 0
+
 
 async def _drain_outbox(pool: asyncpg.Pool, outbox: asyncio.Queue[str]) -> None:
     """Drain the outbox via a small connection pool dedicated to publishing
@@ -288,23 +325,20 @@ async def _drain_outbox(pool: asyncpg.Pool, outbox: asyncio.Queue[str]) -> None:
     this replaced a hand-rolled second connection with its own reconnect
     logic).
 
-    #804 round 5 finding 5: a failed item is HELD and RETRIED against the
-    pool with capped backoff — the loop does NOT move on to the next queued
-    item until this one succeeds. Round 4 dropped a failed item and moved on,
-    on the theory that the pool's own `acquire()` already recovers for the
-    REST of the queue on its next call — true, but it made `publish()`'s own
-    docstring claim ("publishes during that window are now QUEUED, not
-    dropped") false for the specific item that hit the failing acquire: a
-    1-30s reconnect window silently ate every event queued during it, with
-    no log and no counter. The outbox is a BOUNDED queue precisely so it can
-    hold items across a reconnect window instead of discarding them the
-    instant one `acquire()` times out; the only place items are still lost
-    is the existing outbox-full drop-newest policy in `publish()` (finding 4)
-    when the outage outlasts the queue's capacity — that is a deliberate,
-    already-logged capacity limit, not a per-item failure being silently
-    swallowed.
+    #804 round 6 finding 1: a failed item is retried against the pool with
+    capped backoff, up to `_DRAIN_MAX_ATTEMPTS` times, THEN dropped (logged,
+    deduped, counted) and the loop moves on to the next queued item. This is
+    the middle ground between round 4 (dropped a failed item immediately —
+    too lossy: a single transient acquire failure silently ate an event) and
+    round 5 (retried forever — too rigid: one PERMANENTLY failing item parks
+    the drain task on it forever, starving every healthy item queued behind
+    it, which a real reproduction confirmed: 5 healthy items queued behind 1
+    poisoned one, 0 published after 1s). The outbox itself (bounded,
+    drop-OLDEST on overflow — see `_put_outbox_dropping_oldest`) is still
+    what holds items across a genuinely transient reconnect window; this cap
+    only bounds how long ONE item may block the ones behind it.
     """
-    global _drain_failure_warned  # noqa: PLW0603 — module-level relay state (#804)
+    global _drain_failure_warned, _drain_drop_warned, _drain_dropped_count  # noqa: PLW0603 — module-level relay state (#804)
 
     while True:
         encoded = await outbox.get()
@@ -313,17 +347,30 @@ async def _drain_outbox(pool: asyncpg.Pool, outbox: asyncio.Queue[str]) -> None:
             try:
                 async with pool.acquire(timeout=_ACQUIRE_TIMEOUT) as conn:
                     await conn.execute("SELECT pg_notify($1, $2)", _CHANNEL, encoded)
-            except Exception:  # noqa: BLE001 — retried below, must not kill the drain task
+            except Exception:  # noqa: BLE001 — retried/dropped below, must not kill the drain task
+                attempt += 1
+                if attempt >= _DRAIN_MAX_ATTEMPTS:
+                    _drain_dropped_count += 1
+                    if not _drain_drop_warned:
+                        _drain_drop_warned = True
+                        logger.warning(
+                            "[relay] dropping outbox item after %d failed attempts"
+                            " (%d dropped so far)",
+                            _DRAIN_MAX_ATTEMPTS,
+                            _drain_dropped_count,
+                            exc_info=True,
+                        )
+                    break
                 if not _drain_failure_warned:
                     _drain_failure_warned = True
                     logger.warning(
                         "[relay] outbox drain failed, retrying with backoff", exc_info=True
                     )
-                delay = _DRAIN_RETRY_BACKOFF[min(attempt, len(_DRAIN_RETRY_BACKOFF) - 1)]
-                attempt += 1
+                delay = _DRAIN_RETRY_BACKOFF[min(attempt - 1, len(_DRAIN_RETRY_BACKOFF) - 1)]
                 await asyncio.sleep(delay)
                 continue
             _drain_failure_warned = False
+            _drain_drop_warned = False
             break
 
 
@@ -519,12 +566,23 @@ async def start_listener(deliver: Callable[[str, dict[str, Any]], Awaitable[None
         logger.warning("[relay] start_listener called while already running, ignoring")
         return
 
+    # Claim the guard SYNCHRONOUSLY, before the first `await` below (#804
+    # round 6 finding E). The check above alone is not atomic against a
+    # SECOND concurrent call: two calls could both pass it before either
+    # reaches an `await` — asyncio only switches tasks AT an await point —
+    # and each would then create its own pool/listener, with `stop_listener`
+    # only ever closing one of them. `asyncio.create_task` schedules but
+    # does not itself await, so setting `_listener_task` to its result here,
+    # with no `await` between the check and this line, closes that window:
+    # a second call's own check now sees a non-`None` `_listener_task` and
+    # bails out before it can start anything.
+    _listener_task = asyncio.create_task(_run_listener(url, deliver))
+
     outbox: asyncio.Queue[str] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
     # See the module-level comment near `_connection` for why this is
     # `min_size=0`, not `min_size=1`.
     pool = await asyncpg.create_pool(url, min_size=0, max_size=2)
 
-    _listener_task = asyncio.create_task(_run_listener(url, deliver))
     _outbox = outbox
     _publish_pool = pool
     _drain_task = asyncio.create_task(_drain_outbox(pool, outbox))
