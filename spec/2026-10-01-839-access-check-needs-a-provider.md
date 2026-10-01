@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 839
 intent: intent/2026-10-01-839-access-check-needs-a-provider.md
 ---
