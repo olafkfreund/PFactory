@@ -81,6 +81,38 @@ Branch `fix/839-access-check-needs-a-provider` off `dev` (already created).
    `relevant_providers` as its own issue so the sibling is tracked rather than
    rediscovered.
 
+## Step 1 result (2026-10-02): PASSES — the plan stands
+
+`plan.repo_map` **is** populated when `assess_feasibility` runs. Confirmed two
+independent ways rather than by reading file order:
+
+**Statement order inside one function body**, which is real execution order:
+
+```python
+# plan/service.py, process()
+plan, descriptor = self._detect_and_plan_type(session)   # 1190 -> _reconnoiter -> sets repo_map
+epic = self._decompose(session, plan, descriptor, llm=llm)
+artifacts = synthesize(plan, epic, descriptor=descriptor)
+composed_runner = self._build_review_runner(...)         # 1194 -> assess_feasibility (1501)
+```
+
+`_reconnoiter` is reached from `_detect_and_plan_type` (service.py:1415) and
+sets `{"repo_map": repo_map}` at service.py:1553.
+
+**The live session that produced the bad finding.** Session
+`068-myfriends-web-remediation-v2-of-the-two-critical-f`:
+
+```
+plan.repo_map present: True | available: True | deploy_system: kubectl
+epic.access_requirements present: True
+```
+
+So the exact signal the design depends on was present, with the exact value the
+design keys on, in the exact run that reported four spurious AWS actions. The
+guard would have fired.
+
+Steps 2-8 proceed as written.
+
 ## Tests
 
 ```sh
