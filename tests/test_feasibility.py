@@ -23,7 +23,11 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 
 from plan.decompose.models import ChildIssue, EpicPlan  # noqa: E402
-from plan.feasibility.access import required_actions, verify_access  # noqa: E402
+from plan.feasibility.access import (  # noqa: E402
+    _mentions_provider,
+    required_actions,
+    verify_access,
+)
 from plan.feasibility.cost import estimate_cost, extract_resources  # noqa: E402
 from plan.feasibility.run import assess_feasibility  # noqa: E402
 from plan.models import Criterion, Enrichment, NormalizedPlan  # noqa: E402
@@ -121,6 +125,35 @@ def test_verify_access_flags_denied_actions():
     assert any(f.severity == "high" and f.source == "feasibility-access" for f in findings)
     # every change-proposing finding is cited
     assert all(f.citations for f in findings if f.severity == "high")
+
+
+def test_mentions_provider_excludes_generic_nouns():
+    # "kubernetes"/"postgres" are the generic nouns _ACTION_HINTS matches —
+    # they must not count as an explicit mention of AWS.
+    assert not _mentions_provider("Deploy Kubernetes with a postgres database", "aws")
+
+
+def test_mentions_provider_matches_explicit_aws_terms():
+    for term in ("aws", "eks", "rds", "s3", "ec2", "iam", "elasticache"):
+        assert _mentions_provider(f"uses {term} here", "aws"), term
+
+
+def test_mentions_provider_matches_explicit_azure_and_gcp_terms():
+    for term in ("aks", "azure"):
+        assert _mentions_provider(f"uses {term} here", "azure"), term
+    for term in ("gke", "gcp"):
+        assert _mentions_provider(f"uses {term} here", "gcp"), term
+    # negative case: text naming neither provider must be False — only
+    # possible while the azure/gcp patterns exist (fail-open would make a
+    # missing pattern read as True, hiding a deleted entry).
+    assert not _mentions_provider("deploy with kubectl to the cluster", "azure")
+    assert not _mentions_provider("deploy with kubectl to the cluster", "gcp")
+
+
+def test_mentions_provider_unknown_provider_fails_open():
+    # No entry in the table at all — treated as mentioned, so a future
+    # provider never gets silently suppressed for want of a pattern.
+    assert _mentions_provider("deploy somewhere", "oracle")
 
 
 def test_verify_access_unverified_when_no_simulator():

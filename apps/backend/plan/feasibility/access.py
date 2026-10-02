@@ -38,6 +38,35 @@ _ACTION_HINTS: list[tuple[re.Pattern[str], str, list[str]]] = [
 
 _IAM_DOCS = "https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_testing-policies.html"
 
+# RepoMap.deploy_system values that provision nothing in a cloud — never a
+# signal that a provider's actions are needed.
+_NON_CLOUD_DEPLOY_SYSTEMS = {"kubectl", "helm", "docker-compose", "none"}
+
+# Per-provider terms that name the provider itself, not a generic noun
+# (deliberately distinct from the words `_ACTION_HINTS` matches: "kubernetes"
+# and "postgres" are not explicit mentions of AWS).
+_PROVIDER_MENTIONS: dict[str, re.Pattern[str]] = {
+    "aws": re.compile(r"(?i)\baws\b|\beks\b|\brds\b|\bs3\b|\bec2\b|\biam\b|\belasticache\b"),
+    "azure": re.compile(r"(?i)\baks\b|\bazure\b"),
+    "gcp": re.compile(r"(?i)\bgke\b|\bgcp\b|google cloud"),
+}
+
+
+def _mentions_provider(text: str, provider: str) -> bool:
+    """True if ``text`` explicitly names ``provider`` (not just a generic noun).
+
+    A provider with no entry here returns True, not False: the rule is
+    "suppress only on positive evidence the plan does not target this
+    provider", and a missing pattern is absence of evidence, not evidence of
+    absence. Treating it as mentioned means a future provider added to
+    `_ACTION_HINTS` without a matching entry here fails open — a noisy
+    (never-suppressed) gate, not a silently suppressed requirement.
+    """
+    pattern = _PROVIDER_MENTIONS.get(provider)
+    if pattern is None:
+        return True
+    return bool(pattern.search(text))
+
 
 def _plan_text(plan: NormalizedPlan) -> str:
     parts = [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
@@ -47,15 +76,29 @@ def _plan_text(plan: NormalizedPlan) -> str:
 def required_actions(plan: NormalizedPlan) -> list[tuple[str, str]]:
     """List of (provider, action) the plan implies, de-duplicated."""
     text = _plan_text(plan)
+    repo_map = plan.repo_map
     out: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for pat, provider, actions in _ACTION_HINTS:
-        if pat.search(text):
-            for action in actions:
-                key = (provider, action)
-                if key not in seen:
-                    seen.add(key)
-                    out.append(key)
+        if not pat.search(text):
+            continue
+        # Suppress this provider's actions only on positive evidence the plan
+        # doesn't target it — every clause below is a guard against
+        # suppressing wrongly: no repo map, an unavailable one, an
+        # unrecognised deploy system, or an explicit mention of the provider
+        # all keep today's behaviour (the actions are still required).
+        if (
+            repo_map is not None
+            and repo_map.available
+            and (repo_map.deploy_system or "").lower() in _NON_CLOUD_DEPLOY_SYSTEMS
+            and not _mentions_provider(text, provider)
+        ):
+            continue
+        for action in actions:
+            key = (provider, action)
+            if key not in seen:
+                seen.add(key)
+                out.append(key)
     return out
 
 
