@@ -260,3 +260,60 @@ def test_assess_feasibility_bundles_everything():
     assert "feasibility-cost" in sources
     # RFC-0014: no effort assessor — feasibility-effort findings are gone.
     assert "feasibility-effort" not in sources
+
+
+# ── the repo's own provider evidence overrides deploy_system (#839 review) ───
+# Found by independent review: the first cut keyed on deploy_system alone and
+# went silent on repos that plainly DO use the provider. Both cases below are
+# suppression on ABSENCE of evidence, which this gate's governing rule forbids.
+# Worth stating what is lost: required_actions returning [] makes verify_access
+# return early, so no IAM simulation runs and the severity="high" "Principal
+# cannot rds:CreateDBInstance" finding never fires. A real explicitDeny becomes
+# silence that surfaces at handoff -- not the "spurious low/soft line" the spec
+# weighed this against.
+
+_GENERIC_AWS_TRIGGER = "Add a postgres database for orders."
+
+
+def test_required_actions_not_suppressed_when_recon_named_the_provider():
+    """deploy_system "none" means recon RECOGNISED nothing, not that nothing is
+    provisioned.
+
+    probe_iac knows only terraform/helm/kubernetes, so a CDK / SAM / serverless
+    repo -- exactly the files detect_cloud_providers reads to set
+    cloud_providers=["aws"] -- lands on "none", which is in
+    _NON_CLOUD_DEPLOY_SYSTEMS.
+    """
+    plan = _plan(
+        _GENERIC_AWS_TRIGGER,
+        repo_map=RepoMap(available=True, deploy_system="none", cloud_providers=["aws"]),
+    )
+    assert ("aws", "rds:CreateDBInstance") in required_actions(plan)
+
+
+def test_required_actions_not_suppressed_when_the_repo_carries_provisioning_iac():
+    """deploy_system precedence is argocd > helm > terraform > kubectl.
+
+    So the common shape -- Terraform provisions RDS, Helm deploys the app --
+    resolves to "helm" while iac and deploy_manifests both say terraform.
+    """
+    plan = _plan(
+        _GENERIC_AWS_TRIGGER,
+        repo_map=RepoMap(
+            available=True,
+            deploy_system="helm",
+            iac=["terraform", "helm"],
+            deploy_manifests={"terraform_files": ["infra/rds.tf"]},
+        ),
+    )
+    assert ("aws", "rds:CreateDBInstance") in required_actions(plan)
+
+
+def test_required_actions_still_suppressed_without_provider_evidence():
+    """The reported case must stay fixed: no cloud_providers, no provisioning
+    IaC, kubectl, and no AWS term in the text."""
+    plan = _plan(
+        "Deploy Kubernetes with a postgres database.",
+        repo_map=RepoMap(available=True, deploy_system="kubectl"),
+    )
+    assert not [a for prov, a in required_actions(plan) if prov == "aws"]

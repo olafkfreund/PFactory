@@ -13,7 +13,7 @@ human review with a clear remediation, it doesn't override the engineer.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from plan.decompose.models import AccessRequirement
 from plan.review.models import Citation, Finding
@@ -68,6 +68,32 @@ def _mentions_provider(text: str, provider: str) -> bool:
     return bool(pattern.search(text))
 
 
+# IaC systems that provision cloud resources, as opposed to deploying onto an
+# existing cluster. `deploy_system` collapses both into one value and picks by
+# precedence, so it cannot answer "does this repo provision anything".
+_PROVISIONING_IAC = {"terraform", "cloudformation", "cdk", "serverless", "sam", "pulumi"}
+
+# deploy_manifests keys that evidence provisioning IaC in the repo.
+_PROVISIONING_MANIFEST_KEYS = ("terraform_files", "cloudformation_files", "cdk_files")
+
+
+def _repo_targets_provider(repo_map: Any, provider: str) -> bool:
+    """True when the REPO shows it uses *provider*, whatever deploy_system says.
+
+    Read as: positive evidence that suppression would be wrong. Any of —
+    recon named the provider in ``cloud_providers``, or the repo carries
+    provisioning IaC (terraform/CDK/SAM/serverless) in ``iac`` or
+    ``deploy_manifests``. Deliberately permissive: this exists to STOP
+    suppression, so a false positive here only keeps the gate noisy.
+    """
+    if provider in {str(p).lower() for p in (getattr(repo_map, "cloud_providers", None) or [])}:
+        return True
+    if _PROVISIONING_IAC & {str(i).lower() for i in (getattr(repo_map, "iac", None) or [])}:
+        return True
+    manifests = getattr(repo_map, "deploy_manifests", None) or {}
+    return any(manifests.get(key) for key in _PROVISIONING_MANIFEST_KEYS)
+
+
 def _plan_text(plan: NormalizedPlan) -> str:
     parts = [plan.title, plan.description, *(c.text for c in plan.criteria), plan.raw_text or ""]
     return "\n".join(p for p in parts if p)
@@ -85,13 +111,31 @@ def required_actions(plan: NormalizedPlan) -> list[tuple[str, str]]:
         # Suppress this provider's actions only on positive evidence the plan
         # doesn't target it — every clause below is a guard against
         # suppressing wrongly: no repo map, an unavailable one, an
-        # unrecognised deploy system, or an explicit mention of the provider
-        # all keep today's behaviour (the actions are still required).
+        # unrecognised deploy system, an explicit mention of the provider, or
+        # any provider evidence in the repo itself all keep today's behaviour
+        # (the actions are still required).
+        #
+        # The last two clauses were added after review found the first cut
+        # silent on repos that plainly DO use the provider (#839):
+        #
+        #   * `deploy_system == "none"` means recon RECOGNISED nothing, not
+        #     that nothing is provisioned. `probe_iac` knows only
+        #     terraform/helm/kubernetes, so a CDK / SAM / serverless repo —
+        #     exactly the files `detect_cloud_providers` reads to set
+        #     cloud_providers=["aws"] — lands on "none".
+        #   * deploy_system precedence is argocd > helm > terraform > kubectl,
+        #     so the common "Terraform provisions, Helm deploys" shape resolves
+        #     to "helm" while `iac` and `deploy_manifests` say terraform.
+        #
+        # Both were suppression on ABSENCE of evidence, which this gate's
+        # governing rule forbids. `cloud_providers` and the IaC manifests are
+        # already in the RepoMap; they just were not read.
         if (
             repo_map is not None
             and repo_map.available
             and (repo_map.deploy_system or "").lower() in _NON_CLOUD_DEPLOY_SYSTEMS
             and not _mentions_provider(text, provider)
+            and not _repo_targets_provider(repo_map, provider)
         ):
             continue
         for action in actions:

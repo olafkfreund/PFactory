@@ -240,6 +240,59 @@ A full live proof of the deployed path has to wait for this branch to be
 released into the cluster image; the fixed-code arm above is the same function
 the service calls, run on the same brief.
 
+## Review findings, both real (2026-10-02)
+
+Reviewed by a fresh agent given only this plan and the diff. It found the top
+risk this plan set out to avoid, live.
+
+### HIGH: suppression ignored the AWS evidence in the same RepoMap
+
+The condition read only `available` and `deploy_system`. `RepoMap` also carries
+`cloud_providers`, `iac` and `deploy_manifests` — all populated, none consulted.
+Two false negatives, measured by calling `required_actions` on this branch:
+
+- **`deploy_system == "none"` means recon RECOGNISED nothing**, not that nothing
+  is provisioned. `probe_iac` knows only terraform/helm/kubernetes, so a CDK /
+  SAM / serverless repo — exactly the files `detect_cloud_providers` reads to
+  set `cloud_providers=["aws"]` — lands on `"none"`, which is in
+  `_NON_CLOUD_DEPLOY_SYSTEMS`.
+- **Helm shadows Terraform.** Precedence is argocd > helm > terraform > kubectl,
+  so "Terraform provisions RDS, Helm deploys the app" resolves to `"helm"` while
+  `iac` and `deploy_manifests` both say terraform.
+
+Measured, all three generic triggers (`postgres`, `bucket`, `redis`) on both
+shapes: `[]`. With `cloud_providers: ['aws']` sitting in the same RepoMap.
+
+**My risk assessment in this plan was wrong, and that is the important part.**
+I weighed the loss against "a spurious `low`/`soft` line". But
+`required_actions` returning `[]` makes `verify_access` return at access.py:126
+**before any IAM simulation runs**, so the `severity="high"` "Principal cannot
+`rds:CreateDBInstance"` finding at access.py:175 never fires. A genuine
+`explicitDeny` becomes silence that surfaces at handoff. The trade I described
+was not the trade being made.
+
+Fixed with `_repo_targets_provider`, reading signals already in hand: the
+provider named in `cloud_providers`, or provisioning IaC in `iac` or
+`deploy_manifests`. Deliberately permissive — it exists to STOP suppression, so
+a false positive there only keeps the gate noisy, which is the correct
+direction. Three tests; each half mutation-checked independently (drop the
+clause → both new tests fail; drop only the IaC half → only the IaC test fails).
+
+### MEDIUM: my step-6 claim was false
+
+I wrote that correction 2b "fixed a live bug" because "with no azure entry,
+`_mentions_provider` returned `False` and a plan naming AKS was suppressible".
+That describes the state *before* the fail-open change, not after. Since
+`_mentions_provider` now returns `True` for a provider with no entry, deleting
+the azure and gcp entries changes suppression behaviour **not at all** —
+confirmed: `test_required_actions_azure_and_gcp_hints_unaffected_by_the_aws_guard`
+still passes with both entries deleted.
+
+So 2b contained two fixes, either of which alone would have closed the hole, and
+I credited the entries with work the fail-open default does. The entries remain
+worth keeping as documentation of which terms name which provider, but they are
+not load-bearing and this plan should not have claimed they were.
+
 ## Tests
 
 ```sh
