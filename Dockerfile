@@ -74,6 +74,43 @@ COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+# The npm copied above ships its OWN vendored deps, and three of them carry HIGH
+# CVEs the P0 Trivy gate rejects. Measured on this branch's failing run, Trivy
+# attributes all three to usr/local/lib/node_modules/npm/node_modules/*:
+#
+#   HIGH CVE-2026-102276  brace-expansion 5.0.9 -> 5.0.10   (stack exhaustion)
+#   HIGH CVE-2026-102278  brace-expansion 5.0.9 -> 5.0.11   (uncontrolled recursion)
+#   HIGH CVE-2026-19534   undici 6.28.0 -> 6.28.1           (WebSocket DoS)
+#
+# They are npm's bundle, not a dependency of this application, so no lockfile of
+# ours can clear them -- and no npm release does either. Measured against the
+# registry in AIFactory#1637: 11.19.1, 11.21.0 and 12.2.0 (latest) all still
+# bundle the vulnerable versions, so waiting for a newer npm waits forever.
+#
+# Patched versions of the PACKAGES do exist (brace-expansion 5.0.12, undici
+# 6.28.1); they are simply in no npm tarball. So replace npm's vendored copies
+# rather than allow-listing: .trivyignore is for "no known patched version
+# exists", which is false here, and silencing the report would leave the
+# vulnerable code in an image that runs npm against untrusted repo content.
+#
+# Same fix as AIFactory (#1637, merged) and TFactory (#1349) for the same bundle
+# at the same path. If you change one, change all three.
+#
+# The asserting `node -e` is load-bearing: a `for` loop exits with the status of
+# its LAST iteration, so a brace-expansion failure followed by an undici success
+# would exit 0 and ship an unpatched bundle. The trailing `npm --version` proves
+# npm still runs after the surgery.
+RUN M=/usr/local/lib/node_modules/npm/node_modules \
+ && for p in brace-expansion@5.0.12 undici@6.28.1; do \
+      n="${p%@*}"; \
+      npm pack "$p" --pack-destination /tmp >/dev/null \
+   && rm -rf "$M/$n" && mkdir -p "$M/$n" \
+   && tar xzf /tmp/"$n"-*.tgz -C "$M/$n" --strip-components=1 \
+   && rm -f /tmp/"$n"-*.tgz; \
+    done \
+ && node -e "const want={'brace-expansion':'5.0.12','undici':'6.28.1'}; let bad=0; for (const [n,v] of Object.entries(want)) { const got=require('/usr/local/lib/node_modules/npm/node_modules/'+n+'/package.json').version; console.log(n, got, got===v?'ok':'EXPECTED '+v); if (got!==v) bad=1; } process.exit(bad)" \
+ && npm --version
 # .nvmrc is the one declaration of the Node major: fail the build on drift.
 COPY .nvmrc /tmp/.nvmrc
 RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
