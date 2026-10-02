@@ -113,6 +113,79 @@ guard would have fired.
 
 Steps 2-8 proceed as written.
 
+## Step 3 measured: correct, but step 7's expectation is wrong
+
+The precondition works. Measured against the real brief from session
+`068-...`, with `deploy_system="kubectl"`:
+
+| input | aws actions |
+| --- | --- |
+| the brief as written | **4** — the guard declines to suppress |
+| the same brief, one word removed | **0** — the guard fires |
+
+The word is `RDS`. Line 51 of `specs/myfriends-remediation.md` reads:
+
+> ... Nothing here creates a managed database instance, an **RDS** instance, or
+> any other cloud resource; there is no cloud provider in this path at all.
+
+It is the only AWS term anywhere in the brief, and it appears **inside the
+sentence denying it**. So `_mentions_provider` sees an explicit AWS mention and
+correctly keeps today's behaviour, exactly as the spec specifies.
+
+This is the issue's own complaint turned on the fix: "an author who reads the
+remediation text and tries to comply makes the finding worse". My brief named
+RDS in order to deny RDS, and the guard cannot tell a denial from a plan.
+
+**The design is unchanged and still right.** A plan whose text names RDS is
+genuinely ambiguous as text, and the governing rule is to suppress only on
+positive evidence — a mention, even a negated one, is not that evidence. The
+alternative is parsing negation out of prose, which the spec rejects on the
+grounds that prose deciding a machine question is the defect itself.
+
+**What is wrong is step 7**, which says to re-ingest that brief and expect no
+AWS actions. As written that expectation cannot hold. Steps 4 and 5 are
+unaffected — step 4 already specifies "no AWS term" — so implementation
+continues; step 7 needs the approver's call between:
+
+- **(a)** re-point step 7 at a brief that names no provider, and record that a
+  denial naming a provider legitimately keeps the gate noisy (recommended —
+  smallest change, and the design is sound);
+- **(b)** drop the explicit-mention clause and rely on `deploy_system` alone,
+  re-opening the one harm the spec identified;
+- **(c)** handle negation, which the spec rejects.
+
+Separately worth doing either way: the brief should not name providers in a
+denial. "or any other cloud resource" says the same thing without tripping a
+keyword gate.
+
+## Step 6: the guard's reach, measured exactly
+
+Worth recording because it shows the change does precisely what it should and
+nothing more. For every word in `_ACTION_HINTS`, is it also an explicit mention
+of the provider it triggers?
+
+| hint word | provider | explicit mention of it | suppressible |
+| --- | --- | --- | --- |
+| `kubernetes`, `postgres`, `bucket`, `redis` | aws | **no** | **yes** |
+| `eks`, `rds`, `s3`, `elasticache` | aws | yes | no |
+| `aks` | azure | yes | no |
+| `gke` | gcp | yes | no |
+
+So the guard can only ever suppress when the **sole** trigger is a generic noun
+— which is exactly the reported case ("Kubernetes" and "postgres", no AWS term).
+A plan naming any provider-specific service keeps its actions.
+
+For azure and gcp the hint pattern is a *subset* of the mention pattern
+(`\baks\b` ⊆ `\baks\b|\bazure\b`), so suppression can never apply to them
+at all. That makes those two entries inert **today** — but not before step 2b:
+with no azure entry, `_mentions_provider` returned `False` and a plan naming
+"AKS" with `deploy_system="kubectl"` *was* suppressible. So 2b fixed a live
+bug, and the end state is that azure and gcp are correctly never suppressed.
+The entries also guard a future divergence, e.g. a generic noun being added to
+the azure hint.
+
+Spotted by the coder while doing step 6, not by me when specifying it.
+
 ## Tests
 
 ```sh

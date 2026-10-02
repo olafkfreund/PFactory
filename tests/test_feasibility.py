@@ -31,9 +31,10 @@ from plan.feasibility.access import (  # noqa: E402
 from plan.feasibility.cost import estimate_cost, extract_resources  # noqa: E402
 from plan.feasibility.run import assess_feasibility  # noqa: E402
 from plan.models import Criterion, Enrichment, NormalizedPlan  # noqa: E402
+from plan.recon.models import RepoMap  # noqa: E402
 
 
-def _plan(text: str, *, infra=None) -> NormalizedPlan:
+def _plan(text: str, *, infra=None, repo_map=None) -> NormalizedPlan:
     return NormalizedPlan(
         plan_id="001-x",
         title="Orders platform",
@@ -43,6 +44,7 @@ def _plan(text: str, *, infra=None) -> NormalizedPlan:
         criteria=[Criterion(id="AC#1", text=text)],
         enrichment=Enrichment(infra=infra or []),
         raw_text=text,
+        repo_map=repo_map,
     )
 
 
@@ -111,6 +113,88 @@ def test_required_actions_maps_services():
     pairs = required_actions(plan)
     assert ("aws", "eks:CreateCluster") in pairs
     assert ("aws", "s3:CreateBucket") in pairs
+
+
+def test_required_actions_suppresses_aws_for_kubectl_plan_with_no_aws_mention():
+    # The reported case: a plan naming Kubernetes and postgres (generic nouns,
+    # not explicit AWS mentions), deployed via kubectl, no AWS term anywhere.
+    plan = _plan(
+        "Remediate the Kubernetes deployment and its postgres database.",
+        repo_map=RepoMap(available=True, deploy_system="kubectl"),
+    )
+    pairs = required_actions(plan)
+    assert not [p for p in pairs if p[0] == "aws"]
+
+
+_GENERIC_K8S_PG_TEXT = "Deploy a Kubernetes cluster backed by a postgres database."
+
+
+def test_required_actions_fail_open_no_repo_map():
+    # Generic nouns only (no explicit AWS term) — repo_map=None is the clause
+    # under test; it alone must keep today's behaviour.
+    plan = _plan(_GENERIC_K8S_PG_TEXT)  # repo_map=None (default)
+    pairs = required_actions(plan)
+    assert ("aws", "eks:CreateCluster") in pairs
+    assert ("aws", "rds:CreateDBInstance") in pairs
+
+
+def test_required_actions_fail_open_repo_map_unavailable():
+    plan = _plan(
+        _GENERIC_K8S_PG_TEXT,
+        repo_map=RepoMap(available=False, deploy_system="kubectl"),
+    )
+    pairs = required_actions(plan)
+    assert ("aws", "eks:CreateCluster") in pairs
+    assert ("aws", "rds:CreateDBInstance") in pairs
+
+
+def test_required_actions_fail_open_unrecognised_deploy_system():
+    plan = _plan(
+        _GENERIC_K8S_PG_TEXT,
+        repo_map=RepoMap(available=True, deploy_system="terraform"),
+    )
+    pairs = required_actions(plan)
+    assert ("aws", "eks:CreateCluster") in pairs
+    assert ("aws", "rds:CreateDBInstance") in pairs
+
+
+def test_required_actions_fail_open_explicit_mention():
+    plan = _plan(
+        "Provision an RDS instance.",
+        repo_map=RepoMap(available=True, deploy_system="kubectl"),
+    )
+    pairs = required_actions(plan)
+    assert ("aws", "rds:CreateDBInstance") in pairs
+
+
+def test_required_actions_azure_and_gcp_hints_unaffected_by_the_aws_guard():
+    # aks/gke are themselves the explicit-mention terms for their own
+    # providers (see _PROVIDER_MENTIONS), so naming them is never
+    # suppressible under a kubectl deploy — same as before this change.
+    azure_plan = _plan(
+        "Provision an AKS cluster.",
+        repo_map=RepoMap(available=True, deploy_system="kubectl"),
+    )
+    assert ("azure", "Microsoft.ContainerService/managedClusters/write") in required_actions(
+        azure_plan
+    )
+
+    gcp_plan = _plan(
+        "Provision a GKE cluster.",
+        repo_map=RepoMap(available=True, deploy_system="kubectl"),
+    )
+    assert ("gcp", "container.clusters.create") in required_actions(gcp_plan)
+
+
+def test_required_actions_dedup_across_multiple_hints():
+    # Two distinct hints (kubernetes->eks, postgres->rds) both fire for the
+    # same provider; every (provider, action) pair still appears exactly
+    # once — the `seen` dedup survived the step-3 restructuring.
+    plan = _plan("Deploy Kubernetes with a postgres database")
+    pairs = required_actions(plan)
+    assert len(pairs) == len(set(pairs))
+    assert pairs.count(("aws", "eks:CreateCluster")) == 1
+    assert pairs.count(("aws", "rds:CreateDBInstance")) == 1
 
 
 def test_verify_access_flags_denied_actions():
