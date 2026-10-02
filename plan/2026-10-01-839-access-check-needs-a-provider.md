@@ -72,11 +72,20 @@ Branch `fix/839-access-check-needs-a-provider` off `dev` (already created).
    removal breaks nothing is not doing anything.
 6. **No collateral change:** the existing `access.py` tests pass untouched, and
    the `azure`/`gcp` hints behave identically.
-7. **Live.** Re-ingest the brief from session
-   `068-myfriends-web-remediation-v2-of-the-two-critical-f` and read
-   `readiness.results[]`: `access-verified` must no longer list
-   `aws:eks:CreateCluster, aws:ec2:RunInstances, aws:iam:CreateRole,
-   aws:rds:CreateDBInstance`. That measurement opened the issue, so it closes it.
+7. **Live (amended 2026-10-02, approved).** Re-ingest the brief with its one
+   AWS term removed from the denial, and read `readiness.results[]`:
+   `access-verified` must no longer list `aws:eks:CreateCluster,
+   aws:ec2:RunInstances, aws:iam:CreateRole, aws:rds:CreateDBInstance`.
+
+   The original wording said to re-ingest the brief **as-is** and expect that.
+   It cannot: the brief contains "RDS" inside the sentence denying it, so the
+   mention clause correctly declines to suppress. Measured both ways —
+   as-written yields 4 AWS actions, the same brief with that one word removed
+   yields 0.
+
+   So the live proof is run on the corrected brief, and the as-written case is
+   recorded as **expected** behaviour rather than a miss: a gate that cannot
+   read negation must treat a named provider as named.
 8. **PR → `dev`** linking intent, spec and plan; close #839. File
    `relevant_providers` as its own issue so the sibling is tracked rather than
    rediscovered.
@@ -153,6 +162,14 @@ continues; step 7 needs the approver's call between:
 - **(b)** drop the explicit-mention clause and rely on `deploy_system` alone,
   re-opening the one harm the spec identified;
 - **(c)** handle negation, which the spec rejects.
+
+**Approved 2026-10-02: (a).** Step 7 below is amended accordingly, and the
+behaviour is recorded as correct rather than worked around: a plan naming a
+provider — even inside a denial — keeps its actions, because the gate cannot
+distinguish a denial from a plan and must not guess. The brief is also corrected
+separately, since naming providers in a negation is a bad habit independent of
+this gate: "or any other cloud resource" says the same thing without tripping a
+keyword match.
 
 Separately worth doing either way: the brief should not name providers in a
 denial. "or any other cloud resource" says the same thing without tripping a
