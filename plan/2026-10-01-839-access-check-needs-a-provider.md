@@ -203,6 +203,43 @@ the azure hint.
 
 Spotted by the coder while doing step 6, not by me when specifying it.
 
+## Step 7 evidence (live, 2026-10-02)
+
+Run as a 2x2 so the code change is isolated from the brief change, because the
+obvious single measurement would have been confounded: the deployed PFactory
+image does **not** carry this fix, so a live re-ingest of the corrected brief
+measures the brief edit, not the code.
+
+Prediction, stated before measuring: unfixed code on the corrected brief should
+still report 4, because the deployed code has no precondition at all and
+"kubernetes"/"postgres" match the hints regardless of whether RDS is named.
+
+|                  | unfixed code (deployed) | fixed code (this branch) |
+| ---------------- | ----------------------- | ------------------------ |
+| brief as written | 4                       | 4  (RDS is named)        |
+| brief corrected  | **4** — measured live   | **0** — measured         |
+
+Live arm, session `071-pfactory-839-live-check-corrected-brief-on-the-dep`
+against the running service:
+
+```
+access-verified: fail
+Unverified actions: aws:eks:CreateCluster, aws:ec2:RunInstances,
+                    aws:iam:CreateRole, aws:rds:CreateDBInstance
+```
+
+So the brief correction alone does **not** fix this — the code change is what
+does the work, and the brief correction is what lets the code change apply. Had
+I measured only the bottom-right cell I could have claimed a fix that the brief
+edit had produced on its own.
+
+The top row is the expected behaviour recorded under resolution (a): a plan
+naming a provider keeps its actions, even in a denial.
+
+A full live proof of the deployed path has to wait for this branch to be
+released into the cluster image; the fixed-code arm above is the same function
+the service calls, run on the same brief.
+
 ## Tests
 
 ```sh
