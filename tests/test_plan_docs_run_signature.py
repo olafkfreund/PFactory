@@ -12,6 +12,7 @@ looks like a change and the file is useless for detecting staleness.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -25,7 +26,7 @@ pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
 from plan.emit.docs.emit_docs import _app_version  # noqa: E402
-from plan.emit.docs.render import render_plan_docs  # noqa: E402
+from plan.emit.docs.render import _controls_engaged, render_plan_docs  # noqa: E402
 from plan.emit.docs.targets.repo import RepoDocsTarget  # noqa: E402
 from plan.service import PlanService  # noqa: E402
 
@@ -35,6 +36,18 @@ Add a REST API endpoint to the payments microservice.
 - User can request a refund through the API
 - The endpoint requires a valid JWT and rejects unauthenticated callers
 """
+
+_CONTROL_IDS = (
+    "audit-logging",
+    "secrets-management",
+    "supply-chain",
+    "vuln-mgmt",
+    "change-mgmt-sod",
+    "runtime-isolation",
+    "data-governance",
+    "agentic-ai-governance",
+)
+_CATALOG = {"version": 1, "controls": [{"id": item} for item in _CONTROL_IDS]}
 
 
 @pytest.fixture
@@ -76,7 +89,7 @@ def test_signature_identifies_the_run_and_the_text(processed):
     assert sig["plan_id"] == processed.plan.plan_id
     assert sig["content_hash"] == processed.plan.content_hash
     assert sig["generated_by"] == "pfactory"
-    assert sig["signature_schema"] == 1
+    assert sig["signature_schema"] == 2
     # A version we could not determine must say so, never a plausible number.
     assert sig["pfactory_version"] == "unknown"  # default when not injected
 
@@ -89,6 +102,180 @@ def test_signature_carries_the_verdict(processed):
     assert sig["aggregate_score"] == processed.review.aggregate_score
     assert set(sig["lens_scores"]) == {lens.lens for lens in processed.review.lenses}
     assert sig["children"] == len(processed.epic.children)
+
+
+def test_governance_fields_are_honest_when_absent(processed):
+    sig = render_plan_docs(processed).run_signature
+
+    assert {
+        key: sig[key]
+        for key in (
+            "risk_class",
+            "risk_class_basis",
+            "autonomy_tier",
+            "autonomy_verdict",
+            "data_classification",
+            "data_classification_basis",
+            "approved_by",
+            "approved_at",
+            "controls",
+            "controls_basis",
+            "control_catalog_version",
+            "change_id",
+            "originator",
+            "agent_identity",
+            "model_route",
+        )
+    } == {
+        "risk_class": "unknown",
+        "risk_class_basis": "absent",
+        "autonomy_tier": "unknown",
+        "autonomy_verdict": None,
+        "data_classification": "unknown",
+        "data_classification_basis": "absent",
+        "approved_by": None,
+        "approved_at": None,
+        "controls": None,
+        "controls_basis": None,
+        "control_catalog_version": None,
+        "change_id": None,
+        "originator": None,
+        "agent_identity": None,
+        "model_route": None,
+    }
+    assert "low" not in (sig["risk_class"], sig["autonomy_tier"])
+    assert "" not in (sig["approved_by"], sig["approved_at"])
+
+
+def test_governance_fields_copy_existing_evidence(processed):
+    processed.epic.deployment = {"risk_class": "high"}
+    processed.plan.autonomy_tier = "hard"
+    processed.contract_result = {
+        "contract": {
+            "execution": {"routing": {"autonomy": {"verdict": "approval"}}},
+            "compliance": {"data_classes": ["user-contact"]},
+        }
+    }
+    processed.review.human_approval.approved = True
+    processed.review.human_approval.valid = True
+    processed.review.human_approval.plan_hash = processed.plan.compute_hash()
+    processed.review.human_approval.approved_by = "reviewer"
+    processed.review.human_approval.approved_at = "2026-10-14T12:00:00Z"
+
+    sig = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+
+    assert sig["risk_class"] == "high"
+    assert sig["risk_class_basis"] == "deployment-block"
+    assert sig["autonomy_tier"] == "hard"
+    assert sig["autonomy_verdict"] == "approval"
+    assert sig["data_classification"] == "Regulated"
+    assert sig["data_classification_basis"] == "compliance-data-classes"
+    assert sig["approved_by"] == "reviewer"
+    assert sig["approved_at"] == "2026-10-14T12:00:00Z"
+    assert sig["controls"] == ["audit-logging", "change-mgmt-sod", "data-governance"]
+    assert sig["controls_basis"] == "gates-engaged"
+    assert sig["control_catalog_version"] == 1
+
+
+def test_unapproved_and_nonpersonal_values_do_not_claim_evidence(processed):
+    processed.contract_result = {
+        "contract": {
+            "compliance": {"data_classes": ["store-distribution"]},
+            "execution": {"routing": {"autonomy": {"verdict": None}}},
+        }
+    }
+    processed.review.human_approval.approved_by = "reviewer"
+    processed.review.human_approval.approved_at = "2026-10-14T12:00:00Z"
+    sig = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+    assert sig["data_classification"] == "unknown"
+    assert sig["data_classification_basis"] == "absent"
+    assert sig["autonomy_verdict"] is None
+    assert sig["approved_by"] is None and sig["approved_at"] is None
+    processed.review.human_approval.approved = True
+    processed.review.human_approval.approved_by = ""
+    processed.review.human_approval.approved_at = ""
+    sig = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+    assert sig["approved_by"] is None and sig["approved_at"] is None
+
+
+def test_a_stale_approval_is_not_stamped(processed):
+    """Approved, then the plan text changed. Nothing in the service resets
+    `valid` on an edit, so the hash is the guard: nobody is named."""
+    processed.review.human_approval.approved = True
+    processed.review.human_approval.valid = True
+    processed.review.human_approval.plan_hash = processed.plan.compute_hash()
+    processed.review.human_approval.approved_by = "reviewer"
+    processed.review.human_approval.approved_at = "2026-10-14T12:00:00Z"
+    live = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+    assert live["approved_by"] == "reviewer"
+
+    processed.plan.title = processed.plan.title + " (edited after approval)"
+    assert processed.review.human_approval.valid  # still True: the trap
+    sig = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+    assert sig["approved_by"] is None and sig["approved_at"] is None
+    assert "change-mgmt-sod" not in sig["controls"]
+
+
+def test_missing_epic_and_open_contract_are_safe(processed):
+    processed.epic = None
+    processed.contract_result = {"contract": {"compliance": {"data_classes": [{"bad": "value"}]}}}
+    sig = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+    assert sig["risk_class"] == "unknown"
+    assert sig["data_classification"] == "unknown"
+    assert sig["controls"] == ["audit-logging"]
+
+
+@pytest.mark.parametrize(
+    ("deployment", "expected"),
+    [
+        ({"required_scans": ["secret-scan"]}, ["secrets-management"]),
+        ({"required_scans": ["dependency-audit"]}, ["supply-chain", "vuln-mgmt"]),
+        ({"required_scans": ["sast"]}, ["vuln-mgmt"]),
+        ({"required_scans": ["iac-scan"]}, ["vuln-mgmt"]),
+        ({"system_gates": ["human-approval"]}, ["change-mgmt-sod"]),
+        ({"production_classification": "production"}, ["change-mgmt-sod", "runtime-isolation"]),
+    ],
+)
+def test_deployment_controls(processed, deployment, expected):
+    processed.epic.deployment = deployment
+    assert _controls_engaged(processed, _CATALOG) == sorted(["audit-logging", *expected])
+
+
+def test_other_control_rules_and_unknown_catalog(processed):
+    assert _controls_engaged(processed, _CATALOG) == ["audit-logging"]
+    processed.review.human_approval.approved = True
+    processed.review.human_approval.valid = True
+    processed.review.human_approval.plan_hash = processed.plan.compute_hash()
+    processed.contract_result = {"contract": {"compliance": {"data_classes": ["account"]}}}
+    processed.injection_scan = {"verdict": "pass"}
+    expected = sorted(
+        ["audit-logging", "change-mgmt-sod", "data-governance", "agentic-ai-governance"]
+    )
+    assert _controls_engaged(processed, _CATALOG) == expected
+    processed.injection_scan = {"verdict": "flagged"}
+    assert _controls_engaged(processed, _CATALOG) == expected
+    processed.injection_scan = {"verdict": "skipped"}
+    assert _controls_engaged(processed, _CATALOG) == sorted(
+        ["audit-logging", "change-mgmt-sod", "data-governance"]
+    )
+    assert _controls_engaged(processed, None) is None
+    assert _controls_engaged(processed, {"version": 1, "controls": []}) is None
+
+
+def test_render_is_independent_of_environment_and_working_directory(
+    processed, tmp_path, monkeypatch
+):
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    (first_dir / "control-catalog.json").write_text(json.dumps(_CATALOG))
+    monkeypatch.chdir(first_dir)
+    first = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+    monkeypatch.setattr(os, "environ", {})
+    monkeypatch.chdir(second_dir)
+    second = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
 
 
 def test_an_unchanged_plan_re_renders_an_identical_signature(processed):

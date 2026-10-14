@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **The run signature records governance (Factory#1961).** `<slug>.run.json`
+  is now `signature_schema: 2`. It adds flat keys, and no existing key changes
+  meaning:
+  - `risk_class` and `risk_class_basis`;
+  - `autonomy_tier` (the RFC-0011 label) and `autonomy_verdict` (the RFC-0014 scorer), kept apart;
+  - `data_classification` and `data_classification_basis`;
+  - `approved_by` and `approved_at`;
+  - `controls`, `controls_basis` and `control_catalog_version`;
+  - `change_id`, `originator`, `agent_identity` and `model_route`, which stay `null` until their source exists.
+
+  A value the run could not establish is `"unknown"` or `null`, never a
+  believable default. `risk_class` is never `"low"` by default, and
+  `data_classification` is only ever `Regulated` or `unknown`. An approver is
+  named only while the approval still matches the plan text. `controls` lists
+  the control domains this run's gates engaged, using ids from the hub's
+  `apis/control-catalog.json`, which is vendored and drift-checked.
+- `python -m plan.governance_cli --root <docs dir> [--control ID] [--tier T]
+  [--since YYYY-MM-DD] [--json]` answers "which plans engaged control X, at
+  what tier, approved by whom". It always prints how many rows it scanned, how
+  many had a signature, how many were schema-1 and how many had none, so an
+  empty answer is never silent.
+
 ## 0.6.26 — running-tasks endpoint reachable; plan-session delete (2026-09-29)
 
 - **`GET /api/tasks/running` works (#825).** The tasks router's `GET

@@ -1,0 +1,44 @@
+{
+  "plans": {
+    "pf-004-find-friend-create-profile-mvp": {
+      "correlation_key": "pf-004-find-friend-create-profile-mvp",
+      "dependencies": [],
+      "doc_file": "004-find-friend-create-profile-mvp.md",
+      "generated_by": "pfactory",
+      "plan_id": "004-find-friend-create-profile-mvp",
+      "plan_type": "feature",
+      "signature_file": "004-find-friend-create-profile-mvp.run.json",
+      "title": "Find Friend \u2014 Create Profile (MVP)"
+    },
+    "pf-005-payments-refund-api": {
+      "correlation_key": "pf-005-payments-refund-api",
+      "dependencies": [],
+      "doc_file": "005-payments-refund-api.md",
+      "generated_by": "pfactory",
+      "plan_id": "005-payments-refund-api",
+      "plan_type": "feature",
+      "signature_file": "005-payments-refund-api.run.json",
+      "title": "Payments \u2014 Refund API"
+    },
+    "pf-006-docs-typo-fix": {
+      "correlation_key": "pf-006-docs-typo-fix",
+      "dependencies": [],
+      "doc_file": "006-docs-typo-fix.md",
+      "generated_by": "pfactory",
+      "plan_id": "006-docs-typo-fix",
+      "plan_type": "chore",
+      "signature_file": "006-docs-typo-fix.run.json",
+      "title": "Docs \u2014 Typo Fix"
+    },
+    "tf-007-checkout-smoke-suite": {
+      "correlation_key": "tf-007-checkout-smoke-suite",
+      "dependencies": [],
+      "doc_file": "007-checkout-smoke-suite.md",
+      "generated_by": "tfactory",
+      "plan_id": "007-checkout-smoke-suite",
+      "plan_type": "test",
+      "title": "Checkout \u2014 Smoke Suite"
+    }
+  },
+  "version": 1
+}
