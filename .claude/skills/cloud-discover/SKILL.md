@@ -51,12 +51,12 @@ is outward-facing against the user's real account — confirm scope before any c
    inv = discover("aws", profile="<profile>", regions=[...])
    ```
 
-3. **Assess** — run Prowler in the cloud runner image (`pfactory-runner-cloud`),
+3. **Assess** — run Prowler in the cloud runner image (`tfactory-runner-cloud`),
    read-only, creds mounted read-only, network on:
    ```bash
    docker run --rm --network=bridge \
      -v ~/.aws:/home/pfactory/.aws:ro -v <scratch>:/scratch:rw \
-     -e AWS_PROFILE=<profile> pfactory-runner-cloud:latest \
+     -e AWS_PROFILE=<profile> tfactory-runner-cloud:latest \
      prowler aws --service iam --service s3 --service ec2 \
        --output-formats json-ocsf --output-directory /scratch
    ```

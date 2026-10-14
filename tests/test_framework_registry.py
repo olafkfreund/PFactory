@@ -46,7 +46,7 @@ _PYTEST_DICT: dict[str, Any] = {
     "lanes": ["unit"],
     "version_range": ">=7.0,<10.0",
     "runtime": {
-        "image": "pfactory-runner-pytest:latest",
+        "image": "tfactory-runner-pytest:latest",
         "entrypoint": ["python", "-m", "pytest"],
     },
     "manifest_signals": ["requirements.txt:pytest"],
@@ -61,7 +61,7 @@ _JEST_DICT: dict[str, Any] = {
     "lanes": ["unit"],
     "version_range": ">=27.0,<31.0",
     "runtime": {
-        "image": "pfactory-runner-jest:latest",
+        "image": "tfactory-runner-jest:latest",
         "entrypoint": ["npx", "jest", "--ci"],
     },
     "manifest_signals": ["package.json:devDependencies.jest"],
@@ -76,7 +76,7 @@ _PLAYWRIGHT_DICT: dict[str, Any] = {
     "lanes": ["browser"],
     "version_range": ">=1.40,<2.0",
     "runtime": {
-        "image": "pfactory-runner-playwright:latest",
+        "image": "tfactory-runner-playwright:latest",
         "entrypoint": ["npx", "playwright", "test"],
     },
     "manifest_signals": ["package.json:devDependencies.@playwright/test"],
@@ -125,7 +125,7 @@ def test_validate_pytest_descriptor() -> None:
     assert desc.coverage_strategy == "cobertura"
     assert "requirements.txt:pytest" in desc.manifest_signals
     assert "tests/**/test_*.py" in desc.test_path_conventions
-    assert desc.runtime.image == "pfactory-runner-pytest:latest"
+    assert desc.runtime.image == "tfactory-runner-pytest:latest"
     assert isinstance(desc.runtime.entrypoint, tuple)
 
 

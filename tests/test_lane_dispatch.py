@@ -79,7 +79,7 @@ def test_v01_alias_dispatch_emits_deprecation_warning(
         return cp
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
-    r = DockerRunner(image="pfactory-runner-pytest:latest")
+    r = DockerRunner(image="tfactory-runner-pytest:latest")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         result = dispatch_lane(
@@ -130,7 +130,7 @@ def test_lit_lane_invokes_docker_runner(lane, monkeypatch, tmp_path):
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
-    r = DockerRunner(image="pfactory-runner-pytest:latest")
+    r = DockerRunner(image="tfactory-runner-pytest:latest")
     result = dispatch_lane(
         lane=lane,
         docker_runner=r,
@@ -150,7 +150,7 @@ def test_lit_lane_invokes_docker_runner(lane, monkeypatch, tmp_path):
     assert "docker" in captured["argv"][0]
     # The RESOLVED image, i.e. the one CI publishes and signs -- not the bare
     # tag, which resolves to whatever was last built on this machine (#449).
-    assert resolve_runner_image("pfactory-runner-pytest:latest") in captured["argv"]
+    assert resolve_runner_image("tfactory-runner-pytest:latest") in captured["argv"]
 
 
 # ── dispatch_browser_lane (Task 8 / #24) ────────────────────────────────
@@ -232,7 +232,7 @@ def test_dispatch_browser_lane_returns_browser_dispatch_result(
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
     target = _FakeTarget()
-    r = DockerRunner(image="pfactory-runner-playwright:latest")
+    r = DockerRunner(image="tfactory-runner-playwright:latest")
     result = dispatch_browser_lane(
         target=target,
         repo_root=tmp_path,
