@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- PFactory's copy of `extension-registry.json` is now drift-checked against
+  the hub at the pinned `HUB_SHA`, in the same CI step as the control catalog
+  (Factory#1709). The registry decides which review lenses and runtimes are
+  switched on, so a silent difference would change which checks run.
+
 ## 0.6.27 — governance in the run signature (2026-10-14)
 
 - **The run signature records governance (Factory#1961).** `<slug>.run.json`

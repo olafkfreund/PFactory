@@ -183,12 +183,31 @@ def test_vendored_catalog_in_sync_with_local_hub():
     assert canonical == vendored
 
 
+def test_vendored_registry_in_sync_with_local_hub():
+    """When the Factory hub checkout is present, the vendored registry must equal it."""
+    hub = _ROOT.parent / "Factory" / "apis" / "extension-registry.json"
+    if not hub.is_file():
+        pytest.skip("Factory hub checkout not available")
+    canonical = json.loads(hub.read_text(encoding="utf-8"))
+    vendored = json.loads(csd._REGISTRY_VENDORED.read_text(encoding="utf-8"))
+    assert canonical == vendored
+
+
 def test_catalog_match_and_mismatch(tmp_path, capsys):
     """main() checks the catalog with == and prints versions and differing ids on mismatch."""
-    rc = csd.main(["--canonical", str(csd._VENDORED), "--catalog", str(csd._CATALOG_VENDORED)])
+    rc = csd.main(
+        [
+            "--canonical",
+            str(csd._VENDORED),
+            "--catalog",
+            str(csd._CATALOG_VENDORED),
+            "--extension-registry",
+            str(csd._REGISTRY_VENDORED),
+        ]
+    )
     assert rc == 0
     out = capsys.readouterr().out
-    assert out.count("OK:") == 2
+    assert out.count("OK:") == 3
 
     drifted = json.loads(csd._CATALOG_VENDORED.read_text(encoding="utf-8"))
     drifted["version"] = 99
@@ -196,8 +215,71 @@ def test_catalog_match_and_mismatch(tmp_path, capsys):
     bad_catalog = tmp_path / "control-catalog.json"
     bad_catalog.write_text(json.dumps(drifted), encoding="utf-8")
 
-    rc_bad = csd.main(["--canonical", str(csd._VENDORED), "--catalog", str(bad_catalog)])
+    rc_bad = csd.main(
+        [
+            "--canonical",
+            str(csd._VENDORED),
+            "--catalog",
+            str(bad_catalog),
+            "--extension-registry",
+            str(csd._REGISTRY_VENDORED),
+        ]
+    )
     assert rc_bad == 1
     out_bad = capsys.readouterr().out
     assert "99" in out_bad and "1" in out_bad
     assert "audit-logging" in out_bad
+
+
+def test_registry_match_and_mismatch(tmp_path, capsys):
+    """main() checks the registry with == and prints differing top-level keys on mismatch."""
+    rc = csd.main(
+        [
+            "--canonical",
+            str(csd._VENDORED),
+            "--catalog",
+            str(csd._CATALOG_VENDORED),
+            "--extension-registry",
+            str(csd._REGISTRY_VENDORED),
+        ]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.count("OK:") == 3
+
+    drifted = json.loads(csd._REGISTRY_VENDORED.read_text(encoding="utf-8"))
+    drifted["extensions"] = []
+    bad_registry = tmp_path / "extension-registry.json"
+    bad_registry.write_text(json.dumps(drifted), encoding="utf-8")
+
+    rc_bad = csd.main(
+        [
+            "--canonical",
+            str(csd._VENDORED),
+            "--catalog",
+            str(csd._CATALOG_VENDORED),
+            "--extension-registry",
+            str(bad_registry),
+        ]
+    )
+    assert rc_bad == 1
+    out_bad = capsys.readouterr().out
+    assert "extensions" in out_bad
+
+    drifted_cat = json.loads(csd._CATALOG_VENDORED.read_text(encoding="utf-8"))
+    drifted_cat["version"] = 99
+    bad_catalog = tmp_path / "control-catalog.json"
+    bad_catalog.write_text(json.dumps(drifted_cat), encoding="utf-8")
+
+    rc_cat_bad = csd.main(
+        [
+            "--canonical",
+            str(csd._VENDORED),
+            "--catalog",
+            str(bad_catalog),
+            "--extension-registry",
+            str(csd._REGISTRY_VENDORED),
+        ]
+    )
+    assert rc_cat_bad == 1
+
