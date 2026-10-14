@@ -25,6 +25,9 @@ green while never once running, and a silent skip is indistinguishable from a
 pass (Factory#433). Real drift also fails hard (exit 1).
 """
 
+# CLI drift-check script: stdout `print` is its reporting surface for CI logs.
+# ruff: noqa: T201
+
 from __future__ import annotations
 
 import argparse
@@ -36,13 +39,19 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 _VENDORED = (
     Path(__file__).resolve().parent.parent
     / "apps/backend/plan/emit/contracts/task-contract.schema.json"
 )
 _RAW = "https://raw.githubusercontent.com/olafkfreund/Factory/{ref}/apis/task-contract.schema.json"
+_CATALOG_VENDORED = (
+    Path(__file__).resolve().parent.parent / "apps/backend/plan/emit/contracts/control-catalog.json"
+)
+_CATALOG_RAW = (
+    "https://raw.githubusercontent.com/olafkfreund/Factory/{ref}/apis/control-catalog.json"
+)
 
 
 def check_drift(canonical: Any, vendored: Any, path: str = "") -> list[str]:
@@ -65,10 +74,37 @@ def check_drift(canonical: Any, vendored: Any, path: str = "") -> list[str]:
         missing = [v for v in canonical if v not in vendored]
         if missing:
             problems.append(f"{path}: vendored is missing values {missing}")
-    else:
-        if canonical != vendored:
-            problems.append(f"{path}: canonical={canonical!r} != vendored={vendored!r}")
+    elif canonical != vendored:
+        problems.append(f"{path}: canonical={canonical!r} != vendored={vendored!r}")
     return problems
+
+
+def _catalog_diff_ids(canonical: dict[str, Any], vendored: dict[str, Any]) -> list[str]:
+    """Return control ids that are added, removed, modified, or reordered."""
+    c_controls = canonical.get("controls")
+    v_controls = vendored.get("controls")
+    c_list = [
+        c
+        for c in (c_controls if isinstance(c_controls, list) else [])
+        if isinstance(c, dict) and isinstance(c.get("id"), str)
+    ]
+    v_list = [
+        c
+        for c in (v_controls if isinstance(v_controls, list) else [])
+        if isinstance(c, dict) and isinstance(c.get("id"), str)
+    ]
+    c_by_id = {c["id"]: c for c in c_list}
+    v_by_id = {c["id"]: c for c in v_list}
+    diff = [
+        cid for cid in sorted(set(c_by_id) | set(v_by_id)) if c_by_id.get(cid) != v_by_id.get(cid)
+    ]
+    if not diff and [c["id"] for c in c_list] != [c["id"] for c in v_list]:
+        c_order = [c["id"] for c in c_list]
+        v_order = [c["id"] for c in v_list]
+        diff = [
+            cid for idx, cid in enumerate(c_order) if idx >= len(v_order) or v_order[idx] != cid
+        ]
+    return diff
 
 
 def is_transient(exc: BaseException) -> bool:
@@ -107,8 +143,8 @@ def _warn_skipped(exc: BaseException) -> None:
             fh.write(f"> [!WARNING]\n> {msg}\n")
 
 
-def fetch_canonical(source: str) -> dict | None:
-    """Load the canonical schema from a local path or an http(s) URL.
+def fetch_canonical(source: str) -> dict[str, Any] | None:
+    """Load the canonical JSON from a local path or an http(s) URL.
 
     Returns None only on a *transient* network error (soft skip). A deterministic
     failure is re-raised so the caller can fail the gate.
@@ -116,18 +152,52 @@ def fetch_canonical(source: str) -> dict | None:
     if source.startswith(("http://", "https://")):
         try:
             with urllib.request.urlopen(source, timeout=15) as resp:  # noqa: S310 - pinned host
-                return json.loads(resp.read().decode("utf-8"))
+                return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
         except (OSError, ValueError) as exc:  # URLError/SSLError/TimeoutError ⊂ OSError
             if not is_transient(exc):
                 raise
             _warn_skipped(exc)
             return None
-    return json.loads(Path(source).read_text(encoding="utf-8"))
+    return cast("dict[str, Any]", json.loads(Path(source).read_text(encoding="utf-8")))
+
+
+def _check_catalog(catalog_source: str) -> int:
+    try:
+        canonical_catalog = fetch_canonical(catalog_source)
+    except (OSError, ValueError) as exc:
+        print(f"FAIL: could not fetch the canonical control catalog from {catalog_source}: {exc}")
+        print(
+            "This failure is deterministic — it will recur every run — so the "
+            "drift gate cannot run and therefore fails. A gate that cannot run "
+            "must never report success (Factory#433)."
+        )
+        return 1
+    if canonical_catalog is None:
+        return 0  # soft skip: transient network failure only, warned loudly above
+
+    vendored_catalog = json.loads(_CATALOG_VENDORED.read_text(encoding="utf-8"))
+    if canonical_catalog != vendored_catalog:
+        c_ver = canonical_catalog.get("version")
+        v_ver = vendored_catalog.get("version")
+        diff_ids = _catalog_diff_ids(canonical_catalog, vendored_catalog)
+        print(
+            "Control catalog drift — the vendored copy differs from the canonical hub copy:\n"
+            f"  canonical version: {c_ver!r}, vendored version: {v_ver!r}\n"
+            f"  differing ids: {diff_ids}"
+        )
+        print(
+            "\nSync apps/backend/plan/emit/contracts/control-catalog.json with "
+            "the Factory hub apis/control-catalog.json."
+        )
+        return 1
+    print("OK: vendored control catalog is in sync with the canonical hub copy.")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--canonical", help="path or URL to the canonical schema")
+    ap.add_argument("--catalog", help="path or URL to the canonical control catalog")
     ap.add_argument("--ref", default="main", help="git ref of the Factory hub (default: main)")
     args = ap.parse_args(argv)
 
@@ -157,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     print("OK: vendored Task Contract schema is in sync with the canonical hub copy.")
-    return 0
+    return _check_catalog(args.catalog or _CATALOG_RAW.format(ref=args.ref))
 
 
 if __name__ == "__main__":
