@@ -24,7 +24,7 @@ version_range: ">=12.0,<15.0"
 runtime:
   # Docker image (deferred — built alongside the other runner images).
   # Node 22 + cypress + cypress-multi-reporters + mocha-junit-reporter + Chromium.
-  image: pfactory-runner-cypress:latest
+  image: tfactory-runner-cypress:latest
   entrypoint:
     - npx
     - cypress

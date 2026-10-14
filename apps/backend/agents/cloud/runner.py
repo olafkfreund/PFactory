@@ -2,7 +2,7 @@
 
 Ties the cloud stages together so a ``CloudProviderTarget`` runs end-to-end:
 
-    discover (inventory)  →  Prowler in pfactory-runner-cloud (OCSF)  →
+    discover (inventory)  →  Prowler in tfactory-runner-cloud (OCSF)  →
     assess + write report/diagram into findings/
 
 :func:`run_cloud_assessment` is the seam the executor / portal calls. The Prowler
@@ -25,7 +25,7 @@ from .report import assess_and_write
 
 __all__ = ["build_prowler_command", "run_cloud_assessment"]
 
-_IMAGE = "pfactory-runner-cloud:latest"
+_IMAGE = "tfactory-runner-cloud:latest"
 # Where each provider's ambient creds live on the host → mounted read-only.
 # AWS keeps the container's default home (verified); GCP/Azure mount to a
 # fixed path and run as the host uid so 0600 credential files are readable.

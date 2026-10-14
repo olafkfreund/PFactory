@@ -3,7 +3,7 @@ on a given provider/model and report the terminal verdict mix.
 
 Unlike verify-provider.py (Planner only), this enables the whole auto-fire
 chain and polls until a truly terminal state (triaged / *_failed / stuck).
-Requires Docker + the pfactory-runner-pytest image (the Executor sandbox).
+Requires Docker + the tfactory-runner-pytest image (the Executor sandbox).
 
   TF_MODEL=<model-string> python full-pipeline.py <label>
 """

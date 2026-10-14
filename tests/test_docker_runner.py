@@ -163,41 +163,41 @@ def test_custom_image_honoured():
 # ── the default image must be one something builds (#493) ────────────────
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_RUNNER_IMAGES_WORKFLOW = _REPO_ROOT / ".github/workflows/runner-images.yml"
+_DESCRIPTORS = _REPO_ROOT / "frameworks"
 
 
-def _built_runners() -> set[str]:
-    """The frameworks `runner-images.yml` actually builds, read from its matrix.
+def _descriptor_runners() -> set[str]:
+    """The runner images the framework descriptors name.
 
-    Read rather than hand-listed: a second copy of the matrix in a test is the
-    thing that drifts, and drift is the whole of #493.
+    Read rather than hand-listed: a second copy in a test is the thing that
+    drifts, and drift is the whole of #493. The images themselves are built and
+    signed by TFactory's runner-images.yml since Factory#1003.
     """
-    matrix = re.search(
-        r"^\s*runner:\s*\[([^\]]+)\]", _RUNNER_IMAGES_WORKFLOW.read_text(), re.M
-    )
-    assert matrix, "runner-images.yml no longer declares a `runner:` matrix list"
-    return {name.strip() for name in matrix.group(1).split(",")}
+    names = {
+        m.group(1).removeprefix("tfactory-runner-").split(":")[0]
+        for d in _DESCRIPTORS.glob("*/descriptor.yaml")
+        if (m := re.search(r"^\s*image:\s*(tfactory-runner-\S+)", d.read_text(), re.M))
+    }
+    assert names, "no framework descriptor names a tfactory-runner-* image"
+    return names
 
 
-def test_default_image_is_built_by_the_runner_images_workflow():
+def test_default_image_is_one_the_descriptors_use():
     """#493: `DEFAULT_IMAGE` named `pfactory-runner-python`, which nothing built.
 
-    Not in `runner-images.yml`'s matrix, no `docker/pfactory-runner-python/`,
-    no compose service, no script -- only a hand-typed `docker build` in a
-    Dockerfile's own header comment. Every caller landing on the default asked
-    for an image no pipeline produces: `pull access denied` before #449, a 404
-    against ghcr.io after it.
+    No `docker/pfactory-runner-python/`, no compose service, no script -- only a
+    hand-typed `docker build` in a Dockerfile's own header comment. Every caller
+    landing on the default asked for an image no pipeline produces: `pull access
+    denied` before #449, a 404 against ghcr.io after it.
 
-    Asserted against the workflow rather than against a literal, so the default
-    cannot drift off the matrix again without this going red.
+    Asserted against the descriptors rather than against a literal, so the
+    default cannot drift off the published set again without this going red.
     """
-    framework = DockerRunner.DEFAULT_IMAGE.removeprefix("pfactory-runner-").split(":")[0]
-    assert framework in _built_runners(), (
-        f"DEFAULT_IMAGE={DockerRunner.DEFAULT_IMAGE!r} names a runner "
-        f"runner-images.yml does not build (it builds {sorted(_built_runners())})"
+    framework = DockerRunner.DEFAULT_IMAGE.removeprefix("tfactory-runner-").split(":")[0]
+    assert framework in _descriptor_runners(), (
+        f"DEFAULT_IMAGE={DockerRunner.DEFAULT_IMAGE!r} names a runner no framework "
+        f"descriptor uses (they use {sorted(_descriptor_runners())})"
     )
-    dockerfile = _REPO_ROOT / f"docker/pfactory-runner-{framework}/Dockerfile"
-    assert dockerfile.exists(), f"no Dockerfile at {dockerfile}"
 
 
 def test_class_default_is_the_module_constant():
@@ -216,17 +216,17 @@ def test_class_default_is_the_module_constant():
 
 def test_bare_runner_tag_is_qualified_with_the_publishing_registry():
     assert (
-        resolve_runner_image("pfactory-runner-pytest:latest")
-        == f"{DEFAULT_RUNNER_REGISTRY}/pfactory-runner-pytest:latest"
+        resolve_runner_image("tfactory-runner-pytest:latest")
+        == f"{DEFAULT_RUNNER_REGISTRY}/tfactory-runner-pytest:latest"
     )
 
 
 def test_already_qualified_image_is_untouched():
     """An explicitly requested image always wins over the default registry."""
     for image in (
-        "ghcr.io/acme/pfactory-runner-pytest:latest",
+        "ghcr.io/acme/tfactory-runner-pytest:latest",
         "docker.io/library/python:3.12-slim",
-        "localhost:5000/pfactory-runner-jest:dev",
+        "localhost:5000/tfactory-runner-jest:dev",
     ):
         assert resolve_runner_image(image) == image
 
@@ -238,8 +238,8 @@ def test_non_runner_image_is_untouched():
 def test_registry_env_override(monkeypatch):
     monkeypatch.setenv(RUNNER_REGISTRY_ENV, "registry.example.com/mirror")
     assert (
-        resolve_runner_image("pfactory-runner-cloud:latest")
-        == "registry.example.com/mirror/pfactory-runner-cloud:latest"
+        resolve_runner_image("tfactory-runner-cloud:latest")
+        == "registry.example.com/mirror/tfactory-runner-cloud:latest"
     )
 
 
@@ -247,9 +247,9 @@ def test_empty_registry_env_restores_bare_local_tags(monkeypatch):
     """The escape hatch for iterating on a Dockerfile, where running YOUR build
     is the point. Setting it empty must not fall back to the default."""
     monkeypatch.setenv(RUNNER_REGISTRY_ENV, "")
-    assert resolve_runner_image("pfactory-runner-pytest:latest") == "pfactory-runner-pytest:latest"
-    assert DockerRunner(image="pfactory-runner-pytest:latest").image == (
-        "pfactory-runner-pytest:latest"
+    assert resolve_runner_image("tfactory-runner-pytest:latest") == "tfactory-runner-pytest:latest"
+    assert DockerRunner(image="tfactory-runner-pytest:latest").image == (
+        "tfactory-runner-pytest:latest"
     )
 
 
@@ -521,7 +521,7 @@ def test_docker_image_runs_echo(tmp_path):
     """Smoke: the runner can fire a docker invocation and capture stdout.
 
     Uses busybox (3MB, ships everywhere) — does NOT require the
-    pfactory-runner-pytest image to be built. Validates the wiring
+    tfactory-runner-pytest image to be built. Validates the wiring
     end-to-end without the build artifact.
     """
     r = DockerRunner(image="busybox:latest")
@@ -544,11 +544,11 @@ def test_docker_image_runs_echo(tmp_path):
 #
 # These tests require:
 #   1. Docker daemon accessible (checked by _docker_available()).
-#   2. The pfactory-runner-* images to have been built locally.
+#   2. The tfactory-runner-* images to have been built locally (from TFactory).
 #      Build them with:
-#        docker build -t pfactory-runner-pytest:latest docker/pfactory-runner-pytest
-#        docker build -t pfactory-runner-jest:latest docker/pfactory-runner-jest
-#        docker build -t pfactory-runner-playwright:latest docker/pfactory-runner-playwright
+#        docker build -t tfactory-runner-pytest:latest docker/tfactory-runner-pytest
+#        docker build -t tfactory-runner-jest:latest docker/tfactory-runner-jest
+#        docker build -t tfactory-runner-playwright:latest docker/tfactory-runner-playwright
 #
 # All cases are marked @pytest.mark.slow so they are excluded from the fast
 # pre-commit and PR-check runs (pytest -m "not slow").  The runner-images CI
@@ -576,12 +576,12 @@ def _image_available(image: str) -> bool:
 @pytest.mark.slow
 @pytest.mark.skipif(not _docker_available(), reason="docker not available")
 @pytest.mark.skipif(
-    not _image_available("pfactory-runner-pytest:latest"),
-    reason="pfactory-runner-pytest:latest not built locally",
+    not _image_available("tfactory-runner-pytest:latest"),
+    reason="tfactory-runner-pytest:latest not built locally",
 )
 def test_pytest_image_runs_hello_world(tmp_path):
-    """pfactory-runner-pytest can run a trivial Python print."""
-    r = DockerRunner(image="pfactory-runner-pytest:latest")
+    """tfactory-runner-pytest can run a trivial Python print."""
+    r = DockerRunner(image="tfactory-runner-pytest:latest")
     res = r.run(
         repo_path=tmp_path,
         scratch_path=tmp_path,
@@ -595,12 +595,12 @@ def test_pytest_image_runs_hello_world(tmp_path):
 @pytest.mark.slow
 @pytest.mark.skipif(not _docker_available(), reason="docker not available")
 @pytest.mark.skipif(
-    not _image_available("pfactory-runner-pytest:latest"),
-    reason="pfactory-runner-pytest:latest not built locally",
+    not _image_available("tfactory-runner-pytest:latest"),
+    reason="tfactory-runner-pytest:latest not built locally",
 )
 def test_pytest_image_has_pytest_on_path(tmp_path):
-    """pytest 8.x must be importable inside pfactory-runner-pytest."""
-    r = DockerRunner(image="pfactory-runner-pytest:latest")
+    """pytest 8.x must be importable inside tfactory-runner-pytest."""
+    r = DockerRunner(image="tfactory-runner-pytest:latest")
     res = r.run(
         repo_path=tmp_path,
         scratch_path=tmp_path,
@@ -619,12 +619,12 @@ def test_pytest_image_has_pytest_on_path(tmp_path):
 @pytest.mark.slow
 @pytest.mark.skipif(not _docker_available(), reason="docker not available")
 @pytest.mark.skipif(
-    not _image_available("pfactory-runner-jest:latest"),
-    reason="pfactory-runner-jest:latest not built locally",
+    not _image_available("tfactory-runner-jest:latest"),
+    reason="tfactory-runner-jest:latest not built locally",
 )
 def test_jest_image_runs_hello_world(tmp_path):
-    """pfactory-runner-jest can run a trivial Node console.log."""
-    r = DockerRunner(image="pfactory-runner-jest:latest")
+    """tfactory-runner-jest can run a trivial Node console.log."""
+    r = DockerRunner(image="tfactory-runner-jest:latest")
     res = r.run(
         repo_path=tmp_path,
         scratch_path=tmp_path,
@@ -638,12 +638,12 @@ def test_jest_image_runs_hello_world(tmp_path):
 @pytest.mark.slow
 @pytest.mark.skipif(not _docker_available(), reason="docker not available")
 @pytest.mark.skipif(
-    not _image_available("pfactory-runner-jest:latest"),
-    reason="pfactory-runner-jest:latest not built locally",
+    not _image_available("tfactory-runner-jest:latest"),
+    reason="tfactory-runner-jest:latest not built locally",
 )
 def test_jest_image_has_jest_on_path(tmp_path):
-    """jest 29.x must be on PATH inside pfactory-runner-jest."""
-    r = DockerRunner(image="pfactory-runner-jest:latest")
+    """jest 29.x must be on PATH inside tfactory-runner-jest."""
+    r = DockerRunner(image="tfactory-runner-jest:latest")
     res = r.run(
         repo_path=tmp_path,
         scratch_path=tmp_path,
@@ -660,12 +660,12 @@ def test_jest_image_has_jest_on_path(tmp_path):
 @pytest.mark.slow
 @pytest.mark.skipif(not _docker_available(), reason="docker not available")
 @pytest.mark.skipif(
-    not _image_available("pfactory-runner-playwright:latest"),
-    reason="pfactory-runner-playwright:latest not built locally",
+    not _image_available("tfactory-runner-playwright:latest"),
+    reason="tfactory-runner-playwright:latest not built locally",
 )
 def test_playwright_image_runs_hello_world(tmp_path):
-    """pfactory-runner-playwright can run a trivial Node console.log."""
-    r = DockerRunner(image="pfactory-runner-playwright:latest")
+    """tfactory-runner-playwright can run a trivial Node console.log."""
+    r = DockerRunner(image="tfactory-runner-playwright:latest")
     res = r.run(
         repo_path=tmp_path,
         scratch_path=tmp_path,
@@ -679,12 +679,12 @@ def test_playwright_image_runs_hello_world(tmp_path):
 @pytest.mark.slow
 @pytest.mark.skipif(not _docker_available(), reason="docker not available")
 @pytest.mark.skipif(
-    not _image_available("pfactory-runner-playwright:latest"),
-    reason="pfactory-runner-playwright:latest not built locally",
+    not _image_available("tfactory-runner-playwright:latest"),
+    reason="tfactory-runner-playwright:latest not built locally",
 )
 def test_playwright_image_has_playwright_on_path(tmp_path):
-    """@playwright/test 1.4x must be accessible via npx inside pfactory-runner-playwright."""
-    r = DockerRunner(image="pfactory-runner-playwright:latest")
+    """@playwright/test 1.4x must be accessible via npx inside tfactory-runner-playwright."""
+    r = DockerRunner(image="tfactory-runner-playwright:latest")
     res = r.run(
         repo_path=tmp_path,
         scratch_path=tmp_path,

@@ -48,7 +48,7 @@ secrets.
 
 - **Discovery** (`agents/cloud/discovery.py`) — `access_check` + `discover` →
   a normalized inventory (global S3/IAM + per-region VPC/EC2/Lambda).
-- **Assessment** — the **`pfactory-runner-cloud`** image bundles
+- **Assessment** — the **`tfactory-runner-cloud`** image bundles
   [Prowler](https://github.com/prowler-cloud/prowler) (CSPM, 500+ CIS checks,
   OCSF output) + Checkov (IaC). It runs read-only with credentials mounted
   read-only and `--network=bridge`.

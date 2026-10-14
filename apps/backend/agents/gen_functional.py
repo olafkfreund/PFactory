@@ -16,7 +16,7 @@ test file or writes a ``context/replan_request.json`` for the Planner.
     Python-specific v0.1 prompt for polyglot subtasks).
   - ``_resolve_runner_fn`` now reads the image from
     ``framework_descriptor.runtime.image`` instead of the hardcoded
-    ``pfactory-runner-pytest:latest`` constant.
+    ``tfactory-runner-pytest:latest`` constant.
   - v0.1-style subtasks (``subtask.framework is None``) degrade
     gracefully with a ``DeprecationWarning`` on both the prompt helper
     and the runner-image paths.
@@ -190,7 +190,7 @@ def _resolve_runner_fn(framework_descriptor=None):
     In v0.2 the runner image is taken from
     ``framework_descriptor.runtime.image``.  For v0.1-style subtasks
     (``framework_descriptor=None``) the legacy default image
-    ``pfactory-runner-pytest:latest`` is used and a ``DeprecationWarning``
+    ``tfactory-runner-pytest:latest`` is used and a ``DeprecationWarning``
     is emitted.
 
     The returned callable has the signature::
