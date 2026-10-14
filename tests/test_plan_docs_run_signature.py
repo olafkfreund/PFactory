@@ -158,6 +158,7 @@ def test_governance_fields_copy_existing_evidence(processed):
     }
     processed.review.human_approval.approved = True
     processed.review.human_approval.valid = True
+    processed.review.human_approval.plan_hash = processed.plan.compute_hash()
     processed.review.human_approval.approved_by = "reviewer"
     processed.review.human_approval.approved_at = "2026-10-14T12:00:00Z"
 
@@ -198,11 +199,18 @@ def test_unapproved_and_nonpersonal_values_do_not_claim_evidence(processed):
 
 
 def test_a_stale_approval_is_not_stamped(processed):
-    """Approved, then the plan changed: `valid` is False, so nobody is named."""
+    """Approved, then the plan text changed. Nothing in the service resets
+    `valid` on an edit, so the hash is the guard: nobody is named."""
     processed.review.human_approval.approved = True
-    processed.review.human_approval.valid = False
+    processed.review.human_approval.valid = True
+    processed.review.human_approval.plan_hash = processed.plan.compute_hash()
     processed.review.human_approval.approved_by = "reviewer"
     processed.review.human_approval.approved_at = "2026-10-14T12:00:00Z"
+    live = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
+    assert live["approved_by"] == "reviewer"
+
+    processed.plan.title = processed.plan.title + " (edited after approval)"
+    assert processed.review.human_approval.valid  # still True: the trap
     sig = render_plan_docs(processed, control_catalog=_CATALOG).run_signature
     assert sig["approved_by"] is None and sig["approved_at"] is None
     assert "change-mgmt-sod" not in sig["controls"]
@@ -237,6 +245,7 @@ def test_other_control_rules_and_unknown_catalog(processed):
     assert _controls_engaged(processed, _CATALOG) == ["audit-logging"]
     processed.review.human_approval.approved = True
     processed.review.human_approval.valid = True
+    processed.review.human_approval.plan_hash = processed.plan.compute_hash()
     processed.contract_result = {"contract": {"compliance": {"data_classes": ["account"]}}}
     processed.injection_scan = {"verdict": "pass"}
     expected = sorted(

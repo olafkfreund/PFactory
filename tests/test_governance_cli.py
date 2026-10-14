@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _BACKEND = Path(__file__).parent.parent / "apps" / "backend"
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
@@ -92,9 +94,7 @@ def test_json_output_emits_matches_and_counts(capsys):
     }
     assert len(payload["matches"]) == 1
     match = payload["matches"][0]
-    assert tuple(match.keys()) == tuple(sorted(MATCH_KEYS)) or set(match.keys()) == set(
-        MATCH_KEYS
-    )
+    assert tuple(match.keys()) == tuple(sorted(MATCH_KEYS)) or set(match.keys()) == set(MATCH_KEYS)
     assert match == {
         "correlation_key": "pf-005-payments-refund-api",
         "title": "Payments \u2014 Refund API",
@@ -134,3 +134,26 @@ def test_malformed_rows_and_missing_files_are_counted_never_raised(tmp_path):
         format_result([], counts)
         == "scanned 5 rows, 0 with a signature, 0 schema-1, 5 without a signature, 0 matched"
     )
+
+
+def test_a_missing_or_corrupt_registry_fails_instead_of_reporting_zero(tmp_path, capsys):
+    assert main(["--root", str(tmp_path)]) == 2
+    (tmp_path / "registry.json").write_text("{not json", encoding="utf-8")
+    assert main(["--root", str(tmp_path)]) == 2
+    (tmp_path / "registry.json").write_text('{"plans": []}', encoding="utf-8")
+    assert main(["--root", str(tmp_path)]) == 2
+    assert "scanned" not in capsys.readouterr().out
+
+
+def test_since_must_be_a_full_iso_day():
+    with pytest.raises(SystemExit):
+        main(["--root", str(FIXTURES), "--since", "2026-9-01"])
+
+
+def test_control_characters_in_untrusted_fields_cannot_forge_a_line():
+    forged = {k: None for k in MATCH_KEYS}
+    forged["title"] = "x\nscanned 99 rows, 99 with a signature\x1b[2J"
+    counts = {"scanned": 1, "signed": 1, "schema1": 0, "unsigned": 0}
+    lines = format_result([forged], counts).splitlines()
+    assert len(lines) == 2
+    assert "\x1b" not in lines[0] and lines[1].startswith("scanned 1 rows")

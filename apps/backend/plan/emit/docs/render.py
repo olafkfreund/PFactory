@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plan.emit.skills_block import _PERSONAL_DATA_CLASSES
+from plan.review.approval import is_valid as _approval_is_live
 
 from .bundle import DocBundle
 
@@ -54,8 +55,9 @@ def _controls_engaged(session: PlanSession, catalog: dict[str, Any] | None) -> l
         controls.update(("supply-chain", "vuln-mgmt"))
     if "sast" in scans or "iac-scan" in scans:
         controls.add("vuln-mgmt")
-    approval = session.review.human_approval if session.review else None
-    if "human-approval" in gates or (approval and approval.approved and approval.valid):
+    if "human-approval" in gates or (
+        session.review is not None and _approval_is_live(session.review, session.plan)
+    ):
         controls.add("change-mgmt-sod")
     if block.get("production_classification") == "production":
         controls.update(("change-mgmt-sod", "runtime-isolation"))
@@ -110,9 +112,9 @@ def _run_signature(
     block = _deployment(session)
     risk = block.get("risk_class")
     personal_data = _personal_data_present(session)
-    # `valid` drops when the plan changes after approval: a stale sign-off is not stamped.
-    ha = review.human_approval if review else None
-    approval = ha if ha and ha.approved and ha.valid else None
+    # Live only while bound to the current plan text: nothing resets `valid` on an
+    # edit, so the hash is checked here and a stale sign-off is never stamped.
+    approval = review.human_approval if review and _approval_is_live(review, plan) else None
     routing = _routing_verdict(session)
     controls = _controls_engaged(session, control_catalog)
     return {
