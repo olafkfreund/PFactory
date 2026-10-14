@@ -43,7 +43,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 _VENDORED = (
     Path(__file__).resolve().parent.parent
@@ -139,8 +139,9 @@ def is_transient(exc: BaseException) -> bool:
 def _warn_skipped(exc: BaseException) -> None:
     """Announce a soft skip loudly: a skipping gate must not look like a pass."""
     msg = (
-        f"SCHEMA DRIFT CHECK SKIPPED — NOT VERIFIED ({exc}). The vendored Task "
-        "Contract schema was NOT compared against the canonical hub copy. If you "
+        f"SCHEMA DRIFT CHECK SKIPPED — NOT VERIFIED ({exc}). A vendored hub file "
+        "(the Task Contract schema, control catalog or extension registry) was NOT "
+        "compared against the canonical hub copy. If you "
         "see this on every run, the gate is dead — fix the fetch, don't ignore it."
     )
     banner = "!" * 78
@@ -154,6 +155,13 @@ def _warn_skipped(exc: BaseException) -> None:
             fh.write(f"> [!WARNING]\n> {msg}\n")
 
 
+def _as_object(data: Any) -> dict[str, Any]:
+    # A JSON `null` would otherwise come back as None, which reads as a soft skip.
+    if not isinstance(data, dict):
+        raise ValueError(f"canonical JSON is a {type(data).__name__}, not an object")
+    return data
+
+
 def fetch_canonical(source: str) -> dict[str, Any] | None:
     """Load the canonical JSON from a local path or an http(s) URL.
 
@@ -163,13 +171,13 @@ def fetch_canonical(source: str) -> dict[str, Any] | None:
     if source.startswith(("http://", "https://")):
         try:
             with urllib.request.urlopen(source, timeout=15) as resp:  # noqa: S310 - pinned host
-                return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
+                return _as_object(json.loads(resp.read().decode("utf-8")))
         except (OSError, ValueError) as exc:  # URLError/SSLError/TimeoutError ⊂ OSError
             if not is_transient(exc):
                 raise
             _warn_skipped(exc)
             return None
-    return cast("dict[str, Any]", json.loads(Path(source).read_text(encoding="utf-8")))
+    return _as_object(json.loads(Path(source).read_text(encoding="utf-8")))
 
 
 def _catalog_detail(canonical: dict[str, Any], vendored: dict[str, Any]) -> str:

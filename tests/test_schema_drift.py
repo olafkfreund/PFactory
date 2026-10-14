@@ -69,16 +69,25 @@ def _self_signed_https_server(tmp_path: Path) -> tuple[http.server.HTTPServer, i
     openssl = shutil.which("openssl")
     subprocess.run(  # noqa: S603 - fixed argv, resolved binary, test-only
         [
-            openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
-            "-keyout", str(key), "-out", str(crt), "-days", "1",
-            "-subj", "/CN=localhost",
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(key),
+            "-out",
+            str(crt),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=localhost",
         ],
         check=True,
         capture_output=True,
     )
-    srv = http.server.HTTPServer(
-        ("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler
-    )
+    srv = http.server.HTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2  # don't offer TLSv1/1.1
     ctx.load_cert_chain(crt, key)
@@ -108,9 +117,7 @@ def test_is_transient_unwraps_urlopen_reason():
     assert not csd.is_transient(urllib.error.URLError(cert_err))
     assert not csd.is_transient(cert_err)
     # A 404 on the pinned ref is deterministic too — reason is a str, not a cause.
-    assert not csd.is_transient(
-        urllib.error.HTTPError("u", 404, "Not Found", {}, None)
-    )
+    assert not csd.is_transient(urllib.error.HTTPError("u", 404, "Not Found", {}, None))
     # Genuinely transient causes may still soft-skip.
     assert csd.is_transient(urllib.error.URLError(TimeoutError("timed out")))
     assert csd.is_transient(urllib.error.URLError(socket.gaierror(-2, "no host")))
@@ -283,3 +290,20 @@ def test_registry_match_and_mismatch(tmp_path, capsys):
     )
     assert rc_cat_bad == 1
 
+
+def test_a_canonical_null_fails_instead_of_soft_skipping(tmp_path, capsys):
+    """JSON `null` parses to None, the soft-skip value; it must fail the gate."""
+    null_hub = tmp_path / "extension-registry.json"
+    null_hub.write_text("null", encoding="utf-8")
+    rc = csd.main(
+        [
+            "--canonical",
+            str(csd._VENDORED),
+            "--catalog",
+            str(csd._CATALOG_VENDORED),
+            "--extension-registry",
+            str(null_hub),
+        ]
+    )
+    assert rc == 1
+    assert "not an object" in capsys.readouterr().out
