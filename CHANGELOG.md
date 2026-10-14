@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.27 — governance in the run signature (2026-10-14)
+
 - **The run signature records governance (Factory#1961).** `<slug>.run.json`
   is now `signature_schema: 2`. It adds flat keys, and no existing key changes
   meaning:
@@ -23,6 +25,9 @@
   what tier, approved by whom". It always prints how many rows it scanned, how
   many had a signature, how many were schema-1 and how many had none, so an
   empty answer is never silent.
+- A cloud access action is required only when the plan targets that cloud
+  (#839).
+- The image replaces npm's vendored `brace-expansion` and `undici` (#843).
 
 ## 0.6.26 — running-tasks endpoint reachable; plan-session delete (2026-09-29)
 
