@@ -164,10 +164,40 @@ def test_vendored_in_sync_with_local_hub():
     hub = _ROOT.parent / "Factory" / "apis" / "task-contract.schema.json"
     if not hub.is_file():
         pytest.skip("Factory hub checkout not available")
-    canonical = json.loads(hub.read_text())
+    canonical = json.loads(hub.read_text(encoding="utf-8"))
     vendored = json.loads(
-        (
-            _ROOT / "apps/backend/plan/emit/contracts/task-contract.schema.json"
-        ).read_text()
+        (_ROOT / "apps/backend/plan/emit/contracts/task-contract.schema.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert csd.check_drift(canonical, vendored) == []
+
+
+def test_vendored_catalog_in_sync_with_local_hub():
+    """When the Factory hub checkout is present, the vendored catalog must equal it."""
+    hub = _ROOT.parent / "Factory" / "apis" / "control-catalog.json"
+    if not hub.is_file():
+        pytest.skip("Factory hub checkout not available")
+    canonical = json.loads(hub.read_text(encoding="utf-8"))
+    vendored = json.loads(csd._CATALOG_VENDORED.read_text(encoding="utf-8"))
+    assert canonical == vendored
+
+
+def test_catalog_match_and_mismatch(tmp_path, capsys):
+    """main() checks the catalog with == and prints versions and differing ids on mismatch."""
+    rc = csd.main(["--canonical", str(csd._VENDORED), "--catalog", str(csd._CATALOG_VENDORED)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.count("OK:") == 2
+
+    drifted = json.loads(csd._CATALOG_VENDORED.read_text(encoding="utf-8"))
+    drifted["version"] = 99
+    drifted["controls"] = [c for c in drifted["controls"] if c["id"] != "audit-logging"]
+    bad_catalog = tmp_path / "control-catalog.json"
+    bad_catalog.write_text(json.dumps(drifted), encoding="utf-8")
+
+    rc_bad = csd.main(["--canonical", str(csd._VENDORED), "--catalog", str(bad_catalog)])
+    assert rc_bad == 1
+    out_bad = capsys.readouterr().out
+    assert "99" in out_bad and "1" in out_bad
+    assert "audit-logging" in out_bad

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "controls": [
+    {"id": "governance-isms", "domain": "Governance / ISMS", "issue": 311},
+    {"id": "iam-access", "domain": "IAM & access control", "issue": 312},
+    {"id": "audit-logging", "domain": "Audit logging & retention", "issue": 313},
+    {"id": "encryption-at-rest", "domain": "Encryption at rest & KMS", "issue": 314},
+    {"id": "secrets-management", "domain": "Secrets management", "issue": 315},
+    {"id": "change-mgmt-sod", "domain": "Change mgmt & SoD", "issue": 316},
+    {"id": "vuln-mgmt", "domain": "Vuln & patch mgmt", "issue": 317},
+    {"id": "supply-chain", "domain": "Supply-chain integrity", "issue": 318},
+    {"id": "incident-response", "domain": "Incident response", "issue": 319},
+    {"id": "data-governance", "domain": "Data governance & PII", "issue": 320},
+    {"id": "business-continuity", "domain": "Business continuity / DR", "issue": 321},
+    {"id": "runtime-isolation", "domain": "Runtime isolation", "issue": 322},
+    {"id": "agentic-ai-governance", "domain": "Agentic-AI governance", "issue": 323},
+    {"id": "evidence-audit-readiness", "domain": "Evidence & audit-readiness", "issue": 324}
+  ]
+}
