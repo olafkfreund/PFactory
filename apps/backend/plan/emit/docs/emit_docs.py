@@ -52,7 +52,7 @@ def _app_version() -> str:
 
 
 @lru_cache(maxsize=1)
-def _control_catalog() -> dict | None:
+def _control_catalog() -> dict[str, Any] | None:
     try:
         path = Path(__file__).resolve().parents[1] / "contracts" / "control-catalog.json"
         catalog = json.loads(path.read_text(encoding="utf-8"))

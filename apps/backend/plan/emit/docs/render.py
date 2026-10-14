@@ -39,7 +39,7 @@ def _personal_data_present(session: PlanSession) -> bool:
     )
 
 
-def _controls_engaged(session: PlanSession, catalog: dict | None) -> list[str] | None:
+def _controls_engaged(session: PlanSession, catalog: dict[str, Any] | None) -> list[str] | None:
     if catalog is None:
         return None
     block = _deployment(session)
@@ -80,7 +80,7 @@ def _run_signature(
     *,
     correlation_key: str,
     pfactory_version: str,
-    control_catalog: dict | None = None,
+    control_catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The provenance record for one planner run (#700).
 
@@ -342,7 +342,10 @@ def _render_markdown(session: PlanSession, deps: list[str]) -> str:
 
 
 def render_plan_docs(
-    session: PlanSession, *, pfactory_version: str = "unknown", control_catalog: dict | None = None
+    session: PlanSession,
+    *,
+    pfactory_version: str = "unknown",
+    control_catalog: dict[str, Any] | None = None,
 ) -> DocBundle:
     """Render the plan session into a :class:`DocBundle` (pure).
 
