@@ -324,6 +324,18 @@ def test_get_task_happy_returns_full_status(workspace_root: Path) -> None:
     assert sj["committed_count"] == 4
 
 
+def test_get_task_derives_lane_progress(workspace_root: Path) -> None:
+    spec_dir = _make_task(
+        workspace_root, project_id="demo", spec_id="043-x", status="triaged",
+        extra_status={"lane_progress": {"unit": "pending"}},
+    )
+    (spec_dir / "test_plan.json").write_text(
+        json.dumps({"phases": [{"subtasks": [{"lane": "unit"}]}]})
+    )
+    sj = get_task("043-x")["status_json"]
+    assert sj["lane_progress"]["unit"] == "evaluated"
+
+
 def test_get_task_404_when_missing(workspace_root: Path) -> None:
     with pytest.raises(_HTTPException) as exc:
         get_task("nonexistent")

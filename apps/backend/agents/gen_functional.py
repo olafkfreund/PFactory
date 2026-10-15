@@ -41,6 +41,7 @@ from typing import Literal
 
 from agents.agent_infra import (
     BackgroundTaskRegistry,
+    fail_status_on_cancel,
     iter_subtasks,
     now_iso,
     read_status,
@@ -607,6 +608,7 @@ def schedule_gen_functional(
     """
     if os.environ.get("PFACTORY_AUTO_GENERATE", "1") == "0":
         return None
-    return _BG_GEN_FUNCTIONAL_REGISTRY.schedule(
+    task = _BG_GEN_FUNCTIONAL_REGISTRY.schedule(
         run_gen_functional(spec_dir, project_dir, mode=mode),
     )
+    return fail_status_on_cancel(task, spec_dir, "gen_functional", _write_status_patch)
