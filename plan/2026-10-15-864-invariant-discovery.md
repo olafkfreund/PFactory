@@ -54,7 +54,7 @@ venv: `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv`).
    - `main()`: OK line `OK: all N packages under apps/backend, apps/web-server declare an invariant or say why not.`
    → verify: `python scripts/check_invariant_ownership.py` (fails now: 29
    undeclared packages listed; that is expected until step 3).
-   Traps: keep `# ruff: noqa: PLC0415` header comment and the `os.environ.setdefault("FACTORY_INVARIANTS", "0")`
+   Traps: drop the `# ruff: noqa: PLC0415` header once no import is deferred (ruff RUF100); keep the `os.environ.setdefault("FACTORY_INVARIANTS", "0")`
    in `__main__`; keep the importlib-only access to `factory_invariants`
    (mypy runs per package root; see the existing docstring of `declared_modules`).
    `print` needs `# noqa: T201` like the existing lines.
