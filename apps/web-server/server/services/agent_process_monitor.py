@@ -292,6 +292,25 @@ class AgentProcessMonitorMixin:
 
         return current_phase
 
+    async def _fail_interrupted_run(
+        self, task_id: str, project_path: Path | None, spec_id: str | None
+    ) -> None:
+        """Persist a failed end for a run whose monitor was cancelled or crashed (#863).
+
+        Without it the phase stays ``active`` in task_logs.json and the board
+        shows the task in_progress forever.
+        """
+        actual_phase = self._get_current_phase(task_id)
+        writers = self._task_log_writers.pop(task_id, None)
+        if writers and spec_id:
+            for writer in writers:
+                writer.finalize(spec_id, actual_phase)
+                writer.set_phase_status(spec_id, actual_phase, "failed")
+        if spec_id and project_path:
+            await self._update_plan_status(
+                project_path, spec_id, "failed", task_id, emit_events=False
+            )
+
     async def _monitor_process(  # noqa: PLR0913, PLR0911, PLR0912, PLR0915
         self,
         task_id: str,
@@ -310,6 +329,9 @@ class AgentProcessMonitorMixin:
         import logging  # noqa: PLC0415
 
         logger = logging.getLogger(__name__)
+        # Set once the terminal status is saved; after that an interruption
+        # must not rewrite it as failed (#863).
+        finished = False
 
         try:
             # Periodic sync loop (every 3 seconds) while process is running
@@ -525,6 +547,7 @@ class AgentProcessMonitorMixin:
                                     await self._update_plan_status(
                                         project_path, detected_spec_id, "human_review", task_id
                                     )
+                                    finished = True  # terminal status is saved
 
                                     # Clean up tracking data
                                     if task_id in self.running_tasks:
@@ -638,6 +661,7 @@ class AgentProcessMonitorMixin:
                             await self._update_plan_status(
                                 project_path, spec_id, "human_review", task_id
                             )
+                            finished = True  # terminal status is saved
 
                             # Clean up tracking data
                             if task_id in self.running_tasks:
@@ -931,6 +955,7 @@ class AgentProcessMonitorMixin:
                     project_path, spec_id, status, task_id, emit_events=False
                 )
                 logger.info("[AgentService._monitor_process] _update_plan_status call completed")
+            finished = True  # terminal status is saved
 
             # Send email/in-app notifications on task completion or failure
             _notif_user_id = self._task_user_ids.pop(task_id, "")
@@ -1021,10 +1046,25 @@ class AgentProcessMonitorMixin:
             self._task_subtask_states.pop(task_id, None)
             self._spec_dirs.pop(task_id, None)
         except asyncio.CancelledError:
-            # Task was cancelled, cleanup already handled by stop_task
-            pass
+            # Only shutdown cancels the monitor (stop_task never does, and a user
+            # stop writes its own end state), so persist a failed end (#863).
+            if not finished and task_id not in self._task_stopped:
+                try:
+                    await self._fail_interrupted_run(task_id, project_path, spec_id)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "[AgentService] could not persist interrupted run %s",
+                        sanitize_log(task_id),
+                    )
         except Exception as e:  # noqa: BLE001
             # Unexpected error, ensure cleanup
+            if not finished:
+                try:
+                    await self._fail_interrupted_run(task_id, project_path, spec_id)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "[AgentService] could not persist failed run %s", sanitize_log(task_id)
+                    )
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
             self._task_sequence_numbers.pop(task_id, None)
@@ -1036,10 +1076,11 @@ class AgentProcessMonitorMixin:
             self._task_rate_limits.pop(task_id, None)
             self._task_subtask_states.pop(task_id, None)
             self._spec_dirs.pop(task_id, None)
-            await self._emit_progress(
-                TaskProgress(
-                    task_id=task_id,
-                    phase=TaskPhase.FAILED,
-                    message=f"Task monitoring error: {e}",
+            if not finished:  # a decided run must not be shown failed live (#863)
+                await self._emit_progress(
+                    TaskProgress(
+                        task_id=task_id,
+                        phase=TaskPhase.FAILED,
+                        message=f"Task monitoring error: {e}",
+                    )
                 )
-            )
