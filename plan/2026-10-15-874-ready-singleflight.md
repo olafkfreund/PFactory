@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 874
 spec: spec/2026-10-15-874-ready-singleflight.md
 ---
