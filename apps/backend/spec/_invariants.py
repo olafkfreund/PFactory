@@ -5,8 +5,8 @@ from factory_invariants import registry
 registry.register(
     "spec",
     reason=(
-        "Two path helpers that locate a project's specs directory for the build CLI. They compute "
-        "paths from their argument and hold nothing, deliberately unlike AIFactory's larger spec "
-        "package."
+        "One path helper, get_specs_dir, and two directory-name constants that locate a "
+        "project's specs directory for the build CLI. It computes paths from its argument and "
+        "holds nothing, deliberately unlike AIFactory's larger spec package."
     ),
 )

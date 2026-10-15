@@ -5,8 +5,9 @@ from factory_invariants import registry
 registry.register(
     "agents",
     reason=(
-        "Holds the planner, generator, executor, evaluator and triager agents. Every relation they "
-        "keep (lane outputs, verdict signals, evidence files) belongs to one task run and lives in "
-        "that run's workspace, so no process-wide state exists to watch between runs."
+        "Holds the planner, gen_functional, evaluator and triager stage agents. Their only "
+        "process-wide state is the _BG_*_TASKS sets that anchor fire-and-forget stage tasks and "
+        "discard each one when it finishes; every other relation (lane outputs, verdicts, "
+        "evidence) belongs to one task run's workspace."
     ),
 )

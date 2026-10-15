@@ -33,7 +33,8 @@ venv: `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv`).
    `main` 164-181): rewrite per the spec.
    - `SOURCE_ROOTS`, `VENDORED` constants.
    - `discover(repo, roots) -> tuple[dict[str, str], list[str]]`: package → root,
-     plus a problem per root that is missing or has no packages.
+     plus a problem per root that is missing or has no packages, and per
+     package name found under two roots (review finding; else one is hidden).
    - `_resolves(root: Path, name: str) -> bool`: `parts = name.split(".")`;
      true if `root.joinpath(*parts).with_suffix(".py")` is a file or
      `root.joinpath(*parts) / "__init__.py"` is a file. (`factory_common.__init__`
@@ -102,7 +103,7 @@ venv: `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv`).
    ```
    Wrap the reason across lines with implicit string concatenation (line
    length 100). Reasons:
-   - `agents`: "Holds the planner, generator, executor, evaluator and triager agents. Every relation they keep (lane outputs, verdict signals, evidence files) belongs to one task run and lives in that run's workspace, so no process-wide state exists to watch between runs."
+   - `agents`: "Holds the planner, gen_functional, evaluator and triager stage agents. Their only process-wide state is the _BG_*_TASKS sets that anchor fire-and-forget stage tasks and discard each one when it finishes; every other relation (lane outputs, verdicts, evidence) belongs to one task run's workspace."
    - `analysis`: "Scans a target project on request (framework detection, risk classification, test discovery) and returns the findings to its caller. It keeps no state in the service, so nothing holds between calls for a check to read."
    - `cli`: "Argument parsing and command routing for the operator command line (run.py and python -m cli). It runs only in a terminal process, never inside the web service, so it has no runtime relation there."
    - `context`: "Builds one task's coding context (keyword extraction, file categorisation, service matching) from the project directory it is given, per call, and caches nothing in the process between calls."
@@ -118,9 +119,9 @@ venv: `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv`).
    - `review`: "Human review checkpoint between spec and build, reading and writing review_state.json inside each spec directory. Approval state belongs to one spec on disk, not to the running service."
    - `runners`: "Namespace package that re-exports nothing since #43. Its submodules (the GitHub client and providers, the artifact store, the changelog runner) are imported directly by consumers and act on the repository or API call they are given."
    - `services`: "Starts and stops docker-compose or monorepo services for a test run, and tracks rollback attempts for a failing build. Both concern one run's containers and history, checked by that run's own health checks."
-   - `spec`: "Two path helpers that locate a project's specs directory for the build CLI. They compute paths from their argument and hold nothing, deliberately unlike AIFactory's larger spec package."
+   - `spec`: "One path helper, get_specs_dir, and two directory-name constants that locate a project's specs directory for the build CLI. It computes paths from its argument and holds nothing, deliberately unlike AIFactory's larger spec package."
    - `task_logger`: "Writes phase-structured task logs as JSON into each spec directory and streams markers to the UI. Each log belongs to one task, so there is no service-wide relation to assert."
-   - `templates_pkg`: "A string.Template engine that loads test-file templates from disk and validates each template's variable set against its metadata on load. That validation is the check, and it runs on every load."
+   - `templates_pkg`: "A string.Template engine that loads test-file templates from disk and parses their metadata. Each template's variables are checked against that metadata when it is instantiated, on every call, and the package keeps no state between calls."
    - `test_plan`: "Dataclasses and enums for the subtask-based test_plan.json (phases, subtasks, verification). Pure data types whose consistency is enforced when a plan is built, holding no process state."
    - `tests_catalog`: "Loads and atomically saves the per-repository .pfactory/tests-catalog.json, validating its schema on load. The catalog lives in the target repo, not in the service, so the service holds no copy to check."
    - `ui`: "Terminal output helpers (colours, icons, boxes, spinners, menus) for the command line. They detect terminal capabilities per process and print, and nothing they do is observable in the web service."

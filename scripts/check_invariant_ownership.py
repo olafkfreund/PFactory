@@ -46,6 +46,8 @@ def discover(repo: Path, roots: tuple[str, ...] | list[str]) -> tuple[dict[str, 
         if not pkgs:
             problems.append(f"{root}: source root is missing or contains no packages")
         for name in pkgs:
+            if name in found:
+                problems.append(f"{name}: package exists in both {found[name]} and {root}")
             found[name] = root
     return found, problems
 

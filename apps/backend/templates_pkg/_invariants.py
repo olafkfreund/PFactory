@@ -5,8 +5,8 @@ from factory_invariants import registry
 registry.register(
     "templates_pkg",
     reason=(
-        "A string.Template engine that loads test-file templates from disk and validates each "
-        "template's variable set against its metadata on load. That validation is the check, and it"
-        " runs on every load."
+        "A string.Template engine that loads test-file templates from disk and parses their "
+        "metadata. Each template's variables are checked against that metadata when it is "
+        "instantiated, on every call, and the package keeps no state between calls."
     ),
 )
