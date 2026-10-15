@@ -277,6 +277,7 @@ export type PlanSessionStatus =
   | 'processing'
   | 'reviewing'
   | 'processed'
+  | 'failed'
   | 'approved'
   | 'rejected'
   | 'emitted';
