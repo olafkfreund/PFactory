@@ -3,8 +3,9 @@
 Non-critical checks run on an in-app timer: each violation is logged naming the
 owning top-level package and counted in ``factory_invariant_violations_total``.
 Critical checks back ``GET /api/ready`` through :func:`readiness`, cached for a
-few seconds so a probe cannot hammer them. Both are no-ops while the registry is
-disabled (``FACTORY_INVARIANTS=0``).
+few seconds so a probe cannot hammer them, with at most one run in flight and a
+timeout that counts as a violation so a hung check cannot pile up threads. Both
+are no-ops while the registry is disabled (``FACTORY_INVARIANTS=0``).
 """
 
 from __future__ import annotations
@@ -36,7 +37,9 @@ VIOLATIONS = Counter(
 )
 
 READY_CACHE_SECONDS = 10.0
+READY_TIMEOUT_SECONDS = 3.0  # well below the 5 s kubelet probe timeout
 _ready_cache: tuple[float, list[str]] | None = None
+_ready_run: asyncio.Future[list[str]] | None = None
 
 
 def load_companions() -> list[str]:
@@ -82,12 +85,33 @@ async def invariant_loop(period_seconds: float) -> None:
             logger.exception("invariant iteration failed")
 
 
-def readiness() -> list[str]:
-    """Top-level packages with a failing critical check; empty means ready."""
-    global _ready_cache  # noqa: PLW0603  (module-level 10 s cache)
+def _critical_failing() -> list[str]:
+    return sorted({_package(v) for v in registry.check_all(critical=True)})
+
+
+async def readiness() -> list[str]:
+    """Top-level packages with a failing critical check; empty means ready.
+
+    Runs on the event loop thread only, so the globals need no lock.
+    """
+    global _ready_cache, _ready_run  # noqa: PLW0603  (module-level cache and in-flight run)
     now = time.monotonic()
     if _ready_cache is not None and now - _ready_cache[0] < READY_CACHE_SECONDS:
         return _ready_cache[1]
-    failing = sorted({_package(v) for v in registry.check_all(critical=True)})
+    # Reuse a run still in flight (even one that already timed out) rather than start another.
+    if _ready_run is None or _ready_run.done():
+        _ready_run = asyncio.ensure_future(asyncio.to_thread(_critical_failing))
+    try:
+        failing = await asyncio.wait_for(asyncio.shield(_ready_run), READY_TIMEOUT_SECONDS)
+    except TimeoutError:
+        # The run is sequential, so any of its checks may be the stuck one.
+        failing = sorted({m.split(".")[0] for m in registry.selected(critical=True)})
+        for package in failing:
+            logger.error(
+                "invariant violated in %s: critical checks did not finish within %ss",
+                package,
+                READY_TIMEOUT_SECONDS,
+            )
+            VIOLATIONS.labels(service="pfactory", package=package).inc()
     _ready_cache = (now, failing)
     return failing
