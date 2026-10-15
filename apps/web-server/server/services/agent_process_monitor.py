@@ -292,6 +292,25 @@ class AgentProcessMonitorMixin:
 
         return current_phase
 
+    async def _fail_interrupted_run(
+        self, task_id: str, project_path: Path | None, spec_id: str | None
+    ) -> None:
+        """Persist a failed end for a run whose monitor was cancelled or crashed (#863).
+
+        Without it the phase stays ``active`` in task_logs.json and the board
+        shows the task in_progress forever.
+        """
+        actual_phase = self._get_current_phase(task_id)
+        writers = self._task_log_writers.pop(task_id, None)
+        if writers and spec_id:
+            for writer in writers:
+                writer.finalize(spec_id, actual_phase)
+                writer.set_phase_status(spec_id, actual_phase, "failed")
+        if spec_id and project_path:
+            await self._update_plan_status(
+                project_path, spec_id, "failed", task_id, emit_events=False
+            )
+
     async def _monitor_process(  # noqa: PLR0913, PLR0911, PLR0912, PLR0915
         self,
         task_id: str,
@@ -1021,10 +1040,24 @@ class AgentProcessMonitorMixin:
             self._task_subtask_states.pop(task_id, None)
             self._spec_dirs.pop(task_id, None)
         except asyncio.CancelledError:
-            # Task was cancelled, cleanup already handled by stop_task
-            pass
+            # Only shutdown cancels the monitor (stop_task never does, and a user
+            # stop writes its own end state), so persist a failed end (#863).
+            if task_id not in self._task_stopped:
+                try:
+                    await self._fail_interrupted_run(task_id, project_path, spec_id)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "[AgentService] could not persist interrupted run %s",
+                        sanitize_log(task_id),
+                    )
         except Exception as e:  # noqa: BLE001
             # Unexpected error, ensure cleanup
+            try:
+                await self._fail_interrupted_run(task_id, project_path, spec_id)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "[AgentService] could not persist failed run %s", sanitize_log(task_id)
+                )
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
             self._task_sequence_numbers.pop(task_id, None)
