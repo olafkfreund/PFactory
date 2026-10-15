@@ -101,7 +101,7 @@ Python: `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/python`
      async def readiness_check():
          from .background.invariants import readiness
 
-         failing = readiness()
+         failing = await asyncio.to_thread(readiness)  # review: keep checks off the loop
          if failing:
              return JSONResponse(status_code=503, content={"status": "not ready", "failing": failing})
          return {"status": "ready"}
@@ -143,6 +143,12 @@ Python: `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/python`
    the `VIOLATIONS` object, not `REGISTRY`. If `create_app()` needs env the
    obs fixture sets (`tests/obs/test_p6_main_wiring.py:26-48`), mirror it,
    except `APP_DISABLE_AUTH`.
+
+   Implementation notes: the repo's pre-commit hook ruff-autofixes staged
+   files, which also modernised `auth.py` (`timezone.utc` → `UTC`) and
+   `metrics.py` (`collections.abc.Iterable`, import order); behaviour is unchanged.
+   The pilot companions' docstrings (`pfactory_secrets/_invariants.py`,
+   `factory_common_invariants.py`) are updated for default-on.
 
 ## Tests
 

@@ -484,7 +484,8 @@ def create_app() -> FastAPI:
     async def readiness_check():
         from .background.invariants import readiness  # noqa: PLC0415
 
-        failing = readiness()
+        # Off the event loop: a slow critical check must not stall other requests.
+        failing = await asyncio.to_thread(readiness)
         if failing:
             return JSONResponse(
                 status_code=503, content={"status": "not ready", "failing": failing}
