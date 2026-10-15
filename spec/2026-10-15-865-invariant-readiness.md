@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 865
 intent: intent/2026-10-15-865-invariant-readiness.md
 ---
