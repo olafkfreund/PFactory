@@ -76,6 +76,13 @@ Deviation (implementation, from the lead's review):
   set at `final_status = ...`, which hid a failing plan write.) Test: a
   raising `_update_plan_status` ends with a failed write attempt and a FAILED
   event.
+- Step 1 (fourth review): the same flag is set right after the two early
+  `human_review` exits save their status (spec creation awaiting review, and
+  `review_state.json` with `approved: false`), so a cancel or crash in their
+  following `_emit_progress` neither rewrites `human_review` as failed nor
+  sends FAILED. The mid-run checkpoint write in the poll loop is not an exit
+  and stays unflagged. Test: a cancel during the human-review emit keeps
+  `human_review`.
 - Step 2: two more tests, a cancel during the post-completion emission and
   an `_emit_progress` crash after completion; both keep `completed`.
 

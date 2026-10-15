@@ -547,6 +547,7 @@ class AgentProcessMonitorMixin:
                                     await self._update_plan_status(
                                         project_path, detected_spec_id, "human_review", task_id
                                     )
+                                    finished = True  # terminal status is saved
 
                                     # Clean up tracking data
                                     if task_id in self.running_tasks:
@@ -660,6 +661,7 @@ class AgentProcessMonitorMixin:
                             await self._update_plan_status(
                                 project_path, spec_id, "human_review", task_id
                             )
+                            finished = True  # terminal status is saved
 
                             # Clean up tracking data
                             if task_id in self.running_tasks:
