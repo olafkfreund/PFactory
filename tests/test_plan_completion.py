@@ -84,6 +84,15 @@ def test_terminal_statuses_are_emitted_rejected_and_discarded():
 # ── correlation key: issue# with synthetic fallback ──────────────────────────
 
 
+@pytest.mark.parametrize(("repo", "expected"), [("o/r", "o/r#12"), (None, "12")])
+def test_emitted_epic_key_is_scoped_to_the_repo(repo: str | None, expected: str) -> None:
+    """#1775: with no origin issue the key is the epic, named by its repo."""
+    session = PlanService().ingest_text(_PLAN, title="Refund flow")
+    session.repo = repo
+    session.emitted_issue_number = 12
+    assert correlation_key_for(session) == expected
+
+
 def test_correlation_key_is_synthetic_before_any_issue():
     svc = PlanService()
     session = svc.ingest_text(_PLAN, title="Refund flow")
