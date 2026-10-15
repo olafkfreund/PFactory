@@ -329,6 +329,9 @@ class AgentProcessMonitorMixin:
         import logging  # noqa: PLC0415
 
         logger = logging.getLogger(__name__)
+        # Set once the run's outcome is decided; after that an interruption
+        # must not rewrite it as failed (#863).
+        finished = False
 
         try:
             # Periodic sync loop (every 3 seconds) while process is running
@@ -818,6 +821,7 @@ class AgentProcessMonitorMixin:
             # Get actual phase BEFORE cleanup (needed for proper status emission)
             actual_phase = self._get_current_phase(task_id)
             final_status = "completed" if return_code == 0 else "failed"
+            finished = True
 
             # Finalize and clean up log writers
             if task_id in self._task_log_writers:
@@ -1042,7 +1046,7 @@ class AgentProcessMonitorMixin:
         except asyncio.CancelledError:
             # Only shutdown cancels the monitor (stop_task never does, and a user
             # stop writes its own end state), so persist a failed end (#863).
-            if task_id not in self._task_stopped:
+            if not finished and task_id not in self._task_stopped:
                 try:
                     await self._fail_interrupted_run(task_id, project_path, spec_id)
                 except Exception:  # noqa: BLE001
@@ -1052,12 +1056,13 @@ class AgentProcessMonitorMixin:
                     )
         except Exception as e:  # noqa: BLE001
             # Unexpected error, ensure cleanup
-            try:
-                await self._fail_interrupted_run(task_id, project_path, spec_id)
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "[AgentService] could not persist failed run %s", sanitize_log(task_id)
-                )
+            if not finished:
+                try:
+                    await self._fail_interrupted_run(task_id, project_path, spec_id)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "[AgentService] could not persist failed run %s", sanitize_log(task_id)
+                    )
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
             self._task_sequence_numbers.pop(task_id, None)

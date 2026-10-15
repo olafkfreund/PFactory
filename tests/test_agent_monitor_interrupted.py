@@ -80,3 +80,46 @@ async def test_user_stopped_task_is_left_to_stop_task(tmp_path: Path) -> None:
 
     assert _coding_status(spec_dir) == "active"
     service._update_plan_status.assert_not_awaited()
+
+
+class DoneProc:
+    """A process that has already exited successfully."""
+
+    returncode = 0
+
+    async def wait(self) -> int:
+        return 0
+
+
+async def _hang(*_a: object, **_k: object) -> None:
+    await asyncio.Event().wait()
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_completed_write_keeps_completed(tmp_path: Path) -> None:
+    service, spec_dir = _service(tmp_path)
+    service._emit_progress = AsyncMock(side_effect=_hang)  # cancel lands mid-emission
+    task = asyncio.create_task(service._monitor_process(TASK_ID, DoneProc(), tmp_path, SPEC_ID))
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if service._emit_progress.await_count:
+            break
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    statuses = [c.args[2] for c in service._update_plan_status.await_args_list]
+    assert statuses == ["completed"]
+    assert _coding_status(spec_dir) == "completed"
+
+
+@pytest.mark.asyncio
+async def test_crash_after_completed_write_keeps_completed(tmp_path: Path) -> None:
+    service, spec_dir = _service(tmp_path)
+    service._emit_progress = AsyncMock(side_effect=RuntimeError("ws down"))
+    # The crash branch's own FAILED emission raises too (unchanged behaviour).
+    with pytest.raises(RuntimeError):
+        await service._monitor_process(TASK_ID, DoneProc(), tmp_path, SPEC_ID)
+
+    statuses = [c.args[2] for c in service._update_plan_status.await_args_list]
+    assert statuses == ["completed"]
+    assert _coding_status(spec_dir) == "completed"

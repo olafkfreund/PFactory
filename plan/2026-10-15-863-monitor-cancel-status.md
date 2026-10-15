@@ -63,6 +63,16 @@ Approved decisions (from the spec):
    cancel before the timeout so the test is fast. `load_spec_metadata` lives in
    `server/routes/tasks.py:452`.
 
+Deviation (implementation, from the lead's review):
+
+- Step 1: a local `finished` flag is set where the monitor decides the run's
+  outcome (`final_status = ...`). Both branches skip `_fail_interrupted_run`
+  once it is set. Without it, an interruption or crash during the awaits
+  after the terminal write (auto-continue, `_emit_progress`, notifications,
+  rmux reap) rewrote a `completed` run as `failed`.
+- Step 2: two more tests, a cancel during the post-completion emission and
+  an `_emit_progress` crash after completion; both keep `completed`.
+
 ## Tests
 
     /mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/pytest tests/test_agent_monitor_interrupted.py tests/test_agent_monitor_characterization.py tests/test_agent_event_hygiene.py -q
