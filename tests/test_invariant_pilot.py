@@ -18,6 +18,7 @@ whole pattern exists to prevent.
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -26,10 +27,25 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 BACKEND = REPO / "apps" / "backend"
+WEB_SERVER = REPO / "apps" / "web-server"
 sys.path.insert(0, str(BACKEND))
+sys.path.insert(0, str(WEB_SERVER))
 
 import factory_invariants as fi  # noqa: E402
+import framework_registry._invariants  # noqa: E402  -- registers
+import framework_registry.loader  # noqa: E402
 import pfactory_secrets._invariants  # noqa: E402,F401  -- registers
+import plan._invariants  # noqa: E402  -- registers
+import plan.enrich.base  # noqa: E402
+import project  # noqa: E402
+import providers._invariants  # noqa: E402  -- registers
+import providers.factory  # noqa: E402
+import security._invariants  # noqa: E402  -- registers
+import security.hooks  # noqa: E402
+import server._invariants  # noqa: E402  -- registers
+import server.routes.mcp_rpc  # noqa: E402
+import tools._invariants  # noqa: E402  -- registers
+import tools.definitions  # noqa: E402
 from pfactory_secrets import factory, refs  # noqa: E402
 
 
@@ -183,4 +199,71 @@ def test_ownership_checker_can_fail() -> None:
         check=False,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "an undeclared module is caught" in r.stdout
+    assert "an undeclared package is caught" in r.stdout
+
+
+def _load_checker():
+    spec = importlib.util.spec_from_file_location(
+        "check_invariant_ownership", REPO / "scripts" / "check_invariant_ownership.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_every_package_on_disk_is_discovered_and_declared() -> None:
+    """Discovery must match the filesystem, so a new package cannot be skipped."""
+    checker = _load_checker()
+    found = set(checker.discover(REPO, checker.SOURCE_ROOTS)[0])
+    on_disk = {
+        p.parent.name for root in checker.SOURCE_ROOTS for p in (REPO / root).glob("*/__init__.py")
+    }
+    assert found == on_disk
+    assert len(found) >= 32
+    assert checker.check() == []
+
+
+# ------------------------------------- the step-2 package checks actually FIRE
+
+
+def _fires(live: fi.InvariantRegistry, module: str, needle: str) -> None:
+    hits = [v for v in live.check_all() if v.module == module]
+    assert any(needle in v.detail for v in hits), hits
+
+
+def test_a_dangling_provider_alias_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+    monkeypatch.setitem(providers.factory._PROVIDER_ALIASES, "ghost", "no_such_provider")
+    _fires(live, "providers.factory", "no_such_provider")
+
+
+def test_a_command_without_a_validator_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+    cmd = sorted(project.VALIDATED_COMMANDS)[0]
+    monkeypatch.delitem(security.hooks.VALIDATORS, cmd)
+    _fires(live, "security.hooks", repr(cmd))
+
+
+def test_an_empty_frameworks_dir_fires(
+    live: fi.InvariantRegistry, monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(framework_registry.loader, "_DEFAULT_FRAMEWORKS_DIR", tmp_path)
+    _fires(live, "framework_registry.loader", "no framework descriptors")
+
+
+def test_a_vanished_adapter_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+    real = plan.enrich.base.available_adapters
+    monkeypatch.setattr(
+        plan.enrich.base, "available_adapters", lambda: [n for n in real() if n != "aws"]
+    )
+    _fires(live, "plan.registry", "infra:aws")
+
+
+def test_an_advertised_tool_without_a_handler_fires(
+    live: fi.InvariantRegistry, monkeypatch
+) -> None:
+    monkeypatch.setitem(tools.definitions._ALL_TOOLS, "Ghost", {})
+    _fires(live, "tools.executor", "Ghost")
+
+
+def test_an_mcp_handler_that_is_never_listed_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+    monkeypatch.setitem(server.routes.mcp_rpc._TOOL_HANDLERS, "ghost", lambda: None)
+    _fires(live, "server.routes.mcp_rpc", "ghost")
