@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 # git_utils's own import already put apps/backend on sys.path.
+from agents.lane_progress import derive_lane_progress
 from client_errors import client_error
 from server.error_ref import error_message
 from server.services.git_utils import safe_spec_component
@@ -226,6 +227,9 @@ def get_task(spec_id: str) -> dict:
         )
 
     status_doc = _read_json(spec_dir / "status.json") or {}
+    lanes = derive_lane_progress(spec_dir, status_doc)
+    if lanes is not None:
+        status_doc["lane_progress"] = lanes
     project_id = spec_dir.parent.parent.name
     return {
         "task_id": status_doc.get("task_id") or spec_id,
