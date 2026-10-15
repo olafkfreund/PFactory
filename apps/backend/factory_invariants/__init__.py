@@ -19,10 +19,9 @@ raises on the first one. Neither runs unless something calls it: importing a
 product module must not change runtime behaviour, so registration is inert
 until verification is asked for.
 
-DEFAULT OFF IN PRODUCTION. ``enabled`` defaults to False. An invariant that
-throws in a running pod is a new failure mode, and this is a pilot -- it earns
-production by being observed to catch something first, not by being switched on
-because it exists.
+ON BY DEFAULT (RFC-0024 section 4). ``FACTORY_INVARIANTS=0`` turns checks off.
+Critical checks drive the service's ``/api/ready``; the rest run on the
+service's timer.
 """
 
 from __future__ import annotations
@@ -81,6 +80,7 @@ class _Registration:
     module: str
     check: Callable[[], Iterator[str]] | None
     reason: str | None
+    critical: bool = False
 
 
 @dataclass
@@ -103,6 +103,7 @@ class InvariantRegistry:
         check: Callable[[], Iterator[str]] | None = None,
         *,
         reason: str | None = None,
+        critical: bool = False,
     ) -> None:
         """Register one module's contribution. Registering twice is an error.
 
@@ -114,6 +115,10 @@ class InvariantRegistry:
             raise ValueError(
                 f"{module}: pass exactly one of check= (a real invariant) or "
                 "reason= (why this module owns no runtime relation)"
+            )
+        if critical and reason is not None:
+            raise ValueError(
+                f"{module}: a written reason has nothing to run, so it cannot be critical"
             )
         if module in self._registrations:
             raise ValueError(
@@ -127,7 +132,7 @@ class InvariantRegistry:
                 f"{module}: the declared-empty reason must say what this module "
                 f"owns and why no relation is observable; got {reason!r}"
             )
-        self._registrations[module] = _Registration(module, check, reason)
+        self._registrations[module] = _Registration(module, check, reason, critical)
 
     def registered(self) -> frozenset[str]:
         """Every module name that has declared, in either form."""
@@ -149,19 +154,32 @@ class InvariantRegistry:
             return False
         return not any(re.search(p, module) for p in self.blocklist)
 
-    def check_all(self) -> list[Violation]:
+    def selected(self, *, critical: bool | None = None) -> list[str]:
+        """Sorted modules with a real check that ``check_all`` would run."""
+        return [
+            name
+            for name, reg in sorted(self._registrations.items())
+            if reg.check is not None
+            and self._selected(name)
+            and (critical is None or reg.critical == critical)
+        ]
+
+    def check_all(self, *, critical: bool | None = None) -> list[Violation]:
         """Run every selected check and collect violations. Never raises on a finding.
+
+        ``critical`` filters by the registration flag; None runs all.
 
         A check that itself raises is reported as a violation rather than
         propagating: a broken check must not be indistinguishable from a clean
         run, and it must not take down the caller either.
         """
         out: list[Violation] = []
-        for name, reg in sorted(self._registrations.items()):
-            if reg.check is None or not self._selected(name):
+        for name in self.selected(critical=critical):
+            check = self._registrations[name].check
+            if check is None:  # unreachable: selected() only returns real checks
                 continue
             try:
-                out.extend(Violation(name, d) for d in reg.check())
+                out.extend(Violation(name, d) for d in check())
             except Exception as exc:  # noqa: BLE001 - a broken check is a finding
                 out.append(Violation(name, f"the check itself raised {type(exc).__name__}: {exc}"))
         return out
@@ -173,9 +191,10 @@ class InvariantRegistry:
 
 
 def _from_env() -> InvariantRegistry:
-    """Build the process registry. Off unless FACTORY_INVARIANTS=1."""
+    """Build the process registry. On unless FACTORY_INVARIANTS=0."""
     return InvariantRegistry(
-        enabled=os.environ.get("FACTORY_INVARIANTS", "").strip() in {"1", "true", "yes"},
+        enabled=os.environ.get("FACTORY_INVARIANTS", "1").strip().lower()
+        not in {"0", "false", "no"},
         allowlist=[p for p in os.environ.get("FACTORY_INVARIANTS_ONLY", "").split(",") if p],
         blocklist=[p for p in os.environ.get("FACTORY_INVARIANTS_SKIP", "").split(",") if p],
     )

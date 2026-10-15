@@ -7,7 +7,7 @@ the Python sibling (``preflight_static.py``): ~39% of LLM-generated test
 failures are caused by unresolved imports.
 
 The check runs ``tsc --noEmit <test_file>`` inside the runner Docker image
-(``pfactory-runner-jest:latest`` by default).  ``tsc`` exits non-zero if
+(``tfactory-runner-jest:latest`` by default).  ``tsc`` exits non-zero if
 there are any errors; the output is parsed to classify findings:
 
   TS2307  — "Cannot find module '…'"           → unresolved_imports
@@ -209,7 +209,7 @@ def run_ts_preflight(
     project_dir: Path,
     *,
     runner_fn: Callable[..., Any] | None = None,
-    runner_image: str = "pfactory-runner-jest:latest",
+    runner_image: str = "tfactory-runner-jest:latest",
     timeout: int = 120,
 ) -> TSPreflightReport:
     """Run ``tsc --noEmit <test_file>`` inside the runner image.
@@ -227,7 +227,7 @@ def run_ts_preflight(
             and return an object with ``.returncode``, ``.stdout``,
             ``.stderr``.  Defaults to a real DockerRunner invocation.
         runner_image: Docker image that contains ``tsc``.  Defaults to
-            ``pfactory-runner-jest:latest`` (Task 7 build).
+            ``tfactory-runner-jest:latest`` (Task 7 build).
         timeout: Container run timeout in seconds.
 
     Returns:

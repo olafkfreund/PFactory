@@ -198,7 +198,7 @@ def run_ts_flake_lint(
     project_dir: Path,
     *,
     runner_fn: Callable[..., Any] | None = None,
-    runner_image: str = "pfactory-runner-jest:latest",
+    runner_image: str = "tfactory-runner-jest:latest",
     config_path: Path | None = None,
     timeout: int = 60,
 ) -> TSFlakeReport:
@@ -213,7 +213,7 @@ def run_ts_flake_lint(
             and return an object with ``.returncode``, ``.stdout``,
             ``.stderr``.  Defaults to a real DockerRunner invocation.
         runner_image: Docker image that contains ESLint.  Defaults to
-            ``pfactory-runner-jest:latest`` (Task 7 build).
+            ``tfactory-runner-jest:latest`` (Task 7 build).
         config_path: Path to the ESLint flat-config JSON.  Defaults to
             the bundled ``eslint-pfactory.config.json`` in this package.
         timeout: Container run timeout in seconds.

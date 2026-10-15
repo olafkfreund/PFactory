@@ -12,7 +12,7 @@ so the Evaluator can dispatch by language without per-language branches:
   mutate_probe -> run_ts_mutate_probe(test_file, project_dir, ...) -> TSMutateReport
 
 Each module wraps subprocess invocations of TS toolchain binaries that live
-in Task 7's ``pfactory-runner-jest:latest`` / ``pfactory-runner-playwright:latest``
+in Task 7's ``tfactory-runner-jest:latest`` / ``tfactory-runner-playwright:latest``
 images.  Tests inject a ``runner_fn`` to stay hermetic.
 """
 

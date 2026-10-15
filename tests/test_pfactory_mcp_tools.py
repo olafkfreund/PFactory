@@ -438,6 +438,27 @@ async def test_task_status_existing(tools: dict, aifactory_root: Path) -> None:
     assert "lane_progress" in body
 
 
+@pytest.mark.asyncio
+async def test_task_status_derives_lane_progress(
+    tools: dict, workspace: Path, aifactory_root: Path
+) -> None:
+    _scaffold_aifactory_spec(aifactory_root, "demo", "001")
+    await tools["project_create"]({"id": "demo", "name": "Demo", "root_path": str(workspace)})
+    await tools["task_create_and_run"]({
+        "project_id": "demo", "spec_id": "001",
+        "branch": "f/x", "base_ref": "main", "confirm": True,
+    })
+    spec_dir = workspace / "workspaces" / "demo" / "specs" / "001"
+    sf = spec_dir / "status.json"
+    doc = json.loads(sf.read_text())
+    sf.write_text(json.dumps({**doc, "status": "triaged"}))
+    (spec_dir / "test_plan.json").write_text(
+        json.dumps({"phases": [{"subtasks": [{"lane": "unit"}]}]})
+    )
+    body = _payload(await tools["task_status"]({"task_id": "001"}))
+    assert body["lane_progress"]["unit"] == "evaluated"
+
+
 # ── task_list ────────────────────────────────────────────────────────────
 
 

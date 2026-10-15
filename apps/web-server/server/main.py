@@ -9,12 +9,13 @@ Main entry point for the web server that provides:
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import env_bootstrap  # noqa: F401  — loads .env into os.environ first
@@ -129,9 +130,29 @@ async def lifespan(app: FastAPI):
             settings.LIVENESS_SWEEP_DEADLINE_SECONDS,
         )
 
+    # RFC-0024: runtime invariants. Companions register on import; the timer
+    # runs the non-critical checks (critical ones back /api/ready).
+    from factory_invariants import registry as invariant_registry  # noqa: PLC0415
+
+    from .background.invariants import invariant_loop, load_companions  # noqa: PLC0415
+
+    load_companions()
+    app.state.invariant_task = None
+    if invariant_registry.enabled:
+        app.state.invariant_task = asyncio.create_task(
+            invariant_loop(settings.INVARIANTS_PERIOD_SECONDS)
+        )
+        logger.info("Invariant timer enabled (every %ss)", settings.INVARIANTS_PERIOD_SECONDS)
+
     yield
 
     # Shutdown
+    invariant_task = getattr(app.state, "invariant_task", None)
+    if invariant_task is not None:
+        invariant_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await invariant_task
+
     sweep_task = getattr(app.state, "liveness_sweep_task", None)
     if sweep_task is not None:
         sweep_task.cancel()
@@ -457,6 +478,18 @@ def create_app() -> FastAPI:
             # secrets; CFactory surfaces it as a provider-auth health tile.
             "provider_auth": provider_credential_health(),
         }
+
+    # Readiness: critical runtime invariants (RFC-0024). Public, like /api/health.
+    @app.get("/api/ready")
+    async def readiness_check() -> JSONResponse:
+        from .background.invariants import readiness  # noqa: PLC0415
+
+        failing = await readiness()
+        if failing:
+            return JSONResponse(
+                status_code=503, content={"status": "not ready", "failing": failing}
+            )
+        return JSONResponse(content={"status": "ready"})
 
     # Mount static files for SPA (if build directory exists).
     #

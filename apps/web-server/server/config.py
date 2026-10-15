@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     LIVENESS_SWEEP_ENABLED: bool = False
     LIVENESS_SWEEP_INTERVAL_SECONDS: int = 300  # how often to sweep
     LIVENESS_SWEEP_DEADLINE_SECONDS: float = 600  # idle budget before stalled
+    INVARIANTS_PERIOD_SECONDS: int = Field(300, ge=30)  # non-critical invariant timer (RFC-0024)
 
     class Config:
         env_file = ".env"
