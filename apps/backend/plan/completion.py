@@ -82,7 +82,7 @@ def correlation_key_for(session: PlanSession) -> str:
     if session.origin_issue_number is not None:
         return origin_key(session.repo, session.origin_issue_number)
     if session.emitted_issue_number is not None:
-        return str(session.emitted_issue_number)
+        return origin_key(session.repo, session.emitted_issue_number)
     return synthetic_key(session.session_id)
 
 

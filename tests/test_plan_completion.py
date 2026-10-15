@@ -102,8 +102,8 @@ def test_correlation_key_becomes_issue_number_after_emit(monkeypatch):
 
     assert out.status == "emitted"
     assert out.emitted_issue_number == 101
-    assert out.correlation_key == "101"
-    assert build_completion_event(out)["correlation_key"] == "101"
+    assert out.correlation_key == "acme/widget#101"
+    assert build_completion_event(out)["correlation_key"] == "acme/widget#101"
     assert build_completion_event(out)["correlation"]["issue_number"] == 101
 
 
@@ -252,7 +252,7 @@ def test_plan_status_surfaces_the_correlation_chain(monkeypatch):
     svc.emit(session.session_id, repo="acme/widget", dry_run=False)
 
     status = plan_status(session.session_id)
-    assert status["correlation_key"] == "55"
+    assert status["correlation_key"] == "acme/widget#55"
     assert status["issue_number"] == 55
     assert "aifactory_task_id" in status
 

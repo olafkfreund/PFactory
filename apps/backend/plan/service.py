@@ -2042,6 +2042,9 @@ class PlanService:
             session.status = "emitted"
             # Persist the shared correlation key, then emit the terminal
             # completion event (#47).
+            # the epic lives in the emit target; name it in the key (#1775)
+            if not session.repo:
+                session.repo = repo
             session.correlation_key = correlation_key_for(session)
             notify_completion(session)
             # Documentation emit (P1) — gated + best-effort. Default OFF, never
