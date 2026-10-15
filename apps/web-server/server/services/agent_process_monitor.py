@@ -329,7 +329,7 @@ class AgentProcessMonitorMixin:
         import logging  # noqa: PLC0415
 
         logger = logging.getLogger(__name__)
-        # Set once the run's outcome is decided; after that an interruption
+        # Set once the terminal status is saved; after that an interruption
         # must not rewrite it as failed (#863).
         finished = False
 
@@ -821,7 +821,6 @@ class AgentProcessMonitorMixin:
             # Get actual phase BEFORE cleanup (needed for proper status emission)
             actual_phase = self._get_current_phase(task_id)
             final_status = "completed" if return_code == 0 else "failed"
-            finished = True
 
             # Finalize and clean up log writers
             if task_id in self._task_log_writers:
@@ -954,6 +953,7 @@ class AgentProcessMonitorMixin:
                     project_path, spec_id, status, task_id, emit_events=False
                 )
                 logger.info("[AgentService._monitor_process] _update_plan_status call completed")
+            finished = True  # terminal status is saved
 
             # Send email/in-app notifications on task completion or failure
             _notif_user_id = self._task_user_ids.pop(task_id, "")

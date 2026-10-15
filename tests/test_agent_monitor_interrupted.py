@@ -123,3 +123,16 @@ async def test_crash_after_completed_write_keeps_completed(tmp_path: Path) -> No
     assert _coding_status(spec_dir) == "completed"
     phases = [c.args[0].phase for c in service._emit_progress.await_args_list]
     assert TaskPhase.FAILED not in phases
+
+
+@pytest.mark.asyncio
+async def test_failed_plan_write_still_takes_the_failed_path(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path)
+    service._update_plan_status = AsyncMock(side_effect=OSError("disk full"))
+    service._emit_progress = AsyncMock()
+    await service._monitor_process(TASK_ID, DoneProc(), tmp_path, SPEC_ID)
+
+    statuses = [c.args[2] for c in service._update_plan_status.await_args_list]
+    assert statuses == ["completed", "failed"]
+    phases = [c.args[0].phase for c in service._emit_progress.await_args_list]
+    assert phases == [TaskPhase.FAILED]

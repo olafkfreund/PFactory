@@ -65,11 +65,17 @@ Approved decisions (from the spec):
 
 Deviation (implementation, from the lead's review):
 
-- Step 1: a local `finished` flag is set where the monitor decides the run's
-  outcome (`final_status = ...`). Both branches skip `_fail_interrupted_run`
-  once it is set. Without it, an interruption or crash during the awaits
-  after the terminal write (auto-continue, `_emit_progress`, notifications,
-  rmux reap) rewrote a `completed` run as `failed`.
+- Step 1: a local `finished` flag is set right after the terminal plan-status
+  write (`_update_plan_status`) returns, or at that point in the flow when
+  there is no `spec_id`. Both branches skip `_fail_interrupted_run` once it is
+  set. Without it, an interruption or crash during the awaits after that write
+  (`_emit_progress`, notifications, rmux reap) rewrote a `completed` run as
+  `failed`. Before the write (log finalize, the auto-continue block with its
+  `start_task_execution` await, the write itself) the flag is still unset,
+  so a failure there takes the failed path. (Third review: the flag was first
+  set at `final_status = ...`, which hid a failing plan write.) Test: a
+  raising `_update_plan_status` ends with a failed write attempt and a FAILED
+  event.
 - Step 2: two more tests, a cancel during the post-completion emission and
   an `_emit_progress` crash after completion; both keep `completed`.
 
