@@ -6,6 +6,7 @@ The stored ``lane_progress`` is only written at planning time, so it stays
 
 import json
 from pathlib import Path
+from typing import Any
 
 from test_plan.enums import _V01_LANE_ALIASES
 
@@ -40,7 +41,7 @@ def _plan_lanes(spec_dir: Path) -> set[str]:
     return lanes
 
 
-def derive_lane_progress(spec_dir: Path, status: dict) -> dict[str, str] | None:
+def derive_lane_progress(spec_dir: Path, status: dict[str, Any]) -> dict[str, str] | None:
     """Return the stored lane_progress with derived lanes, or None to keep it."""
     task_status = status.get("status")
     if task_status == "evaluating":
