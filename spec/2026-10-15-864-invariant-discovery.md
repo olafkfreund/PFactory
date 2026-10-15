@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 864
 intent: intent/2026-10-15-864-invariant-discovery.md
 ---
