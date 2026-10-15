@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Iterable
+from collections.abc import Iterable
 
 from fastapi import FastAPI, HTTPException, Request, status
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def install_metrics(
     app: FastAPI,
     *,
-    excluded_handlers: Iterable[str] = ("/metrics", "/api/health"),
+    excluded_handlers: Iterable[str] = ("/metrics", "/api/health", "/api/ready"),
 ) -> None:
     """Install Prometheus instrumentation on ``app``.
 
@@ -69,7 +69,7 @@ def install_metrics(
     # that validates the bearer first, then delegates to the
     # instrumentator's response generator.
     from fastapi.responses import Response
-    from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST
+    from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 
     @app.get("/metrics", include_in_schema=False)
     async def _gated_metrics(request: Request) -> Response:
