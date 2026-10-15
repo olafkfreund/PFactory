@@ -55,6 +55,16 @@ Approved decisions (from the spec):
    → verify the two wiring tests fail on `origin/dev` (copy into a detached
    worktree of origin/dev) and all pass after.
 
+Deviations (implementation):
+
+- Step 2: `derive_lane_progress` is imported at module top in both readers,
+  not lazily. The repo's lint ratchet blocks a net-new PLC0415, and
+  `agents.lane_progress` has no heavy or circular imports.
+- Step 1 (from review): old v0.1 lane names in `test_plan.json`
+  (`functional`, `sast`, `dast`, `fuzz`) map to `unit` through
+  `test_plan.enums._V01_LANE_ALIASES`, as the rest of the code does; otherwise
+  the grid's Unit card stayed pending on such plans. Test added.
+
 ## Tests
 
     /mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/pytest tests/test_lane_progress.py tests/test_pfactory_mcp_tools.py tests/test_pfactory_routes_tasks.py -q
