@@ -47,9 +47,9 @@ Approved decisions (from the spec):
 6. `tests/test_invariant_runtime.py`: convert the cache test to
    `asyncio.run(inv.readiness())`; add a hung-check test (check blocks on a
    `threading.Event`, timeout patched to 0.2 s, two concurrent calls via
-   `asyncio.gather` → one run started, both return `["pkgx"]`, counter +1 each
-   call... counted once per timed-out evaluation; a further call after the
-   cache expires still reuses the hung run); add the period bound test.
+   `asyncio.gather` → one run started, both return `["pkgx"]`; a further call
+   after the cache expires still reuses the hung run; the counter rises once
+   per probe that timed out, so 3); add the period bound test.
    Release the event at the end so the thread exits.
    → run the test against the old `invariants.py` to prove it fails.
 
