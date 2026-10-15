@@ -70,22 +70,23 @@ def check(repo: Path = _REPO) -> list[str]:
         if pkg not in packages or not (vroot / f"{companion}.py").is_file():
             problems.append(f"{pkg}: VENDORED entry needs package and {companion}.py in {vroot}")
     registry = importlib.import_module("factory_invariants").registry
+    imported: list[str] = []
     for pkg, root_name in packages.items():
         base = repo / root_name
         companion = VENDORED.get(pkg, f"{pkg}._invariants")
         path = base / f"{companion}.py" if pkg in VENDORED else base / pkg / "_invariants.py"
         if not path.is_file():
-            problems.append(
-                f"{pkg}: no declaration. Add {path.relative_to(repo)} registering a check "
-                "or a written reason why this package owns no observable runtime relation."
-            )
+            if pkg not in VENDORED:  # a vendored gap was already reported above
+                problems.append(
+                    f"{pkg}: no declaration. Add {path.relative_to(repo)} registering a check "
+                    "or a written reason why this package owns no observable runtime relation."
+                )
             continue
         importlib.import_module(companion)
+        imported.append(pkg)
     registered: set[str] = registry.registered()
-    for pkg in packages:
-        own = repo / packages[pkg] / pkg / "_invariants.py"
-        owns_companion = pkg in VENDORED or own.is_file()
-        if owns_companion and not any(n == pkg or n.startswith(f"{pkg}.") for n in registered):
+    for pkg in imported:
+        if not any(n == pkg or n.startswith(f"{pkg}.") for n in registered):
             problems.append(f"{pkg}: companion registered nothing")
     for name in sorted(registered):
         top = name.split(".")[0]

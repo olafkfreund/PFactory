@@ -158,6 +158,25 @@ venv: `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv`).
 - `apps/backend/.venv/bin/pytest tests/test_invariant_pilot.py tests/test_invariant_vendored_seams.py -q` → green.
 - `ruff check` and `ruff format --check` on every touched or new file.
 
+## Deviations from review (recorded after implementation)
+
+- `merge` now has a **real check** instead of a written reason:
+  `merge.semantic_analyzer` requires `TREE_SITTER_AVAILABLE` and the `.py`,
+  `.js`, `.ts` grammars in `LANGUAGES_AVAILABLE` (`merge/semantic_analyzer.py:57-91`
+  swallows import errors; all four packages are pinned in
+  `apps/backend/requirements.txt:40-43`). Two firing tests added. Seven real checks in total.
+- Reasons rewritten to name process-wide state the first versions missed:
+  `agents` (`_BG_*_TASKS`, `evidence.http_recorder._entries`), `core`
+  (`client._PROJECT_INDEX_CACHE`, `cache._PREFIX_HASHES`, the `lru_cache` on
+  `mcp_credentials._load_operator_config`) and `analysis` (per-instance
+  `_cache` dicts). `templates_pkg` and `spec` were corrected earlier.
+  `memory`, `context`, `planner_lib`, `prompts_pkg` and `services` were
+  re-read: no module-level state.
+- Checker: a missing vendored companion is reported once, not three times;
+  a package name under two roots is reported. mypy `--strict` fixes: a
+  shadowed loop variable, and `security` reads `VALIDATORS` from
+  `security.validator` (same dict object `security.hooks` uses).
+
 ## Rollback
 
 Revert the PR. The companions are inert unless `check_all()` is called, and

@@ -34,6 +34,8 @@ sys.path.insert(0, str(WEB_SERVER))
 import factory_invariants as fi  # noqa: E402
 import framework_registry._invariants  # noqa: E402  -- registers
 import framework_registry.loader  # noqa: E402
+import merge._invariants  # noqa: E402  -- registers
+import merge.semantic_analyzer  # noqa: E402
 import pfactory_secrets._invariants  # noqa: E402,F401  -- registers
 import plan._invariants  # noqa: E402  -- registers
 import plan.enrich.base  # noqa: E402
@@ -267,3 +269,13 @@ def test_an_advertised_tool_without_a_handler_fires(
 def test_an_mcp_handler_that_is_never_listed_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
     monkeypatch.setitem(server.routes.mcp_rpc._TOOL_HANDLERS, "ghost", lambda: None)
     _fires(live, "server.routes.mcp_rpc", "ghost")
+
+
+def test_a_missing_tree_sitter_grammar_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+    monkeypatch.delitem(merge.semantic_analyzer.LANGUAGES_AVAILABLE, ".ts")
+    _fires(live, "merge.semantic_analyzer", ".ts")
+
+
+def test_tree_sitter_failing_to_import_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+    monkeypatch.setattr(merge.semantic_analyzer, "TREE_SITTER_AVAILABLE", False)
+    _fires(live, "merge.semantic_analyzer", "regex fallback")
