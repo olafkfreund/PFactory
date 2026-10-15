@@ -19,7 +19,7 @@ import re
 import socket
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -68,7 +68,7 @@ from plan.usage import PlanUsage
 # Lifecycle status. The first five are persisted stages; `processing`/`reviewing`
 # are transient sub-states set during process() so the board shows live progress.
 SessionStatus = str
-# ingested | processing | reviewing | processed | approved | rejected | emitted
+# ingested | processing | reviewing | processed | failed | approved | rejected | emitted
 
 # The board-column projection, env plumbing, RFC-0011 tier routing and the
 # additive RFC-0013/#E review-finding seams now live in ``plan.service_helpers``
@@ -117,6 +117,8 @@ class PlanSession(BaseModel):
     # every other terminal path there is no artefact that explains itself — this
     # dict IS the record.
     discard: dict | None = None
+    # Exception class name when process() raised; status is then "failed" (#862).
+    process_error: str | None = None
     original_filename: str = ""  # the uploaded document's name, for rendering
     selected_category: str = ""  # category the user chose at intake (#E)
     selected_template: str = ""  # template the user chose — its policy IS enforced (#E)
@@ -1185,27 +1187,36 @@ class PlanService:
         # Transient sub-states so a background-run session animates on the board:
         # in-progress while we detect/enrich/decompose/synthesize, AI-review while
         # the gates run. (Synchronous callers just see the final "processed".)
-        session.status = "processing"
+        try:
+            session.status = "processing"
 
-        plan, descriptor = self._detect_and_plan_type(session)
-        epic = self._decompose(session, plan, descriptor, llm=llm)
-        artifacts = synthesize(plan, epic, descriptor=descriptor)
+            plan, descriptor = self._detect_and_plan_type(session)
+            epic = self._decompose(session, plan, descriptor, llm=llm)
+            artifacts = synthesize(plan, epic, descriptor=descriptor)
 
-        composed_runner = self._build_review_runner(
-            session, plan, epic, descriptor, external_runner
-        )
+            composed_runner = self._build_review_runner(
+                session, plan, epic, descriptor, external_runner
+            )
 
-        session.status = "reviewing"
-        review = run_gates(plan, epic, external_runner=composed_runner)
+            session.status = "reviewing"
+            review = run_gates(plan, epic, external_runner=composed_runner)
 
-        session.plan = plan
-        session.epic = epic
-        session.artifacts = artifacts
-        session.review = review
-        # Honour the document: anchored, cited suggestions + improved draft (#D).
-        session.annotation = annotate_plan(plan, review)
-        session.status = "processed"
-        self._save(session)
+            session.plan = plan
+            session.epic = epic
+            session.artifacts = artifacts
+            session.review = review
+            # Honour the document: anchored, cited suggestions + improved draft (#D).
+            session.annotation = annotate_plan(plan, review)
+            session.process_error = None
+            session.status = "processed"
+            self._save(session)
+        except Exception as exc:
+            logger.exception("process() failed for session %s", session_id)
+            session.status = "failed"
+            session.process_error = type(exc).__name__
+            with suppress(StaleSessionError):
+                self._save(session)
+            raise
         # Running-cost: planning + governance gates spent LLM tokens, but the
         # session is only ``processed`` (awaiting human approval), not terminal —
         # notify_completion fires only on emitted/rejected, so the accrued cost
