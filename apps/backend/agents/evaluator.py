@@ -66,6 +66,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
+from agents.agent_infra import fail_status_on_cancel
+
 # ── Lane pipeline (issue #193) — extracted helpers, re-exported here so the
 #    existing public import surface (``agents.evaluator.<symbol>``) keeps working.
 from agents.lanes.api import _build_api_signal_bundle, _completed_api_subtasks
@@ -705,4 +707,4 @@ def schedule_evaluator(
     task = asyncio.create_task(run_evaluator(spec_dir, project_dir, mode=mode))
     _BG_EVALUATOR_TASKS.add(task)
     task.add_done_callback(_BG_EVALUATOR_TASKS.discard)
-    return task
+    return fail_status_on_cancel(task, spec_dir, "evaluator", _write_status_patch)
