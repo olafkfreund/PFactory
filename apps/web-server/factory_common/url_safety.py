@@ -11,9 +11,21 @@ URL straight from a request body. Three copies is how the fourth caller ends up
 unguarded, which is exactly what happened. It lives here (Factory#154/#161,
 AIFactory#1270) so the next runtime that needs it imports rather than copies.
 
-The public name ``assert_safe_outbound_url`` is load-bearing beyond Python: the
-CodeQL barrier in each consumer's ``SsrfBarriers.qll`` registers it BY NAME.
-Renaming it un-registers the barrier silently and reopens every alert it clears.
+The public name ``assert_safe_outbound_url`` can be load-bearing beyond Python:
+a consumer's CodeQL barrier may register it BY NAME, and renaming it would
+un-register that barrier silently and reopen every alert it clears.
+
+Measured rather than assumed (Factory#838), because this paragraph previously
+claimed "each consumer's ``SsrfBarriers.qll``" and that was true of exactly one:
+
+* AIFactory -- ``SsrfBarriers.qll`` plus ``Full``/``PartialSsrfSanitized.ql``
+* PFactory -- ``Full``/``PartialSsrfSanitized.ql``, no ``SsrfBarriers.qll``
+* TFactory -- a differently-named query; registers per-ROUTE helpers, not this
+* CFactory -- no ``.github/codeql/`` at all
+
+So check the consumer before assuming a rename is safe OR that a barrier is
+protecting anything. Do not re-derive this list from the prose -- re-measure it;
+it was wrong here for long enough to be quoted downstream.
 
 Two postures, because the fleet genuinely needs both:
 
@@ -88,9 +100,10 @@ def assert_safe_outbound_url(url: str, *, allow_private: bool = False) -> str:
     Returns ``url`` unchanged, so a call site can wrap the value on its way into
     the request rather than checking one string and then fetching another. That
     is not decoration: the checked-then-ignored variant is the failure mode this
-    module exists to stop, and it is also the shape static analysis can see --
-    the barrier in ``.github/codeql/custom-queries/SsrfSanitized.ql`` is
-    registered on this call, so only the value that flows OUT of it is cleared.
+    module exists to stop, and it is also the shape static analysis can see. Where
+    a consumer registers a barrier on this call, only the value that flows OUT of
+    it is cleared. No file named ``SsrfSanitized.ql`` exists in any consumer -- an
+    earlier version of this line named one (Factory#838).
 
     ``InputRejectedError`` rather than a plain ``ValueError`` (TFactory#1073,
     landed independently in AIFactory's web-server before this module caught up

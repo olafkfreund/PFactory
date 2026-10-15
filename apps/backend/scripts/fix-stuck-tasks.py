@@ -18,6 +18,23 @@ import json
 import sys
 from pathlib import Path
 
+VALID_STATUSES = [
+    # Current frontend statuses
+    "backlog",
+    "in_progress",
+    "ai_review",
+    "human_review",
+    "done",
+    # Terminal: never rewrite to a running status (Factory#3589)
+    "failed",
+    # Legacy values (may exist in older spec files)
+    "pending",
+    "qa_failed",
+    "completed",
+    "cancelled",
+    "review",
+]
+
 
 def find_spec_directories(project_path: Path) -> list[Path]:
     """Find all spec directories in a project."""
@@ -51,23 +68,8 @@ def check_task_state(spec_dir: Path) -> tuple[bool, list[str]]:
 
     # Check status field
     status = plan.get("status", "")
-    valid_statuses = [
-        # Current frontend statuses
-        "backlog",
-        "in_progress",
-        "ai_review",
-        "human_review",
-        "done",
-        # Legacy values (may exist in older spec files)
-        "pending",
-        "qa_failed",
-        "completed",
-        "cancelled",
-        "review",
-    ]
-
-    if status not in valid_statuses:
-        issues.append(f"Invalid status: '{status}' (should be one of {valid_statuses})")
+    if status not in VALID_STATUSES:
+        issues.append(f"Invalid status: '{status}' (should be one of {VALID_STATUSES})")
 
     # Check for review_state.json
     review_state_file = spec_dir / "review_state.json"
@@ -176,26 +178,9 @@ def fix_task(spec_dir: Path, dry_run: bool = False) -> bool:
 
             fixed = True
 
-    elif status not in [
-        "backlog",
-        "in_progress",
-        "ai_review",
-        "human_review",
-        "done",
-        "pending",
-        "qa_failed",
-        "completed",
-        "cancelled",
-        "review",
-    ]:
-        print(f"  → Correcting invalid status: '{status}' → 'in_progress'")
-
-        if not dry_run:
-            plan["status"] = "in_progress"
-            with open(plan_file, "w") as f:
-                json.dump(plan, f, indent=2)
-
-        fixed = True
+    elif status not in VALID_STATUSES:
+        # An unknown value may be terminal; guessing "running" revives a closed task.
+        print(f"  → Unknown status '{status}': left unchanged, repair by hand")
 
     return fixed
 

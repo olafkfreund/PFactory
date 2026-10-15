@@ -20,7 +20,7 @@ Usage::
         lanes=(Lane.UNIT,),
         version_range=">=7.0,<9.0",
         runtime=RuntimeSpec(
-            image="pfactory-runner-pytest:latest",
+            image="tfactory-runner-pytest:latest",
             entrypoint=("python", "-m", "pytest"),
         ),
         manifest_signals=("requirements.txt:pytest",),
@@ -46,7 +46,7 @@ class RuntimeSpec:
     """Docker image + entrypoint for running a framework's test suite.
 
     Attributes:
-        image: Docker image name (e.g. ``"pfactory-runner-pytest:latest"``).
+        image: Docker image name (e.g. ``"tfactory-runner-pytest:latest"``).
             Task 7 builds these images; the descriptor references them by name.
         entrypoint: Command tuple used to invoke the test runner inside the
             container (e.g. ``("python", "-m", "pytest", "--tb=short")``).

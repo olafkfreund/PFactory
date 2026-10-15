@@ -29,7 +29,7 @@ def test_cloud_descriptors_are_integration_lane_skip_coverage() -> None:
         d = reg[name]
         assert d.lanes == (Lane.INTEGRATION,)
         assert d.coverage_strategy == "skip"  # cloud emits no per-test coverage
-        assert d.runtime.image == "pfactory-runner-cloud:latest"
+        assert d.runtime.image == "tfactory-runner-cloud:latest"
         assert d.manifest_signals == (".pfactory.yml:targets",)
 
 

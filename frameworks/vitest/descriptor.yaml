@@ -24,7 +24,7 @@ version_range: ">=1.0,<5.0"
 runtime:
   # Docker image (deferred — built alongside the other runner images).
   # Node 22 + vitest + @vitest/coverage-v8 + @testing-library/react.
-  image: pfactory-runner-vitest:latest
+  image: tfactory-runner-vitest:latest
   entrypoint:
     - npx
     - vitest

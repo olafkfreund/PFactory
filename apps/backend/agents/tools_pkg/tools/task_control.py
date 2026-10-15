@@ -45,6 +45,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agents.lane_progress import derive_lane_progress
 from client_errors import client_error
 
 try:
@@ -470,6 +471,9 @@ def create_task_control_tools() -> list:
             return _format_error(
                 f"task {task_id!r} has no status.json — workspace likely corrupted"
             )
+        lanes = derive_lane_progress(_status_file(project_id, spec_id).parent, status)
+        if lanes is not None:
+            status["lane_progress"] = lanes
         return _format_json(status)
 
     tools.append(task_status)

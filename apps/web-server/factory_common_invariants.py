@@ -42,7 +42,7 @@ WHAT IS DELIBERATELY NOT CHECKED HERE, recorded rather than implied:
   nothing.
 
 Importing this module registers; it runs nothing. Verification happens only when
-a caller asks (``registry.verify_all()``), and only when FACTORY_INVARIANTS=1.
+a caller runs the registry (the web server's timer, ``/api/ready``), unless FACTORY_INVARIANTS=0.
 """
 
 # The product imports are lazy ON PURPOSE: registration must not drag in the
