@@ -111,6 +111,10 @@ class PlanSession(BaseModel):
     # `base_ref` defaults to the repo's default branch when omitted.
     repo: str | None = None
     base_ref: str | None = None
+    # The repo the epic was emitted to (#1775). Kept apart from `repo`, the
+    # analysed target, because the two can differ and the emitted-epic key must
+    # name the repo the epic issue actually lives in.
+    emit_repo: str | None = None
     epic: EpicPlan | None = None
     artifacts: list[SynthesizedArtifact] = Field(default_factory=list)
     review: PlanReview | None = None
@@ -2014,6 +2018,7 @@ class PlanService:
             # Persist each number as its issue appears, so a kill mid-emit leaves
             # the #119 resume path something to resume from (#725).
             session.emitted_issue_number = epic_number
+            session.emit_repo = repo
             session.emit_result = EmitResult(
                 dry_run=False, epic_number=epic_number, child_numbers=child_numbers
             ).model_dump()
@@ -2038,13 +2043,11 @@ class PlanService:
         # emit reuses this epic rather than spawning a duplicate (#119).
         if not dry_run and result.epic_number is not None:
             session.emitted_issue_number = result.epic_number
+            session.emit_repo = repo
         if not dry_run and not result.errors:
             session.status = "emitted"
             # Persist the shared correlation key, then emit the terminal
             # completion event (#47).
-            # the epic lives in the emit target; name it in the key (#1775)
-            if not session.repo:
-                session.repo = repo
             session.correlation_key = correlation_key_for(session)
             notify_completion(session)
             # Documentation emit (P1) — gated + best-effort. Default OFF, never
