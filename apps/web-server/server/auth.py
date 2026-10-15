@@ -11,7 +11,7 @@ Public paths (no auth required): /api/auth/*, /api/health, static assets, etc.
 import hashlib
 import hmac
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from fastapi import HTTPException, Request, WebSocket, status
@@ -154,8 +154,8 @@ async def _try_authenticate_api_key(token: str) -> dict | None:
         if api_key.expires_at is not None:
             expires_at = api_key.expires_at
             if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            if expires_at <= datetime.now(timezone.utc):
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at <= datetime.now(UTC):
                 return None
 
         # Require the general ``api`` scope for REST access.
@@ -165,7 +165,7 @@ async def _try_authenticate_api_key(token: str) -> dict | None:
 
         # Record last-used (best-effort — never block auth on a write failure).
         try:
-            api_key.last_used_at = datetime.now(timezone.utc)
+            api_key.last_used_at = datetime.now(UTC)
             await session.commit()
         except Exception:  # noqa: BLE001 — last_used is non-critical telemetry
             await session.rollback()
@@ -225,6 +225,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         "/redoc",
         "/openapi.json",
         "/api/health",
+        "/api/ready",  # readiness probe, no token
         "/api/logs/frontend",  # Allow frontend error logs without auth
         # RFC-0019 section 3.4 — the agent-skills capability manifest. Agents
         # enumerate what a service can do BEFORE they hold a token, so this must
