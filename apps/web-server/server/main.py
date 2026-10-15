@@ -481,7 +481,7 @@ def create_app() -> FastAPI:
 
     # Readiness: critical runtime invariants (RFC-0024). Public, like /api/health.
     @app.get("/api/ready")
-    async def readiness_check():
+    async def readiness_check() -> JSONResponse:
         from .background.invariants import readiness  # noqa: PLC0415
 
         # Off the event loop: a slow critical check must not stall other requests.
@@ -490,7 +490,7 @@ def create_app() -> FastAPI:
             return JSONResponse(
                 status_code=503, content={"status": "not ready", "failing": failing}
             )
-        return {"status": "ready"}
+        return JSONResponse(content={"status": "ready"})
 
     # Mount static files for SPA (if build directory exists).
     #
