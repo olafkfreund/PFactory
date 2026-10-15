@@ -22,6 +22,7 @@ import importlib.util
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -204,10 +205,11 @@ def test_ownership_checker_can_fail() -> None:
     assert "an undeclared package is caught" in r.stdout
 
 
-def _load_checker():
+def _load_checker() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "check_invariant_ownership", REPO / "scripts" / "check_invariant_ownership.py"
     )
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -233,25 +235,31 @@ def _fires(live: fi.InvariantRegistry, module: str, needle: str) -> None:
     assert any(needle in v.detail for v in hits), hits
 
 
-def test_a_dangling_provider_alias_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+def test_a_dangling_provider_alias_fires(
+    live: fi.InvariantRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setitem(providers.factory._PROVIDER_ALIASES, "ghost", "no_such_provider")
     _fires(live, "providers.factory", "no_such_provider")
 
 
-def test_a_command_without_a_validator_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+def test_a_command_without_a_validator_fires(
+    live: fi.InvariantRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
     cmd = sorted(project.VALIDATED_COMMANDS)[0]
     monkeypatch.delitem(security.hooks.VALIDATORS, cmd)
     _fires(live, "security.hooks", repr(cmd))
 
 
 def test_an_empty_frameworks_dir_fires(
-    live: fi.InvariantRegistry, monkeypatch, tmp_path: Path
+    live: fi.InvariantRegistry, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(framework_registry.loader, "_DEFAULT_FRAMEWORKS_DIR", tmp_path)
     _fires(live, "framework_registry.loader", "no framework descriptors")
 
 
-def test_a_vanished_adapter_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+def test_a_vanished_adapter_fires(
+    live: fi.InvariantRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
     real = plan.enrich.base.available_adapters
     monkeypatch.setattr(
         plan.enrich.base, "available_adapters", lambda: [n for n in real() if n != "aws"]
@@ -266,16 +274,22 @@ def test_an_advertised_tool_without_a_handler_fires(
     _fires(live, "tools.executor", "Ghost")
 
 
-def test_an_mcp_handler_that_is_never_listed_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+def test_an_mcp_handler_that_is_never_listed_fires(
+    live: fi.InvariantRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setitem(server.routes.mcp_rpc._TOOL_HANDLERS, "ghost", lambda: None)
     _fires(live, "server.routes.mcp_rpc", "ghost")
 
 
-def test_a_missing_tree_sitter_grammar_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+def test_a_missing_tree_sitter_grammar_fires(
+    live: fi.InvariantRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delitem(merge.semantic_analyzer.LANGUAGES_AVAILABLE, ".ts")
     _fires(live, "merge.semantic_analyzer", ".ts")
 
 
-def test_tree_sitter_failing_to_import_fires(live: fi.InvariantRegistry, monkeypatch) -> None:
+def test_tree_sitter_failing_to_import_fires(
+    live: fi.InvariantRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(merge.semantic_analyzer, "TREE_SITTER_AVAILABLE", False)
     _fires(live, "merge.semantic_analyzer", "regex fallback")
