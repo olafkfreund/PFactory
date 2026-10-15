@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 863
 intent: intent/2026-10-15-863-monitor-cancel-status.md
 ---
