@@ -12,9 +12,7 @@ name: factory-github drift
 on:
   pull_request:
     branches: [dev, main]
-    paths:
-      - "apps/backend/runners/github/**"
-      - ".github/workflows/factory-github-drift.yml"
+    # No paths: filter (Factory#3585): a required check must post on every PR.
   push:
     branches: [dev, main]
     paths:
