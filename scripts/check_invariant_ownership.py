@@ -66,14 +66,14 @@ def check(repo: Path = _REPO) -> list[str]:
             sys.path.insert(0, str(repo / root))
     packages, problems = discover(repo, SOURCE_ROOTS)
     for pkg, companion in VENDORED.items():
-        root = repo / packages.get(pkg, SOURCE_ROOTS[-1])
-        if pkg not in packages or not (root / f"{companion}.py").is_file():
-            problems.append(f"{pkg}: VENDORED entry needs package and {companion}.py in {root}")
+        vroot = repo / packages.get(pkg, SOURCE_ROOTS[-1])
+        if pkg not in packages or not (vroot / f"{companion}.py").is_file():
+            problems.append(f"{pkg}: VENDORED entry needs package and {companion}.py in {vroot}")
     registry = importlib.import_module("factory_invariants").registry
     for pkg, root_name in packages.items():
-        root = repo / root_name
+        base = repo / root_name
         companion = VENDORED.get(pkg, f"{pkg}._invariants")
-        path = root / f"{companion}.py" if pkg in VENDORED else root / pkg / "_invariants.py"
+        path = base / f"{companion}.py" if pkg in VENDORED else base / pkg / "_invariants.py"
         if not path.is_file():
             problems.append(
                 f"{pkg}: no declaration. Add {path.relative_to(repo)} registering a check "

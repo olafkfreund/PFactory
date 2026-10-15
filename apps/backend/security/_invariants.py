@@ -15,10 +15,10 @@ from factory_invariants import registry
 
 def _validators_cover_commands() -> Iterator[str]:
     from project import VALIDATED_COMMANDS
-    from security import hooks
+    from security.validator import VALIDATORS  # the dict security.hooks consults
 
     for cmd in sorted(VALIDATED_COMMANDS):
-        if cmd not in hooks.VALIDATORS:
+        if cmd not in VALIDATORS:
             yield f"{cmd!r} has no validator: the hook would allow it unchecked"
 
 
