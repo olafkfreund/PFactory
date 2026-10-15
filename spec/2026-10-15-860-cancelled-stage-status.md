@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 860
 intent: intent/2026-10-15-860-cancelled-stage-status.md
 ---
