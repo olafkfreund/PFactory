@@ -7,6 +7,8 @@ The stored ``lane_progress`` is only written at planning time, so it stays
 import json
 from pathlib import Path
 
+from test_plan.enums import _V01_LANE_ALIASES
+
 _EVALUATED = {"evaluated", "triaging", "triaged", "triaged_empty", "triager_failed"}
 _PASSTHROUGH = {
     "planner_failed",
@@ -32,7 +34,9 @@ def _plan_lanes(spec_dir: Path) -> set[str]:
         for sub in subtasks if isinstance(subtasks, list) else []:
             lane = sub.get("lane") if isinstance(sub, dict) else None
             if isinstance(lane, str) and lane.strip():
-                lanes.add(lane.strip().lower())
+                name = lane.strip().lower()
+                alias = _V01_LANE_ALIASES.get(name)  # old plans: functional/sast/... -> unit
+                lanes.add(alias.value if alias else name)
     return lanes
 
 
