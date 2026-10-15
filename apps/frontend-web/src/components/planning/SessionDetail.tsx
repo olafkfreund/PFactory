@@ -27,6 +27,7 @@ const STATUS_BADGE: Record<PlanSessionStatus, { variant: 'success' | 'info' | 'w
   processing: { variant: 'info', label: 'processing' },
   reviewing: { variant: 'info', label: 'AI review' },
   processed: { variant: 'info', label: 'processed' },
+  failed: { variant: 'destructive', label: 'failed' },
   approved: { variant: 'success', label: 'approved' },
   rejected: { variant: 'destructive', label: 'rejected' },
   emitted: { variant: 'success', label: 'emitted' },
@@ -70,7 +71,7 @@ export function SessionDetail({ sessionId, onBack }: Props) {
 
   const session = currentSession;
   const statusMeta = STATUS_BADGE[session.status] ?? { variant: 'muted' as const, label: session.status };
-  const canProcess = session.status === 'ingested' || session.status === 'processed';
+  const canProcess = session.status === 'ingested' || session.status === 'processed' || session.status === 'failed';
   const hasReview = session.review !== null;
   const hasEpic = session.epic !== null;
   const isApprovedOrEmitted = session.status === 'approved' || session.status === 'emitted';
