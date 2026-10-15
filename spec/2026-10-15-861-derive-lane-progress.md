@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 861
 intent: intent/2026-10-15-861-derive-lane-progress.md
 ---
