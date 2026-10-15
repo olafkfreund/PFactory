@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 860
 spec: spec/2026-10-15-860-cancelled-stage-status.md
 ---
