@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 862
 spec: spec/2026-10-15-862-plan-process-failed.md
 ---
