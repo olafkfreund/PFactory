@@ -293,9 +293,9 @@ def test_runner_image_passed_through(tmp_path: Path, project_dir: Path) -> None:
     run_ts_mutate_probe(
         test_file, project_dir,
         runner_fn=runner,
-        runner_image="pfactory-runner-playwright:latest",
+        runner_image="tfactory-runner-playwright:latest",
     )
-    assert calls[0]["image"] == "pfactory-runner-playwright:latest"
+    assert calls[0]["image"] == "tfactory-runner-playwright:latest"
 
 
 def test_stryker_exit_nonzero_still_parses_report(tmp_path: Path, project_dir: Path) -> None:

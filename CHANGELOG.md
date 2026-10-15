@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 0.6.28 — runtime invariants on by default (2026-10-15)
+
+- PFactory's copy of `extension-registry.json` is now drift-checked against
+  the hub at the pinned `HUB_SHA`, in the same CI step as the control catalog
+  (Factory#1709). The registry decides which review lenses and runtimes are
+  switched on, so a silent difference would change which checks run.
+- **Runtime invariants are on by default (#865).** Every package under
+  `apps/backend` and `apps/web-server` now declares its invariants in a
+  `_invariants.py` companion, and the ownership checker finds packages by
+  itself instead of a hand-written list (#864). The service runs the
+  non-critical checks on a timer (`APP_INVARIANTS_PERIOD_SECONDS`, default
+  300); each violation logs at error level and increments
+  `factory_invariant_violations_total{service,package}`. `GET /api/ready`
+  runs the critical checks and returns 503 with the failing names, otherwise
+  200. No check is critical yet, so it returns 200, and the readiness probe is
+  unchanged (factory-gitops#283). `FACTORY_INVARIANTS=0` turns them off.
+- A plan status that is terminal or unknown is never rewritten by the scripts
+  (Factory#3589).
+- A failed end is persisted when the run monitor is interrupted (#863), and a
+  failed session is saved when `process()` raises (#862).
+- A stage's status fails when its task is cancelled (#860), and
+  `lane_progress` is derived from the task status on read (#861).
+- All six test lanes run on TFactory's runner images; PFactory's copies are
+  gone (Factory#1003).
+- The factory-github drift check runs on every PR (Factory#3585).
+- `factory_common`'s `http` and `url_safety` are re-vendored from the hub
+  (#847).
+
 ## 0.6.27 — governance in the run signature (2026-10-14)
 
 - **The run signature records governance (Factory#1961).** `<slug>.run.json`

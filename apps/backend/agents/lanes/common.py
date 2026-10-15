@@ -28,9 +28,9 @@ _eval_log = _logging.getLogger("agents.evaluator")
 
 # ─── Runner image tags ──────────────────────────────────────────────────
 
-_PYTEST_IMAGE = "pfactory-runner-pytest:latest"
-_PLAYWRIGHT_IMAGE = "pfactory-runner-playwright:latest"
-_JEST_IMAGE = "pfactory-runner-jest:latest"
+_PYTEST_IMAGE = "tfactory-runner-pytest:latest"
+_PLAYWRIGHT_IMAGE = "tfactory-runner-playwright:latest"
+_JEST_IMAGE = "tfactory-runner-jest:latest"
 
 
 # ─── Runner-fn seam duck type ───────────────────────────────────────────

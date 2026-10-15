@@ -27,7 +27,7 @@ version_range: ">=7.0,<10.0"
 runtime:
   # Docker image built in Task 7 (#23).  The v0.1 image is re-tagged to
   # match the registry convention at that task.
-  image: pfactory-runner-pytest:latest
+  image: tfactory-runner-pytest:latest
   entrypoint:
     - python
     - "-m"

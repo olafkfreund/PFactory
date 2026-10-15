@@ -23,7 +23,7 @@ version_range: ">=27.0,<31.0"
 runtime:
   # Docker image built in Task 7 (#23).
   # Contains Node 22, jest, ts-jest, @types/jest, nyc for coverage.
-  image: pfactory-runner-jest:latest
+  image: tfactory-runner-jest:latest
   entrypoint:
     - npx
     - jest

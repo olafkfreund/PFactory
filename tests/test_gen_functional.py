@@ -523,7 +523,7 @@ def test_resolve_framework_descriptor_returns_descriptor_for_pytest() -> None:
     result = _resolve_framework_descriptor(subtask)
     assert result is not None
     assert result.name == "pytest"
-    assert result.runtime.image == "pfactory-runner-pytest:latest"
+    assert result.runtime.image == "tfactory-runner-pytest:latest"
 
 
 def test_resolve_framework_descriptor_returns_descriptor_for_jest() -> None:
@@ -532,7 +532,7 @@ def test_resolve_framework_descriptor_returns_descriptor_for_jest() -> None:
     result = _resolve_framework_descriptor(subtask)
     assert result is not None
     assert result.name == "jest"
-    assert result.runtime.image == "pfactory-runner-jest:latest"
+    assert result.runtime.image == "tfactory-runner-jest:latest"
 
 
 def test_resolve_framework_descriptor_returns_descriptor_for_playwright() -> None:
@@ -541,7 +541,7 @@ def test_resolve_framework_descriptor_returns_descriptor_for_playwright() -> Non
     result = _resolve_framework_descriptor(subtask)
     assert result is not None
     assert result.name == "playwright"
-    assert result.runtime.image == "pfactory-runner-playwright:latest"
+    assert result.runtime.image == "tfactory-runner-playwright:latest"
 
 
 def test_resolve_framework_descriptor_raises_for_unknown_framework() -> None:
@@ -571,7 +571,7 @@ def test_runner_fn_parameterized_by_descriptor_image(
     captured: dict = {}
 
     class FakeRuntime:
-        image = "pfactory-runner-jest:latest"
+        image = "tfactory-runner-jest:latest"
 
     class FakeDesc:
         runtime = FakeRuntime()
@@ -596,7 +596,7 @@ def test_runner_fn_parameterized_by_descriptor_image(
     dr_mod.DockerRunner = FakeDockerRunner
     try:
         _resolve_runner_fn(framework_descriptor=FakeDesc())
-        assert captured["image"] == "pfactory-runner-jest:latest"
+        assert captured["image"] == "tfactory-runner-jest:latest"
     finally:
         dr_mod.DockerRunner = original
 

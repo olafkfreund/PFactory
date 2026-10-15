@@ -48,7 +48,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from agents.agent_infra import now_iso, read_status, truthy, write_status_patch
+from agents.agent_infra import (
+    fail_status_on_cancel,
+    now_iso,
+    read_status,
+    truthy,
+    write_status_patch,
+)
 
 if TYPE_CHECKING:
     # tests_catalog is imported LAZILY at the three call sites below, but
@@ -920,4 +926,4 @@ def schedule_triager(
     task = asyncio.create_task(run_triager(spec_dir, project_dir, mode=mode))
     _BG_TRIAGER_TASKS.add(task)
     task.add_done_callback(_BG_TRIAGER_TASKS.discard)
-    return task
+    return fail_status_on_cancel(task, spec_dir, "triager", _write_status_patch)
