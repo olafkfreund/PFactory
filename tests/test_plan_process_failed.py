@@ -50,3 +50,17 @@ def test_reprocessing_a_failed_session_clears_the_error(tmp_path, monkeypatch):
 
     assert session.status == "processed"
     assert session.process_error is None
+
+
+@pytest.mark.parametrize("terminal", ["emitted", "discarded"])
+def test_failed_reprocess_keeps_a_terminal_status(tmp_path, monkeypatch, terminal):
+    svc = PlanService(store_dir=tmp_path, persist=True)
+    sid = svc.ingest_text(_PLAN, title="Refund API").session_id
+    svc.get(sid).status = terminal
+    monkeypatch.setattr(svc, "_decompose", _boom)
+
+    with pytest.raises(ValueError):
+        svc.process(sid)
+
+    assert svc.get(sid).status == terminal
+    assert svc.get(sid).process_error is None

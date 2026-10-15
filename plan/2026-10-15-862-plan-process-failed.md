@@ -61,6 +61,15 @@ Approved decisions (from the spec):
    → verify fails on origin/dev (detached worktree at
    `<scratchpad>/pf-base`), passes after.
 
+Deviation (implementation, from review):
+
+- Step 1: a failed re-process of an `emitted` or `discarded` session keeps
+  that status (and saves nothing), instead of overwriting the emit record or
+  bringing a discarded card back. `_KEEP_ON_FAILED_PROCESS` in `service.py`.
+- Step 1: `except StaleSessionError: raise` before the generic handler, so a
+  stale-save conflict on the success path is not logged as a failed run.
+- Step 4: a parametrized test covers both kept statuses.
+
 ## Tests
 
     /mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/pytest tests/test_plan_process_failed.py tests/test_plan_concurrency.py tests/test_emit_resumable.py tests/test_plan_stale_write.py -q

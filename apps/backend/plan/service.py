@@ -70,6 +70,9 @@ from plan.usage import PlanUsage
 SessionStatus = str
 # ingested | processing | reviewing | processed | failed | approved | rejected | emitted
 
+# Terminal statuses a failed re-process leaves in place (#862).
+_KEEP_ON_FAILED_PROCESS = frozenset({"emitted", "discarded"})
+
 # The board-column projection, env plumbing, RFC-0011 tier routing and the
 # additive RFC-0013/#E review-finding seams now live in ``plan.service_helpers``
 # (#194 decomposition); they are re-exported above under their historical
@@ -1187,6 +1190,7 @@ class PlanService:
         # Transient sub-states so a background-run session animates on the board:
         # in-progress while we detect/enrich/decompose/synthesize, AI-review while
         # the gates run. (Synchronous callers just see the final "processed".)
+        prior_status = session.status
         try:
             session.status = "processing"
 
@@ -1210,8 +1214,14 @@ class PlanService:
             session.process_error = None
             session.status = "processed"
             self._save(session)
+        except StaleSessionError:
+            raise  # another replica changed it (#758): a conflict, not a failed run
         except Exception as exc:
             logger.exception("process() failed for session %s", session_id)
+            if prior_status in _KEEP_ON_FAILED_PROCESS:
+                # A failed re-run must not erase an emitted/discarded record (#862).
+                session.status = prior_status
+                raise
             session.status = "failed"
             session.process_error = type(exc).__name__
             with suppress(StaleSessionError):
