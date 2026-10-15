@@ -73,6 +73,11 @@ Deviation (implementation, from the lead's review):
 - Step 2: two more tests, a cancel during the post-completion emission and
   an `_emit_progress` crash after completion; both keep `completed`.
 
+- Step 1 (second review): the crash branch also skips its live FAILED
+  "Task monitoring error" event once `finished` is set, so live clients do
+  not see failed while the stored state reads completed. The crash test
+  asserts no FAILED event is emitted.
+
 ## Tests
 
     /mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/pytest tests/test_agent_monitor_interrupted.py tests/test_agent_monitor_characterization.py tests/test_agent_event_hygiene.py -q

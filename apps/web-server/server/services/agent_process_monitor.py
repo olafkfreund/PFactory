@@ -1074,10 +1074,11 @@ class AgentProcessMonitorMixin:
             self._task_rate_limits.pop(task_id, None)
             self._task_subtask_states.pop(task_id, None)
             self._spec_dirs.pop(task_id, None)
-            await self._emit_progress(
-                TaskProgress(
-                    task_id=task_id,
-                    phase=TaskPhase.FAILED,
-                    message=f"Task monitoring error: {e}",
+            if not finished:  # a decided run must not be shown failed live (#863)
+                await self._emit_progress(
+                    TaskProgress(
+                        task_id=task_id,
+                        phase=TaskPhase.FAILED,
+                        message=f"Task monitoring error: {e}",
+                    )
                 )
-            )

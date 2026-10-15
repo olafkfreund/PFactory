@@ -116,10 +116,10 @@ async def test_cancel_after_completed_write_keeps_completed(tmp_path: Path) -> N
 async def test_crash_after_completed_write_keeps_completed(tmp_path: Path) -> None:
     service, spec_dir = _service(tmp_path)
     service._emit_progress = AsyncMock(side_effect=RuntimeError("ws down"))
-    # The crash branch's own FAILED emission raises too (unchanged behaviour).
-    with pytest.raises(RuntimeError):
-        await service._monitor_process(TASK_ID, DoneProc(), tmp_path, SPEC_ID)
+    await service._monitor_process(TASK_ID, DoneProc(), tmp_path, SPEC_ID)
 
     statuses = [c.args[2] for c in service._update_plan_status.await_args_list]
     assert statuses == ["completed"]
     assert _coding_status(spec_dir) == "completed"
+    phases = [c.args[0].phase for c in service._emit_progress.await_args_list]
+    assert TaskPhase.FAILED not in phases
