@@ -221,6 +221,7 @@ from typing import Literal
 
 from agents.agent_infra import (
     BackgroundTaskRegistry,
+    fail_status_on_cancel,
     iter_subtasks,
     now_iso,
     read_status,
@@ -948,4 +949,5 @@ def schedule_planner(
     """
     if os.environ.get("PFACTORY_AUTO_PLAN", "1") == "0":
         return None
-    return _BG_PLANNER_REGISTRY.schedule(run_planner(spec_dir, project_dir, mode=mode))
+    task = _BG_PLANNER_REGISTRY.schedule(run_planner(spec_dir, project_dir, mode=mode))
+    return fail_status_on_cancel(task, spec_dir, "planner", _write_status_patch)
