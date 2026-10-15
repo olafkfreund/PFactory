@@ -66,3 +66,22 @@ def test_failed_reprocess_keeps_a_terminal_status(tmp_path, monkeypatch, termina
 
     assert svc.get(sid).status == terminal
     assert svc.get(sid).process_error is None
+
+
+def test_failed_reprocess_keeps_the_previous_results(tmp_path, monkeypatch):
+    svc = PlanService(store_dir=tmp_path, persist=True)
+    sid = svc.ingest_text(_PLAN, title="Refund API").session_id
+    session = svc.process(sid)
+    epic, review = session.epic, session.review
+    session.status = "emitted"
+    svc._save(session)
+    # The last pipeline step fails, after epic and review were rebuilt.
+    monkeypatch.setattr("plan.service.annotate_plan", _boom)
+
+    with pytest.raises(ValueError):
+        svc.process(sid)
+
+    session = svc.get(sid)
+    assert session.status == "emitted"
+    assert session.epic == epic
+    assert session.review == review

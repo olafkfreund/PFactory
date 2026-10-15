@@ -1205,12 +1205,15 @@ class PlanService:
             session.status = "reviewing"
             review = run_gates(plan, epic, external_runner=composed_runner)
 
+            # Honour the document: anchored, cited suggestions + improved draft (#D).
+            annotation = annotate_plan(plan, review)
+            # Assigned only after the last call that can raise, so a failed
+            # re-run leaves the previous results in place (#862).
             session.plan = plan
             session.epic = epic
             session.artifacts = artifacts
             session.review = review
-            # Honour the document: anchored, cited suggestions + improved draft (#D).
-            session.annotation = annotate_plan(plan, review)
+            session.annotation = annotation
             session.process_error = None
             session.status = "processed"
             self._save(session)

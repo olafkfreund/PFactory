@@ -70,6 +70,13 @@ Deviation (implementation, from review):
   stale-save conflict on the success path is not logged as a failed run.
 - Step 4: a parametrized test covers both kept statuses.
 
+- Step 1 (lead review): `process()` builds plan, epic, artifacts, review and
+  annotation in locals and assigns them to the session only after
+  `annotate_plan`, the last call that can raise. Otherwise a failed re-run of
+  an emitted session kept its status but showed (and later saved) the new
+  run's epic and review. Test: annotate_plan raising on an emitted session
+  keeps the previous epic and review.
+
 ## Tests
 
     /mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/pytest tests/test_plan_process_failed.py tests/test_plan_concurrency.py tests/test_emit_resumable.py tests/test_plan_stale_write.py -q
