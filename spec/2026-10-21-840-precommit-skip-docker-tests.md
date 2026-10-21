@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 840
 intent: intent/2026-10-21-840-precommit-skip-docker-tests.md
 ---
