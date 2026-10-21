@@ -35,6 +35,13 @@ Decisions carried from the approved spec:
 `pytest tests/test_plan_stale_write.py tests/ -k "session or stale or delete"`
 then the full `pytest tests/`. The new test must fail on origin/dev.
 
+## Deviations
+
+- Step 1 was handed to agy, which proposed the same change but could not
+  write in its sandbox; it was applied in-session from that proposal.
+- Step 2 was written in-session before step 1, to show it fails on
+  origin/dev.
+
 ## Rollback
 
 Revert the PR; no data or schema change.
