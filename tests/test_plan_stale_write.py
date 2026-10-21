@@ -124,3 +124,21 @@ def test_import_skips_a_row_that_already_exists(tmp_path, caplog):
 
     assert store.rows[sid] == ('{"advanced": "elsewhere"}', 7)
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING and sid in r.getMessage()]
+
+
+def test_an_edit_after_a_delete_on_another_replica_does_not_resurrect_it():
+    # #828: B's listed copy has no version; the edit used to re-insert the row.
+    store = FakeSessionStore()
+    a = PlanService(session_store=store)
+    b = PlanService(session_store=store)
+    sid = a.ingest_text(_PLAN, title="Refund API").session_id
+
+    b.list_sessions()  # replica B caches the listed, unversioned copy
+    a.discard(sid, actor="olaf", reason="duplicate")
+    a.delete_session(sid, actor="olaf")
+
+    with pytest.raises(PlanServiceError, match="unknown session"):
+        b.get(sid)
+    with pytest.raises(PlanServiceError, match="unknown session"):
+        b.update_plan(sid, title="Edited")
+    assert sid not in store.rows
