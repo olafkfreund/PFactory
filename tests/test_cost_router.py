@@ -20,9 +20,20 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 
 from plan.emit.cost_router import apply_cost_routing, select_phase_models  # noqa: E402
-from plan.emit.cost_router_core import load_catalog  # noqa: E402
+from plan.emit.cost_router_core import (  # noqa: E402
+    cheapest_capable_model,
+    estimate_cost,
+    load_catalog,
+)
 
 _CATALOG = load_catalog(_BACKEND / "plan" / "emit" / "model-catalog.json")
+
+
+def test_catalog_entries_have_router_fields():
+    assert all(
+        {"provider", "class", "roles", "price", "caps"} <= entry.keys()
+        for entry in _CATALOG.values()
+    )
 
 
 def _metered_only():
@@ -37,6 +48,24 @@ def _claude_only():
     return {k: v for k, v in _metered_only().items() if v.get("provider") == "claude"}
 
 
+def test_unavailable_cheapest_is_skipped_but_absent_flag_is_available():
+    catalog = {
+        "unavailable": {
+            "class": "balanced",
+            "roles": ["planning"],
+            "price": {"mode": "metered", "in_per_mtok": 1, "out_per_mtok": 1},
+            "available": False,
+        },
+        "available": {
+            "class": "balanced",
+            "roles": ["planning"],
+            "price": {"mode": "metered", "in_per_mtok": 2, "out_per_mtok": 2},
+        },
+    }
+    pick = cheapest_capable_model("planning", "balanced", None, (1000, 1000), catalog)
+    assert pick == "available"
+
+
 # ── per-role selection ────────────────────────────────────────────────────────
 
 
@@ -44,7 +73,7 @@ def test_hard_tier_floors_planning_at_frontier():
     contract = {"execution": {"autonomy_tier": "hard"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_metered_only())
     # hard floor = frontier; planning must be the frontier model.
-    assert out["phase_models"]["planning"] == "claude-opus-4-8"
+    assert out["phase_models"]["planning"] == "claude-opus-5-5"
 
 
 def test_governed_forces_frontier_planning_even_at_medium_tier():
@@ -55,7 +84,7 @@ def test_governed_forces_frontier_planning_even_at_medium_tier():
     }
     out = select_phase_models(contract, catalog=_metered_only())
     assert out["routing"]["class"] == "governed"
-    assert out["phase_models"]["planning"] == "claude-opus-4-8"
+    assert out["phase_models"]["planning"] == "claude-opus-5-5"
 
 
 def test_coding_is_cheaper_than_planning_within_floor():
@@ -63,7 +92,7 @@ def test_coding_is_cheaper_than_planning_within_floor():
     # coding model at/above balanced is sonnet (not opus).
     contract = {"execution": {"autonomy_tier": "medium"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_claude_only())
-    assert out["phase_models"]["coding"] == "claude-sonnet-4-6"
+    assert out["phase_models"]["coding"] == "claude-sonnet-5"
 
 
 def test_low_tier_allows_cheap_coding():
@@ -88,28 +117,20 @@ def test_routing_block_shape():
     assert "tier=medium" in routing["rationale"]
 
 
-def test_mechanical_roles_never_resolve_to_codex():
-    # Full catalog (every provider in the game, including the flat-rate/$0
-    # subscription models codex/github-models/ollama-cloud that used to win cost
-    # ties by alphabetical luck): coding/qa/test_gen must resolve to a claude
-    # model, never codex — codex agentic builds produce NO code (empty branch,
-    # 0/N subtasks; AIFactory #779). Planning is untouched by the restriction and
-    # still cost-shops across providers, landing on the cheapest metered planner.
+def test_real_catalog_never_routes_to_unavailable_or_other_provider():
+    # Every routed role is Claude-restricted, and unavailable catalog entries
+    # remain visible for explicit pins without becoming automatic picks.
     for tier in ("low", "medium", "hard"):
         contract = {"execution": {"autonomy_tier": tier}, "final_acceptance": ["a"]}
         out = select_phase_models(contract, catalog=_CATALOG)
         pm = out["phase_models"]
-        for role in ("coding", "qa", "test_gen"):
+        for role in ("planning", "coding", "qa", "test_gen"):
             assert pm[role].startswith("claude-"), f"{tier}/{role} resolved to {pm[role]!r}"
-            assert pm[role] != "codex"
+            assert pm[role] not in {"gemini", "claude-opus-4-8", "claude-sonnet-4-6"}
 
 
-def test_free_runtimes_preferred_for_planning_only():
-    # Full catalog, low floor: planning still cost-shops the whole catalog and
-    # has no free option (codex/github-models don't serve planning), so it
-    # resolves to the cheapest metered planning model. coding/qa/test_gen are
-    # restricted to claude (see test_mechanical_roles_never_resolve_to_codex)
-    # rather than picking the flat-rate codex that used to win here.
+def test_low_tier_uses_claude_for_every_role():
+    # All roles auto-select from Claude; low-tier coding may still use Haiku.
     contract = {"execution": {"autonomy_tier": "low"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_CATALOG)
     pm = out["phase_models"]
@@ -117,21 +138,52 @@ def test_free_runtimes_preferred_for_planning_only():
     assert pm["coding"] == "claude-haiku-4-5-20251001"
     assert pm["qa"] == "claude-haiku-4-5-20251001"
     assert pm["test_gen"] == "claude-haiku-4-5-20251001"
-    # planning is priced (gemini), so the rolled estimate includes planning's cost.
-    assert pm["planning"] == "gemini"
+    assert pm["planning"] == "claude-sonnet-5"
     assert isinstance(out["routing"]["cost_estimate_usd"], float)
+    rationale = out["routing"]["rationale"]
+    assert "gemini skipped: Gemini CLI terminates the session" in rationale
+    assert "claude-opus-4-8 skipped: superseded by claude-opus-5-5" in rationale
+    assert "claude-sonnet-4-6 skipped: superseded by claude-sonnet-5; pinnable only" in rationale
 
 
 def test_medium_tier_coding_resolves_to_sonnet_by_default():
     # The common case (medium tier, full catalog): coding/qa/test_gen resolve to
-    # the cheapest balanced-class model — the router's tie-break lands on
-    # claude-sonnet-4-6 (Sonnet 5 is the same $3/$15 balanced tier).
+    # the cheapest available balanced-class Claude model.
     contract = {"execution": {"autonomy_tier": "medium"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_CATALOG)
     pm = out["phase_models"]
-    assert pm["coding"] == "claude-sonnet-4-6"
-    assert pm["qa"] == "claude-sonnet-4-6"
-    assert pm["test_gen"] == "claude-sonnet-4-6"
+    assert pm["coding"] == "claude-sonnet-5"
+    assert pm["qa"] == "claude-sonnet-5"
+    assert pm["test_gen"] == "claude-sonnet-5"
+
+
+def test_unavailable_model_keeps_its_price_and_explicit_run_pin():
+    assert estimate_cost("claude-opus-4-8", 1_000_000, 1_000_000, _CATALOG) == 30.0
+    contract = {
+        "execution": {
+            "autonomy_tier": "medium",
+            "model": "claude-opus-4-8",
+            "phase_models": {"qa_fixer": "claude-opus-4-8"},
+        },
+        "final_acceptance": ["a"],
+    }
+    apply_cost_routing(contract, catalog=_CATALOG)
+    assert contract["execution"]["model"] == "claude-opus-4-8"
+    assert contract["execution"]["phase_models"]["qa_fixer"] == "claude-opus-4-8"
+    assert contract["execution"]["phase_models"]["planning"] == "claude-sonnet-5"
+
+
+def test_planning_ceiling_relaxation_keeps_a_model():
+    # A frontier model over the premium $10 per-role ceiling must still route.
+    expensive = {
+        **_CATALOG["claude-opus-5-5"],
+        "price": {"mode": "metered", "in_per_mtok": 1000, "out_per_mtok": 1000},
+    }
+    catalog = {"claude-opus-5-5": expensive}
+    contract = {"execution": {"autonomy_tier": "hard"}, "final_acceptance": ["a"]}
+    out = select_phase_models(contract, catalog=catalog)
+    assert out["phase_models"]["planning"] == "claude-opus-5-5"
+    assert "planning: ceiling relaxed" in out["routing"]["rationale"]
 
 
 def test_estimate_none_when_every_role_is_free():

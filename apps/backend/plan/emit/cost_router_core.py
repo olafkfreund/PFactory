@@ -76,6 +76,8 @@ ModelEntry = TypedDict(
         "roles": list[str],
         "price": Price,
         "caps": Caps,
+        "available": bool,
+        "unavailable_reason": str,
     },
     total=False,
 )
@@ -174,7 +176,7 @@ def cheapest_capable_model(
     catalog: dict[str, ModelEntry],
 ) -> str | None:
     """Pick the cheapest catalog model that serves `role`, sits at/above
-    `floor_class`, and (if metered) stays under `ceiling_usd`.
+    `floor_class`, is available, and (if metered) stays under `ceiling_usd`.
 
     `est_tokens` is `(in_tokens, out_tokens)`. Returns the model id, or None if
     nothing meets the floor + role + ceiling. NEVER returns a model below the
@@ -185,6 +187,7 @@ def cheapest_capable_model(
         (mid, entry)
         for mid, entry in catalog.items()
         if _serves_role(entry, role)
+        and entry.get("available") is not False
         and _meets_floor(entry, floor_class)
         and _under_ceiling(estimate_cost(mid, in_tokens, out_tokens, {mid: entry}), ceiling_usd)
     ]

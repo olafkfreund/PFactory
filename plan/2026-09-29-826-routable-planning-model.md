@@ -123,3 +123,20 @@ selectable for planning again, so new contracts would once more pin a model that
 cannot run — but nothing stored needs unwinding: the change only affects models
 chosen for contracts emitted while it is live, and contracts already signed
 carry their own pins.
+
+- **Re-based on `dev` (2026-10-21).** The branch targets `dev`, not `main`, and
+  the ratchet runs with `--base origin/dev`. On `dev` the catalog had no
+  `claude-sonnet-4-5-20250929` entry, but had `claude-opus-4-8` (the frontier
+  entry that ties `claude-opus-5-5` at 5/25). So the superseded entries marked
+  `available: false` are `claude-opus-4-8` and `claude-sonnet-4-6`;
+  `claude-fable-5` (10/50) is a different model and is left available.
+- **`_MECHANICAL_ROLES` is renamed `_CLAUDE_ROLES`** and now holds all four
+  routed roles, since planning joined it.
+- **Step 5 (pin precedence)** is tested as: `apply_cost_routing` leaves an
+  existing `execution.model` and keys the router does not own (e.g.
+  `qa_fixer`) set to an unavailable model, and `estimate_cost` still prices an
+  unavailable model. The router has no per-role pin input to honour beyond that.
+- **Step 8 (live proof against MyFriends/TFactory) was not run** in this bulk
+  lane; the regression is covered by `tests/test_cost_router.py`.
+- Steps 1-6 were implemented by the Codex coder; gates (step 7) were run by the
+  session.
