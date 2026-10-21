@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.6.29 — security floors and dependency refresh (2026-10-21)
+
+- **The runtime image clears three new HIGH CVEs (#879).** apk floors pull
+  `curl` and `libcurl-openssl4` to 8.23.0-r0 (CVE-2026-92392) and
+  `ca-certificates-bundle` to 20260909-r3 (CVE-2026-111943).
+- The baked agent CLIs are bumped: claude-code 2.1.303, codex 0.163.0,
+  gemini-cli 0.64.0 (#845).
+- Language reconciliation no longer matches inside other words, ALL-CAPS
+  acronyms or two-letter tokens, and recognises cargo, flask, maven and
+  django again (#835, #827).
+- Mermaid 12 and katex 0.18; diagrams keep the mermaid 11 look with
+  `look: 'classic'` and `layout: 'dagre'` (#851).
+- `/api/ready` is single-flight with a timeout, and the invariant timer period
+  has a floor (#877, #874).
+- The emitted-epic correlation key is scoped to the repo (Factory#1775, #878).
+- Dependency bumps: dompurify 3.4.17, brace-expansion, source-map-js 1.2.2,
+  seven GitHub Actions (#844, #849, #850, #852).
+
 ## 0.6.28 — runtime invariants on by default (2026-10-15)
 
 - PFactory's copy of `extension-registry.json` is now drift-checked against
