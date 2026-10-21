@@ -151,6 +151,11 @@ RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
 #                        both HIGH, both fixed in 1.38.0-r0.
 #   wget    1.25.0-r14 — CVE-2026-58471 and CVE-2026-58472, both HIGH, both
 #                        fixed in 1.25.0-r15.
+#   curl / libcurl-openssl4 8.22.0-r4 — CVE-2026-92392 (HIGH, HTTP/2 upload
+#                        use-after-free), fixed in 8.23.0-r0. Named together:
+#                        same origin, and the base pins libcurl-openssl4.
+#   ca-certificates-bundle 20260909-r2 — CVE-2026-111943 (HIGH, distrusted
+#                        intermediate CA), fixed in 20260909-r3.
 # Floors rather than == pins, so the build stays green as Wolfi revs further
 # (1.38.0-r1 and later already exist); drop each once the base digest ships it.
 # Verified present in the Wolfi x86_64 APKINDEX before pinning — a floor above
@@ -176,7 +181,9 @@ RUN echo "security refresh: ${SECURITY_REFRESH}" \
         "libssl3>=3.6.3-r5" \
         bubblewrap \
         ca-certificates \
-        curl \
+        "ca-certificates-bundle>=20260909-r3" \
+        "curl>=8.23.0-r0" \
+        "libcurl-openssl4>=8.23.0-r0" \
         git \
         gh \
         gnupg \
@@ -282,9 +289,9 @@ RUN mkdir -p /home/nonroot/.npm-global \
 # because nothing asserted the CLI works. Full path, since PATH is set for the
 # runtime user rather than for RUN.
 RUN npm install -g \
-        @anthropic-ai/claude-code@2.1.283 \
-        @openai/codex@0.158.0 \
-        @google/gemini-cli@0.61.0 \
+        @anthropic-ai/claude-code@2.1.303 \
+        @openai/codex@0.163.0 \
+        @google/gemini-cli@0.64.0 \
  && node /home/nonroot/.npm-global/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
  && /home/nonroot/.npm-global/bin/claude --version \
  && npm cache clean --force \

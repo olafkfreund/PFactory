@@ -6,12 +6,15 @@ the on-by-default switch, the non-critical timer body and ``GET /api/ready``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
+import threading
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 REPO = Path(__file__).resolve().parents[1]
 for _root in (REPO / "apps" / "backend", REPO / "apps" / "web-server"):
@@ -20,6 +23,7 @@ for _root in (REPO / "apps" / "backend", REPO / "apps" / "web-server"):
 
 import factory_invariants as fi  # noqa: E402
 from server.background import invariants as inv  # noqa: E402
+from server.config import Settings  # noqa: E402
 from server.main import create_app  # noqa: E402
 
 
@@ -77,12 +81,48 @@ def test_readiness_names_failing_package_and_caches(monkeypatch):
     monkeypatch.setattr(inv, "_ready_cache", None)
     clock = [1000.0]
     monkeypatch.setattr(inv.time, "monotonic", lambda: clock[0])
-    assert inv.readiness() == ["pkgx"]
-    assert inv.readiness() == ["pkgx"]
+    assert asyncio.run(inv.readiness()) == ["pkgx"]
+    assert asyncio.run(inv.readiness()) == ["pkgx"]
     assert len(calls) == 1
     clock[0] += 11
-    inv.readiness()
+    asyncio.run(inv.readiness())
     assert len(calls) == 2
+
+
+def test_readiness_hung_check_is_single_flight_and_times_out(monkeypatch):
+    release = threading.Event()
+    calls = []
+
+    def hung():
+        calls.append(1)
+        release.wait(5)
+        return iter([])
+
+    monkeypatch.setattr(inv, "registry", _registry(critical=True, check=hung))
+    monkeypatch.setattr(inv, "_ready_cache", None)
+    monkeypatch.setattr(inv, "_ready_run", None)
+    monkeypatch.setattr(inv, "READY_TIMEOUT_SECONDS", 0.2)
+    counter = inv.VIOLATIONS.labels(service="pfactory", package="pkgx")
+    before = counter._value.get()
+
+    async def probes():
+        first = await asyncio.gather(inv.readiness(), inv.readiness())
+        inv._ready_cache = None  # cache expired, run still hung
+        return first, await inv.readiness()
+
+    try:
+        first, later = asyncio.run(probes())
+    finally:
+        release.set()
+    assert first == [["pkgx"], ["pkgx"]]
+    assert later == ["pkgx"]
+    assert len(calls) == 1  # one thread, however many probes
+    assert counter._value.get() == before + 3  # one per probe that timed out
+
+
+def test_invariants_period_has_a_floor():
+    with pytest.raises(ValidationError):
+        Settings(INVARIANTS_PERIOD_SECONDS=0)
 
 
 def test_ready_endpoint(monkeypatch):
@@ -90,6 +130,7 @@ def test_ready_endpoint(monkeypatch):
     client = TestClient(create_app())
 
     monkeypatch.setattr(inv, "_ready_cache", None)
+    monkeypatch.setattr(inv, "_ready_run", None)
     monkeypatch.setattr(inv, "registry", _registry(critical=True))
     r = client.get("/api/ready")
     assert r.status_code == 503

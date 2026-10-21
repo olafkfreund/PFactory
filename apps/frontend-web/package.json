@@ -1,6 +1,6 @@
 {
   "name": "pfactory-web",
-  "version": "0.6.28",
+  "version": "0.6.29",
   "type": "module",
   "description": "Web UI for PFactory autonomous coding framework",
   "scripts": {
@@ -45,7 +45,7 @@
     "highlight.js": "^11.11.1",
     "i18next": "^25.7.3",
     "lucide-react": "^0.562.0",
-    "mermaid": "^11.16.1",
+    "mermaid": "^12.2.0",
     "motion": "^12.23.26",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

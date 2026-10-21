@@ -84,6 +84,38 @@ def test_terminal_statuses_are_emitted_rejected_and_discarded():
 # ── correlation key: issue# with synthetic fallback ──────────────────────────
 
 
+@pytest.mark.parametrize(("repo", "expected"), [("o/r", "o/r#12"), (None, "12")])
+def test_emitted_epic_key_is_scoped_to_the_repo(repo: str | None, expected: str) -> None:
+    """#1775: with no origin issue the key is the epic, named by its repo."""
+    session = PlanService().ingest_text(_PLAN, title="Refund flow")
+    session.emit_repo = repo
+    session.emitted_issue_number = 12
+    assert correlation_key_for(session) == expected
+
+
+def test_emitted_epic_key_names_the_emit_repo_not_the_analysed_one(monkeypatch):
+    """#1775: analysed in o/code, epic emitted to o/plans: the key names o/plans."""
+    svc = PlanService()
+    session = svc.process(svc.ingest_text(_PLAN, title="Refund flow", repo="o/code").session_id)
+    monkeypatch.setattr(
+        github_emitter,
+        "emit_to_github",
+        lambda *a, **k: EmitResult(dry_run=False, epic_number=101, errors=[]),
+    )
+    out = svc.emit(session.session_id, repo="o/plans", dry_run=False)
+    assert out.repo == "o/code"
+    assert out.correlation_key == "o/plans#101"
+
+
+def test_event_keeps_the_persisted_key_of_an_older_session():
+    """A session emitted before #1775 stored "101"; its event must not re-key to o/r#101."""
+    session = PlanService().ingest_text(_PLAN, title="Refund flow")
+    session.emit_repo = "o/r"
+    session.emitted_issue_number = 101
+    session.correlation_key = "101"
+    assert build_completion_event(session)["correlation_key"] == "101"
+
+
 def test_correlation_key_is_synthetic_before_any_issue():
     svc = PlanService()
     session = svc.ingest_text(_PLAN, title="Refund flow")
@@ -102,8 +134,8 @@ def test_correlation_key_becomes_issue_number_after_emit(monkeypatch):
 
     assert out.status == "emitted"
     assert out.emitted_issue_number == 101
-    assert out.correlation_key == "101"
-    assert build_completion_event(out)["correlation_key"] == "101"
+    assert out.correlation_key == "acme/widget#101"
+    assert build_completion_event(out)["correlation_key"] == "acme/widget#101"
     assert build_completion_event(out)["correlation"]["issue_number"] == 101
 
 
@@ -252,7 +284,7 @@ def test_plan_status_surfaces_the_correlation_chain(monkeypatch):
     svc.emit(session.session_id, repo="acme/widget", dry_run=False)
 
     status = plan_status(session.session_id)
-    assert status["correlation_key"] == "55"
+    assert status["correlation_key"] == "acme/widget#55"
     assert status["issue_number"] == 55
     assert "aifactory_task_id" in status
 

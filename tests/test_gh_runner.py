@@ -173,7 +173,7 @@ def test_live_emit_reaches_emitted_with_real_correlation_ids():
 
     assert out.status == "emitted"
     assert out.emitted_issue_number == 101          # the epic — first issue created
-    assert out.correlation_key == "101"
+    assert out.correlation_key == "acme/widget#101"
     assert out.emit_result["epic_number"] == 101
     assert gh.links                                 # children linked to the epic
 
