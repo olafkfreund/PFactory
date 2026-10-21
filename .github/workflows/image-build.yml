@@ -8,8 +8,8 @@
 # toolchain, not the image. The first real compile happened in deploy.yml, after
 # merge. This closes that.
 #
-# Shape copied from runner-images.yml, which already does exactly this for the
-# docker/pfactory-runner-* images. Differences from that file, on purpose:
+# Shape copied from runner-images.yml (TFactory's since Factory#1003), which
+# already does exactly this for the runner images. Differences from that file, on purpose:
 #
 #   NO `paths:` filter. A required status check that does not run on a given PR
 #   leaves that PR blocked forever, so this runs on every PR unconditionally.

@@ -1,0 +1,50 @@
+{
+  "aggregate_score": 0.9571,
+  "base_ref": null,
+  "board_state": "done",
+  "children": 33,
+  "content_hash": "2f22674892eaf8e6380ca22fd57e9d09",
+  "correlation_key": "pf-004-find-friend-create-profile-mvp",
+  "created_at": "2026-09-04T13:18:03.160284+00:00",
+  "criteria_count": 31,
+  "emitted_issue_number": null,
+  "findings_by_severity": {
+    "info": 1,
+    "low": 1,
+    "medium": 1
+  },
+  "gates_passed": true,
+  "generated_by": "pfactory",
+  "injection_scan": "skipped",
+  "lens_scores": {
+    "architecture": 0.85,
+    "best-practices": 1.0,
+    "completeness": 1.0,
+    "compliance": 1.0,
+    "feasibility": 1.0,
+    "red-team": 0.85,
+    "security": 1.0
+  },
+  "original_filename": "find-friend-plan.md",
+  "pfactory_version": "0.6.18",
+  "plan_id": "004-find-friend-create-profile-mvp",
+  "plan_type": "feature",
+  "repo": null,
+  "selected_category": "feature",
+  "selected_template": "",
+  "session_id": "004-find-friend-create-profile-mvp",
+  "signature_schema": 1,
+  "source_channel": "portal",
+  "source_format": "markdown",
+  "status": "approved",
+  "suggestions": 2,
+  "target_kind": "software",
+  "tenant_id": "default",
+  "title": "Find Friend \u2014 Create Profile (MVP)",
+  "tokens": {
+    "cost_usd": 0.0,
+    "input_tokens": 0,
+    "model": "",
+    "output_tokens": 0
+  }
+}

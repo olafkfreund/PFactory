@@ -21,7 +21,7 @@ version_range: ">=0"
 runtime:
   # The cloud runner image carries the provider CLIs + Prowler. Discovery
   # itself runs host-side; the image is the assessment runtime (cloud-prowler).
-  image: pfactory-runner-cloud:latest
+  image: tfactory-runner-cloud:latest
   entrypoint: []
 
 # A cloud_provider target in .pfactory.yml is the signal this framework applies.

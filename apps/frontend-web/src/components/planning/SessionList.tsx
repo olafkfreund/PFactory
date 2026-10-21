@@ -19,6 +19,7 @@ const STATUS_COLOR: Record<PlanSessionStatus, string> = {
   processing: 'bg-info/10 text-info',
   reviewing: 'bg-info/10 text-info',
   processed: 'bg-info/10 text-info',
+  failed: 'bg-destructive/10 text-destructive',
   approved: 'bg-success/10 text-success',
   rejected: 'bg-destructive/10 text-destructive',
   emitted: 'bg-success/10 text-success',

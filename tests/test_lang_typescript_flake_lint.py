@@ -264,9 +264,9 @@ def test_runner_image_passed_through(ts_file: Path, tmp_path: Path) -> None:
     run_ts_flake_lint(
         ts_file, tmp_path,
         runner_fn=runner,
-        runner_image="pfactory-runner-playwright:latest",
+        runner_image="tfactory-runner-playwright:latest",
     )
-    assert calls[0]["image"] == "pfactory-runner-playwright:latest"
+    assert calls[0]["image"] == "tfactory-runner-playwright:latest"
 
 
 @pytest.mark.parametrize("rule,eslint_sev,expected_has_high,expected_has_medium", [

@@ -16,7 +16,7 @@ test file or writes a ``context/replan_request.json`` for the Planner.
     Python-specific v0.1 prompt for polyglot subtasks).
   - ``_resolve_runner_fn`` now reads the image from
     ``framework_descriptor.runtime.image`` instead of the hardcoded
-    ``pfactory-runner-pytest:latest`` constant.
+    ``tfactory-runner-pytest:latest`` constant.
   - v0.1-style subtasks (``subtask.framework is None``) degrade
     gracefully with a ``DeprecationWarning`` on both the prompt helper
     and the runner-image paths.
@@ -41,6 +41,7 @@ from typing import Literal
 
 from agents.agent_infra import (
     BackgroundTaskRegistry,
+    fail_status_on_cancel,
     iter_subtasks,
     now_iso,
     read_status,
@@ -190,7 +191,7 @@ def _resolve_runner_fn(framework_descriptor=None):
     In v0.2 the runner image is taken from
     ``framework_descriptor.runtime.image``.  For v0.1-style subtasks
     (``framework_descriptor=None``) the legacy default image
-    ``pfactory-runner-pytest:latest`` is used and a ``DeprecationWarning``
+    ``tfactory-runner-pytest:latest`` is used and a ``DeprecationWarning``
     is emitted.
 
     The returned callable has the signature::
@@ -607,6 +608,7 @@ def schedule_gen_functional(
     """
     if os.environ.get("PFACTORY_AUTO_GENERATE", "1") == "0":
         return None
-    return _BG_GEN_FUNCTIONAL_REGISTRY.schedule(
+    task = _BG_GEN_FUNCTIONAL_REGISTRY.schedule(
         run_gen_functional(spec_dir, project_dir, mode=mode),
     )
+    return fail_status_on_cancel(task, spec_dir, "gen_functional", _write_status_patch)

@@ -6,6 +6,8 @@ independently reimplemented the same small primitives:
 - ``now_iso`` — tz-aware ISO-8601 timestamp (seconds resolution).
 - ``read_status`` / ``write_status_patch`` — read and merge-patch a spec's
   ``status.json``, emitting a best-effort stage event on every write (#95).
+- ``fail_status_on_cancel`` — mark a stage ``<stage>_failed`` if its task is
+  cancelled before it can write a terminal status.
 - ``truthy`` — the canonical env-var truthiness check.
 - a fire-and-forget background-task registry (the ``set[asyncio.Task]``
   GC-anchor + ``add_done_callback`` discard pattern).
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BackgroundTaskRegistry",
+    "fail_status_on_cancel",
     "iter_subtasks",
     "now_iso",
     "read_status",
@@ -79,6 +82,39 @@ def write_status_patch(spec_dir: Path, stage: str, **fields: object) -> None:
     )
 
     emit_stage_event(spec_dir, status, stage=stage)
+
+
+# Terminal statuses a cancelled stage must not overwrite (``*_failed`` is checked too).
+_TERMINAL = frozenset({"triaged", "triaged_empty"})
+
+
+def fail_status_on_cancel(
+    task: asyncio.Task[Any],
+    spec_dir: Path,
+    stage: str,
+    write_patch: Callable[..., None],
+) -> asyncio.Task[Any]:
+    """Write ``<stage>_failed`` when ``task`` is cancelled; return ``task``.
+
+    Skipped if the status is already terminal, so a stage that finished or
+    failed on its own keeps its own status.
+    """
+
+    def _on_done(t: asyncio.Task[Any]) -> None:
+        if not t.cancelled():
+            return
+        current = str(read_status(spec_dir).get("status", ""))
+        if current.endswith("_failed") or current in _TERMINAL:
+            return
+        write_patch(
+            spec_dir,
+            status=f"{stage}_failed",
+            phase=f"{stage}_cancelled",
+            **{f"{stage}_error": "task cancelled"},
+        )
+
+    task.add_done_callback(_on_done)
+    return task
 
 
 def iter_subtasks(

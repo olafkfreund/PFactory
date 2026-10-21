@@ -99,6 +99,7 @@ _BOARD_COLUMN: dict[str, BoardColumn] = {
     "processing": "in_progress",
     "reviewing": "ai_review",
     "processed": "human_review",
+    "failed": "human_review",  # process() raised; a person decides to retry (#862)
 }
 
 

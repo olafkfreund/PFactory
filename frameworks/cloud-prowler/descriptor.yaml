@@ -2,7 +2,7 @@
 #
 # Cloud misconfiguration assessment framework (#133 E / #138).
 #
-# Runs Prowler (CSPM, 500+ CIS checks, OCSF JSON) in the pfactory-runner-cloud
+# Runs Prowler (CSPM, 500+ CIS checks, OCSF JSON) in the tfactory-runner-cloud
 # image against a discovered cloud account, then maps Prowler's OCSF severities
 # to PFactory verdicts. Per-provider credential auth is handled by the runner
 # (agents/cloud/runner.py): AWS profile · GCP ADC · Azure --az-cli-auth.
@@ -22,7 +22,7 @@ lanes:
 version_range: ">=5,<6"
 
 runtime:
-  image: pfactory-runner-cloud:latest
+  image: tfactory-runner-cloud:latest
   entrypoint:
     - prowler
 

@@ -82,7 +82,7 @@ def correlation_key_for(session: PlanSession) -> str:
     if session.origin_issue_number is not None:
         return origin_key(session.repo, session.origin_issue_number)
     if session.emitted_issue_number is not None:
-        return str(session.emitted_issue_number)
+        return origin_key(session.emit_repo, session.emitted_issue_number)
     return synthetic_key(session.session_id)
 
 
@@ -132,7 +132,9 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
                 halt_reason = "no_evidence: emit created no issues"
 
     event = {
-        "correlation_key": correlation_key_for(session),
+        # The persisted key first: a session keeps one key for life, so its event
+        # matches the poll row even for a session emitted before #1775.
+        "correlation_key": session.correlation_key or correlation_key_for(session),
         "service": SERVICE_NAME,
         "task_id": session.session_id,
         "status": status,
