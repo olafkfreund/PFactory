@@ -154,6 +154,16 @@ class InvariantRegistry:
             return False
         return not any(re.search(p, module) for p in self.blocklist)
 
+    def selected(self, *, critical: bool | None = None) -> list[str]:
+        """Sorted modules with a real check that ``check_all`` would run."""
+        return [
+            name
+            for name, reg in sorted(self._registrations.items())
+            if reg.check is not None
+            and self._selected(name)
+            and (critical is None or reg.critical == critical)
+        ]
+
     def check_all(self, *, critical: bool | None = None) -> list[Violation]:
         """Run every selected check and collect violations. Never raises on a finding.
 
@@ -164,13 +174,12 @@ class InvariantRegistry:
         run, and it must not take down the caller either.
         """
         out: list[Violation] = []
-        for name, reg in sorted(self._registrations.items()):
-            if reg.check is None or not self._selected(name):
-                continue
-            if critical is not None and reg.critical != critical:
+        for name in self.selected(critical=critical):
+            check = self._registrations[name].check
+            if check is None:  # unreachable: selected() only returns real checks
                 continue
             try:
-                out.extend(Violation(name, d) for d in reg.check())
+                out.extend(Violation(name, d) for d in check())
             except Exception as exc:  # noqa: BLE001 - a broken check is a finding
                 out.append(Violation(name, f"the check itself raised {type(exc).__name__}: {exc}"))
         return out
