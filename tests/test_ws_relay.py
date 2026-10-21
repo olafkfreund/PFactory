@@ -45,6 +45,7 @@ async def _clean_relay_state():
     # still did anything (#804 finding H); it didn't, so it's gone.
     relay._publish_pool = None
     relay._outbox_full_warned = False
+    relay._oversized_drop_warned = False
     relay._inbound_full_warned = False
     relay._drain_failure_warned = False
 
@@ -1475,6 +1476,50 @@ async def test_listen_on_teardown_is_bounded_when_remove_listener_hangs(monkeypa
     assert elapsed < 2.0, f"_listen_on() took {elapsed}s — the teardown timeout was not applied"
 
 
+async def test_listen_on_closes_connection_when_add_listener_raises() -> None:
+    """MUTATION: move `add_listener` back above `_listen_on`'s `try` (#884) ⇒
+    this fails — the `finally` never runs, so the connection is never closed.
+    """
+
+    class _FailingListenConnection(_MinimalConnection):
+        async def add_listener(self, _channel: str, _callback: Any) -> None:
+            raise RuntimeError("LISTEN failed")
+
+    conn = _FailingListenConnection()
+
+    async def deliver(_kind: str, _data: dict) -> None:
+        pass
+
+    with pytest.raises(RuntimeError, match="LISTEN failed"):
+        await relay._listen_on(conn, deliver)
+
+    assert conn.closed
+
+
+async def test_listen_on_times_out_and_closes_connection_when_add_listener_hangs(
+    monkeypatch,
+) -> None:
+    """MUTATION: drop the `wait_for(..., timeout=_LISTEN_TIMEOUT)` around
+    `add_listener` (#884) ⇒ this fails — `_listen_on` hangs until the outer
+    1s bound, and the connection is never closed.
+    """
+
+    class _HangingListenConnection(_MinimalConnection):
+        async def add_listener(self, _channel: str, _callback: Any) -> None:
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(relay, "_LISTEN_TIMEOUT", 0.05)
+    conn = _HangingListenConnection()
+
+    async def deliver(_kind: str, _data: dict) -> None:
+        pass
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(relay._listen_on(conn, deliver), timeout=1.0)
+
+    assert conn.closed
+
+
 # ── #804 round 6 remainder: finding A — the plan's central invariant ───────
 #
 # "Deliver locally first, unconditionally, so a relay failure can never
@@ -2499,3 +2544,32 @@ async def test_publish_drops_a_non_serializable_payload_without_raising(
     matches = [r for r in caplog.records if "not JSON-serializable" in r.getMessage()]
     assert len(matches) == 1
     assert relay._outbox.empty(), "a non-serializable payload must not reach the outbox at all"
+
+
+async def test_publish_dedupes_oversized_drop_warning_until_successful_encode(
+    monkeypatch, caplog
+) -> None:
+    """MUTATION: drop the `_oversized_drop_warned` check in `publish()` (warn on
+    every oversized event) ⇒ this fails with 4 warnings instead of 2; drop the
+    reset after a successful encode ⇒ it fails with 1.
+    """
+    monkeypatch.setattr(relay, "_resolve_asyncpg_url", lambda: "fake://url")
+    monkeypatch.setattr(relay.asyncpg, "connect", _connect_sequence(_FakeConnection([])))
+    monkeypatch.setattr(
+        relay.asyncpg, "create_pool", AsyncMock(return_value=_FakePool(_HangingExecuteConnection()))
+    )
+
+    async def deliver(kind: str, data: dict) -> None:
+        pass
+
+    await relay.start_listener(deliver)
+    oversized = {"content": "short", "extra": "x" * 20_000}
+
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        for _ in range(3):
+            await relay.publish("task:log", oversized)
+        await relay.publish("task:log", {"content": "fits"})
+        await relay.publish("task:log", oversized)
+
+    matches = [r for r in caplog.records if "dropping oversized" in r.getMessage()]
+    assert len(matches) == 2
