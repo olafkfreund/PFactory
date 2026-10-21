@@ -1,5 +1,5 @@
 {
-  "$schema_note": "RFC-0014 single source of truth for model price + capability. One entry per known model, keyed by the model id (full id where one exists, otherwise a stable shorthand). Replaces per-repo MODEL_ID_MAP/price duplication. Full ids mirror AIFactory phase_config.MODEL_ID_MAP pins (opus=claude-opus-4-8, sonnet=claude-sonnet-5, haiku=claude-haiku-4-5-...). class in {frontier,balanced,cheap,local,subscription}; price.mode in {metered,subscription,local} mirrors CFactory billing-mode display (only metered yields a $ estimate). Open object; consumers ignore unknown keys.",
+  "$schema_note": "RFC-0014 single source of truth for model price + capability. One entry per known model, keyed by the model id (full id where one exists, otherwise a stable shorthand). Replaces per-repo MODEL_ID_MAP/price duplication. Full ids mirror AIFactory phase_config.MODEL_ID_MAP pins (opus=claude-opus-5-5, sonnet=claude-sonnet-5, haiku=claude-haiku-4-5-...). class in {frontier,balanced,cheap,local,subscription}; price.mode in {metered,subscription,local} mirrors CFactory billing-mode display (only metered yields a $ estimate). Open object; consumers ignore unknown keys.",
   "version": "1",
   "models": {
     "claude-fable-5": {
@@ -9,12 +9,21 @@
       "price": { "mode": "metered", "in_per_mtok": 10, "out_per_mtok": 50 },
       "caps": { "tools": true, "thinking": true, "context": 1000000 }
     },
-    "claude-opus-4-8": {
+    "claude-opus-5-5": {
       "provider": "claude",
       "class": "frontier",
       "roles": ["planning", "coding", "qa", "test_gen"],
       "price": { "mode": "metered", "in_per_mtok": 5, "out_per_mtok": 25 },
       "caps": { "tools": true, "thinking": true, "context": 1000000 }
+    },
+    "claude-opus-4-8": {
+      "provider": "claude",
+      "class": "frontier",
+      "roles": ["planning", "coding", "qa", "test_gen"],
+      "price": { "mode": "metered", "in_per_mtok": 5, "out_per_mtok": 25 },
+      "caps": { "tools": true, "thinking": true, "context": 1000000 },
+      "available": false,
+      "unavailable_reason": "superseded by claude-opus-5-5"
     },
     "claude-sonnet-5": {
       "provider": "claude",
@@ -28,7 +37,9 @@
       "class": "balanced",
       "roles": ["planning", "coding", "qa", "test_gen"],
       "price": { "mode": "metered", "in_per_mtok": 3, "out_per_mtok": 15 },
-      "caps": { "tools": true, "thinking": true, "context": 200000 }
+      "caps": { "tools": true, "thinking": true, "context": 200000 },
+      "available": false,
+      "unavailable_reason": "superseded by claude-sonnet-5; pinnable only"
     },
     "claude-haiku-4-5-20251001": {
       "provider": "claude",
@@ -63,7 +74,9 @@
       "class": "balanced",
       "roles": ["planning", "coding", "qa", "test_gen"],
       "price": { "mode": "metered", "in_per_mtok": 1.25, "out_per_mtok": 10 },
-      "caps": { "tools": true, "thinking": true, "context": 1000000 }
+      "caps": { "tools": true, "thinking": true, "context": 1000000 },
+      "available": false,
+      "unavailable_reason": "Gemini CLI terminates the session (2026-06-18 sunset, PFactory #826)"
     },
     "github-models": {
       "provider": "github-models",
