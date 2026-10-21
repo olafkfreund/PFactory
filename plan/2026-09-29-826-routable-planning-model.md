@@ -140,3 +140,10 @@ carry their own pins.
   lane; the regression is covered by `tests/test_cost_router.py`.
 - Steps 1-6 were implemented by the Codex coder; gates (step 7) were run by the
   session.
+- **Step 1 moved from `cost_router_core` to `cost_router`.** `cost_router_core.py`
+  is a byte-exact vendored copy of the Factory hub canonical, and the
+  verification-core drift gate rejects any local edit. So `select_phase_models`
+  filters `"available": false` entries out of the catalog before
+  `cheapest_capable_model` runs; the full catalog is still used for
+  `estimate_cost`. Same behaviour for PFactory's router; other consumers of the
+  hub core do not see the flag until the hub canonical gains it (follow-up).

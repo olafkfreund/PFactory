@@ -20,11 +20,7 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 
 from plan.emit.cost_router import apply_cost_routing, select_phase_models  # noqa: E402
-from plan.emit.cost_router_core import (  # noqa: E402
-    cheapest_capable_model,
-    estimate_cost,
-    load_catalog,
-)
+from plan.emit.cost_router_core import estimate_cost, load_catalog  # noqa: E402
 
 _CATALOG = load_catalog(_BACKEND / "plan" / "emit" / "model-catalog.json")
 
@@ -51,19 +47,22 @@ def _claude_only():
 def test_unavailable_cheapest_is_skipped_but_absent_flag_is_available():
     catalog = {
         "unavailable": {
+            "provider": "claude",
             "class": "balanced",
             "roles": ["planning"],
             "price": {"mode": "metered", "in_per_mtok": 1, "out_per_mtok": 1},
             "available": False,
         },
         "available": {
+            "provider": "claude",
             "class": "balanced",
             "roles": ["planning"],
             "price": {"mode": "metered", "in_per_mtok": 2, "out_per_mtok": 2},
         },
     }
-    pick = cheapest_capable_model("planning", "balanced", None, (1000, 1000), catalog)
-    assert pick == "available"
+    contract = {"execution": {"autonomy_tier": "medium"}, "final_acceptance": ["a"]}
+    out = select_phase_models(contract, catalog=catalog)
+    assert out["phase_models"]["planning"] == "available"
 
 
 # ── per-role selection ────────────────────────────────────────────────────────

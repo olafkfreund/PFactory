@@ -120,14 +120,19 @@ def select_phase_models(
     estimate_total: float | None = None
     downgrades: list[str] = []
 
+    # An entry marked "available": false is never auto-selected (#826); it stays
+    # in `cat` so a pinned model is still priced. Filtered here, not in the
+    # hub-canonical cost_router_core, which must stay byte-identical.
+    available = {mid: e for mid, e in cat.items() if e.get("available") is not False}
+
     for role in _ROLES:
         floor = _role_floor(role, tier, routing_class)
         tokens = _ROLE_TOKENS[role]
-        role_catalog = cat
+        role_catalog = available
         if role in _CLAUDE_ROLES:
             # Preserve the existing fallback for injected catalogs with no
             # Claude entries; the vendored catalog always has them.
-            claude_only = _restrict_provider(cat, _CLAUDE_PROVIDER)
+            claude_only = _restrict_provider(available, _CLAUDE_PROVIDER)
             if claude_only:
                 role_catalog = claude_only
         pick = cheapest_capable_model(role, floor, ceiling, tokens, role_catalog)
