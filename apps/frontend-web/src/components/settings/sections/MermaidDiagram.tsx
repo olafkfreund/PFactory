@@ -11,6 +11,9 @@ import mermaid from 'mermaid';
 mermaid.initialize({
   startOnLoad: false,
   theme: 'default',
+  // mermaid 12 defaults to ELK + the neo look; keep the mermaid 11 rendering.
+  look: 'classic',
+  layout: 'dagre',
   securityLevel: 'strict',
   // Render at natural size so a wide diagram scrolls rather than being squashed.
   flowchart: { useMaxWidth: false, htmlLabels: true },
