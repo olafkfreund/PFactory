@@ -101,6 +101,7 @@ _QUEUE_MAXSIZE = 2000
 # SIGKILL. Defined here (not near `stop_listener`) because `_listen_on`'s own
 # teardown needs it too.
 _STOP_TIMEOUT = 5.0
+_LISTEN_TIMEOUT = 5.0
 
 
 def _locate_truncatable_content(data: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
@@ -245,6 +246,9 @@ _outbox: asyncio.Queue[str] | None = None
 # Reset on the next successful enqueue so a LATER, separate flood still warns.
 _outbox_full_warned = False
 
+# Reset after a successful encode so a later oversized run warns again.
+_oversized_drop_warned = False
+
 
 def _put_outbox_dropping_oldest(outbox: asyncio.Queue[str], item: str) -> None:
     """Enqueue, evicting the OLDEST entry first if the outbox is full.
@@ -303,15 +307,22 @@ async def publish(kind: str, data: dict[str, Any]) -> None:
     `_put_outbox_dropping_oldest`), or one item exhausting the drain's own
     retry budget (see `_drain_outbox`) — both logged.
     """
+    global _oversized_drop_warned  # noqa: PLW0603 — module-level relay state (#804)
+
     outbox = _outbox
     if _drain_task is None or outbox is None:
         return
 
     encoded = _encode(kind, data)
     if encoded is None:
-        logger.warning("[relay] dropping oversized %s notification, could not fit under cap", kind)
+        if not _oversized_drop_warned:
+            _oversized_drop_warned = True
+            logger.warning(
+                "[relay] dropping oversized %s notification, could not fit under cap", kind
+            )
         return
 
+    _oversized_drop_warned = False
     _put_outbox_dropping_oldest(outbox, encoded)
 
 
@@ -494,9 +505,10 @@ async def _listen_on(
 ) -> None:
     """Run one LISTEN session on an already-connected ``conn`` until it dies.
 
-    Returns normally (rather than raising) both on a graceful stop and on
-    the connection dying — either way, the caller's reconnect loop is what
-    decides what happens next.
+    Returns normally on a graceful stop or when the connection dies; raises
+    if LISTEN fails or exceeds ``_LISTEN_TIMEOUT``. Either way the
+    connection is closed and the caller's reconnect loop decides what
+    happens next.
     """
     queue: asyncio.Queue[tuple[str, str] | None] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
 
@@ -512,9 +524,9 @@ async def _listen_on(
     def _on_terminate(_conn: object, _queue: asyncio.Queue[tuple[str, str] | None] = queue) -> None:
         _put_inbound_dropping_oldest(_queue, None)
 
-    conn.add_termination_listener(_on_terminate)
-    await conn.add_listener(_CHANNEL, _on_notify)
     try:
+        conn.add_termination_listener(_on_terminate)
+        await asyncio.wait_for(conn.add_listener(_CHANNEL, _on_notify), timeout=_LISTEN_TIMEOUT)
         while True:
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=_POLL_INTERVAL)
