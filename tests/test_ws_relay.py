@@ -1500,8 +1500,10 @@ async def test_listen_on_times_out_and_closes_connection_when_add_listener_hangs
     monkeypatch,
 ) -> None:
     """MUTATION: drop the `wait_for(..., timeout=_LISTEN_TIMEOUT)` around
-    `add_listener` (#884) ⇒ this fails — `_listen_on` hangs until the outer
-    1s bound, and the connection is never closed.
+    `add_listener` (#884) ⇒ this fails — `_listen_on` is still pending when
+    the 1s outer wait expires (`task in done` is false). The outer bound is
+    `asyncio.wait`, not `wait_for`, so it never cancels the task and cannot
+    mask the missing inner timeout.
     """
 
     class _HangingListenConnection(_MinimalConnection):
@@ -1514,10 +1516,14 @@ async def test_listen_on_times_out_and_closes_connection_when_add_listener_hangs
     async def deliver(_kind: str, _data: dict) -> None:
         pass
 
-    with pytest.raises(TimeoutError):
-        await asyncio.wait_for(relay._listen_on(conn, deliver), timeout=1.0)
-
-    assert conn.closed
+    task = asyncio.create_task(relay._listen_on(conn, deliver))
+    try:
+        done, _ = await asyncio.wait({task}, timeout=1.0)
+        assert task in done
+        assert isinstance(task.exception(), TimeoutError)
+        assert conn.closed
+    finally:
+        task.cancel()
 
 
 # ── #804 round 6 remainder: finding A — the plan's central invariant ───────

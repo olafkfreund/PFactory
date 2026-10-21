@@ -33,6 +33,15 @@ Approved decisions (from the spec):
 
 The three tests in step 3 fail on origin/dev and pass after steps 1-2.
 
+## Deviations
+
+- Review round 1: the hanging-`add_listener` test bounded `_listen_on` with
+  `asyncio.wait_for`, which cancelled the hung call itself, so the test
+  passed with the `_LISTEN_TIMEOUT` wrapper removed. It now uses
+  `asyncio.wait` (no cancellation) and asserts the task finished with a
+  `TimeoutError`; that mutation now fails the test.
+- `_listen_on` docstring updated: it raises on a LISTEN failure or timeout.
+
 ## Rollback
 
 Revert the PR; no data or schema change.

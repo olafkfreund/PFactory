@@ -505,9 +505,10 @@ async def _listen_on(
 ) -> None:
     """Run one LISTEN session on an already-connected ``conn`` until it dies.
 
-    Returns normally (rather than raising) both on a graceful stop and on
-    the connection dying — either way, the caller's reconnect loop is what
-    decides what happens next.
+    Returns normally on a graceful stop or when the connection dies; raises
+    if LISTEN fails or exceeds ``_LISTEN_TIMEOUT``. Either way the
+    connection is closed and the caller's reconnect loop decides what
+    happens next.
     """
     queue: asyncio.Queue[tuple[str, str] | None] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
 
