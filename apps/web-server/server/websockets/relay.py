@@ -190,21 +190,27 @@ def _encode(kind: str, data: dict[str, Any]) -> str | None:
     # very payload truncation exists to save.
     payload["truncated"] = True
 
-    # Binary-search-free: shrink content until the envelope fits, accounting
-    # for the rest of the envelope's own byte cost.
-    overhead = len(json.dumps(payload).encode()) - len(content.encode())
-    budget = _MAX_PAYLOAD - overhead
-    while budget > 0:
-        target[key] = content[:budget]
-        encoded = json.dumps(payload)
-        if len(encoded.encode()) <= _MAX_PAYLOAD:
-            return encoded
-        # json.dumps escapes some characters (e.g. quotes, backslashes,
-        # unicode), which can inflate encoded length beyond raw truncation —
-        # shrink further and retry.
-        budget -= 64
+    def fits(prefix_len: int) -> bool:
+        target[key] = content[:prefix_len]
+        return len(json.dumps(payload).encode()) <= _MAX_PAYLOAD
 
-    return None
+    # The rest of the envelope alone is too big: no prefix can rescue it.
+    if not fits(0):
+        return None
+    # Binary search the longest prefix that fits. Encoded size grows with the
+    # prefix but not linearly: json.dumps escapes newlines, quotes, ANSI and
+    # non-ASCII (up to 6 bytes per char), so a byte budget derived from the
+    # raw content undercounts and dropped escape-heavy log lines (#833 review).
+    # Every char encodes to >= 1 byte, so no fitting prefix exceeds _MAX_PAYLOAD.
+    lo, hi = 0, min(len(content), _MAX_PAYLOAD)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if fits(mid):
+            lo = mid
+        else:
+            hi = mid - 1
+    target[key] = content[:lo]
+    return json.dumps(payload)
 
 
 def is_connected() -> bool:

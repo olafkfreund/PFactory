@@ -296,6 +296,37 @@ def test_encode_truncates_oversized_content_and_stays_under_cap() -> None:
     assert decoded["data"]["content"] == "x" * 7791
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        "\x1b[32mINFO\x1b[0m agent step done\n" * 600,  # ANSI-coloured log lines
+        "a\n" * 9000,
+        "日本語のテキスト" * 1200,  # non-ASCII: 6 escaped bytes per char
+        '"' * 9000,
+    ],
+    ids=["ansi", "newlines", "cjk", "quotes"],
+)
+def test_encode_truncates_escape_heavy_content(content: str) -> None:
+    """MUTATION: derive the shrink budget from the raw content's byte length
+    (the pre-#833-review loop) ⇒ this fails — json.dumps escaping grows these
+    past the cap, the budget goes <= 0 and `_encode` returned None, dropping
+    the line instead of truncating it.
+    """
+    encoded = relay._encode("task:log", {"task_id": "t1", "content": content})
+
+    assert encoded is not None
+    assert len(encoded.encode()) <= relay._MAX_PAYLOAD
+    decoded = json.loads(encoded)
+    assert decoded["truncated"] is True
+    kept = decoded["data"]["content"]
+    assert content.startswith(kept)
+    # Longest prefix that fits: one more char would overflow the cap.
+    longer = json.dumps(
+        {**decoded, "data": {**decoded["data"], "content": content[: len(kept) + 1]}}
+    )
+    assert len(longer.encode()) > relay._MAX_PAYLOAD
+
+
 def test_encode_returns_none_when_it_cannot_fit_under_cap() -> None:
     """MUTATION: change the final `return None` to `return encoded` (the
     still-oversized attempt) ⇒ this fails — the result would exceed the cap.
