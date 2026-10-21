@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 828
 intent: intent/2026-10-21-828-listed-copy-resurrects.md
 ---
