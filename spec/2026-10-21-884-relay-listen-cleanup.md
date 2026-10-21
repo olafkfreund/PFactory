@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 884
 intent: intent/2026-10-21-884-relay-listen-cleanup.md
 ---
