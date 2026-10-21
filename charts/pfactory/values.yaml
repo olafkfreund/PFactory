@@ -35,15 +35,15 @@ image:
 # involved — Postgres is already a hard dependency, and a second broker was not
 # worth a new failure domain.
 #
-# What still has to be fixed before raising this:
-#   #805 — running-task registries are per pod, so status/stop/recover reach the
-#          wrong pod and the duplicate-run guard does not hold
+# What still has to be fixed before raising this (#805, per-pod running-task
+# registries, was fixed by run leases in #819):
 #   #828 — a deleted plan session is resurrected by a write from another pod's
 #          cache, and is then neither hidden nor deletable
 #   #829 — task detail reads task_logs.json from the serving pod, and the volume
 #          is ReadWriteOnce, so the file is simply absent on the other pod
 # Tracked for the cluster in factory-gitops#273, whose KEDA ScaledObject also
 # pins maxReplicaCount: 1.
+#
 # Seconds Kubernetes waits after SIGTERM before SIGKILL. 45, not the 30s
 # default: the #804 relay's teardown (drain task, publish pool close, listener
 # cleanup) is each individually bounded but runs in sequence, for ~25s worst
@@ -321,8 +321,8 @@ affinity: {}
 #   • Replicas are pinned to 1 regardless of HPA — an rmux session's FIFOs
 #     live in this pod's ``emptyDir``, so the session exists on exactly one
 #     pod. Event fan-out (#804) does not help: there is nothing to relay,
-#     the pane is simply not there. Cross-pod rmux needs the ownership
-#     registry #805 is about, plus pod-to-pod forwarding.
+#     the pane is simply not there. Cross-pod rmux needs a pane-ownership
+#     record (like #805's run leases, but per pane) plus pod-to-pod forwarding.
 rmux:
   enabled: false
   # Memory cap for the panes ``emptyDir`` (FIFOs + buffered bytes).
