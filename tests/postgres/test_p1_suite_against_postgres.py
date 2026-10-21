@@ -31,8 +31,11 @@ def test_full_pytest_suite_passes_against_postgres(test_postgres_url: str) -> No
     result = subprocess.run(
         [
             str(venv_python), "-m", "pytest",
-            "tests/", "-m", "not slow and not postgres",
-            "-q", "--tb=short",
+            # Docker tests build the whole image (minutes, network-bound) and
+            # have their own P0 job; a per-test timeout names a hang instead of
+            # the outer 600s kill swallowing the output.
+            "tests/", "-m", "not slow and not postgres and not docker",
+            "-q", "--tb=short", "--timeout=120",
         ],
         cwd=REPO_ROOT,
         env=env,
