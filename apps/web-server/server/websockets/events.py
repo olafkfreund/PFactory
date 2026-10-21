@@ -9,15 +9,18 @@ compatible).
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from factory_common.logsafe import sanitize_log
 
 from ..auth import WebSocketAuthError, authenticate_websocket
+from . import relay
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,23 @@ _clients: dict[WebSocket, ConnectedClient] = {}
 # references ``active_connections`` directly.
 active_connections: set[WebSocket] = set()
 
+# How long a single client's send may take before it's treated as gone
+# (#804 finding 5). Without this, one wedged client (a browser that stopped
+# reading) blocks `ws.send_text` indefinitely, which — since the three
+# `_deliver_local_*` loops below send to every client from a single task —
+# stalls delivery to every OTHER client too; with the relay now waiting on
+# this loop before it can even queue a notification for other pods, one
+# wedged local client turns into a pod-wide outage. 5 seconds: long enough
+# that a slow-but-alive connection (a mobile client with real latency or a
+# stalled-but-recovering TCP window) survives, short enough that a genuinely
+# dead one can't hold up delivery for more than a few seconds at a time.
+_SEND_TIMEOUT = 5.0
+
+# How long `events_websocket`'s own loop waits for a client message before
+# sending a keepalive ping. A named constant (not a bare `30` inline) so
+# tests can bound it down instead of actually waiting 30s.
+_RECEIVE_POLL_INTERVAL = 30.0
+
 
 def _register_client(ws: WebSocket, user_info: dict | None) -> ConnectedClient:
     """Register a new client connection."""
@@ -61,6 +81,156 @@ def _unregister_client(ws: WebSocket) -> None:
     """Remove a client connection."""
     _clients.pop(ws, None)
     active_connections.discard(ws)
+    _slow_client_state.pop(ws, None)
+
+
+async def _evict_client(ws: WebSocket) -> None:
+    """Unregister a client AND close its socket (#804 finding 3 FINAL call).
+
+    Reserved for a GENUINE send failure, not a timeout (see `_send_or_skip`).
+    `_unregister_client` alone leaves the actual connection open: the
+    browser still looks connected, and `events_websocket`'s own 30s
+    keepalive loop keeps writing to it, but the client is no longer in
+    `_clients`/`active_connections` so it will never again receive anything
+    through `_deliver_local_*` — a silent blackhole. Closing here causes
+    `events_websocket`'s `receive_text()` (running in ITS OWN task) to raise
+    `WebSocketDisconnect`, which it already handles via its existing
+    `except WebSocketDisconnect: pass` + `finally: _unregister_client(...)`
+    (a harmless, idempotent second unregister) — so the browser's own
+    reconnect logic kicks in instead of talking to a phantom socket forever.
+    """
+    with contextlib.suppress(Exception):
+        # Bounded (#804 round 6 finding B): this usually runs on a socket
+        # that JUST raised from `send_text`, but a half-open peer can hang
+        # `close()` too, and it runs SEQUENTIALLY, after `gather`, for every
+        # evicted client in the batch — one hung `close()` would otherwise
+        # stall eviction of every other client behind it in that list.
+        # `asyncio.wait_for`'s own `TimeoutError` is an `Exception` subclass,
+        # already caught by this `suppress`.
+        await asyncio.wait_for(ws.close(), timeout=_SEND_TIMEOUT)
+    _unregister_client(ws)
+
+
+@dataclass
+class _SlowClientState:
+    """Per-client timeout tracking (#804 finding 3/4).
+
+    KEYED BY WEBSOCKET, not a single module-level flag: under `gather`, a
+    healthy client's SUCCESS and a wedged client's TIMEOUT land in the same
+    broadcast call, and a shared flag conflates them — a reproduction
+    confirmed 1 wedged + 1 healthy client, 3 broadcasts, logged 3 "send timed
+    out" warnings instead of the claimed 1, because the healthy client's
+    success reset the shared flag before the wedged one's own warning check
+    ran. Per-client state makes "deduped" and "reset" both mean what they say
+    for THAT client specifically.
+    """
+
+    consecutive_timeouts: int = 0
+    warned: bool = False
+    # Wall-clock time (loop-relative, from `loop.time()`) of the last
+    # timeout that actually incremented `consecutive_timeouts` — see finding
+    # 4's use of it below. `None` until the first counted timeout.
+    last_counted_at: float | None = None
+
+
+# OWNERSHIP RULE (#804 round 8): `_slow_client_state` is shared mutable
+# state read and written by an unbounded number of concurrent tasks (one
+# `_send_or_skip` call per client per broadcast, all in flight together via
+# `gather`). Every prior round patched a symptom of not having this rule
+# written down anywhere. The rule: STATE IS ONLY EVER TOUCHED BY A TASK THAT
+# STILL FINDS `ws` IN `_clients`. A task that no longer finds its `ws`
+# registered does not create, read, or mutate an entry for it — it just
+# returns. Enforced at the one call site that can otherwise race
+# `_unregister_client`'s `pop` below: `_send_or_skip`'s `TimeoutError`
+# branch. Cleaned up in `_unregister_client` — a client that's gone doesn't
+# leak an entry here forever.
+_slow_client_state: dict[WebSocket, _SlowClientState] = {}
+
+# How many DISTINCT STALL WINDOWS (#804 round 8 finding 4 — not individual
+# timed-out sends, see `_send_or_skip`) before a "slow" client is
+# reclassified as dead and evicted. `_send_or_skip`'s skip-not-evict policy
+# assumes a TRANSIENT stall that self-heals on the next event; a client that
+# never drains instead sits registered forever, receiving nothing, while
+# taxing every subsequent broadcast with a full `_SEND_TIMEOUT` of `gather`
+# latency. 3, matching `relay.py`'s `_DRAIN_MAX_ATTEMPTS` reasoning: 3
+# separate stalls with zero successful sends in between (~15s of unbroken
+# silence from a client that's supposedly still connected) is a dead client
+# by any reasonable reading, not a bad TCP window during one burst.
+_MAX_CONSECUTIVE_TIMEOUTS = 3
+
+
+async def _send_or_skip(ws: WebSocket, message: str, disconnected: list[WebSocket]) -> None:
+    """Send one message to one client; append to ``disconnected`` only on a
+    genuine failure OR a client stuck timing out for `_MAX_CONSECUTIVE_TIMEOUTS`
+    distinct stall windows in a row.
+
+    #804 finding 3: a `TimeoutError` (a slow-but-alive client — a full TCP
+    window on a mobile link during a `task-logs:stream` burst, not a dead
+    peer) is deliberately NOT treated as an immediate disconnect. Evicting on
+    the FIRST timeout converts "slow" into "disconnected", and under the
+    exact burst load that caused the timeout in the first place, that
+    produces flapping: burst -> close -> reconnect -> burst -> close.
+    Skipping loses one message and self-heals on the next event for a
+    TRANSIENT stall. Finding 4: that reasoning stops holding for a client
+    that never drains at all — see `_MAX_CONSECUTIVE_TIMEOUTS`. Any genuine
+    send exception (not a timeout) still goes through `_evict_client`
+    immediately, unchanged.
+
+    #804 round 8 finding 4: several emitters broadcasting concurrently to the
+    SAME wedged client produce several parallel timeouts for ONE stall — a
+    naive per-timeout counter reaches `_MAX_CONSECUTIVE_TIMEOUTS` from a
+    SINGLE stall event, which is exactly the eviction-on-one-stall behaviour
+    round 5 deliberately chose not to do. Only count a timeout toward the
+    threshold if at least `_SEND_TIMEOUT` has elapsed since the last one
+    counted, so three increments require ~15s of genuinely UNBROKEN failure
+    — what the constant's own docstring already promised — rather than three
+    sends that all happened to be in flight during the same 5s window.
+    """
+    try:
+        await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT)
+    except TimeoutError:
+        if ws not in _clients:
+            # Ownership rule (see `_slow_client_state`'s definition): this
+            # client was unregistered by ANOTHER in-flight send (or a
+            # delivery loop that started after it was already gone) while
+            # THIS send was still pending. Touching state now would recreate
+            # an entry keyed by a dead websocket that `_unregister_client`
+            # already cleaned up (or will never be asked to clean up
+            # again), leaking it forever, and would defeat the per-client
+            # dedupe below by resetting `warned` to `False` for a client
+            # nothing will ever evict-or-recover again. Scoped to this
+            # branch only, not the whole function: a target drawn from
+            # `active_connections` is still owed the SEND attempt itself
+            # regardless of `_clients` membership — only STATE creation is
+            # gated by the ownership rule, not delivery.
+            return
+        state = _slow_client_state.setdefault(ws, _SlowClientState())
+        now = asyncio.get_event_loop().time()
+        if state.last_counted_at is None or now - state.last_counted_at >= _SEND_TIMEOUT:
+            state.consecutive_timeouts += 1
+            state.last_counted_at = now
+        if state.consecutive_timeouts >= _MAX_CONSECUTIVE_TIMEOUTS:
+            # #804 round 9 finding 3: neither eviction branch used to log at
+            # all, and by eviction time `warned` is already `True` (set on
+            # the FIRST of the stalls that led here), so not even the skip
+            # warning above fires again — a client got silently dropped with
+            # nothing in the server log explaining why.
+            logger.info(
+                "[events] evicting client after %d consecutive stall windows (threshold %d)",
+                state.consecutive_timeouts,
+                _MAX_CONSECUTIVE_TIMEOUTS,
+            )
+            disconnected.append(ws)
+            return
+        if not state.warned:
+            state.warned = True
+            logger.warning("[events] client send timed out, skipping for this message")
+        return
+    except Exception as exc:  # noqa: BLE001 — one client's failure must not kill the batch (#804)
+        logger.info("[events] evicting client after a genuine send failure: %s", exc)
+        disconnected.append(ws)
+        return
+    _slow_client_state.pop(ws, None)
 
 
 # ---------------------------------------------------------------------------
@@ -68,56 +238,108 @@ def _unregister_client(ws: WebSocket) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def broadcast_event(event_type: str, payload: dict):
-    """Broadcast an event to all connected clients (legacy behavior)."""
+async def _deliver_local_broadcast(event_type: str, payload: dict[str, Any]) -> None:
+    """Send an event to every client connected to THIS pod (legacy behavior).
+
+    Sends CONCURRENTLY (#804 round 5 finding 3), not one client at a time:
+    finding 4 already took Postgres off the stdout path
+    (`_emit_progress` → `broadcast_event` → here), but a sequential loop
+    still costs N x `_SEND_TIMEOUT` inline on that same path when N clients
+    are all slow at once. Each client gets its own message and its own
+    independent outcome, so there is no ordering requirement between them.
+    """
     message = json.dumps({"type": event_type, "payload": payload})
     disconnected: list[WebSocket] = []
 
-    for ws in list(active_connections):
-        try:
-            await ws.send_text(message)
-        except Exception:
-            disconnected.append(ws)
+    await asyncio.gather(
+        *(_send_or_skip(ws, message, disconnected) for ws in list(active_connections)),
+        return_exceptions=True,
+    )
 
-    for ws in disconnected:
-        _unregister_client(ws)
+    # Evict CONCURRENTLY (#804 round 9 finding 2): bounding each
+    # `_evict_client`'s own `close()` caps the per-client cost, but a
+    # sequential loop still pays N x that bound for the batch — measured
+    # at 5 half-open clients, ~5x`_SEND_TIMEOUT` of serial closes on top of
+    # the ~1x`_SEND_TIMEOUT` the `gather` above already costs, which sits
+    # inline on the `_emit_progress` -> stdout path AND stalls `_listen_on`'s
+    # inbound receive loop behind it (it awaits `deliver(...)` inline) — the
+    # exact pod-wide stall this module exists to prevent, relocated from
+    # send to close.
+    await asyncio.gather(*(_evict_client(ws) for ws in disconnected), return_exceptions=True)
+
+
+async def broadcast_event(event_type: str, payload: dict):
+    """Broadcast an event to all connected clients (legacy behavior).
+
+    Delivers locally first — unconditionally, so a relay hiccup never
+    silences a browser on this pod — then relays to other pods over
+    Postgres so their own locally-connected clients get it too (#804).
+    """
+    await _deliver_local_broadcast(event_type, payload)
+    await relay.publish("ws:broadcast", {"event_type": event_type, "payload": payload})
+
+
+async def _deliver_local_to_user(user_id: str, event_type: str, payload: dict[str, Any]) -> None:
+    """Send an event to a specific user's connections on THIS pod.
+
+    Sends CONCURRENTLY — see `_deliver_local_broadcast` for why.
+    """
+    message = json.dumps({"type": event_type, "payload": payload})
+    disconnected: list[WebSocket] = []
+    targets = [ws for ws, client in list(_clients.items()) if client.user_id == user_id]
+
+    await asyncio.gather(
+        *(_send_or_skip(ws, message, disconnected) for ws in targets), return_exceptions=True
+    )
+
+    # Evict CONCURRENTLY — see `_deliver_local_broadcast` for why.
+    await asyncio.gather(*(_evict_client(ws) for ws in disconnected), return_exceptions=True)
 
 
 async def send_to_user(user_id: str, event_type: str, payload: dict):
-    """Send an event to a specific user (all their connections)."""
+    """Send an event to a specific user (all their connections).
+
+    Delivers locally first, then relays to other pods (#804) — the user's
+    other connections may be on a different pod.
+    """
+    await _deliver_local_to_user(user_id, event_type, payload)
+    await relay.publish(
+        "ws:user", {"user_id": user_id, "event_type": event_type, "payload": payload}
+    )
+
+
+async def _deliver_local_to_org(org_id: str, event_type: str, payload: dict[str, Any]) -> None:
+    """Send an event to members of an org connected to THIS pod.
+
+    Falls back to broadcast for legacy (non-JWT) connections so they
+    aren't excluded. Sends CONCURRENTLY — see `_deliver_local_broadcast` for
+    why.
+    """
     message = json.dumps({"type": event_type, "payload": payload})
     disconnected: list[WebSocket] = []
+    # Send to: org members, or legacy clients (no user_id)
+    targets = [
+        ws
+        for ws, client in list(_clients.items())
+        if client.user_id is None or org_id in client.org_ids
+    ]
 
-    for ws, client in list(_clients.items()):
-        if client.user_id == user_id:
-            try:
-                await ws.send_text(message)
-            except Exception:
-                disconnected.append(ws)
+    await asyncio.gather(
+        *(_send_or_skip(ws, message, disconnected) for ws in targets), return_exceptions=True
+    )
 
-    for ws in disconnected:
-        _unregister_client(ws)
+    # Evict CONCURRENTLY — see `_deliver_local_broadcast` for why.
+    await asyncio.gather(*(_evict_client(ws) for ws in disconnected), return_exceptions=True)
 
 
 async def send_to_org(org_id: str, event_type: str, payload: dict):
     """Send an event only to members of a specific organization.
 
-    Falls back to broadcast for legacy (non-JWT) connections so they
-    aren't excluded.
+    Delivers locally first, then relays to other pods (#804) — org
+    members may be connected to a different pod.
     """
-    message = json.dumps({"type": event_type, "payload": payload})
-    disconnected: list[WebSocket] = []
-
-    for ws, client in list(_clients.items()):
-        # Send to: org members, or legacy clients (no user_id)
-        if client.user_id is None or org_id in client.org_ids:
-            try:
-                await ws.send_text(message)
-            except Exception:
-                disconnected.append(ws)
-
-    for ws in disconnected:
-        _unregister_client(ws)
+    await _deliver_local_to_org(org_id, event_type, payload)
+    await relay.publish("ws:org", {"org_id": org_id, "event_type": event_type, "payload": payload})
 
 
 def update_client_orgs(user_id: str, org_ids: set[str]) -> None:
@@ -169,15 +391,54 @@ async def events_websocket(websocket: WebSocket):
         # Keep connection alive and listen for pings
         while True:
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                data = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=_RECEIVE_POLL_INTERVAL
+                )
 
-                # Handle ping/pong
+                # Handle ping/pong. Bounded (#804 round 7 finding 1): this,
+                # not the keepalive branch below, is the HOT path — the
+                # frontend pings every 25s (apps/frontend-web/src/lib/
+                # websocket.ts), so nearly every client takes THIS branch,
+                # not the keepalive fallback. A bare `send_text` here blocks
+                # this task forever on a client that stopped reading but
+                # keeps pinging (a backgrounded tab, a full receive window
+                # during a log burst) — exactly the case
+                # `_send_or_skip`/`_evict_client`/`_MAX_CONSECUTIVE_TIMEOUTS`
+                # exist for on the delivery path, which this path bypasses
+                # entirely since it never goes through `_deliver_local_*`.
                 if data == "ping":
-                    await websocket.send_text("pong")
+                    try:
+                        await asyncio.wait_for(websocket.send_text("pong"), timeout=_SEND_TIMEOUT)
+                    except Exception:
+                        break
+                    # #804 round 9 finding 3: `consecutive_timeouts` used to
+                    # reset ONLY on a successful `_deliver_local_*` send, and
+                    # the pong reply — the definitive "this client is alive"
+                    # signal, firing every 25s from the frontend — never
+                    # touched `_slow_client_state` at all. That let two
+                    # stalls during a burst, then an HOUR of idle pongs
+                    # proving the client is alive, then one more transient
+                    # stall, evict it — inverting the "~15s of UNBROKEN
+                    # silence" the threshold's own docstring promises into
+                    # "3 stalls ever, unbounded in time". A successful pong
+                    # is direct proof this socket drains; reset here exactly
+                    # like a successful delivery does.
+                    _slow_client_state.pop(websocket, None)
 
             except TimeoutError:
                 try:
-                    await websocket.send_text(json.dumps({"type": "ping"}))
+                    # Bounded (#804 round 6 finding B): a bare `send_text`
+                    # here blocks THIS task forever on a wedged socket, which
+                    # never reaches `finally: _unregister_client` — so even
+                    # with consecutive-timeout eviction on the DELIVERY path
+                    # (`_send_or_skip`), this endpoint's own task stays
+                    # parked until the OS eventually tears the connection
+                    # down, keeping the client "registered but unreachable"
+                    # far longer than the delivery path's own eviction would
+                    # suggest.
+                    await asyncio.wait_for(
+                        websocket.send_text(json.dumps({"type": "ping"})), timeout=_SEND_TIMEOUT
+                    )
                 except Exception:
                     break
 
