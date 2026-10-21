@@ -31,3 +31,10 @@ Approved decisions (from the spec):
 ## Rollback
 
 Revert the commit; the hook returns to running docker tests.
+
+## Deviations
+
+- Steps 1 and 2 were done by the session model: agy-implement returned a
+  content-filter refusal with no edits.
+- Step 2 matches the marker as a decorator or `pytestmark =` line (regex), not the
+  bare substring, so the test does not match its own source.
