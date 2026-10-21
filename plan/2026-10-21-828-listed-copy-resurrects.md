@@ -41,6 +41,10 @@ then the full `pytest tests/`. The new test must fail on origin/dev.
   write in its sandbox; it was applied in-session from that proposal.
 - Step 2 was written in-session before step 1, to show it fails on
   origin/dev.
+- `tests/test_approve_access.py` plants a local-only session in the cache.
+  Under the Postgres CI job the service has a store, so that copy (no
+  version) was evicted. The test now marks it version 0, "created here",
+  which is the contract the fix keeps.
 
 ## Rollback
 
