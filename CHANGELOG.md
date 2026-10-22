@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.6.30 — WebSocket events reach every pod, and routing keeps what a contract pins (2026-10-22)
+
+- **WebSocket events are relayed between pods through Postgres (#804, #833).**
+  A client connected to one replica now sees events raised on another. A failed
+  `LISTEN` closes the relay connection, and the oversized-drop warning is
+  deduplicated (#884, #886).
+- **Cost routing keeps a contract's pinned model and declared class (#830,
+  #893).** A pinned role skips router selection and the rationale records "pin
+  honoured". A declared class weaker than the scored one is not applied.
+- **An unavailable model is no longer a routing candidate (#826, #890).**
+- **Plan sessions:** an ingested session that nobody processes is discarded
+  after a TTL, so it stops counting as queued (#808, #894). A session deleted on
+  one replica can no longer be brought back by another (#828, #889).
+- **The TFactory block reports `language_source: detected | default` (#824,
+  #892),** so a python fallback is visible as a default. Additive; routing is
+  unchanged.
+- **The image stops asking apk to remove `py3-pip-wheel`** (python-3.14
+  depends on it) and asserts that the pip packages are really gone
+  (TFactory#1350, #891).
+- Pre-commit skips docker-marked tests (#840, #888). Dependency bumps: vite
+  7.3.7 (#880), vitest and `@vitest/mocker` (#887).
+
 ## 0.6.29 — security floors and dependency refresh (2026-10-21)
 
 - **The runtime image clears three new HIGH CVEs (#879).** apk floors pull
