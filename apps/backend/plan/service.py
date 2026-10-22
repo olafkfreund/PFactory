@@ -20,7 +20,7 @@ import socket
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
 from uuid import uuid4
@@ -984,24 +984,34 @@ class PlanService:
 
     def _all_sessions(self) -> list[PlanSession]:
         """Every session: from the shared store when set, else the local dict."""
+        return self._list_sessions()[0]
+
+    def _list_sessions(self) -> tuple[list[PlanSession], bool]:
+        """``_all_sessions`` plus whether the list is complete (#901).
+
+        False when the shared list failed and the local cache stood in, or a
+        stored row was unreadable: a session missing from such a list may live.
+        """
         store = self._session_store
         if store is None:
-            return list(self._sessions.values())
+            return list(self._sessions.values()), True
         try:
             payloads = store.list_payloads()
         except Exception as exc:  # noqa: BLE001 — degrade to the cache
             logger.warning("shared plan-session list failed: %s", exc)
-            return list(self._sessions.values())
+            return list(self._sessions.values()), False
         out: list[PlanSession] = []
+        complete = True
         for raw in payloads:
             try:
                 out.append(PlanSession.model_validate_json(raw))
             except Exception as exc:  # noqa: BLE001 — skip a corrupt row
                 logger.warning("skipping unreadable stored plan session: %s", exc)
+                complete = False
         with self._store_lock:
             for session in out:
                 self._sessions[session.session_id] = session
-        return out
+        return out, complete
 
     def get(self, session_id: str) -> PlanSession:
         # Read through the shared store when there is one (#755): the local
@@ -1856,7 +1866,8 @@ class PlanService:
         """
         current = now or datetime.now(UTC)
         discarded: list[str] = []
-        for listed in self._all_sessions():
+        listed_sessions, complete = self._list_sessions()
+        for listed in listed_sessions:
             if listed.status != "ingested":
                 continue
             sid = listed.session_id
@@ -1875,6 +1886,20 @@ class PlanService:
                 logger.warning("failed to discard stale ingested session %s: %s", sid, exc)
                 continue
             discarded.append(sid)
+        end_orphaned = getattr(self._job_store, "end_orphaned_queued", None)
+        if end_orphaned is not None and not complete:
+            # A live session missing from a partial list would be ended as an orphan.
+            logger.warning("skipping the orphaned job_states pass: session list incomplete")
+        elif end_orphaned is not None:
+            try:
+                count = end_orphaned(
+                    current - timedelta(seconds=max_age_seconds),
+                    {session.session_id for session in listed_sessions},
+                )
+                if count:
+                    logger.info("stale ingest sweep ended %d orphaned job_states row(s)", count)
+            except Exception as exc:  # noqa: BLE001 — the sweep must never raise
+                logger.warning("failed to end orphaned queued job_states rows: %s", exc)
         return discarded
 
     def delete_session(
