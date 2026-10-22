@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     LIVENESS_SWEEP_ENABLED: bool = False
     LIVENESS_SWEEP_INTERVAL_SECONDS: int = 300  # how often to sweep
     LIVENESS_SWEEP_DEADLINE_SECONDS: float = 600  # idle budget before stalled
+    # #808: discard ingested-and-never-processed plan sessions after this; 0 = off.
+    STALE_INGEST_TTL_HOURS: int = Field(168, ge=0)
     INVARIANTS_PERIOD_SECONDS: int = Field(300, ge=30)  # non-critical invariant timer (RFC-0024)
 
     class Config:

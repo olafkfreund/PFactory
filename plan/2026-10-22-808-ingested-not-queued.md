@@ -47,6 +47,15 @@ Decisions carried from the approved spec:
 then the full `pytest tests/` via the pre-commit hook. The stale test must fail
 on origin/dev.
 
+## Deviations
+
+- Steps 1 and 2 were done by codex. Step 1 was then tightened in-session: the
+  sweep re-reads each session before discarding it, so a session another
+  replica started processing since the list is left alone, and a naive
+  `created_at` (`TypeError`) is skipped like a bad one. In step 2 a redundant
+  `except CancelledError: raise` was removed.
+- Step 3 was written in-session; its three new tests fail on origin/dev.
+
 ## Rollback
 
 Set `APP_STALE_INGEST_TTL_HOURS=0`, or revert the PR. Sessions already

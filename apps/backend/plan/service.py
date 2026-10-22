@@ -1843,6 +1843,40 @@ class PlanService:
         self._save(session)
         return session
 
+    def discard_stale_ingested(
+        self, max_age_seconds: float, *, now: datetime | None = None
+    ) -> list[str]:
+        """Discard ``ingested`` sessions older than ``max_age_seconds`` (#808).
+
+        An ingested session nobody processes or discards otherwise stays
+        ``queued`` in ``job_states`` forever. This gives it the same terminal
+        exit a human discard does. Returns the discarded ids; a session that
+        fails (bad ``created_at``, a lost race with another replica) is logged
+        and skipped.
+        """
+        current = now or datetime.now(UTC)
+        discarded: list[str] = []
+        for listed in self._all_sessions():
+            if listed.status != "ingested":
+                continue
+            sid = listed.session_id
+            try:
+                # Re-read: another replica may have started processing it since the list.
+                session = self.get(sid)
+                age = (current - datetime.fromisoformat(session.created_at)).total_seconds()
+                if session.status != "ingested" or age <= max_age_seconds:
+                    continue
+                self.discard(
+                    sid,
+                    actor="system:stale-ingest-sweep",
+                    reason=f"ingested {age / 3600:.0f}h ago and never processed (#808)",
+                )
+            except (PlanServiceError, ValueError, TypeError) as exc:
+                logger.warning("failed to discard stale ingested session %s: %s", sid, exc)
+                continue
+            discarded.append(sid)
+        return discarded
+
     def delete_session(
         self,
         session_id: str,

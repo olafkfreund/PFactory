@@ -110,7 +110,7 @@ async def _start_ws_relay() -> ModuleType:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):  # noqa: PLR0915 - startup and shutdown own the background tasks
     """Application lifespan handler for startup/shutdown."""
     settings = get_settings()
 
@@ -181,6 +181,15 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Invariant timer enabled (every %ss)", settings.INVARIANTS_PERIOD_SECONDS)
 
+    app.state.stale_ingest_sweep_task = None
+    if settings.STALE_INGEST_TTL_HOURS > 0:
+        from .background.stale_ingest_sweep import stale_ingest_sweep_loop  # noqa: PLC0415
+
+        app.state.stale_ingest_sweep_task = asyncio.create_task(
+            stale_ingest_sweep_loop(settings.STALE_INGEST_TTL_HOURS * 3600)
+        )
+        logger.info("Stale ingest sweep enabled (TTL %sh)", settings.STALE_INGEST_TTL_HOURS)
+
     yield
 
     # Shutdown
@@ -190,6 +199,12 @@ async def lifespan(app: FastAPI):
         invariant_task.cancel()
         with suppress(asyncio.CancelledError):
             await invariant_task
+
+    stale_ingest_sweep_task = getattr(app.state, "stale_ingest_sweep_task", None)
+    if stale_ingest_sweep_task is not None:
+        stale_ingest_sweep_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await stale_ingest_sweep_task
 
     sweep_task = getattr(app.state, "liveness_sweep_task", None)
     if sweep_task is not None:
