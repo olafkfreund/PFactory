@@ -42,3 +42,13 @@ Approved decisions (option (a), user decision for the 2026-10-22 wave):
 ## Rollback
 
 Revert the PR commit; no data or schema migration.
+
+## Deviations
+
+- Step 1: written as `routing.update({k: dict(prior[k]) for k in (...) if isinstance(prior.get(k), dict)})`
+  instead of a `for`/`if` loop. Same behaviour; the loop pushed
+  `select_phase_models` over ruff's branch limit (PLR0912, 14 > 12).
+- Steps 1-2 were done by the session model, not a coder: two steps over two
+  files is below the handoff threshold.
+- The non-dict drop test passes on origin/dev too (dev drops every key); only
+  the keep-test is the regression test that fails there.
