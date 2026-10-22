@@ -41,6 +41,13 @@ unbounded `NOT IN`, no join to `plan_sessions`). Log the count; never raise.
 The pytest command above passes; it fails without step 1/2 (method missing,
 orphan stays `queued`). `ruff check` and `scripts/ratchet_lint.py` clean.
 
+## Deviations
+
+- Step 1: `end_orphaned_queued` returns `int(self._run(...))`, not the bare
+  `self._run(...)` the other wrappers use. `_run` returns `Any`, so the bare
+  form is a net-new mypy `no-any-return` error and the blocking ratchet fails
+  (PR #902 CI, fix round 1).
+
 ## Rollback
 
 Revert the PR. Rows already ended stay ended (they were orphans).

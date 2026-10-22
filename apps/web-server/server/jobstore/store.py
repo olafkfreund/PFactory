@@ -521,7 +521,7 @@ class JobStateStore:
         every session id; it repeats the predicate, so a row that moved on in
         between is not touched. Returns the number of rows ended.
         """
-        return self._run(self._end_orphaned_queued_async(older_than, live_ids))
+        return int(self._run(self._end_orphaned_queued_async(older_than, live_ids)))
 
     async def _end_orphaned_queued_async(self, older_than: datetime, live_ids: set[str]) -> int:
         predicate = (
