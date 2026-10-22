@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 808
 spec: spec/2026-10-22-808-ingested-not-queued.md
 ---
