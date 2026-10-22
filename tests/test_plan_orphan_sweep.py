@@ -105,3 +105,19 @@ def test_the_service_sweep_ends_orphans_but_not_its_own_rows(store):
 
     assert store.get("lost-before-755")["service_status"] == "discarded"
     assert store.get(processed)["lifecycle_state"] == "queued"
+
+
+class _FailingSessionStore:
+    def list_payloads(self, **_kw):
+        raise RuntimeError("plan_sessions unreachable")
+
+
+def test_the_service_sweep_skips_orphans_when_the_session_list_failed(store):
+    """MUTATION GUARD (#901): a cache fallback must not end live sessions' rows."""
+    svc = PlanService(job_store=store)
+    svc._session_store = _FailingSessionStore()
+    store.upsert("maybe-live", service_status="ingested")
+
+    svc.discard_stale_ingested(7 * _DAY, now=datetime.now(UTC) + timedelta(days=8))
+
+    assert store.get("maybe-live")["lifecycle_state"] == "queued"

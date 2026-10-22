@@ -43,13 +43,13 @@ two in step with `upsert`.
 ## Risks
 
 - If the shared session list fails, `_all_sessions` falls back to the local
-  cache, so a live session could look orphaned. Bounded by the TTL: a queued
-  row older than the TTL belongs to an ingested session the session pass
-  discards anyway.
+  cache, so a live session could look orphaned. Mitigated: the orphan pass is
+  skipped (with a warning) when the list is not complete — the shared list
+  failed or a stored row did not parse (plan deviation, PR #902 review).
 
 ## Verification
 
-New tests (SQLite store, run in the backend CI job and the Postgres suite):
+New tests (SQLite store in `tests/`, run in the backend CI job; not in the Postgres suite):
 an orphan older than the TTL is ended with the reason; a fresh orphan, a row
 with a live session, and non-queued rows are untouched. `ruff`, the mypy
 ratchet, and the existing `tests/test_plan_discard.py` stay green.

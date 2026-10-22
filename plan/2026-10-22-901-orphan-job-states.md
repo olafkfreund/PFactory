@@ -47,6 +47,14 @@ orphan stays `queued`). `ruff check` and `scripts/ratchet_lint.py` clean.
   `self._run(...)` the other wrappers use. `_run` returns `Any`, so the bare
   form is a net-new mypy `no-any-return` error and the blocking ratchet fails
   (PR #902 CI, fix round 1).
+- Step 2: the orphan pass runs only when the session list is complete. A new
+  `PlanService._list_sessions()` returns `(sessions, complete)`
+  (`_all_sessions()` wraps it); `complete` is False when the shared
+  `plan_sessions` list failed and the local cache stood in, or a stored row did
+  not parse. Then the pass is skipped with a warning, since a live session
+  missing from the list would otherwise have its row ended (PR #902 review).
+- Step 3: added `test_the_service_sweep_skips_orphans_when_the_session_list_failed`.
+  The tests run on SQLite in `tests/` (backend CI job), not in the Postgres suite.
 
 ## Rollback
 
