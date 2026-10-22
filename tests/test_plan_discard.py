@@ -166,6 +166,8 @@ class _RecordingJobStore:
 
 
 _DAY = 86400
+# Assertions use membership: on the Postgres CI job the shared store may hold
+# other tests' sessions, which the sweep is free to discard too.
 
 
 def _later(days: float) -> datetime:
@@ -179,7 +181,7 @@ def test_a_stale_ingested_session_is_discarded_and_leaves_queued():
     sid = svc.ingest_text(_PROBE, title="loopback probe").session_id
     assert store.status[sid] == "ingested"  # canonical `queued`
 
-    assert svc.discard_stale_ingested(7 * _DAY, now=_later(8)) == [sid]
+    assert sid in svc.discard_stale_ingested(7 * _DAY, now=_later(8))
 
     session = svc.get(sid)
     assert session.status == "discarded"
@@ -191,12 +193,16 @@ def test_a_stale_ingested_session_is_discarded_and_leaves_queued():
 def test_the_sweep_leaves_fresh_and_non_ingested_sessions_alone():
     svc = PlanService()
     fresh = svc.ingest_text(_PROBE, title="fresh").session_id
-    assert svc.discard_stale_ingested(7 * _DAY, now=_later(1)) == []
+    assert fresh not in svc.discard_stale_ingested(7 * _DAY, now=_later(1))
     assert svc.get(fresh).status == "ingested"
 
     old = svc.ingest_text(_PROBE, title="rejected later").session_id
-    svc.get(old).status = "processed"
-    assert svc.discard_stale_ingested(7 * _DAY, now=_later(8)) == [fresh]
+    processed = svc.get(old)
+    processed.status = "processed"
+    svc._save(processed)  # through the shared store too, when CI runs on Postgres
+    swept = svc.discard_stale_ingested(7 * _DAY, now=_later(8))
+    assert fresh in swept
+    assert old not in swept
     assert svc.get(old).status == "processed"
 
 
@@ -204,7 +210,11 @@ def test_a_bad_created_at_is_skipped_not_fatal():
     svc = PlanService()
     bad = svc.ingest_text(_PROBE, title="bad").session_id
     good = svc.ingest_text(_PROBE, title="good").session_id
-    svc.get(bad).created_at = "not a date"
+    broken = svc.get(bad)
+    broken.created_at = "not a date"
+    svc._save(broken)
 
-    assert svc.discard_stale_ingested(7 * _DAY, now=_later(8)) == [good]
+    swept = svc.discard_stale_ingested(7 * _DAY, now=_later(8))
+    assert good in swept
+    assert bad not in swept
     assert svc.get(bad).status == "ingested"

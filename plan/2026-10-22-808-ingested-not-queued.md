@@ -55,6 +55,10 @@ on origin/dev.
   `created_at` (`TypeError`) is skipped like a bad one. In step 2 a redundant
   `except CancelledError: raise` was removed.
 - Step 3 was written in-session; its three new tests fail on origin/dev.
+- CI follow-up: the loop casts the lazy `SERVICE` (typed `object` by the
+  module `__getattr__`) to `PlanService` for the mypy ratchet; the tests save
+  their edits through `_save()` and assert membership, so they hold on the
+  Postgres job where the session store is shared.
 
 ## Rollback
 
