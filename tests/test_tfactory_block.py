@@ -45,6 +45,17 @@ def test_defaults_unit_only() -> None:
     assert tf["security_scope"] == []  # app security out of scope by default
 
 
+def test_language_source_default_without_signal() -> None:
+    tf = build_tfactory(_plan(description="a small utility"), _epic())
+    assert tf["language"] == "python"  # fallback routing unchanged
+    assert tf["language_source"] == "default"
+
+
+def test_language_source_detected_for_python_and_node() -> None:
+    for desc in ("tested with pytest", "built with npm"):
+        assert build_tfactory(_plan(description=desc), _epic())["language_source"] == "detected"
+
+
 def test_ac_to_code_map_keyed_by_criteria() -> None:
     tf = build_tfactory(_plan(), _epic())
     assert set(tf["ac_to_code_map"].keys()) == {"AC#1", "AC#2"}

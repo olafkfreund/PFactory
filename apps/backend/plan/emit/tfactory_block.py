@@ -91,6 +91,7 @@ def _native_block(
                 unavailable[lane_key] = reason
     block: dict[str, Any] = {
         "language": descriptor.name,
+        "language_source": "detected",
         "lanes": lanes,
         "frameworks": frameworks,
         "coverage_target": _DEFAULT_COVERAGE,
@@ -150,6 +151,8 @@ def build_tfactory(plan: NormalizedPlan, epic: EpicPlan) -> dict[str, Any]:
 
     block = {
         "language": "python" if unit_fw == "pytest" else "typescript",
+        # #824: say whether that language was seen or is the no-signal python fallback.
+        "language_source": "detected" if (python_ish or node_ish) else "default",
         "lanes": lanes,
         "frameworks": frameworks,
         "coverage_target": _DEFAULT_COVERAGE,

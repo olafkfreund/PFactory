@@ -170,6 +170,73 @@ def test_unavailable_model_keeps_its_price_and_explicit_run_pin():
     assert contract["execution"]["model"] == "claude-opus-4-8"
     assert contract["execution"]["phase_models"]["qa_fixer"] == "claude-opus-4-8"
     assert contract["execution"]["phase_models"]["planning"] == "claude-sonnet-5"
+    contract["execution"]["routing"]["pinned_model"] = "claude-opus-4-8"
+    apply_cost_routing(contract, catalog=_CATALOG)
+    assert contract["execution"]["routing"]["pinned_model"] == "claude-opus-4-8"
+    assert all(
+        contract["execution"]["phase_models"][role] == "claude-opus-4-8"
+        for role in ("planning", "coding", "qa", "test_gen")
+    )
+    assert contract["execution"]["routing"]["cost_estimate_usd"] == 3.175
+
+
+def test_pin_and_declared_governed_class_survive_routing():
+    contract = {
+        "execution": {
+            "autonomy_tier": "medium",
+            "routing": {"pinned_model": "claude-opus-4-8", "class": "governed", "stale": True},
+        },
+        "final_acceptance": ["a"],
+    }
+    out = select_phase_models(contract, catalog=_CATALOG)
+    assert contract["execution"]["routing"] == {
+        "pinned_model": "claude-opus-4-8",
+        "class": "governed",
+        "stale": True,
+    }
+    assert out["routing"]["pinned_model"] == "claude-opus-4-8"
+    assert out["routing"]["class"] == "governed"
+    assert out["routing"]["cost_ceiling_usd"] == 25.0
+    assert "pin honoured: claude-opus-4-8" in out["routing"]["rationale"]
+    assert set(out["phase_models"].values()) == {"claude-opus-4-8"}
+    assert "stale" not in out["routing"]
+
+
+def test_declared_governed_class_raises_planning_floor_without_pin():
+    contract = {
+        "execution": {"autonomy_tier": "medium", "routing": {"class": "governed"}},
+        "final_acceptance": ["a"],
+    }
+    out = select_phase_models(contract, catalog=_CATALOG)
+    assert out["phase_models"]["planning"] == "claude-opus-5-5"
+    assert out["routing"]["cost_ceiling_usd"] == 25.0
+
+
+def test_weaker_declared_class_does_not_lower_scored_class():
+    contract = {
+        "execution": {"autonomy_tier": "medium", "routing": {"class": "standard"}},
+        "deployment": {"production_classification": "production"},
+        "final_acceptance": ["a"],
+    }
+    out = select_phase_models(contract, catalog=_CATALOG)
+    assert out["routing"]["class"] == "governed"
+    assert out["routing"]["cost_ceiling_usd"] == 25.0
+    assert out["phase_models"]["planning"] == "claude-opus-5-5"
+    assert (
+        "declared class standard below scored governed; kept governed"
+        in out["routing"]["rationale"]
+    )
+
+
+@pytest.mark.parametrize("pin", [42, ""])
+def test_invalid_pin_is_ignored(pin):
+    contract = {
+        "execution": {"autonomy_tier": "medium", "routing": {"pinned_model": pin}},
+        "final_acceptance": ["a"],
+    }
+    out = select_phase_models(contract, catalog=_CATALOG)
+    assert "pinned_model" not in out["routing"]
+    assert out["phase_models"]["planning"] == "claude-sonnet-5"
 
 
 def test_planning_ceiling_relaxation_keeps_a_model():
