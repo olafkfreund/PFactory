@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 901
 intent: intent/2026-10-22-901-orphan-job-states.md
 ---
