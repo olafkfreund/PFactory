@@ -42,7 +42,7 @@ from plan.emit.cost_router_core import (
     load_catalog,
     planning_floor_class,
 )
-from plan.emit.task_scorer import _CEILING_BY_CLASS, score_task
+from plan.emit.task_scorer import _CEILING_BY_CLASS, RoutingClass, score_task
 
 # The vendored hub catalog lives beside this module (re-vendored from
 # Factory/apis/model-catalog.json — see cost_router_core's banner).
@@ -98,8 +98,8 @@ def _restrict_provider(catalog: dict[str, Any], provider: str) -> dict[str, Any]
     return {mid: entry for mid, entry in catalog.items() if entry.get("provider") == provider}
 
 
-def _effective_class(prior: dict[str, Any], scored: str) -> tuple[str, list[str]]:
-    order = ("economy", "standard", "premium", "governed")
+def _effective_class(prior: dict[str, Any], scored: RoutingClass) -> tuple[RoutingClass, list[str]]:
+    order: tuple[RoutingClass, ...] = ("economy", "standard", "premium", "governed")
     declared = prior.get("class")
     if declared not in order:
         return scored, []
@@ -147,6 +147,7 @@ def select_phase_models(
 
     for role in _ROLES:
         tokens = _ROLE_TOKENS[role]
+        pick: str | None
         if pin:
             pick = pin
         else:
