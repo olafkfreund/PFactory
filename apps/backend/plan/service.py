@@ -1020,6 +1020,9 @@ class PlanService:
 
         Best-effort: a store hiccup degrades to the cached copy rather than
         failing the read — the same contract the durable job-state mirror has.
+        A missing row is not a hiccup: it drops a cached copy that came from the
+        store, so a delete on another replica is neither served nor re-inserted
+        from here (#828). A copy created here (version 0) keeps its fallback.
         """
         store = self._session_store
         if store is None:
@@ -1030,6 +1033,10 @@ class PlanService:
             logger.warning("shared plan-session read failed for %s: %s", session_id, exc)
             return None
         if row is None:
+            with self._store_lock:
+                cached = self._sessions.get(session_id)
+                if cached is not None and cached._store_version != 0:
+                    del self._sessions[session_id]
             return None
         raw, version = row
         try:
