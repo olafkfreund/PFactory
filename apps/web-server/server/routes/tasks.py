@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.services import run_leases
 from server.services.git_utils import safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
@@ -1660,6 +1661,10 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
                     )
                     # Force-remove from running_tasks as fallback
                     agent_service.running_tasks.pop(task_id, None)
+            elif await agent_service.is_running_anywhere(task_id):
+                # #805: the stale run is on another replica; ask it to stop. If
+                # it is still held, start_task_execution below refuses.
+                await run_leases.stop_and_wait("task", task_id)
 
             # Read mode from task_metadata.json
             task_metadata_file = spec_dir / "task_metadata.json"

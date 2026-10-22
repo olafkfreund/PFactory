@@ -39,9 +39,11 @@ Pre-commit mode (issue #389): ``--staged`` gates the git INDEX against HEAD
 with the exact same per-file no-regression rule and the exact same config, so
 the .husky/pre-commit hook and CI cannot disagree. Staged content is read from
 the index (``git show :<path>``), not the worktree, so the gate judges what
-would actually be committed. Staged mode is ruff-only (implies ``--no-mypy``):
-the mypy gate needs files on disk at their real paths and is too slow for a
-hook; it stays in CI.
+would actually be committed. Staged mode is ruff-only by DEFAULT (implies
+``--no-mypy``): the mypy gate needs files on disk at their real paths and costs
+seconds, so it stays in CI. ``--mypy`` overrides that for anyone who wants it
+locally (the hook passes it when ``PFACTORY_HOOK_MYPY`` is set) — with the
+caveat that the mypy half then judges files as they sit on disk, not as staged.
 
 Usage:
     python scripts/ratchet_lint.py --base <git-ref> [--package <dir>] \\
@@ -488,10 +490,26 @@ def main() -> int:
         default=MYPY_CONFIG_DEFAULT,
         help="mypy config file for the strict per-file gate",
     )
-    parser.add_argument(
+    # Contradictory by construction, so argparse rejects the pair rather than a
+    # hand-rolled check (which pushed main() past its branch budget, PLR0912).
+    mypy_toggle = parser.add_mutually_exclusive_group()
+    mypy_toggle.add_argument(
         "--no-mypy",
         action="store_true",
         help="skip the mypy no-regression gate (ruff-only)",
+    )
+    # Opt-in override for staged mode, which is ruff-only by default (#786).
+    mypy_toggle.add_argument(
+        "--mypy",
+        action="store_true",
+        help=(
+            "run the mypy gate even under --staged (which otherwise implies "
+            "--no-mypy). Costs 1-12s on a cold mypy cache depending on the "
+            "file's import graph, sub-second warm. "
+            "Caveat: the mypy half type-checks files as they sit on DISK, so "
+            "for a partially staged file its verdict describes the worktree, "
+            "not the index the ruff half gates."
+        ),
     )
     args = parser.parse_args()
 
@@ -500,7 +518,8 @@ def main() -> int:
     if not args.staged and not args.base:
         parser.error("--base is required unless --staged")
     base = "HEAD" if args.staged else args.base
-    no_mypy = args.no_mypy or args.staged
+    # --mypy overrides staged mode's ruff-only default (#786).
+    no_mypy = args.no_mypy or (args.staged and not args.mypy)
 
     packages = args.packages or [PACKAGE_DEFAULT]
     files = changed_python_files(base, packages, staged=args.staged)
@@ -542,7 +561,10 @@ def main() -> int:
         )
         return 1
 
-    suffix = "" if no_mypy else " (ruff + mypy)"
+    # Name the half that ran (#786). A bare "no changed file regressed" reads
+    # identically whether mypy was checked or skipped, so two mypy regressions
+    # (#778, #785) passed a hook whose output looked like a full pass.
+    suffix = " (ruff only; mypy runs in CI)" if no_mypy else " (ruff + mypy)"
     print(f"ratchet PASSED: no changed file regressed{suffix}; new violations: none.")
     return 0
 

@@ -33,6 +33,12 @@ spec:
         # Roll pods on ConfigMap change.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
+      # The WebSocket relay's shutdown is bounded but not instant (#804): the
+      # drain task, the publish pool's close and the listener's own cleanup each
+      # carry their own timeout and run in sequence, so teardown can legitimately
+      # take ~25s. Kubernetes' 30s default leaves no margin for the rest of the
+      # app's shutdown, so the requirement is stated here rather than inherited.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 45 }}
       serviceAccountName: {{ include "pfactory.serviceAccountName" . }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:

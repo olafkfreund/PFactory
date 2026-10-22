@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.services import run_leases
 from server.services.project_paths import resolve_project_path
 
 from ..services.insights_service import get_insights_service
@@ -119,7 +120,7 @@ async def send_insights_message(projectId: str = Path(...), request: InsightsMes
     service = get_insights_service()
 
     # Start message processing in background (non-blocking, tracked for cancellation)
-    service.start_message(
+    await service.start_message(
         project_path=project_path,
         project_id=projectId,
         message=request.message,
@@ -134,6 +135,9 @@ async def stop_insights_message(projectId: str = Path(...)):
     """Stop the currently running insights chat for a project."""
     service = get_insights_service()
     cancelled = service.stop_message(projectId)
+    if not cancelled:
+        # #805: the reply may be streaming on another replica.
+        cancelled = await run_leases.request_stop("insights", projectId)
     return {"success": True, "cancelled": cancelled}
 
 

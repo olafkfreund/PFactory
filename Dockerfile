@@ -60,7 +60,7 @@ RUN mkdir -p apps/web-server/static \
 # digest as frontend-build, so both move together in one Dependabot bump.
 FROM docker.io/node:26-bookworm-slim@sha256:c8fedd782bcd1b68d8a7d1ed2577b5f820eba820871323f605292651ff11e3c6 AS node-runtime
 
-FROM cgr.dev/chainguard/python:latest-dev@sha256:2d5551e22013aa1bb69c070398273171941c4a0d80414e7f786db8e6d966bb83 AS runtime
+FROM cgr.dev/chainguard/python:latest-dev@sha256:96cb9c155159daf6b21e70555f244081909ff161c5589112ddf308624c1a1c77 AS runtime
 
 USER root
 
@@ -74,6 +74,43 @@ COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+# The npm copied above ships its OWN vendored deps, and three of them carry HIGH
+# CVEs the P0 Trivy gate rejects. Measured on this branch's failing run, Trivy
+# attributes all three to usr/local/lib/node_modules/npm/node_modules/*:
+#
+#   HIGH CVE-2026-102276  brace-expansion 5.0.9 -> 5.0.10   (stack exhaustion)
+#   HIGH CVE-2026-102278  brace-expansion 5.0.9 -> 5.0.11   (uncontrolled recursion)
+#   HIGH CVE-2026-19534   undici 6.28.0 -> 6.28.1           (WebSocket DoS)
+#
+# They are npm's bundle, not a dependency of this application, so no lockfile of
+# ours can clear them -- and no npm release does either. Measured against the
+# registry in AIFactory#1637: 11.19.1, 11.21.0 and 12.2.0 (latest) all still
+# bundle the vulnerable versions, so waiting for a newer npm waits forever.
+#
+# Patched versions of the PACKAGES do exist (brace-expansion 5.0.12, undici
+# 6.28.1); they are simply in no npm tarball. So replace npm's vendored copies
+# rather than allow-listing: .trivyignore is for "no known patched version
+# exists", which is false here, and silencing the report would leave the
+# vulnerable code in an image that runs npm against untrusted repo content.
+#
+# Same fix as AIFactory (#1637, merged) and TFactory (#1349) for the same bundle
+# at the same path. If you change one, change all three.
+#
+# The asserting `node -e` is load-bearing: a `for` loop exits with the status of
+# its LAST iteration, so a brace-expansion failure followed by an undici success
+# would exit 0 and ship an unpatched bundle. The trailing `npm --version` proves
+# npm still runs after the surgery.
+RUN M=/usr/local/lib/node_modules/npm/node_modules \
+ && for p in brace-expansion@5.0.12 undici@6.28.1; do \
+      n="${p%@*}"; \
+      npm pack "$p" --pack-destination /tmp >/dev/null \
+   && rm -rf "$M/$n" && mkdir -p "$M/$n" \
+   && tar xzf /tmp/"$n"-*.tgz -C "$M/$n" --strip-components=1 \
+   && rm -f /tmp/"$n"-*.tgz; \
+    done \
+ && node -e "const want={'brace-expansion':'5.0.12','undici':'6.28.1'}; let bad=0; for (const [n,v] of Object.entries(want)) { const got=require('/usr/local/lib/node_modules/npm/node_modules/'+n+'/package.json').version; console.log(n, got, got===v?'ok':'EXPECTED '+v); if (got!==v) bad=1; } process.exit(bad)" \
+ && npm --version
 # .nvmrc is the one declaration of the Node major: fail the build on drift.
 COPY .nvmrc /tmp/.nvmrc
 RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
@@ -114,6 +151,11 @@ RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
 #                        both HIGH, both fixed in 1.38.0-r0.
 #   wget    1.25.0-r14 — CVE-2026-58471 and CVE-2026-58472, both HIGH, both
 #                        fixed in 1.25.0-r15.
+#   curl / libcurl-openssl4 8.22.0-r4 — CVE-2026-92392 (HIGH, HTTP/2 upload
+#                        use-after-free), fixed in 8.23.0-r0. Named together:
+#                        same origin, and the base pins libcurl-openssl4.
+#   ca-certificates-bundle 20260909-r2 — CVE-2026-111943 (HIGH, distrusted
+#                        intermediate CA), fixed in 20260909-r3.
 # Floors rather than == pins, so the build stays green as Wolfi revs further
 # (1.38.0-r1 and later already exist); drop each once the base digest ships it.
 # Verified present in the Wolfi x86_64 APKINDEX before pinning — a floor above
@@ -139,7 +181,9 @@ RUN echo "security refresh: ${SECURITY_REFRESH}" \
         "libssl3>=3.6.3-r5" \
         bubblewrap \
         ca-certificates \
-        curl \
+        "ca-certificates-bundle>=20260909-r3" \
+        "curl>=8.23.0-r0" \
+        "libcurl-openssl4>=8.23.0-r0" \
         git \
         gh \
         gnupg \
@@ -245,9 +289,9 @@ RUN mkdir -p /home/nonroot/.npm-global \
 # because nothing asserted the CLI works. Full path, since PATH is set for the
 # runtime user rather than for RUN.
 RUN npm install -g \
-        @anthropic-ai/claude-code@2.1.278 \
-        @openai/codex@0.155.1 \
-        @google/gemini-cli@0.60.0 \
+        @anthropic-ai/claude-code@2.1.303 \
+        @openai/codex@0.163.0 \
+        @google/gemini-cli@0.64.0 \
  && node /home/nonroot/.npm-global/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
  && /home/nonroot/.npm-global/bin/claude --version \
  && npm cache clean --force \

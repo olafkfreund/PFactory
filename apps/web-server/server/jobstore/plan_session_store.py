@@ -23,7 +23,7 @@ import threading
 from concurrent.futures import Future
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete as sa_delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from .plan_session_models import (
@@ -31,6 +31,7 @@ from .plan_session_models import (
     PlanSessionCounter,
     PlanSessionRow,
 )
+from .store import _rowcount
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +294,25 @@ class PlanSessionStore:
         async with self._sessionmaker() as session:
             row = await session.get(PlanSessionRow, session_id)
             return None if row is None else (row.payload, int(row.version))
+
+    def delete(self, session_id: str) -> bool:
+        """Remove the row; True when one was removed (#798).
+
+        No CAS: the caller (``PlanService.delete_session``) has already
+        established the session is terminal, and a concurrent write to a
+        session being deleted is a contradiction the 409 path cannot make
+        better.
+        """
+        removed: bool = self._run(self._delete_coro(session_id))
+        return removed
+
+    async def _delete_coro(self, session_id: str) -> bool:
+        async with self._sessionmaker() as session, session.begin():
+            stmt = sa_delete(PlanSessionRow).where(PlanSessionRow.session_id == session_id)
+            result = await session.execute(stmt)
+            # _rowcount (store.py) exists because SQLAlchemy's Result has no
+            # declared rowcount, so a direct read is a net-new strict error.
+            return _rowcount(result) > 0
 
     def list_payloads(self, *, tenant_id: str | None = None) -> list[str]:
         """Every stored payload, oldest session number first."""

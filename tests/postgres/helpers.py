@@ -60,6 +60,7 @@ def alembic_available() -> bool:
     """
     try:
         import alembic  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -85,3 +86,29 @@ def run_alembic(args: list[str], env: dict[str, str] | None = None) -> subproces
         env=full_env,
         timeout=120,
     )
+
+
+def reset_schema(url: str) -> None:
+    """Drop and recreate the ``public`` schema of a TEST database.
+
+    ``test_jobstore_for_update``'s teardown ``drop_all()``s the shared
+    ``Base.metadata`` but leaves ``alembic_version`` at head, so a later bare
+    ``alembic upgrade head`` is a no-op over missing tables. Tests that need a
+    migrated database call this first, then migrate.
+    """
+    import asyncio
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    if "test" not in url.rsplit("/", 1)[-1]:
+        raise RuntimeError("refusing to reset a database whose name does not contain 'test'")
+
+    async def _reset() -> None:
+        engine = create_async_engine(url)
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP SCHEMA public CASCADE"))
+            await conn.execute(text("CREATE SCHEMA public"))
+        await engine.dispose()
+
+    asyncio.run(_reset())

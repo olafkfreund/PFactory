@@ -7,6 +7,7 @@ Handles GitHub OAuth, repository management, issues, PRs, and releases.
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
 from server.error_ref import error_message
+from server.services import run_leases
 from server.services.git_base_url import safe_git_base_url  # #610
 from server.services.project_paths import load_projects, resolve_project_path_or_error
 
@@ -770,9 +772,28 @@ async def auto_detect_github(projectId: str | None = Query(None)):
     }
 
 
-# Background state for GitHub auth flow
+# Background state for GitHub auth flow. Per process by nature: the `gh`
+# subprocess, and the credential it writes under this pod's HOME (#807).
 _gh_auth_proc: asyncio.subprocess.Process | None = None
 _gh_auth_status: dict | None = None
+
+_MULTI_REPLICA_GH_AUTH = (
+    "GitHub sign-in from the portal is disabled when PFactory runs more than one "
+    "replica: the credential would exist on one pod only. Set GITHUB_TOKEN in the "
+    "PFactory Secret instead."
+)
+
+
+def _replica_count() -> int:
+    """The replica ceiling from PFACTORY_REPLICA_COUNT; missing or bad means 1.
+
+    ponytail: same parse as plan/service.py's #755 guard; extract a shared
+    helper when a third reader appears.
+    """
+    try:
+        return int(os.environ.get("PFACTORY_REPLICA_COUNT", "1").strip() or "1")
+    except ValueError:
+        return 1
 
 
 async def _monitor_gh_auth(proc: asyncio.subprocess.Process):
@@ -833,6 +854,8 @@ async def start_github_auth():
     Poll GET /auth/status or listen for the github:auth-complete WebSocket event.
     """
     global _gh_auth_proc, _gh_auth_status
+    if _replica_count() > 1:
+        return {"success": True, "data": {"success": False, "message": _MULTI_REPLICA_GH_AUTH}}
     gh_path = shutil.which("gh")
     if not gh_path:
         return {
@@ -2083,7 +2106,7 @@ async def trigger_pr_review(
 
     service = get_pr_review_service()
 
-    if service.is_running(projectId, prNumber):
+    if await service.is_running_anywhere(projectId, prNumber):
         return JSONResponse(
             status_code=409,
             content={
@@ -2092,12 +2115,21 @@ async def trigger_pr_review(
             },
         )
 
-    started = await service.start_review(
-        project_id=projectId,
-        pr_number=prNumber,
-        project_path=project_path,
-        followup=followup,
-    )
+    try:
+        started = await service.start_review(
+            project_id=projectId,
+            pr_number=prNumber,
+            project_path=project_path,
+            followup=followup,
+        )
+    except run_leases.RunAlreadyActiveError:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": f"A review is already running for PR #{prNumber}",
+            },
+        )
 
     if not started:
         return JSONResponse(
@@ -2385,6 +2417,9 @@ async def cancel_pr_review(
     service = get_pr_review_service()
 
     if not service.is_running(projectId, prNumber):
+        # #805: the review may run on another replica; its owner cancels it.
+        if await run_leases.request_stop("pr_review", f"{projectId}:{prNumber}"):
+            return {"success": True, "data": {"cancelled": True, "requested": True}}
         return {"success": True, "data": {"cancelled": False, "reason": "No review is running"}}
 
     cancelled = await service.cancel_review(projectId, prNumber)

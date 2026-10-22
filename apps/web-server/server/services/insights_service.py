@@ -18,6 +18,7 @@ from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
 
 from ..websockets.events import broadcast_event
+from . import run_leases
 from .git_utils import safe_spec_component  # #335
 from .insights_providers import get_provider
 
@@ -413,7 +414,7 @@ class InsightsService:
         finally:
             self._running_tasks.pop(project_id, None)
 
-    def start_message(
+    async def start_message(
         self,
         project_path: Path,
         project_id: str,
@@ -423,11 +424,20 @@ class InsightsService:
         """Start send_message as a tracked background task."""
         # Cancel any existing running task for this project
         self.stop_message(project_id)
+        # #805: last writer wins across replicas too -- taking the lease makes
+        # the previous owner's watcher cancel its reply.
+        await run_leases.acquire("insights", project_id, steal=True)
 
         task = asyncio.create_task(
             self.send_message(project_path, project_id, message, model_config)
         )
         self._running_tasks[project_id] = task
+        run_leases.watch(
+            "insights",
+            project_id,
+            alive=lambda: project_id in self._running_tasks,
+            stop=lambda: self.stop_message(project_id),
+        )
 
     def stop_message(self, project_id: str) -> bool:
         """Cancel the running chat task for a project. Returns True if a task was cancelled."""

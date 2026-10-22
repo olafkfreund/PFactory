@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.services import run_leases
 
 from ..services.agent_service import get_agent_service
 from ..websockets.events import emit_task_status
@@ -76,7 +77,7 @@ class RunningTasksResponse(BaseModel):
 async def get_running_tasks():
     """Get list of all currently running tasks."""
     agent_service = get_agent_service()
-    running = agent_service.get_running_tasks()
+    running = await agent_service.get_running_tasks_anywhere()  # #805: every replica
     return RunningTasksResponse(tasks=running, count=len(running))
 
 
@@ -84,7 +85,7 @@ async def get_running_tasks():
 async def get_task_status(task_id: str):
     """Get execution status for a specific task."""
     agent_service = get_agent_service()
-    is_running = agent_service.is_running(task_id)
+    is_running = await agent_service.is_running_anywhere(task_id)
 
     return TaskExecutionStatus(
         task_id=task_id,
@@ -96,7 +97,7 @@ async def get_task_status(task_id: str):
 async def is_task_running(task_id: str):
     """Check if a specific task is currently running."""
     agent_service = get_agent_service()
-    is_running = agent_service.is_running(task_id)
+    is_running = await agent_service.is_running_anywhere(task_id)
 
     return {
         "task_id": task_id,
@@ -316,6 +317,10 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
                     "task_id": task_id,
                     "message": "Spec creation started (no implementation plan found)",
                 }
+            except run_leases.RunAlreadyActiveError:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="Task is already running"
+                ) from None
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -394,6 +399,19 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Task is already running",
+            )
+    elif await agent_service.is_running_anywhere(task_id):
+        # #805: another replica runs it. An approved plan replaces the stale
+        # spec-creation run there, as the local branch above does here.
+        if not force_execution:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Task is already running",
+            )
+        if not await run_leases.stop_and_wait("task", task_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Task is still stopping on another replica; retry shortly",
             )
 
     # If review is required but not yet approved, set human_review status
@@ -511,6 +529,10 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
 
         # Emit status change for real-time frontend update
         await emit_task_status(task_id, "in_progress")
+    except run_leases.RunAlreadyActiveError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Task is already running"
+        ) from None
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -530,6 +552,13 @@ async def stop_task(task_id: str):
     agent_service = get_agent_service()
 
     if not agent_service.is_running(task_id):
+        # #805: the run may live on another replica; its owner stops it.
+        if await run_leases.request_stop("task", task_id):
+            return {
+                "success": True,
+                "task_id": task_id,
+                "message": "Stop requested on the replica running it",
+            }
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task is not running",
@@ -580,6 +609,16 @@ async def recover_task(task_id: str, request: RecoverTaskRequest = RecoverTaskRe
 
     # Clean up from running_tasks if present
     agent_service = get_agent_service()
+    # #805: never recover (and possibly restart) a task another replica still
+    # runs -- ask it to stop first.
+    remote = task_id not in agent_service.running_tasks and await run_leases.is_active(
+        "task", task_id
+    )
+    if remote and not await run_leases.stop_and_wait("task", task_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Task is still running on another replica; retry shortly",
+        )
     if task_id in agent_service.running_tasks:
         try:
             proc = agent_service.running_tasks[task_id]

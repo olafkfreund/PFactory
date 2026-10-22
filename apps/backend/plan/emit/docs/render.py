@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plan.emit.skills_block import _PERSONAL_DATA_CLASSES
+from plan.review.approval import is_valid as _approval_is_live
+
 from .bundle import DocBundle
 
 if TYPE_CHECKING:  # avoid import cycles / heavy imports at module load
@@ -20,11 +23,66 @@ GENERATED_BY = "pfactory"
 
 # The signature format's own version. Bump when a field's MEANING changes, so a
 # consumer reading an old file is not silently misinterpreting it.
-SIGNATURE_SCHEMA = 1
+SIGNATURE_SCHEMA = 2
+
+
+def _deployment(session: PlanSession) -> dict[str, Any]:
+    block = session.epic.deployment if session.epic else None
+    return block if isinstance(block, dict) else {}
+
+
+def _personal_data_present(session: PlanSession) -> bool:
+    contract = (session.contract_result or {}).get("contract")
+    compliance = contract.get("compliance") if isinstance(contract, dict) else None
+    classes = compliance.get("data_classes") if isinstance(compliance, dict) else None
+    return isinstance(classes, list) and any(
+        isinstance(item, str) and item in _PERSONAL_DATA_CLASSES for item in classes
+    )
+
+
+def _controls_engaged(session: PlanSession, catalog: dict[str, Any] | None) -> list[str] | None:
+    if catalog is None:
+        return None
+    block = _deployment(session)
+    scans = block.get("required_scans")
+    scans = scans if isinstance(scans, list) else []
+    gates = block.get("system_gates")
+    gates = gates if isinstance(gates, list) else []
+    controls = {"audit-logging"}
+    if "secret-scan" in scans:
+        controls.add("secrets-management")
+    if "dependency-audit" in scans:
+        controls.update(("supply-chain", "vuln-mgmt"))
+    if "sast" in scans or "iac-scan" in scans:
+        controls.add("vuln-mgmt")
+    if "human-approval" in gates or (
+        session.review is not None and _approval_is_live(session.review, session.plan)
+    ):
+        controls.add("change-mgmt-sod")
+    if block.get("production_classification") == "production":
+        controls.update(("change-mgmt-sod", "runtime-isolation"))
+    if _personal_data_present(session):
+        controls.add("data-governance")
+    if isinstance(session.injection_scan, dict) and session.injection_scan.get("verdict") in (
+        "pass",
+        "flagged",
+    ):
+        controls.add("agentic-ai-governance")
+    entries = catalog.get("controls")
+    if not isinstance(entries, list) or any(
+        not isinstance(c, dict) or not isinstance(c.get("id"), str) for c in entries
+    ):
+        return None
+    known = {c.get("id") for c in entries}
+    return sorted(controls) if controls <= known else None
 
 
 def _run_signature(
-    session: PlanSession, *, correlation_key: str, pfactory_version: str
+    session: PlanSession,
+    *,
+    correlation_key: str,
+    pfactory_version: str,
+    control_catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The provenance record for one planner run (#700).
 
@@ -51,6 +109,14 @@ def _run_signature(
                 findings_by_severity[sev] = findings_by_severity.get(sev, 0) + 1
 
     annotation = session.annotation
+    block = _deployment(session)
+    risk = block.get("risk_class")
+    personal_data = _personal_data_present(session)
+    # Live only while bound to the current plan text: nothing resets `valid` on an
+    # edit, so the hash is checked here and a stale sign-off is never stamped.
+    approval = review.human_approval if review and _approval_is_live(review, plan) else None
+    routing = _routing_verdict(session)
+    controls = _controls_engaged(session, control_catalog)
     return {
         "signature_schema": SIGNATURE_SCHEMA,
         "generated_by": GENERATED_BY,
@@ -85,6 +151,21 @@ def _run_signature(
         "lens_scores": lenses,
         "findings_by_severity": findings_by_severity,
         "injection_scan": (session.injection_scan or {}).get("verdict", "not-run"),
+        "risk_class": risk or "unknown",
+        "risk_class_basis": "deployment-block" if risk else "absent",
+        "autonomy_tier": plan.autonomy_tier or "unknown",
+        "autonomy_verdict": routing["autonomy"] or None if routing else None,
+        "data_classification": "Regulated" if personal_data else "unknown",
+        "data_classification_basis": "compliance-data-classes" if personal_data else "absent",
+        "approved_by": approval.approved_by or None if approval else None,
+        "approved_at": approval.approved_at or None if approval else None,
+        "controls": controls,
+        "controls_basis": "gates-engaged" if controls is not None else None,
+        "control_catalog_version": control_catalog.get("version") if control_catalog else None,
+        "change_id": None,
+        "originator": None,
+        "agent_identity": None,
+        "model_route": None,
         # Zero tokens means the deterministic path ran — NOT that nothing ran.
         "tokens": session.usage.model_dump() if session.usage else {},
         "emitted_issue_number": session.emitted_issue_number,
@@ -144,7 +225,7 @@ def _routing_verdict(session: PlanSession) -> dict[str, str] | None:
     out = {
         "difficulty": str(routing.get("difficulty", "")),
         "risk": str(routing.get("risk", "")),
-        "autonomy": str(autonomy.get("verdict", "")),
+        "autonomy": str(autonomy.get("verdict") or ""),
         "reason": str(autonomy.get("reason", "")),
     }
     if not (out["difficulty"] or out["risk"] or out["autonomy"]):
@@ -262,7 +343,12 @@ def _render_markdown(session: PlanSession, deps: list[str]) -> str:
     return "".join(parts)
 
 
-def render_plan_docs(session: PlanSession, *, pfactory_version: str = "unknown") -> DocBundle:
+def render_plan_docs(
+    session: PlanSession,
+    *,
+    pfactory_version: str = "unknown",
+    control_catalog: dict[str, Any] | None = None,
+) -> DocBundle:
     """Render the plan session into a :class:`DocBundle` (pure).
 
     ``pfactory_version`` is injected by the caller (see ``updated_at`` in the
@@ -303,6 +389,9 @@ def render_plan_docs(session: PlanSession, *, pfactory_version: str = "unknown")
         markdown=markdown,
         registry_entry=registry_entry,
         run_signature=_run_signature(
-            session, correlation_key=ck, pfactory_version=pfactory_version
+            session,
+            correlation_key=ck,
+            pfactory_version=pfactory_version,
+            control_catalog=control_catalog,
         ),
     )

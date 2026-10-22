@@ -9,12 +9,14 @@ Main entry point for the web server that provides:
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from types import ModuleType
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import env_bootstrap  # noqa: F401  — loads .env into os.environ first
@@ -73,6 +75,40 @@ from .websockets import (
 logger = logging.getLogger(__name__)
 
 
+async def _start_ws_relay() -> ModuleType:
+    """Start the cross-pod WebSocket relay (#804); return the module for shutdown."""
+    # The lifespan calls this only after the schema has settled. Failure to
+    # start must not be fatal: a pod that cannot reach Postgres for
+    # LISTEN/NOTIFY still has to serve HTTP and deliver events to its own
+    # directly-connected clients.
+    from .websockets import relay  # noqa: PLC0415
+    from .websockets._dispatch import dispatch as relay_dispatch  # noqa: PLC0415
+
+    try:
+        await relay.start_listener(relay_dispatch)
+    except Exception:  # noqa: BLE001 — relay is best-effort, the server must still boot (#804)
+        logger.warning("WebSocket relay failed to start; running without cross-pod fan-out")
+    else:
+        if relay._listener_task is None:
+            logger.info("WebSocket relay inert (no DATABASE_URL)")
+        else:
+            # `is_connected()` (not `_listener_task is not None`, which is
+            # true whether connected or still retrying) is the honest answer
+            # here (#804 fix 7) — and the honest answer, checked this early,
+            # is very likely still False: `start_listener` only SCHEDULES the
+            # connect, it doesn't wait for it (#804 fix 8's no-op window).
+            # That isn't a bug in this log line, it's what's true at this
+            # instant; an operator debugging "events aren't arriving on pod
+            # B" should call `relay.is_connected()` again later, not read
+            # this one boot-time line as a health check.
+            logger.info(
+                "WebSocket relay listener scheduled; connected=%s so far "
+                "(connect races startup, so False here is normal)",
+                relay.is_connected(),
+            )
+    return relay
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
@@ -107,6 +143,8 @@ async def lifespan(app: FastAPI):
 
     await asyncio.to_thread(attach_stores_after_migrations)
 
+    relay = await _start_ws_relay()
+
     # Initialize skills service singleton once at startup
     init_skills_service()
     logger.info("SkillsService initialized")
@@ -129,9 +167,30 @@ async def lifespan(app: FastAPI):
             settings.LIVENESS_SWEEP_DEADLINE_SECONDS,
         )
 
+    # RFC-0024: runtime invariants. Companions register on import; the timer
+    # runs the non-critical checks (critical ones back /api/ready).
+    from factory_invariants import registry as invariant_registry  # noqa: PLC0415
+
+    from .background.invariants import invariant_loop, load_companions  # noqa: PLC0415
+
+    load_companions()
+    app.state.invariant_task = None
+    if invariant_registry.enabled:
+        app.state.invariant_task = asyncio.create_task(
+            invariant_loop(settings.INVARIANTS_PERIOD_SECONDS)
+        )
+        logger.info("Invariant timer enabled (every %ss)", settings.INVARIANTS_PERIOD_SECONDS)
+
     yield
 
     # Shutdown
+    await relay.stop_listener()
+    invariant_task = getattr(app.state, "invariant_task", None)
+    if invariant_task is not None:
+        invariant_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await invariant_task
+
     sweep_task = getattr(app.state, "liveness_sweep_task", None)
     if sweep_task is not None:
         sweep_task.cancel()
@@ -297,9 +356,11 @@ def create_app() -> FastAPI:
 
     # Include API routers
     app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
-    app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
-    # Execution routes also under /api/tasks for frontend compatibility
+    # Execution routes also under /api/tasks for frontend compatibility.
+    # Order matters (#825): mounted after tasks.router, its GET /{task_id}
+    # caught GET /running. Starlette takes the first full match.
     app.include_router(execution.router, prefix="/api/tasks", tags=["Task Execution"])
+    app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
     # PFactory portal endpoints (Task 9 / #10) — read-only over the
     # PFactory workspace filesystem at ~/.pfactory/workspaces/.
     from .routes import pfactory_tasks as pfactory_tasks_routes
@@ -455,6 +516,18 @@ def create_app() -> FastAPI:
             # secrets; CFactory surfaces it as a provider-auth health tile.
             "provider_auth": provider_credential_health(),
         }
+
+    # Readiness: critical runtime invariants (RFC-0024). Public, like /api/health.
+    @app.get("/api/ready")
+    async def readiness_check() -> JSONResponse:
+        from .background.invariants import readiness  # noqa: PLC0415
+
+        failing = await readiness()
+        if failing:
+            return JSONResponse(
+                status_code=503, content={"status": "not ready", "failing": failing}
+            )
+        return JSONResponse(content={"status": "ready"})
 
     # Mount static files for SPA (if build directory exists).
     #

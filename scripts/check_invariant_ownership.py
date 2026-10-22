@@ -1,160 +1,142 @@
 #!/usr/bin/env python3
-"""Every module in a covered package must declare an invariant, or say why not.
+"""Every top-level package must declare an invariant, or say why not.
 
-Factory#818. This is the mechanical rule the pattern depends on: without it, a
-new module can be added and remain invisible to diagnostics until someone
-notices the gap. A registry with 17 declarations proves nothing on its own if
-the package has 18 modules.
+Factory#818 / RFC-0024 section 3. The coverage unit is the package: a directory
+with an ``__init__.py`` directly under a source root. The checker discovers them,
+so a new package cannot stay invisible to diagnostics because nobody listed it.
+
+Each package owns a companion ``<pkg>/_invariants.py`` that registers a real
+check or a written reason. ``factory_common`` is vendored byte-for-byte and its
+drift gate rejects extra files, so its companion is the sibling file named in
+``VENDORED``.
 
 Fails on:
-  * a module in the package with no declaration    (the gap this exists to catch)
-  * a declaration naming a module that no longer exists (a stale entry, which
-    makes coverage look complete while watching nothing)
-
-A covered package names its own source root and its own companion module,
-because the companion does not always live inside the package it watches:
-``factory_common`` is vendored byte-identically from the hub and its module set
-is derived by the drift gate from the canonical directory, so a companion added
-inside it would be rejected as an unexpected module. It sits beside the package
-instead. Being able to watch a package you do not own the source of is the point
-of carrying the companion name here rather than assuming ``<pkg>._invariants``.
+  * a package with no declaration
+  * a registered name whose package or module no longer exists (a stale entry)
+  * a source root that is missing or has no packages
+  * a ``VENDORED`` entry that does not exist on disk
 
 Run:  python3 scripts/check_invariant_ownership.py [--self-test]
 """
 
-# Imports inside declared_modules() are deliberate: sys.path must be extended
-# before the package is importable, which happens in check().
-# ruff: noqa: PLC0415
-
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
-from typing import NamedTuple
 
-
-class Covered(NamedTuple):
-    """One package under the ownership rule."""
-
-    #: Source root the package is importable from, relative to the repo root.
-    root: str
-    #: Top-level package name.
-    package: str
-    #: Importable module that performs the registrations for this package.
-    companion: str
-
-
-COVERED: tuple[Covered, ...] = (
-    Covered("apps/backend", "pfactory_secrets", "pfactory_secrets._invariants"),
-    # The registry itself. It was the one package the checker did not look at,
-    # which is this whole failure mode in miniature.
-    Covered("apps/backend", "factory_invariants", "factory_invariants._invariants"),
-    # Vendored from the hub, so its companion is a sibling FILE, not a member.
-    Covered("apps/web-server", "factory_common", "factory_common_invariants"),
-)
+SOURCE_ROOTS: tuple[str, ...] = ("apps/backend", "apps/web-server")
+#: Vendored package -> sibling companion module (the package itself is not ours to edit).
+VENDORED: dict[str, str] = {"factory_common": "factory_common_invariants"}
 
 _REPO = Path(__file__).resolve().parents[1]
+_PROBE = "_invariant_selftest_probe"
 
 
-def modules_on_disk(pkg_root: Path, pkg: str) -> set[str]:
-    """Dotted names of every .py module in the package, excluding the companion."""
-    out: set[str] = set()
-    for path in sorted(pkg_root.rglob("*.py")):
-        rel = path.relative_to(pkg_root)
-        if rel.name == "_invariants.py":
-            continue
-        out.add(".".join([pkg, *rel.parts[:-1], rel.stem]))
-    return out
+def discover(repo: Path, roots: tuple[str, ...] | list[str]) -> tuple[dict[str, str], list[str]]:
+    """Map every top-level package to its source root; report empty or missing roots."""
+    found: dict[str, str] = {}
+    problems: list[str] = []
+    for root in roots:
+        pkgs = sorted(p.parent.name for p in (repo / root).glob("*/__init__.py"))
+        if not pkgs:
+            problems.append(f"{root}: source root is missing or contains no packages")
+        for name in pkgs:
+            if name in found:
+                problems.append(f"{name}: package exists in both {found[name]} and {root}")
+            found[name] = root
+    return found, problems
 
 
-def declared_modules(entry: Covered) -> set[str]:
-    """Module names this package's companion actually registered.
-
-    Both imports go through importlib rather than an import statement. That is
-    what the code genuinely does -- no covered package is importable until
-    check() has put its source root on sys.path -- and it is also what lets this
-    file type-check: the ratchet runs mypy per package root, so from ``scripts``
-    a static ``from factory_invariants import ...`` resolves to nothing and is
-    unfixable from inside this file.
-    """
-    import importlib
-
-    registry = importlib.import_module("factory_invariants").registry
-    importlib.import_module(entry.companion)
-    registered: set[str] = registry.registered()
-    pkg = entry.package
-    return {m for m in registered if m == pkg or m.startswith(f"{pkg}.")}
+def _resolves(root: Path, name: str) -> bool:
+    """True if the dotted name is a module or package under the root."""
+    base = root.joinpath(*name.split("."))
+    return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
 
 
 def check(repo: Path = _REPO) -> list[str]:
-    problems: list[str] = []
-    for entry in COVERED:
-        root = repo / entry.root
-        if str(root) not in sys.path:
-            sys.path.insert(0, str(root))
-        pkg_dir = root / entry.package
-        if not pkg_dir.is_dir():
-            problems.append(f"{entry.package}: covered package not found at {pkg_dir}")
+    # importlib, not import statements: nothing is importable until the roots are
+    # on sys.path, and mypy (run per package root) cannot resolve it from scripts.
+    for root in SOURCE_ROOTS:
+        if str(repo / root) not in sys.path:
+            sys.path.insert(0, str(repo / root))
+    packages, problems = discover(repo, SOURCE_ROOTS)
+    for pkg, companion in VENDORED.items():
+        vroot = repo / packages.get(pkg, SOURCE_ROOTS[-1])
+        if pkg not in packages or not (vroot / f"{companion}.py").is_file():
+            problems.append(f"{pkg}: VENDORED entry needs package and {companion}.py in {vroot}")
+    registry = importlib.import_module("factory_invariants").registry
+    imported: list[str] = []
+    for pkg, root_name in packages.items():
+        base = repo / root_name
+        companion = VENDORED.get(pkg, f"{pkg}._invariants")
+        path = base / f"{companion}.py" if pkg in VENDORED else base / pkg / "_invariants.py"
+        if not path.is_file():
+            if pkg not in VENDORED:  # a vendored gap was already reported above
+                problems.append(
+                    f"{pkg}: no declaration. Add {path.relative_to(repo)} registering a check "
+                    "or a written reason why this package owns no observable runtime relation."
+                )
             continue
-        on_disk = modules_on_disk(pkg_dir, entry.package)
-        declared = declared_modules(entry)
-        for missing in sorted(on_disk - declared):
+        importlib.import_module(companion)
+        imported.append(pkg)
+    registered: set[str] = registry.registered()
+    for pkg in imported:
+        if not any(n == pkg or n.startswith(f"{pkg}.") for n in registered):
+            problems.append(f"{pkg}: companion registered nothing")
+    for name in sorted(registered):
+        top = name.split(".")[0]
+        if top not in packages or not _resolves(repo / packages[top], name):
             problems.append(
-                f"{missing}: no invariant declaration. Add a check to "
-                f"{entry.companion}, or a written reason why this module owns "
-                "no observable runtime relation."
-            )
-        for stale in sorted(declared - on_disk):
-            problems.append(
-                f"{stale}: declared in {entry.companion} but no such module "
-                "exists — coverage looks complete while watching nothing."
+                f"{name}: registered but no such package or module exists - "
+                "coverage looks complete while watching nothing."
             )
     return problems
 
 
 def _self_test() -> int:
-    """Prove this checker can FAIL, once per covered package.
-
-    Per package, not once: each entry carries its own source root and its own
-    companion, so a wiring mistake in one of them (a companion that is never
-    imported, a root that is never put on sys.path) would leave that package
-    silently unwatched while the others kept the check green. A single probe in
-    the first package cannot see that.
-
-    Mutates the REAL packages rather than copied fixtures: copying one out of
-    its source root orphans it from its sibling imports, so the copy fails to
-    import for a reason that has nothing to do with what is being tested. A
-    temporary module in the real tree is both simpler and stronger evidence.
-    """
+    """Prove this checker can FAIL, once per source root."""
     failures: list[str] = []
-    for entry in COVERED:
-        probe = _REPO / entry.root / entry.package / "_invariant_selftest_probe.py"
+    for root in SOURCE_ROOTS:
+        probe = _REPO / root / _PROBE
         if probe.exists():
             print(f"self-test FAILED: {probe} already exists", file=sys.stderr)  # noqa: T201
             return 1
         try:
-            probe.write_text("# transient fixture written by --self-test\nX = 1\n")
+            probe.mkdir()
+            (probe / "__init__.py").write_text("# transient fixture written by --self-test\n")
             got = check()
-            if not any("_invariant_selftest_probe" in p for p in got):
-                failures.append(f"{entry.package}: an undeclared module was NOT caught; got {got}")
-            elif len(got) != 1:
-                failures.append(f"{entry.package}: expected exactly one problem, got {got}")
+            if len(got) != 1 or _PROBE not in got[0]:
+                failures.append(f"{root}: expected exactly one problem naming the probe, got {got}")
         finally:
-            probe.unlink(missing_ok=True)
+            shutil.rmtree(probe, ignore_errors=True)
 
     clean = check()
     if clean:
         failures.append(f"the tree did not return to clean after the probes: {clean}")
 
+    with tempfile.TemporaryDirectory() as tmp:
+        if not discover(Path(tmp), ["."])[1]:
+            failures.append("an empty source root was NOT reported")
+
+    registry = importlib.import_module("factory_invariants").registry
+    registry.register(
+        "factory_invariants._invariant_selftest_gone",
+        reason="Self-test entry naming a module that does not exist, to prove staleness is caught.",
+    )
+    if not any("_invariant_selftest_gone" in p for p in check()):
+        failures.append("a stale registration was NOT caught")
+
     if failures:
         for f in failures:
             print(f"self-test FAILED: {f}", file=sys.stderr)  # noqa: T201
         return 1
-    covered = ", ".join(e.package for e in COVERED)
     print(  # noqa: T201
-        f"self-test OK: an undeclared module is caught in each of {covered}, "
+        f"self-test OK: an undeclared package is caught in each of {', '.join(SOURCE_ROOTS)}, "
         "and the tree returns to clean"
     )
     return 0
@@ -173,10 +155,10 @@ def main() -> int:
         for p in problems:
             print(f"  - {p}")  # noqa: T201
         return 1
-    for entry in COVERED:
-        print(  # noqa: T201
-            f"OK: every module in {entry.package} declares an invariant or says why not."
-        )
+    n = len(discover(_REPO, SOURCE_ROOTS)[0])
+    print(  # noqa: T201
+        f"OK: all {n} packages under {', '.join(SOURCE_ROOTS)} declare an invariant or say why not."
+    )
     return 0
 
 

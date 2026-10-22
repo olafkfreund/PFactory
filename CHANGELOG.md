@@ -2,6 +2,149 @@
 
 ## Unreleased
 
+## 0.6.29 — security floors and dependency refresh (2026-10-21)
+
+- **The runtime image clears three new HIGH CVEs (#879).** apk floors pull
+  `curl` and `libcurl-openssl4` to 8.23.0-r0 (CVE-2026-92392) and
+  `ca-certificates-bundle` to 20260909-r3 (CVE-2026-111943).
+- The baked agent CLIs are bumped: claude-code 2.1.303, codex 0.163.0,
+  gemini-cli 0.64.0 (#845).
+- Language reconciliation no longer matches inside other words, ALL-CAPS
+  acronyms or two-letter tokens, and recognises cargo, flask, maven and
+  django again (#835, #827).
+- Mermaid 12 and katex 0.18; diagrams keep the mermaid 11 look with
+  `look: 'classic'` and `layout: 'dagre'` (#851).
+- `/api/ready` is single-flight with a timeout, and the invariant timer period
+  has a floor (#877, #874).
+- The emitted-epic correlation key is scoped to the repo (Factory#1775, #878).
+- Dependency bumps: dompurify 3.4.17, brace-expansion, source-map-js 1.2.2,
+  seven GitHub Actions (#844, #849, #850, #852).
+
+## 0.6.28 — runtime invariants on by default (2026-10-15)
+
+- PFactory's copy of `extension-registry.json` is now drift-checked against
+  the hub at the pinned `HUB_SHA`, in the same CI step as the control catalog
+  (Factory#1709). The registry decides which review lenses and runtimes are
+  switched on, so a silent difference would change which checks run.
+- **Runtime invariants are on by default (#865).** Every package under
+  `apps/backend` and `apps/web-server` now declares its invariants in a
+  `_invariants.py` companion, and the ownership checker finds packages by
+  itself instead of a hand-written list (#864). The service runs the
+  non-critical checks on a timer (`APP_INVARIANTS_PERIOD_SECONDS`, default
+  300); each violation logs at error level and increments
+  `factory_invariant_violations_total{service,package}`. `GET /api/ready`
+  runs the critical checks and returns 503 with the failing names, otherwise
+  200. No check is critical yet, so it returns 200, and the readiness probe is
+  unchanged (factory-gitops#283). `FACTORY_INVARIANTS=0` turns them off.
+- A plan status that is terminal or unknown is never rewritten by the scripts
+  (Factory#3589).
+- A failed end is persisted when the run monitor is interrupted (#863), and a
+  failed session is saved when `process()` raises (#862).
+- A stage's status fails when its task is cancelled (#860), and
+  `lane_progress` is derived from the task status on read (#861).
+- All six test lanes run on TFactory's runner images; PFactory's copies are
+  gone (Factory#1003).
+- The factory-github drift check runs on every PR (Factory#3585).
+- `factory_common`'s `http` and `url_safety` are re-vendored from the hub
+  (#847).
+
+## 0.6.27 — governance in the run signature (2026-10-14)
+
+- **The run signature records governance (Factory#1961).** `<slug>.run.json`
+  is now `signature_schema: 2`. It adds flat keys, and no existing key changes
+  meaning:
+  - `risk_class` and `risk_class_basis`;
+  - `autonomy_tier` (the RFC-0011 label) and `autonomy_verdict` (the RFC-0014 scorer), kept apart;
+  - `data_classification` and `data_classification_basis`;
+  - `approved_by` and `approved_at`;
+  - `controls`, `controls_basis` and `control_catalog_version`;
+  - `change_id`, `originator`, `agent_identity` and `model_route`, which stay `null` until their source exists.
+
+  A value the run could not establish is `"unknown"` or `null`, never a
+  believable default. `risk_class` is never `"low"` by default, and
+  `data_classification` is only ever `Regulated` or `unknown`. An approver is
+  named only while the approval still matches the plan text. `controls` lists
+  the control domains this run's gates engaged, using ids from the hub's
+  `apis/control-catalog.json`, which is vendored and drift-checked.
+- `python -m plan.governance_cli --root <docs dir> [--control ID] [--tier T]
+  [--since YYYY-MM-DD] [--json]` answers "which plans engaged control X, at
+  what tier, approved by whom". It always prints how many rows it scanned, how
+  many had a signature, how many were schema-1 and how many had none, so an
+  empty answer is never silent.
+- A cloud access action is required only when the plan targets that cloud
+  (#839).
+- The image replaces npm's vendored `brace-expansion` and `undici` (#843).
+
+## 0.6.26 — running-tasks endpoint reachable; plan-session delete (2026-09-29)
+
+- **`GET /api/tasks/running` works (#825).** The tasks router's `GET
+  /{task_id}` was mounted first and caught `/running`, which answered 400 in
+  the real app. The execution router is now mounted first, and an app-level
+  test pins the order.
+- A terminal plan session can be deleted, and discarded sessions are no
+  longer listed (#798).
+- Spec language detection resolves by signal strength, not list order
+  (#801), and weak language tokens need evidence, not just adjacency (#827).
+- Chainguard python base bumped to `8772916` (#790), and the baked agent CLI
+  pins bumped: claude-code 2.1.283, gemini-cli 0.61.0, codex 0.158.0 (#789).
+
+## 0.6.25 — running work is visible and stoppable from any replica (2026-09-29)
+
+- **Running tasks, insights replies, changelogs and PR reviews are shared
+  across replicas (#805).** Each used to be tracked only in the memory of
+  the pod that started it, so another replica reported it idle, allowed a
+  duplicate start, and could not stop it. A new `run_leases` table
+  (migration `a8d3e6b2c9f4`) records which replica owns each run, renewed
+  on a heartbeat:
+  - status and running lists see every replica;
+  - a duplicate start gets 409 (changelog: "already in progress");
+  - a stop sent to another replica becomes a stop request that the owner
+    carries out within one heartbeat;
+  - a replica that dies stops claiming its runs within one TTL.
+
+  It is tuned by `PFACTORY_RUN_LEASE_TTL_SECONDS` (60) and
+  `PFACTORY_RUN_LEASE_HEARTBEAT_SECONDS` (15). With one replica, behaviour
+  is unchanged.
+- A passing deployment-pipeline gate reports what it found (#797).
+- Four compliance-review escapes accept inflected wording (#800).
+- The pre-commit hook finds the backend venv from a git worktree (#796).
+
+## 0.6.24 — email OAuth state shared across replicas (2026-09-29)
+
+- **An email OAuth connect works whichever replica gets the callback (#807).**
+  The Outlook or Gmail connect state lived in the memory of the pod that
+  started the flow, so a provider callback that reached another pod was
+  rejected as invalid or expired. It now lives in `oauth_connect_states`
+  (migration `f2c7a9d4e1b3`) and is consumed with one `DELETE ... RETURNING`:
+  single-use across pods, and bound to its provider (a Gmail state no longer
+  completes the Outlook callback).
+- **The portal's GitHub CLI sign-in refuses when PFactory may run as several
+  pods (#807).** `gh auth login` writes its credential on the pod that ran it,
+  so with `PFACTORY_REPLICA_COUNT` above 1, `/api/github/auth/start` refuses
+  and points to `GITHUB_TOKEN` in the Secret. With one replica: unchanged.
+- Docs: `PFACTORY_REPLICA_COUNT` and `PFACTORY_REQUIRE_SHARED_STORE` in the
+  environment reference.
+
+## 0.6.23 — audit hash chain holds under concurrency (2026-09-29)
+
+- **Concurrent audit writes no longer fork the hash chain (#806).** The chain
+  head was read with no lock, so two requests (or two replicas) could link to
+  the same row. On Postgres, every audit write and the GDPR re-chain now take
+  one transaction-scoped advisory lock. The chain is ordered by a new
+  `audit_logs.chain_seq` column (migration `e5b8c3f1a7d2`) instead of
+  `created_at`, the transaction start time. `chain_seq` is not hashed, so
+  existing chains still verify. Exports carry `chain_seq`; in CSV it is the
+  last column.
+- **Background audit rows join the chain (#806).** `log_audit_event_bg`, the
+  path the MCP write routes use, wrote rows with no `prev_hash`. It now uses
+  the same write path as every other audit event.
+- The KMS root-rotation runbook (`python -m server.crypto rotate-root`) runs
+  in the shipped image (#781).
+- The pre-commit hook gates the same packages as CI and says which half of the
+  ratchet ran (#786).
+- Internal: the `attach_session_store_after_migrations` alias is removed
+  (#792).
+
 ## 0.6.22 — durable job-state store after boot migrations (2026-09-28)
 
 - **A pod that migrates on boot now gets the durable job-state store without

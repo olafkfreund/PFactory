@@ -168,3 +168,41 @@ def test_the_standards_gate_does_not_hardcode_a_hub_sha() -> None:
     assert not offenders, (
         f"these workflows hardcode a hub SHA instead of reading standards/.hub-sha: {offenders}"
     )
+
+
+def _hook_ratchet_packages() -> set[str]:
+    """The trees the pre-commit hook invokes `ratchet_lint.py` over."""
+    hook = (_REPO / ".husky" / "pre-commit").read_text(encoding="utf-8")
+    # The invocation is wrapped across lines; take from the script name to the
+    # end of that continued command.
+    # Two details, both learned the hard way here:
+    #   - the continuation alternative must come FIRST, or `[^\n]` eats the
+    #     trailing backslash and the match stops at that line's end;
+    #   - the hook MENTIONS the script in a comment before invoking it, so take
+    #     the first occurrence that actually carries --package flags.
+    for m in re.finditer(r"scripts/ratchet_lint\.py((?:\\\n|[^\n])*)", hook):
+        packages = set(re.findall(r'--package\s+"?([^"\s\\]+)"?', m.group(1)))
+        if packages:
+            return packages
+    raise AssertionError(
+        "could not find a --package-bearing ratchet invocation in .husky/pre-commit"
+    )
+
+
+def test_the_hook_gates_the_same_packages_as_ci() -> None:
+    """Local and CI must gate the same trees (#786).
+
+    They did not. CI passed three `--package` flags; the hook passed two, so a
+    net-new ruff violation in `scripts/` — the tree that holds this very ratchet
+    — passed the hook and failed the blocking job. The hook exists to be a
+    preview of that job; a narrower scope makes it a preview of something else.
+
+    (The mypy half is a separate matter: `--staged` implies `--no-mypy`, so the
+    hook is ruff-only unless PFACTORY_HOOK_MYPY=1. That is why the two mypy
+    regressions #786 cites could not have been caught by package flags at all.)
+    """
+    hook, ci = _hook_ratchet_packages(), _ratchet_packages()
+    assert hook == ci, (
+        f"the hook gates {sorted(hook)} but cq-ratchet.yml gates {sorted(ci)}; "
+        "a violation in the difference passes locally and fails CI"
+    )

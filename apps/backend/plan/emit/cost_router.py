@@ -10,17 +10,10 @@ catalog model that meets the tier/class capability floor under the ceiling**:
     when the routing class is ``governed`` (a high-risk/production task is never
     silently planned by a weak model — RFC-0014 §2 + §4).
   - ``coding`` / ``qa`` / ``test_gen`` defer to the tier floor and are downgraded
-    to the cheapest capable model within it (strong-for-plan, cheap-for-code) —
-    but ONLY among ``claude`` models. These three roles are mechanical
-    (agentic code/test writing), and a bare cheapest-wins search over the whole
-    catalog lets a flat-rate *subscription* model win cost ties at $0 by
-    alphabetical luck: that is how ``codex`` became the router's default coding
-    model even though codex agentic builds produce NO code (empty branch, 0/N
-    subtasks — AIFactory #779). Restricting these roles to ``claude`` keeps the
-    tier-aware cheapest-within-floor behavior (haiku/sonnet/opus) while making
-    the pick deterministic and known-to-actually-write-code. ``codex`` (and
-    other providers) remain valid catalog entries and explicit/opt-in choices —
-    they are just no longer auto-selected by the router for these roles.
+    to the cheapest capable model within it (strong-for-plan, cheap-for-code).
+    All four roles auto-select only among ``claude`` models: agentic coding
+    needs a provider known to write code (#779), and planning governs every
+    later phase (#826). Other providers remain explicit choices.
 
 It writes (additively) onto the contract's ``execution`` block:
 
@@ -58,17 +51,11 @@ _CATALOG_PATH = Path(__file__).with_name("model-catalog.json")
 # rest defer to the tier floor.
 _ROLES = ("planning", "coding", "qa", "test_gen")
 
-# The mechanical roles: agentic code/test writing, not judgment calls. Restricted
-# to a single provider (below) so a cost tie among flat-rate subscription models
-# can never hand the pick to a model that doesn't reliably produce code
-# (AIFactory #779 — codex agentic builds exit with 0/N subtasks, empty branch).
-_MECHANICAL_ROLES = ("coding", "qa", "test_gen")
+# Agentic code/test writing needs a proven provider (#779); planning governs
+# those phases and must not cost-shop across providers either (#826).
+_CLAUDE_ROLES = ("planning", "coding", "qa", "test_gen")
 
-# The provider mechanical roles are restricted to. claude's cheap/balanced/
-# frontier tiers (haiku/sonnet/opus) already span the full capability floor
-# ladder, so this preserves "cheapest capable within the tier floor" while
-# guaranteeing the pick is a model proven to write real code.
-_MECHANICAL_PROVIDER = "claude"
+_CLAUDE_PROVIDER = "claude"
 
 # Per-role token estimates for the rolled cost figure (in_tokens, out_tokens).
 # Coarse, deterministic priors — planning reads more context and writes a plan;
@@ -133,18 +120,19 @@ def select_phase_models(
     estimate_total: float | None = None
     downgrades: list[str] = []
 
+    # An entry marked "available": false is never auto-selected (#826); it stays
+    # in `cat` so a pinned model is still priced. Filtered here, not in the
+    # hub-canonical cost_router_core, which must stay byte-identical.
+    available = {mid: e for mid, e in cat.items() if e.get("available") is not False}
+
     for role in _ROLES:
         floor = _role_floor(role, tier, routing_class)
         tokens = _ROLE_TOKENS[role]
-        role_catalog = cat
-        if role in _MECHANICAL_ROLES:
-            # Mechanical roles never cost-shop across providers (see module
-            # docstring / AIFactory #779): restrict to claude so the tier-aware
-            # cheapest-within-floor pick (haiku/sonnet/opus) can never resolve to
-            # codex (or another provider) on a cost tie. Fall back to the full
-            # catalog only if it truly has no claude entries (defensive; never
-            # true for the real vendored catalog) so a role is never dropped.
-            claude_only = _restrict_provider(cat, _MECHANICAL_PROVIDER)
+        role_catalog = available
+        if role in _CLAUDE_ROLES:
+            # Preserve the existing fallback for injected catalogs with no
+            # Claude entries; the vendored catalog always has them.
+            claude_only = _restrict_provider(available, _CLAUDE_PROVIDER)
             if claude_only:
                 role_catalog = claude_only
         pick = cheapest_capable_model(role, floor, ceiling, tokens, role_catalog)
@@ -162,7 +150,7 @@ def select_phase_models(
         if cost is not None:
             estimate_total = (estimate_total or 0.0) + cost
 
-    rationale = _rationale(tier, routing_class, phase_models, downgrades)
+    rationale = _rationale(tier, routing_class, phase_models, downgrades, cat)
     routing = {
         "class": routing_class,
         "cost_estimate_usd": round(estimate_total, 4) if estimate_total is not None else None,
@@ -177,7 +165,11 @@ def select_phase_models(
 
 
 def _rationale(
-    tier: str, routing_class: str, phase_models: dict[str, str], downgrades: list[str]
+    tier: str,
+    routing_class: str,
+    phase_models: dict[str, str],
+    downgrades: list[str],
+    catalog: dict[str, Any],
 ) -> str:
     floor = capability_floor_class(tier)
     parts = [
@@ -191,6 +183,12 @@ def _rationale(
         parts.append("governed forces frontier planning floor")
     if downgrades:
         parts.extend(downgrades)
+    parts.extend(
+        f"{mid} skipped: {entry.get('unavailable_reason', 'unavailable')}"
+        for mid, entry in catalog.items()
+        if entry.get("available") is False
+        and any(role in _ROLES for role in entry.get("roles") or [])
+    )
     return "; ".join(parts)
 
 

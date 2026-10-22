@@ -25,7 +25,7 @@ version_range: ">=1.40,<2.0"
 runtime:
   # Docker image built in Task 7 (#23).
   # Contains Node 22, @playwright/test, chromium (baseline; firefox + webkit opt-in).
-  image: pfactory-runner-playwright:latest
+  image: tfactory-runner-playwright:latest
   entrypoint:
     - npx
     - playwright

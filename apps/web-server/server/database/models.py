@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -419,6 +420,47 @@ class TestTargetCredential(Base):
 # ---------------------------------------------------------------------------
 
 
+class RunLease(Base):
+    """Which replica runs a task, insights reply, changelog or PR review (#805).
+
+    One row per running thing, keyed by ``(kind, key)``: at most one owner
+    across all pods. The owner renews ``lease_until`` on a heartbeat, so a pod
+    that dies stops claiming its runs within one TTL. ``stop_requested`` is how
+    a replica that does not own the run asks the owner to stop it.
+    """
+
+    __tablename__ = "run_leases"
+
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False)
+    lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    stop_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+
+
+class OAuthConnectState(Base):
+    """A pending email OAuth connect (#807): the CSRF ``state`` and who asked.
+
+    Shared by every replica, so the provider's callback may reach any pod. The
+    callback consumes a row with one ``DELETE ... RETURNING``, which keeps it
+    single-use across pods. Holds no credential: tokens go straight from the
+    code exchange into ``EmailAccount``.
+    """
+
+    __tablename__ = "oauth_connect_states"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # No FK: with auth disabled, `_get_user_id` returns a fixed id.
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+
 class EmailAccount(Base):
     """OAuth-connected email account for sending notifications."""
 
@@ -540,6 +582,7 @@ class AuditLog(Base):
         Index("ix_audit_logs_user_id", "user_id"),
         Index("ix_audit_logs_action", "action"),
         Index("ix_audit_logs_created_at", "created_at"),
+        Index("ux_audit_logs_chain_seq", "chain_seq", unique=True),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
@@ -570,6 +613,11 @@ class AuditLog(Base):
     # Threat model: tamper-detection within the audit log only.
     # Signed external anchor = v1.1.
     prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # #806: the chain's order. Set to head + 1 under the audit-chain lock, so
+    # it is gapless and matches link order; `created_at` (transaction start)
+    # cannot order concurrent writers. Not part of the hash. Unique, so a
+    # writer that ever bypassed the lock fails instead of forking the chain.
+    chain_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     # Relationships (read-only lookups, no back_populates needed)
     organization: Mapped["Organization | None"] = relationship(

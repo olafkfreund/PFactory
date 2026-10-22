@@ -8,6 +8,7 @@ raises, so it cannot break ``PlanService.emit``.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -48,6 +49,16 @@ def _app_version() -> str:
         return match.group(1) if match else "unknown"
     except Exception:  # noqa: BLE001 - metadata must never break an emit
         return "unknown"
+
+
+@lru_cache(maxsize=1)
+def _control_catalog() -> dict[str, Any] | None:
+    try:
+        path = Path(__file__).resolve().parents[1] / "contracts" / "control-catalog.json"
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+        return catalog if isinstance(catalog, dict) else None
+    except Exception:  # noqa: BLE001 - metadata must never break an emit
+        return None
 
 
 def _truthy(name: str) -> bool:
@@ -160,7 +171,10 @@ def emit_docs(
     """
     updated_at = datetime.now(UTC).isoformat()
     try:
-        bundle = render_plan_docs(session, pfactory_version=_app_version())
+        catalog = _control_catalog()
+        bundle = render_plan_docs(session, pfactory_version=_app_version(), control_catalog=catalog)
+        if catalog is not None and bundle.run_signature["controls"] is None:
+            logger.warning("plan docs control catalog does not cover engaged gates")
     except Exception as exc:  # noqa: BLE001 — a render bug must not break emit
         logger.warning("plan docs render failed for %s: %s", session.session_id, exc)
         return [{"target": "render", "status": "error", "detail": {"error": str(exc)}}]

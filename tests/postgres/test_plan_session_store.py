@@ -99,8 +99,12 @@ def test_a_write_on_one_replica_is_visible_to_another(test_postgres_url, tmp_pat
     pod_a.discard(sid, actor="olaf", reason="teardown")
 
     assert pod_b.get(sid).status == "discarded"
-    summaries = {s["session_id"]: s["status"] for s in pod_b.list_sessions()}
+    # include_discarded: the board hides discarded sessions by default (#798).
+    # What this test is about is cross-replica visibility, not the board filter.
+    summaries = {s["session_id"]: s["status"] for s in pod_b.list_sessions(include_discarded=True)}
     assert summaries[sid] == "discarded"
+    # ...and the default view hides it, on this replica too.
+    assert sid not in {s["session_id"] for s in pod_b.list_sessions()}
 
 
 @pytest.mark.usefixtures("pg_schema")
@@ -271,3 +275,25 @@ def test_upsert_is_a_compare_and_set_on_version(test_postgres_url):
 
     assert store.upsert("002-y", payload="x", seq=2, tenant_id=None, expected_version=3) is None
     assert store.get("002-y") is None
+
+
+@pytest.mark.usefixtures("pg_schema")
+def test_delete_removes_the_row_and_reports_it(test_postgres_url):
+    """PlanSessionStore.delete (#798): True when a row was actually removed."""
+    store = _store(test_postgres_url)
+    store.upsert("001-x", payload="v1", seq=1, tenant_id=None, expected_version=0)
+
+    # Not `assert store.delete(...)`: the deletion is the point, and an assert
+    # is skipped under `python -O` (CodeQL py/side-effect-in-assert).
+    removed = store.delete("001-x")
+    assert removed is True
+    assert store.get("001-x") is None
+
+
+@pytest.mark.usefixtures("pg_schema")
+def test_delete_of_an_absent_id_returns_false(test_postgres_url):
+    store = _store(test_postgres_url)
+    assert store.get("no-such-session") is None
+
+    removed = store.delete("no-such-session")
+    assert removed is False

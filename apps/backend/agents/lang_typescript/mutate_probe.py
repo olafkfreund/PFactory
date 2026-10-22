@@ -260,7 +260,7 @@ def run_ts_mutate_probe(
     project_dir: Path,
     *,
     runner_fn: Callable[..., Any] | None = None,
-    runner_image: str = "pfactory-runner-jest:latest",
+    runner_image: str = "tfactory-runner-jest:latest",
     stryker_config_path: Path | None = None,
     timeout: int = 180,
 ) -> TSMutateReport:

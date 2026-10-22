@@ -54,6 +54,9 @@ class FakeSessionStore:
     def session_ids(self) -> set[str]:
         return set(self.rows)
 
+    def delete(self, session_id: str) -> bool:
+        return self.rows.pop(session_id, None) is not None
+
     def acquire_emit_lease(self, session_id: str, owner: str, ttl_seconds: int) -> bool:
         self.lease_calls.append((session_id, owner, ttl_seconds))
         if self.acquire_error is not None:

@@ -19,7 +19,7 @@ import re
 import socket
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -68,7 +68,10 @@ from plan.usage import PlanUsage
 # Lifecycle status. The first five are persisted stages; `processing`/`reviewing`
 # are transient sub-states set during process() so the board shows live progress.
 SessionStatus = str
-# ingested | processing | reviewing | processed | approved | rejected | emitted
+# ingested | processing | reviewing | processed | failed | approved | rejected | emitted
+
+# Terminal statuses a failed re-process leaves in place (#862).
+_KEEP_ON_FAILED_PROCESS = frozenset({"emitted", "discarded"})
 
 # The board-column projection, env plumbing, RFC-0011 tier routing and the
 # additive RFC-0013/#E review-finding seams now live in ``plan.service_helpers``
@@ -108,6 +111,10 @@ class PlanSession(BaseModel):
     # `base_ref` defaults to the repo's default branch when omitted.
     repo: str | None = None
     base_ref: str | None = None
+    # The repo the epic was emitted to (#1775). Kept apart from `repo`, the
+    # analysed target, because the two can differ and the emitted-epic key must
+    # name the repo the epic issue actually lives in.
+    emit_repo: str | None = None
     epic: EpicPlan | None = None
     artifacts: list[SynthesizedArtifact] = Field(default_factory=list)
     review: PlanReview | None = None
@@ -117,6 +124,8 @@ class PlanSession(BaseModel):
     # every other terminal path there is no artefact that explains itself — this
     # dict IS the record.
     discard: dict | None = None
+    # Exception class name when process() raised; status is then "failed" (#862).
+    process_error: str | None = None
     original_filename: str = ""  # the uploaded document's name, for rendering
     selected_category: str = ""  # category the user chose at intake (#E)
     selected_template: str = ""  # template the user chose — its policy IS enforced (#E)
@@ -264,6 +273,17 @@ class PlanInputError(PlanServiceError):
     """
 
 
+class SessionNotDeletableError(PlanServiceError):
+    """A delete was asked for a session that is not in a deletable state (#798).
+
+    Split from :class:`PlanInputError` so the route answers 409 for "this session
+    exists but cannot be deleted yet" and 404 for "no such session", **without**
+    reading the exception's message to tell them apart. String-sniffing a status
+    out of `str(exc)` is what Gate 5's ``raw-exception-in-response`` bans, and it
+    breaks silently the moment a message is reworded.
+    """
+
+
 class EmitInProgressError(PlanServiceError):
     """A live emit of this session is running, or cannot be ruled out (#758).
 
@@ -280,6 +300,15 @@ class StaleSessionError(PlanServiceError):
     this copy was read, so saving it would silently undo that write. Routes
     answer 409; the caller reloads and retries.
     """
+
+
+# A session may be deleted only from these statuses (#798). Deliberately NOT
+# `plan.completion.TERMINAL_STATUSES` — that set also includes "emitted", and
+# an emitted session's record IS the audit trail for the real GitHub epics and
+# issues it produced. Reusing TERMINAL_STATUSES here would let a caller delete
+# that audit trail; only an abandoned (`discarded`) or refused (`rejected`)
+# session, which produced nothing, is safe to remove outright.
+DELETABLE_STATUSES = frozenset({"discarded", "rejected"})
 
 
 logger = logging.getLogger(__name__)
@@ -394,6 +423,9 @@ class SessionStore(Protocol):
     def next_seq(self) -> int: ...
 
     def session_ids(self) -> set[str]: ...
+
+    def delete(self, session_id: str) -> bool:
+        """Remove the row; True when one was removed (#798)."""
 
     def is_ready(self) -> bool: ...
 
@@ -931,13 +963,24 @@ class PlanService:
 
     # ── query ──────────────────────────────────────────────────────────
 
-    def list_sessions(self, *, tenant_id: str | None = None) -> list[dict]:
+    def list_sessions(
+        self, *, tenant_id: str | None = None, include_discarded: bool = False
+    ) -> list[dict]:
         """Session summaries; ``tenant_id`` filters to one tenant (#308).
 
         ``None`` (the default, and the single-tenant path) lists everything.
+        ``discarded`` sessions are hidden by default (#798) — they are
+        abandoned probes, not work anyone needs to see on the board — unless
+        ``include_discarded`` asks for them. ``rejected`` is unaffected: that
+        is a plan someone may still fix.
         """
         sessions = self._all_sessions()
-        return [s.summary() for s in sessions if tenant_id is None or s.tenant_id == tenant_id]
+        return [
+            s.summary()
+            for s in sessions
+            if (tenant_id is None or s.tenant_id == tenant_id)
+            and (include_discarded or s.status != "discarded")
+        ]
 
     def _all_sessions(self) -> list[PlanSession]:
         """Every session: from the shared store when set, else the local dict."""
@@ -977,6 +1020,9 @@ class PlanService:
 
         Best-effort: a store hiccup degrades to the cached copy rather than
         failing the read — the same contract the durable job-state mirror has.
+        A missing row is not a hiccup: it drops a cached copy that came from the
+        store, so a delete on another replica is neither served nor re-inserted
+        from here (#828). A copy created here (version 0) keeps its fallback.
         """
         store = self._session_store
         if store is None:
@@ -987,6 +1033,10 @@ class PlanService:
             logger.warning("shared plan-session read failed for %s: %s", session_id, exc)
             return None
         if row is None:
+            with self._store_lock:
+                cached = self._sessions.get(session_id)
+                if cached is not None and cached._store_version != 0:
+                    del self._sessions[session_id]
             return None
         raw, version = row
         try:
@@ -1151,27 +1201,46 @@ class PlanService:
         # Transient sub-states so a background-run session animates on the board:
         # in-progress while we detect/enrich/decompose/synthesize, AI-review while
         # the gates run. (Synchronous callers just see the final "processed".)
-        session.status = "processing"
+        prior_status = session.status
+        try:
+            session.status = "processing"
 
-        plan, descriptor = self._detect_and_plan_type(session)
-        epic = self._decompose(session, plan, descriptor, llm=llm)
-        artifacts = synthesize(plan, epic, descriptor=descriptor)
+            plan, descriptor = self._detect_and_plan_type(session)
+            epic = self._decompose(session, plan, descriptor, llm=llm)
+            artifacts = synthesize(plan, epic, descriptor=descriptor)
 
-        composed_runner = self._build_review_runner(
-            session, plan, epic, descriptor, external_runner
-        )
+            composed_runner = self._build_review_runner(
+                session, plan, epic, descriptor, external_runner
+            )
 
-        session.status = "reviewing"
-        review = run_gates(plan, epic, external_runner=composed_runner)
+            session.status = "reviewing"
+            review = run_gates(plan, epic, external_runner=composed_runner)
 
-        session.plan = plan
-        session.epic = epic
-        session.artifacts = artifacts
-        session.review = review
-        # Honour the document: anchored, cited suggestions + improved draft (#D).
-        session.annotation = annotate_plan(plan, review)
-        session.status = "processed"
-        self._save(session)
+            # Honour the document: anchored, cited suggestions + improved draft (#D).
+            annotation = annotate_plan(plan, review)
+            # Assigned only after the last call that can raise, so a failed
+            # re-run leaves the previous results in place (#862).
+            session.plan = plan
+            session.epic = epic
+            session.artifacts = artifacts
+            session.review = review
+            session.annotation = annotation
+            session.process_error = None
+            session.status = "processed"
+            self._save(session)
+        except StaleSessionError:
+            raise  # another replica changed it (#758): a conflict, not a failed run
+        except Exception as exc:
+            logger.exception("process() failed for session %s", session_id)
+            if prior_status in _KEEP_ON_FAILED_PROCESS:
+                # A failed re-run must not erase an emitted/discarded record (#862).
+                session.status = prior_status
+                raise
+            session.status = "failed"
+            session.process_error = type(exc).__name__
+            with suppress(StaleSessionError):
+                self._save(session)
+            raise
         # Running-cost: planning + governance gates spent LLM tokens, but the
         # session is only ``processed`` (awaiting human approval), not terminal —
         # notify_completion fires only on emitted/rejected, so the accrued cost
@@ -1774,6 +1843,70 @@ class PlanService:
         self._save(session)
         return session
 
+    def delete_session(
+        self,
+        session_id: str,
+        *,
+        actor: str,  # noqa: ARG002 — see the docstring: unused, but the contract requires it
+        tenant_id: str | None = None,
+    ) -> dict[str, str]:
+        """Remove a terminal session outright — the row, not just a status (#798).
+
+        Unlike ``discard`` (which still records the session, marked abandoned),
+        this erases it: the discarded/rejected probe rows a nightly regression
+        job leaves behind have no reason to accumulate forever. Restricted to
+        :data:`DELETABLE_STATUSES` — see that constant for why ``emitted`` is
+        excluded.
+
+        Raises :class:`PlanInputError` for an unknown id, naming the status for
+        one not yet deletable, and — with ``tenant_id`` set and mismatched —
+        the SAME unknown-id error, so the endpoint cannot be used to probe
+        another tenant's session ids (matching ``_guard_tenant``'s 404).
+
+        ``actor`` is required by the audit-log contract the route follows
+        (matching ``discard``/``reject``'s signatures) but unused here: unlike
+        ``discard``, there is no surviving record to attach it to once the
+        session is gone — the route logs it instead.
+        """
+        try:
+            session = self.get(session_id)
+        except PlanServiceError:
+            raise PlanInputError(f"unknown session '{session_id}'") from None
+        if tenant_id is not None and session.tenant_id != tenant_id:
+            raise PlanInputError(f"unknown session '{session_id}'")
+        if session.status not in DELETABLE_STATUSES:
+            raise SessionNotDeletableError(
+                f"cannot delete session '{session_id}' with status '{session.status}'"
+            )
+        # Store first (#798): a store failure must not leave a session the
+        # store still has but this process has already forgotten.
+        store = self._session_store
+        if store is not None and not store.delete(session_id):
+            # The row was already gone: this copy came from the local cache, which
+            # `get()` falls back to when the store returns nothing — another
+            # replica deleted it. Reporting 200 for a deletion that did not happen
+            # would be a lie, and would write an audit record for it. Drop the
+            # stale cache entry and answer as for any unknown id. Found reviewing
+            # #798.
+            with self._store_lock:
+                self._sessions.pop(session_id, None)
+            raise PlanInputError(f"unknown session '{session_id}'")
+        with self._store_lock:
+            self._sessions.pop(session_id, None)
+            # The JSON mirror too, or the delete does not survive a restart:
+            # _load_all() re-reads the file at boot and _import_sessions_into_store()
+            # re-INSERTs it (a deleted id is not "already stored"), so the row and
+            # the board entry both come back. Found reviewing #798.
+            try:
+                (self._store_dir / f"{session_id}.json").unlink(missing_ok=True)
+            except OSError as exc:  # a disk hiccup must not fail the request
+                logger.warning("failed to remove persisted session %s: %s", session_id, exc)
+        return {
+            "session_id": session.session_id,
+            "status": session.status,
+            "title": session.plan.title,
+        }
+
     # ── emit ───────────────────────────────────────────────────────────
 
     @contextmanager
@@ -1892,6 +2025,7 @@ class PlanService:
             # Persist each number as its issue appears, so a kill mid-emit leaves
             # the #119 resume path something to resume from (#725).
             session.emitted_issue_number = epic_number
+            session.emit_repo = repo
             session.emit_result = EmitResult(
                 dry_run=False, epic_number=epic_number, child_numbers=child_numbers
             ).model_dump()
@@ -1916,6 +2050,7 @@ class PlanService:
         # emit reuses this epic rather than spawning a duplicate (#119).
         if not dry_run and result.epic_number is not None:
             session.emitted_issue_number = result.epic_number
+            session.emit_repo = repo
         if not dry_run and not result.errors:
             session.status = "emitted"
             # Persist the shared correlation key, then emit the terminal

@@ -4,7 +4,7 @@ Operator runbook for building, packaging, and deploying PFactory. Covers
 the three deliverables that ship together:
 
 1. The **application image** (`Dockerfile` → `ghcr.io/dataseeek/pfactory`).
-2. The **runner images** (`docker/pfactory-runner-*` — per-framework test
+2. The **runner images** (TFactory's `docker/tfactory-runner-*`, Factory#1003 — per-framework test
    sandboxes referenced by `frameworks/*/descriptor.yaml`).
 3. The **Helm chart** (`charts/pfactory/`) for Kubernetes installs, plus
    the `docker-compose.yml` path for single-host installs.
@@ -47,13 +47,13 @@ docker build --check .
 ### Runner images
 
 Each test framework runs in its own sandbox image. **You normally do not build
-these.** `.github/workflows/runner-images.yml` builds, smoke-tests, publishes and
+these.** TFactory's `.github/workflows/runner-images.yml` builds, smoke-tests, publishes and
 signs all six on every push to `main`, and the runner resolves bare
-`pfactory-runner-*` tags to that published copy:
+`tfactory-runner-*` tags to that published copy:
 
 ```
-ghcr.io/olafkfreund/pfactory-runner-{pytest,jest,vitest,playwright,cypress,cloud}:latest
-ghcr.io/olafkfreund/pfactory-runner-...:<commit-sha>     # what :latest points at
+ghcr.io/olafkfreund/tfactory-runner-{pytest,jest,vitest,playwright,cypress,cloud}:latest
+ghcr.io/olafkfreund/tfactory-runner-...:<commit-sha>     # what :latest points at
 ```
 
 Building them by hand used to be the only way to get them, and it is what made
@@ -66,7 +66,7 @@ cosign verify \
   --certificate-identity-regexp \
   '^https://github\.com/olafkfreund/PFactory/\.github/workflows/runner-images\.yml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/olafkfreund/pfactory-runner-pytest:latest
+  ghcr.io/olafkfreund/tfactory-runner-pytest:latest
 ```
 
 Build locally only when you are **changing** a runner image. Set
@@ -75,18 +75,18 @@ the published one, then (image names must match `runtime.image` in the matching
 descriptor):
 
 ```bash
-docker build -f docker/pfactory-runner-pytest/Dockerfile \
-  -t pfactory-runner-pytest:latest      docker/pfactory-runner-pytest
-docker build -f docker/pfactory-runner-jest/Dockerfile \
-  -t pfactory-runner-jest:latest        docker/pfactory-runner-jest
-docker build -f docker/pfactory-runner-vitest/Dockerfile \
-  -t pfactory-runner-vitest:latest      docker/pfactory-runner-vitest
-docker build -f docker/pfactory-runner-playwright/Dockerfile \
-  -t pfactory-runner-playwright:latest  docker/pfactory-runner-playwright
-docker build -f docker/pfactory-runner-cypress/Dockerfile \
-  -t pfactory-runner-cypress:latest     docker/pfactory-runner-cypress
-docker build -f docker/pfactory-runner-cloud/Dockerfile \
-  -t pfactory-runner-cloud:latest       docker/pfactory-runner-cloud
+docker build -f docker/tfactory-runner-pytest/Dockerfile \
+  -t tfactory-runner-pytest:latest      docker/tfactory-runner-pytest
+docker build -f docker/tfactory-runner-jest/Dockerfile \
+  -t tfactory-runner-jest:latest        docker/tfactory-runner-jest
+docker build -f docker/tfactory-runner-vitest/Dockerfile \
+  -t tfactory-runner-vitest:latest      docker/tfactory-runner-vitest
+docker build -f docker/tfactory-runner-playwright/Dockerfile \
+  -t tfactory-runner-playwright:latest  docker/tfactory-runner-playwright
+docker build -f docker/tfactory-runner-cypress/Dockerfile \
+  -t tfactory-runner-cypress:latest     docker/tfactory-runner-cypress
+docker build -f docker/tfactory-runner-cloud/Dockerfile \
+  -t tfactory-runner-cloud:latest       docker/tfactory-runner-cloud
 ```
 
 Mirror runner images into your private registry the same way as the app
@@ -241,11 +241,33 @@ A pod that applies migrations on boot (#774):
   store fails in the startup hook, after the migrations have run, instead of
   crashing while the routes load.
 
+The audit log hash chain (#806):
+
+- **Writes are serialized.** On Postgres, every audit write, and the GDPR
+  erasure's re-chain, takes one transaction-scoped advisory lock before
+  reading the chain head. It is held until that transaction commits. So
+  concurrent requests and replicas extend one linear chain instead of forking
+  it. On SQLite, the database's single writer does the same job.
+- **The chain order is `chain_seq`,** not `created_at`. `created_at` is the
+  transaction's start time, so concurrent writers can sort out of link order.
+  `chain_seq` is gapless, set to head + 1 under the lock, and not part of the
+  hash, so every existing `prev_hash` stays valid. The migration numbers the
+  existing rows in `created_at, id` order.
+- **Exports carry it.** `/api/audit/export` streams rows in `chain_seq`
+  order. JSON rows have a `chain_seq` key, and CSV has `chain_seq` as its
+  last column. Verify an export in that order:
+  `python -m server.audit verify-chain <export.ndjson>`.
+
 **Do not raise the replica count yet.** The KEDA scaler pins PFactory to one
-replica (factory-gitops#268). Lift that pin only after both this change and
-#767 (the session id counter seed) are released and `alembic upgrade head`
-has run against the production database. Until the migration has run, live
-emits are refused with 409.
+replica (factory-gitops#268). The shared session store covers plan sessions,
+but other state is still held per pod: WebSocket fan-out (#804) and phantom
+`queued` rows in the KEDA metric (#808). Already shared: the email OAuth connect
+state (#807; the portal's GitHub CLI sign-in refuses when
+`PFACTORY_REPLICA_COUNT` is above 1), and running tasks, insights replies,
+changelogs and PR reviews (#805: `run_leases`, so status, the duplicate-run
+guard and stop work from any replica; a stop sent to another replica takes
+effect within one `PFACTORY_RUN_LEASE_HEARTBEAT_SECONDS`). Lifting the pin is
+factory-gitops#273, which waits on the rest.
 
 ### Validate before applying
 

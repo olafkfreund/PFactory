@@ -1,0 +1,246 @@
+---
+status: approved
+issue: 801
+spec: spec/2026-09-29-801-language-signal-ambiguity.md
+---
+
+# Plan: resolve the spec language by signal strength, not list order
+
+Approved decisions, carried from the spec (implement these; do not re-derive):
+
+- Three tiers replace the single ordered `_LANGUAGE_SIGNALS` list.
+- `detect_spec_language_signal` keeps its signature and its
+  `(language, matched_token)` contract. `detect_spec_language`, `boundary`,
+  `LanguageReconcile` and `reconcile_language` are **unchanged**.
+- A token several languages share (`gradle`, `android`) resolves to **`None`**, not
+  a guess and **not** a repo-language tie-break — #585 requires a real conflict to
+  HALT rather than resolve quietly.
+- Only `apps/backend/plan/recon/language_reconcile.py` and
+  `tests/test_recon_change_mode.py` change. `checks.py` and the downstream
+  consumers (`testing_strategy.py`, `tfactory_block.py`, `delta.py`,
+  `migration_classifier.py`) are not touched.
+
+Measured already, quoted rather than re-run: the candidate resolver scores
+**0 mismatches over 41 cases**, including every assertion the existing suite makes.
+
+## Steps
+
+1. In `apps/backend/plan/recon/language_reconcile.py`, replace `_LANGUAGE_SIGNALS`
+   and `_SIGNAL_PATTERNS` with the three tables and their compiled patterns. Keep
+   `boundary()` exactly as it is — it is #397's fix. Write the tables as:
+
+        _LANGUAGE_NAMES: list[tuple[str, tuple[str, ...]]] = [
+            ("rust", ("rust",)),
+            ("go", ("golang", "go.mod", "goroutine", "gofmt")),
+            ("typescript", ("typescript", "deno")),
+            ("javascript", ("javascript", "express.js", "node.js", "nodejs")),
+            ("python", ("python",)),
+            ("java", ("java", "spring boot")),
+            ("csharp", ("c#", ".net", "dotnet", "asp.net")),
+            ("ruby", ("ruby", "rails")),
+            ("php", ("php", "laravel", "symfony")),
+            ("kotlin", ("kotlin",)),
+            ("swift", ("swiftui",)),
+            ("cpp", ("c++",)),
+        ]
+
+        _CTX_BEFORE = (
+            r"(?:written\s+in|rewritten\s+in|ported\s+to|migrate[ds]?\s+to|in|using|with)\s+"
+        )
+        _CTX_AFTER = (
+            r"\s+(?:service|module|package|binary|app|application|code|codebase|"
+            r"version|program|library|sdk|backend|api)"
+        )
+
+        _WEAK_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
+            ("go", ("go",)),
+            ("swift", ("swift",)),
+            ("typescript", ("ts",)),
+            ("javascript", ("js",)),
+            ("rust", ("rs",)),
+            ("python", ("uv",)),
+        ]
+
+        _TOOL_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
+            ("rust", ("cargo", "tokio", "actix")),
+            ("python", ("pytest", "fastapi", "django", "flask")),
+            ("java", ("maven",)),
+            ("kotlin", ("jetpack compose",)),
+            ("cpp", ("cmake",)),
+        ]
+
+        _SHARED_TOOLS: dict[str, tuple[str, ...]] = {
+            "gradle": ("java", "kotlin", "scala", "groovy"),
+            "android": ("java", "kotlin"),
+        }
+
+   Compile `_LANGUAGE_NAMES` and `_TOOL_SIGNALS` exactly as `_SIGNAL_PATTERNS` does
+   today (`"|".join(boundary(n) for n in needles)`). Compile `_WEAK_SIGNALS` as, per
+   needle, `f"{_CTX_BEFORE}{re.escape(n)}\\b|\\b{re.escape(n)}{_CTX_AFTER}\\b"`,
+   joined with `|`.
+
+2. Rewrite `detect_spec_language_signal`'s body only. Keep the existing text
+   assembly (title + description + criteria + raw_text, lowered) verbatim, then:
+
+   - tier 1: first `_LANGUAGE_NAMES` pattern that matches → `(lang, match.group(0))`
+   - tier 2: first `_WEAK_SIGNALS` pattern that matches →
+     `(lang, match.group(0).strip())` — `.strip()` because the context phrase
+     carries surrounding whitespace, and the token is shown to the author as
+     evidence (#397)
+   - tier 3: first `_TOOL_SIGNALS` pattern that matches → `(lang, match.group(0))`
+   - then: if any `_SHARED_TOOLS` token matches → `(None, None)`, with a comment
+     saying the ambiguity is deliberate and why (#585)
+   - fall through → `(None, None)`
+
+   Keep the docstring's #397 explanation and add one paragraph on the tiers.
+
+3. Update the module's table comment. The current one claims "boundaries also make
+   the ordering non-load-bearing"; that was only ever true of substring collisions.
+   Say what is actually true now: order within a tier does not matter because no two
+   entries in a tier share a token, and cross-tier order **is** the design.
+
+4. In `tests/test_recon_change_mode.py`, add one parametrised test,
+   `test_the_spec_language_resolves_by_strength_not_list_order`, over a module-level
+   table of the 41 `(prose, expected_language)` cases from the spec's "Measured"
+   section, each row commented with the tier that should decide it. Leave every
+   existing test in that file untouched.
+
+5. Run `apps/backend/.venv/bin/pytest tests/test_recon_change_mode.py -q`. The new
+   table and all existing tests must pass. If an existing assertion fails, **stop
+   and report** — the spec's claim was that none would, so a failure means the spec
+   is wrong, not the test.
+
+6. Run the reproduction, after: a Kotlin+Gradle plan against a `kotlin` repo, and
+   the `go` / `swift` prose plans against a `python` repo, through
+   `reconcile_language(plan, repo_map, "modify")`. Expect `conflict=False` for all
+   three: `resolved_language="kotlin"` for the first, `"python"` for the other two.
+
+7. Negative control, not committed — revert each tier one at a time and confirm the
+   table fails for that tier's cases **and only those**:
+   (a) fold `_LANGUAGE_NAMES` into one ordered list with the tool tokens → the
+       Kotlin+Gradle case fails;
+   (b) compile `_WEAK_SIGNALS` as bare `boundary(n)` without the context →
+       the `go` / `swift` prose cases fail;
+   (c) return the first candidate of a `_SHARED_TOOLS` hit instead of `None` →
+       the Scala / Android cases fail.
+   Restore after each.
+
+8. Run `apps/backend/.venv/bin/pytest tests/ -q -k "recon or language or synthesize"`
+   for the wider consumers, then commit (the hook runs ruff, the ratchet and the full
+   backend suite), push, and open the PR against `dev` linking intent, spec and plan.
+
+## Deviations recorded while implementing
+
+Three, two of them defects in my own approved documents:
+
+1. **The spec claimed "0 mismatches over 41 cases" but only enumerated ~21 of them
+   in prose.** The implementer was told to source the cases from that section, found
+   21, and *stopped to report it rather than inventing 20 more to reach the number* —
+   which is the correct response, and the reason the committed table is real evidence
+   rather than partly fabricated. The spec's count was accurate about the script I
+   measured with; the document under-recorded it. The missing 20 were supplied
+   verbatim from that script. **Spec defect, not an implementation one.**
+
+2. **The committed table has 42 rows, not 41.** One row,
+   `("Kotlin Android app, Gradle build.", "kotlin")`, is a paraphrase the implementer
+   wrote that is not in my measured set. It passes; it is kept, and flagged here as
+   an addition rather than measured evidence.
+
+3. **The spec was wrong that only two files are affected.** It stated
+   `migration_classifier.py` and the other consumers "are not touched". In fact two
+   places import `_LANGUAGE_SIGNALS` *by name* — `plan/detect/migration_classifier.py`
+   (builds its `_CANON` token→language map from it) and
+   `tests/test_synthesize.py::test_code_exts_covers_every_detectable_language` (the
+   #475 drift guard). Removing the name broke collection of 41 test files, which the
+   plan's own step 5 could not see because it runs one file. Fixed by reintroducing
+   `_LANGUAGE_SIGNALS` as a **derived** per-language union of the three tiers,
+   deliberately excluding `_SHARED_TOOLS` — putting `gradle` back into java's tokens
+   is the defect this issue is about. Neither consumer changed.
+
+   Step 8's wider run is what caught this, so it stays in the plan ahead of any
+   commit rather than being treated as optional.
+
+4. **The approved tier-2 design was too narrow, and had to change.** `_CTX_AFTER`
+   required the context noun *immediately* after the weak token. Real prose inserts
+   a qualifier — `tests/test_language_descriptor_paths.py` has "A Swift SPM library"
+   and "Swift iOS app" — so a genuine Swift plan resolved to `None`. All 41 measured
+   cases happened to use the immediate form, so **the spec's own evidence could not
+   see this**; two fixtures in a file the plan never named did.
+
+   `_CTX_AFTER` now tolerates up to two intervening words via `_GAP`, which
+   **excludes function words** (`to`, `the`, `a`, `an`, `through`, `into`, `from`,
+   `onto`, `for`, `of`). Without that exclusion "users go to the api" reads as Go
+   again — the exact false positive tier 2 exists to stop. Measured: 0 mismatches
+   over 23 cases (both fixtures, every approved weak-token case unchanged, and new
+   adversarial rows). This is a change to approved spec behaviour, not a
+   presentational tidy-up, and should be reviewed as such.
+
+   A fourth negative control was added for it: removing the function-word exclusion
+   must fail exactly the three "go to the …" rows and nothing else. It does.
+
+5. **Independent review (fresh Opus agent, plan + diff only) found the tier-2
+   context guard is leaky, and it is right.** Verified by running its probes:
+
+       in swift succession        -> swift   (conflict=True: a false HALT)
+       in uv light                -> python
+       in go-to-market velocity   -> go
+       a swift and reliable api   -> swift   (conflict=True)
+       we go live with backend    -> go      (conflict=True)
+       go and fetch application   -> go
+       sterilise the flask        -> python  (tier 3, no context requirement)
+       track cargo across         -> rust
+       Django Reinhardt playlist  -> python
+
+   Two causes: `_CTX_BEFORE` accepts a bare `in`/`using`/`with` with **no trailing
+   requirement**, and `_GAP` is a 10-word denylist that `and`, `live`, `reliable`
+   and friends walk through. Tier 3 has no context requirement at all and contains
+   ordinary English nouns (`flask`, `cargo`, `django`).
+
+   **Measured old-vs-new on all nine: zero regressions — every one leaked
+   identically before this change.** So this change is a strict improvement (it
+   fixes the reported Kotlin defect and four prose cases) but it does **not** close
+   the class, and the spec's claim that a brief whose only signal is an English word
+   "resolves to no language at all" is **false** for the shapes above. The claim is
+   withdrawn here and in the PR; the residual leaks are filed as their own issue
+   rather than smuggled in as fixed.
+
+6. **The table is 49 rows, not the 42 deviation 2 claims.** Seven qualifier-gap rows
+   were added with deviation 4 and the count was not updated.
+
+7. **`migration_classifier` behaviour changed, which deviation 3 understated.** It
+   said "neither consumer changed" — true of the files, not of their behaviour. The
+   derived union is not token-equivalent to the old flat table, and `_CANON` is built
+   by `setdefault` in order, so: `node.js`/`nodejs` move from **typescript to
+   javascript** (so "port it to nodejs" now classifies as javascript), `gradle` is
+   gone from `_CANON` entirely, and `gofmt` is added. The first is arguably more
+   correct and the second follows from the fix's intent, but both are semantic
+   changes to another module and belong on the record.
+
+8. **The three `_SHARED_TOOLS` rows do not test the `_SHARED_TOOLS` branch.** The
+   branch returns `(None, None)` and the fall-through one line later returns the
+   same, so the rows pass with the branch deleted. They do pin the *contract*
+   ("gradle resolves to None"), which is what matters, but the branch itself is
+   exercised only by the uncommitted step-7(c) control. Recorded so nobody reads
+   those rows as coverage of it.
+
+## Filed separately, found on the way
+
+`build_tfactory()` resolves an unset language to **python** rather than refusing.
+That is why the Swift fixtures failed as `assert 'python' == 'swift'` instead of
+surfacing "unknown". The tier fix removes the trigger, but a silent language
+default on a block that selects test lanes is its own defect and is being filed on
+its own — it is not in this change's scope.
+
+## Tests
+
+    apps/backend/.venv/bin/pytest tests/test_recon_change_mode.py -q
+    apps/backend/.venv/bin/pytest tests/ -q -k "recon or language or synthesize"
+
+Expected: all pass. The full backend suite runs in the pre-commit hook;
+`backend (ruff + pytest)` and `critical (fast PR gate)` are the CI gates.
+
+## Rollback
+
+Revert the commit. Detection returns to first-match-wins over one list: Kotlin specs
+read as Java, and any brief containing the word "go" conflicts with a non-Go repo.
+No state, no schema, no data — the change is one module's tables and one test.

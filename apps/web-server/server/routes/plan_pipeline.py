@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -34,7 +34,12 @@ from plan.service import (  # noqa: E402
     PlanInputError,
     PlanService,
     PlanServiceError,
+    SessionNotDeletableError,
     StaleSessionError,
+)
+from server.services.audit_service import (  # noqa: E402
+    ACTION_PLAN_SESSION_DELETE,
+    log_audit_event,
 )
 
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
@@ -95,6 +100,13 @@ class DiscardBody(_StrictBody):
 
     actor: str
     reason: str
+
+
+class DeleteBody(_StrictBody):
+    """Erase a terminal session (#798) — see ``PlanService.delete_session``."""
+
+    actor: str
+    reason: str | None = None
 
 
 class WaiveBody(_StrictBody):
@@ -171,11 +183,13 @@ def _session_dict(session) -> dict:
 
 
 @router.get("")
-async def list_sessions(request: Request) -> dict:
+async def list_sessions(request: Request, include_discarded: bool = False) -> dict:
     # Multi-tenancy (#308): with the flag on, list only the caller's tenant;
     # off (the default) the filter is None and behaviour is unchanged.
     tenant = resolve_tenant(request) if multi_tenant_enabled() else None
-    return {"sessions": SERVICE.list_sessions(tenant_id=tenant)}
+    return {
+        "sessions": SERVICE.list_sessions(tenant_id=tenant, include_discarded=include_discarded)
+    }
 
 
 @router.post("/ingest-text")
@@ -519,6 +533,65 @@ async def discard(session_id: str, body: DiscardBody) -> dict:
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
+
+
+@router.delete("/{session_id}")
+async def delete_session(
+    session_id: str,
+    body: DeleteBody,
+    request: Request,
+    # Annotated, not a Depends() default: a call in a default is B008, and the
+    # ratchet blocks net-new per rule per file (#798).
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    """Erase a terminal session outright (#798) — discarded/rejected only.
+
+    Unlike ``/discard``, which still records the session as abandoned, this
+    removes the row: the audit-pipeline probe rows a nightly regression job
+    leaves behind have no reason to accumulate in the store forever. Refused
+    (409) on any status but ``discarded``/``rejected`` — ``emitted`` is
+    deliberately never deletable, since that record is the audit trail for
+    real GitHub epics (see ``DELETABLE_STATUSES``). 404 for an unknown id or
+    another tenant's session, matching every other read/write here.
+    """
+    tenant = resolve_tenant(request) if multi_tenant_enabled() else None
+    try:
+        # Annotated: SERVICE is untyped here, so an unannotated result makes the
+        # return Any and costs the ratchet a net-new no-any-return (#798).
+        result: dict[str, str] = cast(PlanService, SERVICE).delete_session(
+            session_id, actor=body.actor, tenant_id=tenant
+        )
+    except SessionNotDeletableError as exc:
+        # Exists, but not in a deletable state.
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
+    except PlanInputError as exc:
+        # Unknown id, or another tenant's session: one 404 for both, so the
+        # endpoint reveals nothing about ids it will not act on.
+        raise HTTPException(status_code=404, detail=client_error(exc)) from exc
+    await log_audit_event(
+        db,
+        # An irreversible action must be attributable to a principal, not only to
+        # the free-text `actor` the caller chose. Same three fields rmux/bridge.py
+        # records. Found reviewing #798.
+        user_id=getattr(request.state, "user_id", None),
+        org_id=getattr(request.state, "org_id", None),
+        ip=request.client.host if request.client else None,
+        action=ACTION_PLAN_SESSION_DELETE,
+        resource_type="plan_session",
+        resource_id=session_id,
+        details={
+            "actor": body.actor,
+            "reason": body.reason,
+            "status": result["status"],
+            "title": result["title"],
+        },
+    )
+    # get_db() never commits ("Commits must be done explicitly within the route
+    # handler") and its finally closes the session, which rolls back. Without
+    # this, log_audit_event's flush inside begin_nested() is discarded and an
+    # irreversible delete leaves no trail. Found reviewing #798.
+    await db.commit()
+    return result
 
 
 async def _load_docs_connections(request: Request, db: AsyncSession) -> list[dict] | None:

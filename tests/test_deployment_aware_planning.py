@@ -337,6 +337,82 @@ def test_deployment_pipeline_check_fails_when_needs_pipeline() -> None:
     assert result.remediation
 
 
+def _pipeline_result(block: dict[str, object]) -> object:
+    epic = _epic()
+    epic.deployment = block
+    return _REGISTRY["deployment-pipeline-present"](_plan(), epic, ReadinessContext())
+
+
+def test_deployment_pipeline_pass_names_system_and_paths() -> None:
+    """A passing hard gate has to say what it found (#797)."""
+    result = _pipeline_result(
+        {
+            "needs_pipeline": False,
+            "ci_exists": True,
+            "ci_system": "github-actions",
+            "ci_pipeline_paths": [".github/workflows/ci.yml", ".github/workflows/cd.yml"],
+            "deploy_system": "helm",
+            "risk_class": "medium",
+        }
+    )
+    assert result.status == "pass"
+    assert "github-actions" in result.detail
+    assert ".github/workflows/ci.yml" in result.detail
+    assert ".github/workflows/cd.yml" in result.detail
+    assert result.evidence == {
+        "ci_system": "github-actions",
+        "ci_exists": True,
+        "ci_pipeline_paths": [".github/workflows/ci.yml", ".github/workflows/cd.yml"],
+        "deploy_system": "helm",
+        "risk_class": "medium",
+    }
+
+
+def test_deployment_pipeline_pass_without_paths_has_no_empty_list() -> None:
+    result = _pipeline_result(
+        {
+            "needs_pipeline": False,
+            "ci_exists": True,
+            "ci_system": "gitlab-ci",
+            "ci_pipeline_paths": [],
+        }
+    )
+    assert "gitlab-ci" in result.detail
+    assert "[]" not in result.detail
+    assert ":" not in result.detail
+
+
+def test_deployment_pipeline_pass_without_ci_says_none_needed() -> None:
+    result = _pipeline_result({"needs_pipeline": False, "ci_exists": False, "ci_system": "none"})
+    assert result.status == "pass"
+    assert "found" not in result.detail
+    assert "needs none" in result.detail
+
+
+def test_deployment_pipeline_pass_omits_deploy_system_none() -> None:
+    result = _pipeline_result(
+        {
+            "needs_pipeline": False,
+            "ci_exists": True,
+            "ci_system": "github-actions",
+            "deploy_system": "none",
+        }
+    )
+    assert "none" not in result.detail
+
+
+def test_deployment_pipeline_pass_names_deploy_system() -> None:
+    result = _pipeline_result(
+        {
+            "needs_pipeline": False,
+            "ci_exists": True,
+            "ci_system": "github-actions",
+            "deploy_system": "helm",
+        }
+    )
+    assert "helm" in result.detail
+
+
 def test_deployment_pipeline_check_not_applicable_without_block() -> None:
     epic = _epic()
     result = _REGISTRY["deployment-pipeline-present"](_plan(), epic, ReadinessContext())
