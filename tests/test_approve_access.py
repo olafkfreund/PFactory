@@ -22,6 +22,7 @@ def _svc(reqs):
         access_approvals={},
         access_audit=[],
     )
+    sess._store_version = 0  # created here, never stored: keeps the cache fallback (#828)
     svc._sessions["s1"] = sess
     return svc, sess
 

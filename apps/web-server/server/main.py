@@ -11,6 +11,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from types import ModuleType
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,8 +75,42 @@ from .websockets import (
 logger = logging.getLogger(__name__)
 
 
+async def _start_ws_relay() -> ModuleType:
+    """Start the cross-pod WebSocket relay (#804); return the module for shutdown."""
+    # The lifespan calls this only after the schema has settled. Failure to
+    # start must not be fatal: a pod that cannot reach Postgres for
+    # LISTEN/NOTIFY still has to serve HTTP and deliver events to its own
+    # directly-connected clients.
+    from .websockets import relay  # noqa: PLC0415
+    from .websockets._dispatch import dispatch as relay_dispatch  # noqa: PLC0415
+
+    try:
+        await relay.start_listener(relay_dispatch)
+    except Exception:  # noqa: BLE001 — relay is best-effort, the server must still boot (#804)
+        logger.warning("WebSocket relay failed to start; running without cross-pod fan-out")
+    else:
+        if relay._listener_task is None:
+            logger.info("WebSocket relay inert (no DATABASE_URL)")
+        else:
+            # `is_connected()` (not `_listener_task is not None`, which is
+            # true whether connected or still retrying) is the honest answer
+            # here (#804 fix 7) — and the honest answer, checked this early,
+            # is very likely still False: `start_listener` only SCHEDULES the
+            # connect, it doesn't wait for it (#804 fix 8's no-op window).
+            # That isn't a bug in this log line, it's what's true at this
+            # instant; an operator debugging "events aren't arriving on pod
+            # B" should call `relay.is_connected()` again later, not read
+            # this one boot-time line as a health check.
+            logger.info(
+                "WebSocket relay listener scheduled; connected=%s so far "
+                "(connect races startup, so False here is normal)",
+                relay.is_connected(),
+            )
+    return relay
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):  # noqa: PLR0915 - startup and shutdown own the background tasks
     """Application lifespan handler for startup/shutdown."""
     settings = get_settings()
 
@@ -107,6 +142,8 @@ async def lifespan(app: FastAPI):
     from plan.service import attach_stores_after_migrations  # noqa: PLC0415
 
     await asyncio.to_thread(attach_stores_after_migrations)
+
+    relay = await _start_ws_relay()
 
     # Initialize skills service singleton once at startup
     init_skills_service()
@@ -144,14 +181,30 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Invariant timer enabled (every %ss)", settings.INVARIANTS_PERIOD_SECONDS)
 
+    app.state.stale_ingest_sweep_task = None
+    if settings.STALE_INGEST_TTL_HOURS > 0:
+        from .background.stale_ingest_sweep import stale_ingest_sweep_loop  # noqa: PLC0415
+
+        app.state.stale_ingest_sweep_task = asyncio.create_task(
+            stale_ingest_sweep_loop(settings.STALE_INGEST_TTL_HOURS * 3600)
+        )
+        logger.info("Stale ingest sweep enabled (TTL %sh)", settings.STALE_INGEST_TTL_HOURS)
+
     yield
 
     # Shutdown
+    await relay.stop_listener()
     invariant_task = getattr(app.state, "invariant_task", None)
     if invariant_task is not None:
         invariant_task.cancel()
         with suppress(asyncio.CancelledError):
             await invariant_task
+
+    stale_ingest_sweep_task = getattr(app.state, "stale_ingest_sweep_task", None)
+    if stale_ingest_sweep_task is not None:
+        stale_ingest_sweep_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await stale_ingest_sweep_task
 
     sweep_task = getattr(app.state, "liveness_sweep_task", None)
     if sweep_task is not None:
