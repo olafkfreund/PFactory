@@ -20,7 +20,7 @@ import socket
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
 from uuid import uuid4
@@ -1856,7 +1856,8 @@ class PlanService:
         """
         current = now or datetime.now(UTC)
         discarded: list[str] = []
-        for listed in self._all_sessions():
+        listed_sessions = self._all_sessions()
+        for listed in listed_sessions:
             if listed.status != "ingested":
                 continue
             sid = listed.session_id
@@ -1875,6 +1876,17 @@ class PlanService:
                 logger.warning("failed to discard stale ingested session %s: %s", sid, exc)
                 continue
             discarded.append(sid)
+        end_orphaned = getattr(self._job_store, "end_orphaned_queued", None)
+        if end_orphaned is not None:
+            try:
+                count = end_orphaned(
+                    current - timedelta(seconds=max_age_seconds),
+                    {session.session_id for session in listed_sessions},
+                )
+                if count:
+                    logger.info("stale ingest sweep ended %d orphaned job_states row(s)", count)
+            except Exception as exc:  # noqa: BLE001 — the sweep must never raise
+                logger.warning("failed to end orphaned queued job_states rows: %s", exc)
         return discarded
 
     def delete_session(

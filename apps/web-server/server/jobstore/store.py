@@ -290,49 +290,48 @@ class JobStateStore:
     ) -> dict[str, Any]:
         lifecycle = lifecycle_state_for(service_status)
         terminal = lifecycle in TERMINAL_LIFECYCLE
-        async with self._sessionmaker() as session:
-            async with session.begin():
-                row = await session.get(JobState, job_id)
-                if row is None:
-                    row = JobState(
-                        job_id=job_id,
-                        schema_version=JOB_STATE_SCHEMA_VERSION,
-                        service="pfactory",
-                        kind="plan",
-                        attempt=1,
-                    )
-                    session.add(row)
-                row.service_status = service_status
-                row.lifecycle_state = lifecycle
-                if correlation_key is not None:
-                    row.correlation_key = str(correlation_key)
-                if tenant_id is not None:
-                    row.tenant_id = tenant_id  # #308: tenant-scope the row
-                if phase is not None:
-                    row.phase = phase
-                if result is not None:
-                    row.result = result
-                if usage is not None:
-                    row.usage = usage
-                if artifacts is not None:
-                    row.artifacts = artifacts
-                if admission is not None:
-                    row.admission = {**(row.admission or {}), **admission}
-                if terminal:
-                    row.ended_at = _now()
-                    if lifecycle == "failed":
-                        # never-overclaim: a terminal failure MUST carry a reason.
-                        row.error = error or "plan failed (no detail provided)"
-                    elif error is not None:
-                        row.error = error
+        async with self._sessionmaker() as session, session.begin():
+            row = await session.get(JobState, job_id)
+            if row is None:
+                row = JobState(
+                    job_id=job_id,
+                    schema_version=JOB_STATE_SCHEMA_VERSION,
+                    service="pfactory",
+                    kind="plan",
+                    attempt=1,
+                )
+                session.add(row)
+            row.service_status = service_status
+            row.lifecycle_state = lifecycle
+            if correlation_key is not None:
+                row.correlation_key = str(correlation_key)
+            if tenant_id is not None:
+                row.tenant_id = tenant_id  # #308: tenant-scope the row
+            if phase is not None:
+                row.phase = phase
+            if result is not None:
+                row.result = result
+            if usage is not None:
+                row.usage = usage
+            if artifacts is not None:
+                row.artifacts = artifacts
+            if admission is not None:
+                row.admission = {**(row.admission or {}), **admission}
+            if terminal:
+                row.ended_at = _now()
+                if lifecycle == "failed":
+                    # never-overclaim: a terminal failure MUST carry a reason.
+                    row.error = error or "plan failed (no detail provided)"
                 elif error is not None:
                     row.error = error
-                await session.flush()
-                # Refresh so server-side defaults (created_at/updated_at) are
-                # loaded before we serialise — otherwise _to_dict triggers a
-                # lazy refresh outside the async greenlet context.
-                await session.refresh(row)
-                return _to_dict(row)
+            elif error is not None:
+                row.error = error
+            await session.flush()
+            # Refresh so server-side defaults (created_at/updated_at) are
+            # loaded before we serialise — otherwise _to_dict triggers a
+            # lazy refresh outside the async greenlet context.
+            await session.refresh(row)
+            return _to_dict(row)
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         """Return a job's row as a dict, or ``None`` if absent."""
@@ -380,17 +379,16 @@ class JobStateStore:
         return self._run(self._heartbeat_async(job_id, ttl_seconds))
 
     async def _heartbeat_async(self, job_id: str, ttl_seconds: int | None) -> bool:
-        async with self._sessionmaker() as session:
-            async with session.begin():
-                res = await session.execute(
-                    update(JobState)
-                    .where(
-                        JobState.job_id == job_id,
-                        JobState.lifecycle_state == "running",
-                    )
-                    .values(lease_expires_at=self._lease_deadline(ttl_seconds))
+        async with self._sessionmaker() as session, session.begin():
+            res = await session.execute(
+                update(JobState)
+                .where(
+                    JobState.job_id == job_id,
+                    JobState.lifecycle_state == "running",
                 )
-                return _rowcount(res) > 0
+                .values(lease_expires_at=self._lease_deadline(ttl_seconds))
+            )
+            return _rowcount(res) > 0
 
     def reclaim_expired(self) -> int:
         """Reclaim every ``running`` row whose lease has expired; return the count.
@@ -411,9 +409,8 @@ class JobStateStore:
         return self._run(self._reclaim_expired_async())
 
     async def _reclaim_expired_async(self) -> int:
-        async with self._sessionmaker() as session:
-            async with session.begin():
-                return await self._reclaim_on(session)
+        async with self._sessionmaker() as session, session.begin():
+            return await self._reclaim_on(session)
 
     async def _reclaim_on(self, session: AsyncSession) -> int:
         """The reclaim UPDATE on an existing session/transaction.
@@ -514,6 +511,46 @@ class JobStateStore:
             )
         return n
 
+    def end_orphaned_queued(self, older_than: datetime, live_ids: set[str]) -> int:
+        """End ``queued`` rows created before ``older_than`` that have no session (#901).
+
+        The stale-ingest sweep (#808) walks ``plan_sessions``, so a row whose
+        session was lost stays ``queued`` forever and KEDA counts it. Rows whose
+        ``job_id`` is in ``live_ids`` (the sessions the sweep just listed) are
+        left alone. Candidates are selected first, so the UPDATE never carries
+        every session id; it repeats the predicate, so a row that moved on in
+        between is not touched. Returns the number of rows ended.
+        """
+        return self._run(self._end_orphaned_queued_async(older_than, live_ids))
+
+    async def _end_orphaned_queued_async(self, older_than: datetime, live_ids: set[str]) -> int:
+        predicate = (
+            JobState.service == "pfactory",
+            JobState.lifecycle_state == "queued",
+            JobState.ended_at.is_(None),
+            JobState.created_at < older_than,
+        )
+        async with self._sessionmaker() as session, session.begin():
+            candidates = (
+                await session.execute(select(JobState.job_id).where(*predicate))
+            ).scalars()
+            orphans = [job_id for job_id in candidates if job_id not in live_ids]
+            if not orphans:
+                return 0
+            result = await session.execute(
+                update(JobState)
+                .where(JobState.job_id.in_(orphans), *predicate)
+                .values(
+                    service_status="discarded",
+                    lifecycle_state=lifecycle_state_for("discarded"),
+                    ended_at=_now(),
+                    error="orphaned session: queued past the stale-ingest TTL "
+                    "with no plan_sessions row (#901)",
+                )
+                .execution_options(synchronize_session=False)
+            )
+            return _rowcount(result)
+
     # ── admission: grant a concurrency slot under a row lock ─────────────
 
     def try_start(self, job_id: str) -> dict[str, Any]:
@@ -557,56 +594,55 @@ class JobStateStore:
             )
 
     async def _try_start_async(self, job_id: str) -> dict[str, Any]:
-        async with self._sessionmaker() as session:
-            async with session.begin():
-                # Enter the admission critical section (deadlock-free gate).
-                await self._acquire_admission_lock(session)
+        async with self._sessionmaker() as session, session.begin():
+            # Enter the admission critical section (deadlock-free gate).
+            await self._acquire_admission_lock(session)
 
-                # Reclaim dead owners' rows BEFORE counting, inside this same
-                # transaction, so the count below sees the freed slots (#300).
-                # ponytail: admission IS the reclaim trigger — no sweeper task,
-                # no startup hook. The leak is only ever observable here (the
-                # cap), and _durable_admit retries try_start while it waits for
-                # a slot, so a wedged queue self-heals as the leases lapse. Add
-                # a periodic sweeper only if a stale `running` row ever needs to
-                # be cleared for something other than admission (e.g. a portal
-                # view), which nothing needs today.
-                await self._reclaim_on(session)
+            # Reclaim dead owners' rows BEFORE counting, inside this same
+            # transaction, so the count below sees the freed slots (#300).
+            # ponytail: admission IS the reclaim trigger — no sweeper task,
+            # no startup hook. The leak is only ever observable here (the
+            # cap), and _durable_admit retries try_start while it waits for
+            # a slot, so a wedged queue self-heals as the leases lapse. Add
+            # a periodic sweeper only if a stale `running` row ever needs to
+            # be cleared for something other than admission (e.g. a portal
+            # view), which nothing needs today.
+            await self._reclaim_on(session)
 
-                # Lock just THIS job's row so two grants of the same job_id
-                # serialise (idempotency) — a single row, so no ordering issue.
-                me = await session.get(JobState, job_id, with_for_update=self.supports_row_locking)
-                if me is None:
-                    raise SlotDenied(f"job '{job_id}' has no queued row to start")
+            # Lock just THIS job's row so two grants of the same job_id
+            # serialise (idempotency) — a single row, so no ordering issue.
+            me = await session.get(JobState, job_id, with_for_update=self.supports_row_locking)
+            if me is None:
+                raise SlotDenied(f"job '{job_id}' has no queued row to start")
 
-                # Idempotent: already running -> return without a second slot.
-                if me.lifecycle_state == "running":
-                    return _to_dict(me)
-
-                # Count running jobs under the advisory lock — a plain COUNT is
-                # accurate here because no other grant can run concurrently.
-                cap = self._cap()
-                if cap > 0:
-                    count_stmt = select(func.count()).where(JobState.lifecycle_state == "running")
-                    running = int((await session.execute(count_stmt)).scalar_one())
-                    if running >= cap:
-                        raise SlotDenied(f"admission cap {cap} reached ({running} running)")
-
-                me.lifecycle_state = "running"
-                me.service_status = "processing"
-                # Start the lease (#300). The owner renews it while process()
-                # runs; if the owner dies, the lease lapses and the row (and its
-                # slot) is reclaimed by the next grant.
-                me.lease_expires_at = self._lease_deadline()
-                me.admission = {
-                    **(me.admission or {}),
-                    "started_at": _now().isoformat(),
-                }
-                await session.flush()
-                # Refresh so the onupdate-bumped updated_at is loaded before
-                # serialising (avoids a lazy refresh outside the greenlet).
-                await session.refresh(me)
+            # Idempotent: already running -> return without a second slot.
+            if me.lifecycle_state == "running":
                 return _to_dict(me)
+
+            # Count running jobs under the advisory lock — a plain COUNT is
+            # accurate here because no other grant can run concurrently.
+            cap = self._cap()
+            if cap > 0:
+                count_stmt = select(func.count()).where(JobState.lifecycle_state == "running")
+                running = int((await session.execute(count_stmt)).scalar_one())
+                if running >= cap:
+                    raise SlotDenied(f"admission cap {cap} reached ({running} running)")
+
+            me.lifecycle_state = "running"
+            me.service_status = "processing"
+            # Start the lease (#300). The owner renews it while process()
+            # runs; if the owner dies, the lease lapses and the row (and its
+            # slot) is reclaimed by the next grant.
+            me.lease_expires_at = self._lease_deadline()
+            me.admission = {
+                **(me.admission or {}),
+                "started_at": _now().isoformat(),
+            }
+            await session.flush()
+            # Refresh so the onupdate-bumped updated_at is loaded before
+            # serialising (avoids a lazy refresh outside the greenlet).
+            await session.refresh(me)
+            return _to_dict(me)
 
     def close(self) -> None:
         """Dispose the engine and stop the background loop (tests / shutdown)."""
