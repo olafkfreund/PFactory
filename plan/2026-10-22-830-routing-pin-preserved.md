@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 830
 spec: spec/2026-10-22-830-routing-pin-preserved.md
 ---
