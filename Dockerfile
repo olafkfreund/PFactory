@@ -319,10 +319,12 @@ RUN /home/projects/MagesticAI/.venv/bin/pip install --no-cache-dir \
  && /home/projects/MagesticAI/.venv/bin/pip uninstall -y pip
 
 # Remove the base image's pip too (same PFactory#679 findings, second copy).
-# py3-pip-wheel is ensurepip's bundled wheel — only needed by `python -m venv`,
-# which has already run. Verified: the venv imports its stack fine afterwards.
+# py3-pip-wheel ships deliberately: python-3.14 depends on it, so apk refuses to
+# drop it (warns, exits 0). Its CVEs ride base-digest bumps. The apk info
+# checks fail the build if the removal ever silently no-ops.
 USER root
-RUN apk del --no-cache py3.14-pip py3.14-pip-base py3-pip-wheel
+RUN apk del --no-cache py3.14-pip py3.14-pip-base \
+ && ! apk info -e py3.14-pip && ! apk info -e py3.14-pip-base
 USER nonroot
 
 # Git identity for in-container worktree operations
