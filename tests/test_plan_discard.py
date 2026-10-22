@@ -15,6 +15,7 @@ So the honest exit did not exist. These tests pin the one that does.
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -149,3 +150,71 @@ def test_discarding_twice_is_a_no_op_rather_than_an_error():
     assert again.discard["actor"] == "olafkfreund"
     assert again.discard["reason"] == "junk"
     assert again.discard["at"] == first.discard["at"]
+
+
+# ── #808: an ingested session nobody touches is discarded after a TTL ────────
+
+
+class _RecordingJobStore:
+    """Records the last mirrored native status per session, like ``job_states``."""
+
+    def __init__(self) -> None:
+        self.status: dict[str, str] = {}
+
+    def upsert(self, session_id: str, *, service_status: str, **_: object) -> None:
+        self.status[session_id] = service_status
+
+
+_DAY = 86400
+# Assertions use membership: on the Postgres CI job the shared store may hold
+# other tests' sessions, which the sweep is free to discard too.
+
+
+def _later(days: float) -> datetime:
+    return datetime.now(UTC) + timedelta(days=days)
+
+
+def test_a_stale_ingested_session_is_discarded_and_leaves_queued():
+    """MUTATION GUARD (#808): an abandoned ingested row stayed `queued` forever."""
+    store = _RecordingJobStore()
+    svc = PlanService(job_store=store)
+    sid = svc.ingest_text(_PROBE, title="loopback probe").session_id
+    assert store.status[sid] == "ingested"  # canonical `queued`
+
+    assert sid in svc.discard_stale_ingested(7 * _DAY, now=_later(8))
+
+    session = svc.get(sid)
+    assert session.status == "discarded"
+    assert session.discard["actor"] == "system:stale-ingest-sweep"
+    assert session.discard["from_status"] == "ingested"
+    assert store.status[sid] == "discarded"  # canonical `failed`, terminal
+
+
+def test_the_sweep_leaves_fresh_and_non_ingested_sessions_alone():
+    svc = PlanService()
+    fresh = svc.ingest_text(_PROBE, title="fresh").session_id
+    assert fresh not in svc.discard_stale_ingested(7 * _DAY, now=_later(1))
+    assert svc.get(fresh).status == "ingested"
+
+    old = svc.ingest_text(_PROBE, title="rejected later").session_id
+    processed = svc.get(old)
+    processed.status = "processed"
+    svc._save(processed)  # through the shared store too, when CI runs on Postgres
+    swept = svc.discard_stale_ingested(7 * _DAY, now=_later(8))
+    assert fresh in swept
+    assert old not in swept
+    assert svc.get(old).status == "processed"
+
+
+def test_a_bad_created_at_is_skipped_not_fatal():
+    svc = PlanService()
+    bad = svc.ingest_text(_PROBE, title="bad").session_id
+    good = svc.ingest_text(_PROBE, title="good").session_id
+    broken = svc.get(bad)
+    broken.created_at = "not a date"
+    svc._save(broken)
+
+    swept = svc.discard_stale_ingested(7 * _DAY, now=_later(8))
+    assert good in swept
+    assert bad not in swept
+    assert svc.get(bad).status == "ingested"
