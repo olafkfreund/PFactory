@@ -19,8 +19,9 @@ It writes (additively) onto the contract's ``execution`` block:
 
   - ``phase_models`` — ``{planning, coding, qa, test_gen}`` model ids.
   - ``routing`` — ``{class, cost_estimate_usd, cost_ceiling_usd, policy,
-    rationale, autonomy}`` (``cost_estimate_usd`` is ``None`` when every priced
-    role resolves to a subscription/local model, mirroring CFactory billing-mode).
+    rationale, autonomy}``, retaining a valid stronger declared class and a
+    ``pinned_model`` when supplied (``cost_estimate_usd`` is ``None`` for an
+    unpriced/subscription model, mirroring CFactory billing-mode).
 
 Runs in :func:`plan.emit.contract_emit.assemble_contract` **after**
 ``apply_tier`` so the tier floor is already set. Additive + back-compat: when no
@@ -41,7 +42,7 @@ from plan.emit.cost_router_core import (
     load_catalog,
     planning_floor_class,
 )
-from plan.emit.task_scorer import score_task
+from plan.emit.task_scorer import _CEILING_BY_CLASS, score_task
 
 # The vendored hub catalog lives beside this module (re-vendored from
 # Factory/apis/model-catalog.json — see cost_router_core's banner).
@@ -97,6 +98,16 @@ def _restrict_provider(catalog: dict[str, Any], provider: str) -> dict[str, Any]
     return {mid: entry for mid, entry in catalog.items() if entry.get("provider") == provider}
 
 
+def _effective_class(prior: dict[str, Any], scored: str) -> tuple[str, list[str]]:
+    order = ("economy", "standard", "premium", "governed")
+    declared = prior.get("class")
+    if declared not in order:
+        return scored, []
+    if order.index(declared) < order.index(scored):
+        return scored, [f"declared class {declared} below scored {scored}; kept {scored}"]
+    return declared, []
+
+
 def select_phase_models(
     contract: dict[str, Any],
     *,
@@ -106,19 +117,28 @@ def select_phase_models(
 
     Returns ``{"phase_models": {...}, "routing": {...}}``. Pure: reads the
     contract + catalog, derives the scorer verdict, and resolves the cheapest
-    capable model per role under the ceiling. ``catalog`` may be injected for
-    tests; otherwise the vendored hub catalog is loaded.
+    capable model per role under the ceiling. A prior routing pin selects every
+    role; a valid declared class at least as strong as the scored class sets the
+    floor and ceiling. ``catalog`` may be injected for tests; otherwise the
+    vendored hub catalog is loaded.
     """
     cat = catalog if catalog is not None else load_catalog(_CATALOG_PATH)
     score = score_task(contract)
-    routing_class = score["routing_class"]
-    ceiling = float(score["cost_ceiling"])
+    execution = contract.get("execution")
+    prior = execution.get("routing") if isinstance(execution, dict) else None
+    prior = prior if isinstance(prior, dict) else {}
+    routing_class, notes = _effective_class(prior, score["routing_class"])
+    ceiling = _CEILING_BY_CLASS[routing_class]
     difficulty = score["difficulty"]
     tier = _tier_of(contract, difficulty)
+    pin = prior.get("pinned_model")
+    if not isinstance(pin, str) or not pin:
+        pin = None
 
     phase_models: dict[str, str] = {}
     estimate_total: float | None = None
-    downgrades: list[str] = []
+    if pin:
+        notes.append(f"pin honoured: {pin}")
 
     # An entry marked "available": false is never auto-selected (#826); it stays
     # in `cat` so a pinned model is still priced. Filtered here, not in the
@@ -126,23 +146,26 @@ def select_phase_models(
     available = {mid: e for mid, e in cat.items() if e.get("available") is not False}
 
     for role in _ROLES:
-        floor = _role_floor(role, tier, routing_class)
         tokens = _ROLE_TOKENS[role]
-        role_catalog = available
-        if role in _CLAUDE_ROLES:
-            # Preserve the existing fallback for injected catalogs with no
-            # Claude entries; the vendored catalog always has them.
-            claude_only = _restrict_provider(available, _CLAUDE_PROVIDER)
-            if claude_only:
-                role_catalog = claude_only
-        pick = cheapest_capable_model(role, floor, ceiling, tokens, role_catalog)
-        if pick is None:
-            # Nothing cheap enough at the floor: relax the ceiling for THIS role
-            # (never below the floor) so a governed/high task is never starved of
-            # a capable model — the ceiling is a budget hint, the floor is hard.
-            pick = cheapest_capable_model(role, floor, None, tokens, role_catalog)
-            if pick is not None:
-                downgrades.append(f"{role}: ceiling relaxed (no model under ${ceiling:g})")
+        if pin:
+            pick = pin
+        else:
+            floor = _role_floor(role, tier, routing_class)
+            role_catalog = available
+            if role in _CLAUDE_ROLES:
+                # Preserve the existing fallback for injected catalogs with no
+                # Claude entries; the vendored catalog always has them.
+                claude_only = _restrict_provider(available, _CLAUDE_PROVIDER)
+                if claude_only:
+                    role_catalog = claude_only
+            pick = cheapest_capable_model(role, floor, ceiling, tokens, role_catalog)
+            if pick is None:
+                # Nothing cheap enough at the floor: relax the ceiling for THIS role
+                # (never below the floor) so a governed/high task is never starved of
+                # a capable model — the ceiling is a budget hint, the floor is hard.
+                pick = cheapest_capable_model(role, floor, None, tokens, role_catalog)
+                if pick is not None:
+                    notes.append(f"{role}: ceiling relaxed (no model under ${ceiling:g})")
         if pick is None:
             continue
         phase_models[role] = pick
@@ -150,7 +173,7 @@ def select_phase_models(
         if cost is not None:
             estimate_total = (estimate_total or 0.0) + cost
 
-    rationale = _rationale(tier, routing_class, phase_models, downgrades, cat)
+    rationale = _rationale(tier, routing_class, phase_models, notes, cat)
     routing = {
         "class": routing_class,
         "cost_estimate_usd": round(estimate_total, 4) if estimate_total is not None else None,
@@ -161,6 +184,8 @@ def select_phase_models(
         "difficulty": difficulty,
         "risk": score["risk"],
     }
+    if pin:
+        routing["pinned_model"] = pin
     return {"phase_models": phase_models, "routing": routing}
 
 
@@ -168,7 +193,7 @@ def _rationale(
     tier: str,
     routing_class: str,
     phase_models: dict[str, str],
-    downgrades: list[str],
+    notes: list[str],
     catalog: dict[str, Any],
 ) -> str:
     floor = capability_floor_class(tier)
@@ -181,8 +206,8 @@ def _rationale(
     ]
     if routing_class == "governed":
         parts.append("governed forces frontier planning floor")
-    if downgrades:
-        parts.extend(downgrades)
+    if notes:
+        parts.extend(notes)
     parts.extend(
         f"{mid} skipped: {entry.get('unavailable_reason', 'unavailable')}"
         for mid, entry in catalog.items()
@@ -201,7 +226,8 @@ def apply_cost_routing(
 
     Writes ``execution.phase_models`` (the per-role picks) and
     ``execution.routing`` (class / cost estimate / ceiling / policy / rationale /
-    autonomy). Additive: it never removes the existing ``execution.model`` /
+    autonomy), keeping a valid stronger declared class and a routing pin.
+    Additive: it never removes the existing ``execution.model`` /
     ``provider`` (the tier/complexity default stays as the run-level fallback),
     so a consumer that ignores ``phase_models`` keeps today's behaviour.
 
