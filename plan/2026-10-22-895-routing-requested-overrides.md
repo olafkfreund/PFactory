@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 895
 spec: spec/2026-10-22-895-routing-requested-overrides.md
 ---
