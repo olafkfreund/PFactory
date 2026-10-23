@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 829
 spec: spec/2026-10-23-829-task-logs-postgres.md
 ---
