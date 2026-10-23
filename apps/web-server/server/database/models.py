@@ -473,6 +473,19 @@ class TaskLogEntry(Base):
     )
 
 
+class TaskBoardState(Base):
+    """Latest board-facing snapshot for one task."""
+
+    __tablename__ = "task_board_states"
+
+    task_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    record: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class OAuthConnectState(Base):
     """A pending email OAuth connect (#807): the CSRF ``state`` and who asked.
 

@@ -1,7 +1,9 @@
 """Shared task log mirror; the local task_logs.json remains the writer's copy."""
 
+import asyncio
 import logging
 import os
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import delete as sql_delete, func, select
@@ -9,12 +11,15 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
+from server.background.tasks import spawn
 from server.database.engine import async_session_factory, engine
-from server.database.models import TaskLogEntry, TaskLogPhase
+from server.database.models import TaskBoardState, TaskLogEntry, TaskLogPhase
 
 logger = logging.getLogger(__name__)
 
 LogOp = tuple[str, str, dict[str, Any]]
+_board_pending: dict[str, tuple[str, Callable[[], dict[str, Any]]]] = {}
+_board_flushers: set[str] = set()
 
 
 def enabled() -> bool:
@@ -118,11 +123,80 @@ async def load(task_id: str) -> dict[str, Any] | None:
         return None
 
 
+async def save_board(task_id: str, project_id: str, record: dict[str, Any]) -> None:
+    try:
+        async with async_session_factory() as session:
+            insert = postgresql.insert if _is_postgres(session) else sqlite.insert
+            stmt = insert(TaskBoardState).values(
+                task_id=task_id, project_id=project_id, record=record, updated_at=func.now()
+            )
+            await session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=[TaskBoardState.task_id],
+                    set_={"project_id": project_id, "record": record, "updated_at": func.now()},
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("[TaskLogStore] board save failed for %s", sanitize_log(task_id))
+
+
+async def load_boards(project_ids: list[str]) -> dict[str, dict[str, Any]]:
+    if not project_ids:
+        return {}
+    try:
+        async with async_session_factory() as session:
+            stmt = select(TaskBoardState).where(TaskBoardState.project_id.in_(project_ids))
+            rows = (await session.execute(stmt)).scalars().all()
+            return {row.task_id: row.record for row in rows}
+    except Exception:
+        logger.exception("[TaskLogStore] board load failed")
+        return {}
+
+
+async def load_board(task_id: str) -> dict[str, Any] | None:
+    try:
+        async with async_session_factory() as session:
+            row = await session.get(TaskBoardState, task_id)
+            return row.record if row else None
+    except Exception:
+        logger.exception("[TaskLogStore] board load failed for %s", sanitize_log(task_id))
+        return None
+
+
+def schedule_board(task_id: str, project_id: str, build: Callable[[], dict[str, Any]]) -> None:
+    """Keep one writer per task and build the latest snapshot at flush time."""
+    if not enabled():
+        return
+    _board_pending[task_id] = (project_id, build)
+    if task_id in _board_flushers:
+        return
+    _board_flushers.add(task_id)
+    spawn(_flush_board(task_id))
+
+
+async def _flush_board(task_id: str) -> None:
+    try:
+        await asyncio.sleep(0)
+        while task_id in _board_pending:
+            project_id, build = _board_pending.pop(task_id)
+            try:
+                record = build()
+                await save_board(task_id, project_id, record)
+            except Exception:
+                logger.exception("[TaskLogStore] board build failed for %s", sanitize_log(task_id))
+    finally:
+        _board_flushers.discard(task_id)
+
+
 async def delete(task_id: str) -> None:
     try:
         async with async_session_factory() as session:
             await session.execute(sql_delete(TaskLogEntry).where(TaskLogEntry.task_id == task_id))
             await session.execute(sql_delete(TaskLogPhase).where(TaskLogPhase.task_id == task_id))
+            await session.execute(
+                sql_delete(TaskBoardState).where(TaskBoardState.task_id == task_id)
+            )
             await session.commit()
     except Exception:
         logger.exception("[TaskLogStore] delete failed for task %s", sanitize_log(task_id))
@@ -137,6 +211,9 @@ async def prune() -> None:
             cutoff = _cutoff(session, days)
             await session.execute(sql_delete(TaskLogEntry).where(TaskLogEntry.created_at < cutoff))
             await session.execute(sql_delete(TaskLogPhase).where(TaskLogPhase.updated_at < cutoff))
+            await session.execute(
+                sql_delete(TaskBoardState).where(TaskBoardState.updated_at < cutoff)
+            )
             await session.commit()
     except Exception:
         logger.exception("[TaskLogStore] prune failed")

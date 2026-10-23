@@ -41,6 +41,8 @@ class AgentWorktreeSyncMixin:
             self, task_id: str, payload: dict[str, Any], *, force: bool = False
         ) -> None: ...
 
+        def _schedule_board(self, task_id: str, spec_dir: Path) -> None: ...
+
     async def _sync_worktree_files(  # noqa: PLR0912, PLR0915
         self, project_path: Path, spec_id: str, task_id: str | None = None
     ) -> None:
@@ -195,6 +197,9 @@ class AgentWorktreeSyncMixin:
             logger.debug(
                 f"[AgentService] Synced {synced_count} files from worktree to main spec dir"
             )
+            if task_id:
+                # Mid-run subtask progress only lands here; other replicas read the board row.
+                self._schedule_board(task_id, main_spec)
 
         # Tier B auto-reload — stream new build-progress.txt lines as task:log
         # events.  The agent appends a human-readable narrative ("Starting
