@@ -953,8 +953,10 @@ def get_execution_progress(spec_dir: Path, subtasks: list) -> dict | None:
         return None
 
 
-def _spec_extras(spec_dir: Path, subtasks: list[Subtask]) -> tuple[dict | None, dict]:
-    archive_metadata = {}
+def _spec_extras(
+    spec_dir: Path, subtasks: list[Subtask]
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    archive_metadata: dict[str, Any] = {}
     plan_file = spec_dir / "test_plan.json"
     if plan_file.exists():
         try:
@@ -987,7 +989,7 @@ def _refresh_board(project_id: str, spec_dir: Path) -> Task:
 
 
 def remote_tasks(
-    project_id: str, boards: dict[str, dict], local_ids: set[str], repo: str | None
+    project_id: str, boards: dict[str, dict[str, Any]], local_ids: set[str], repo: str | None
 ) -> list[Task]:
     result = []
     for task_id, record in boards.items():
@@ -1004,11 +1006,11 @@ def remote_tasks(
     return result
 
 
-def task_to_dict(task: Task, board: dict | None = None) -> dict:
+def task_to_dict(task: Task, board: dict[str, Any] | None = None) -> dict[str, Any]:
     """Convert a Task model to a dict with camelCase keys for frontend."""
     # Get execution progress and archive metadata if task has a spec directory
     execution_progress = None
-    archive_metadata = {}
+    archive_metadata: dict[str, Any] = {}
     specs_path = None
     if task.spec_id:
         # Try to find spec dir for this task

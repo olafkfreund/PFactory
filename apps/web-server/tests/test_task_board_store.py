@@ -46,7 +46,7 @@ def store(monkeypatch: pytest.MonkeyPatch) -> Iterator[async_sessionmaker]:  # t
 
 
 def project(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
-    def loader() -> dict:
+    def loader() -> dict[str, dict[str, str]]:
         return {"proj": {"path": str(path)}}
 
     monkeypatch.setattr(tasks, "load_projects", loader)
@@ -107,9 +107,9 @@ def test_remote_routes_and_local_precedence(
 
 
 def test_store_off_uses_files_without_writes(
-    store: async_sessionmaker,
+    store: async_sessionmaker,  # type: ignore[type-arg]
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,  # type: ignore[type-arg]
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     make_spec(tmp_path)
     project(monkeypatch, tmp_path)
@@ -126,9 +126,9 @@ def test_store_off_uses_files_without_writes(
 
 
 def test_project_list_uses_one_query_for_remote_tasks(
-    store: async_sessionmaker,
+    store: async_sessionmaker,  # type: ignore[type-arg]
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,  # type: ignore[type-arg]
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project(monkeypatch, tmp_path)
 
@@ -141,7 +141,7 @@ def test_project_list_uses_one_query_for_remote_tasks(
                 await task_log_store.save_board(
                     f"proj:{spec.name}", "proj", tasks.board_record("proj", spec)
                 )
-            queries = []
+            queries: list[str] = []
 
             def count_query(
                 _conn: object,
@@ -164,9 +164,9 @@ def test_project_list_uses_one_query_for_remote_tasks(
 
 
 def test_delete_and_prune_board_rows(
-    store: async_sessionmaker,
+    store: async_sessionmaker,  # type: ignore[type-arg]
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,  # type: ignore[type-arg]
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def go() -> None:
         spec = make_spec(tmp_path)
