@@ -1237,7 +1237,7 @@ Created via PFactory Web UI
 
     (spec_dir / "requirements.json").write_text(json.dumps(requirements, indent=2))
 
-    return spec_to_task(task.project_id, spec_dir)
+    return _refresh_board(task.project_id, spec_dir)
 
 
 # --------------------------------------------------------------------------
@@ -1684,6 +1684,7 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
 
             plan_file.write_text(json.dumps(plan, indent=2))
             plan_updated = True
+            _refresh_board(project_id, spec_dir)
             logger.info(
                 "[ApprovePlan] Updated plan file - status: in_progress, planStatus: in_progress"
             )
@@ -1808,6 +1809,7 @@ async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanReque
             if request.feedback:
                 plan["reviewReason"] = request.feedback
             plan_file.write_text(json.dumps(plan, indent=2))
+            _refresh_board(project_id, spec_dir)
         except (OSError, json.JSONDecodeError) as exc:
             # Plan file unreadable — review state was already updated, so
             # the reject took effect even if the bookkeeping fails. Log

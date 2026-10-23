@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
@@ -285,17 +286,32 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         # Also emit to local callbacks
         await self._deliver_local_progress(progress)
         await relay.publish("task:progress", asdict(progress))
-        if task_log_store.enabled() and (spec_dir := self._spec_dirs.get(progress.task_id)):
-            from server.routes.tasks import (
-                board_record,
-            )
+        if spec_dir := self._spec_dirs.get(progress.task_id):
+            self._schedule_board(progress.task_id, spec_dir)
 
-            project_id = progress.task_id.split(":", 1)[0]
-            task_log_store.schedule_board(
-                progress.task_id,
-                project_id,
-                lambda: board_record(project_id, spec_dir),
-            )
+    @staticmethod
+    def _board_builder(task_id: str, spec_dir: Path) -> tuple[str, Callable[[], dict[str, Any]]]:
+        from server.routes.tasks import board_record  # noqa: PLC0415 - routes import this module
+
+        project_id = task_id.split(":", 1)[0]
+        return project_id, lambda: board_record(project_id, spec_dir)
+
+    def _schedule_board(self, task_id: str, spec_dir: Path) -> None:
+        if task_log_store.enabled():
+            task_log_store.schedule_board(task_id, *self._board_builder(task_id, spec_dir))
+
+    async def _save_board_now(self, task_id: str, spec_dir: Path) -> None:
+        """Write the board row inline: on pod exit a spawned flush may never run."""
+        if task_log_store.enabled():
+            project_id, build = self._board_builder(task_id, spec_dir)
+            try:
+                record = build()
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "[AgentService] board build failed for %s", sanitize_log(task_id)
+                )
+                return
+            await task_log_store.save_board(task_id, project_id, record)
 
     async def _deliver_local_progress(self, progress: TaskProgress) -> None:
         """Emit progress to all callbacks registered on THIS pod.
@@ -404,6 +420,8 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             )
             plan_file.write_text(json.dumps(plan, indent=2))
             logger.info("[AgentService._update_plan_status] Successfully wrote plan_file")
+            # Every end path (stop, crash, pod exit) writes here, often after _spec_dirs is cleared.
+            self._schedule_board(task_id, plan_file.parent)
             logger.info(
                 "[AgentService] Updated plan status to '%s' for %s",
                 sanitize_log(plan["status"]),

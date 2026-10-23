@@ -1993,6 +1993,9 @@ async def import_github_issues(projectId: str, request: ImportIssuesRequest):
             spec_md += f"**Labels:** {', '.join(label_names)}\n"
         spec_md += f"\n## Description\n\n{body}\n"
         (spec_dir / "spec.md").write_text(spec_md)
+        from .tasks import _refresh_board  # noqa: PLC0415 - tasks imports this module
+
+        _refresh_board(projectId, spec_dir)
 
         imported += 1
         issues.append(

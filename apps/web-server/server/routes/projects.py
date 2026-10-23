@@ -1226,7 +1226,7 @@ Created via PFactory Web UI
         if task_metadata:
             (spec_dir / "task_metadata.json").write_text(json.dumps(task_metadata, indent=2))
 
-    task = tasks_module.spec_to_task(project_id, spec_dir)
+    task = tasks_module._refresh_board(project_id, spec_dir)
     return tasks_module.task_to_dict(task)
 
 

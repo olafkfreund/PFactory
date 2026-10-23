@@ -71,3 +71,26 @@ the table, and older code ignores it.
   extra `Task.execution_progress` field was removed in review.
 - The `_emit_progress` hook has no dedicated test; it calls the same
   `board_record` builder and `schedule_board` the status-route test covers.
+
+## Deviations (review fix round 1)
+
+Review of PR #908 found end and create paths that never wrote a row.
+
+- Step 5 widened: `_emit_progress` only finds the spec dir while the run is
+  tracked, and stop, crash and pod-exit paths clear `_spec_dirs` first. The
+  snapshot is now also scheduled inside `_update_plan_status` after it writes
+  `test_plan.json` (helper `AgentService._schedule_board`). Every end path writes
+  there.
+- `_fail_interrupted_run` (pod exit or monitor crash) saves the row inline with
+  `AgentService._save_board_now`, because a spawned flush may never run once the
+  pod is going down.
+- Step 3 widened: `create_task`, `approve_plan` and `reject_plan` call
+  `_refresh_board`. The other spec-dir creators also refresh:
+  `projects.py` create (`_refresh_board` instead of `spec_to_task`),
+  `github.py` issue import and `auto_fix_service.start_auto_fix`. These files were
+  not in the plan.
+- `wait_for_task` is unchanged: it writes no file, so the snapshot built from
+  files would be the same.
+- Tests: `test_stop_and_interrupted_runs_reach_remote_board` (stop, then pod exit)
+  and `test_created_task_reaches_remote_board`. Both fail without the fix. This
+  also covers the `_emit_progress`/end-path hook named above as untested.

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from server.database.models import Base, TaskBoardState  # noqa: E402
 from server.routes import projects, tasks  # noqa: E402
 from server.services import task_log_store  # noqa: E402
+from server.services.agent_service import AgentService  # noqa: E402
 
 TASK = "proj:001-feature"
 SPEC = "001-feature"
@@ -182,5 +183,81 @@ def test_delete_and_prune_board_rows(
         monkeypatch.setenv("PFACTORY_TASK_LOG_RETENTION_DAYS", "90")
         await task_log_store.prune()
         assert await task_log_store.load_board(TASK) is None
+
+    asyncio.run(go())
+
+
+def end_logs(spec: Path) -> None:
+    logs = {"phases": {"coding": {"status": "failed", "started_at": "2026-10-23", "entries": []}}}
+    (spec / "task_logs.json").write_text(json.dumps(logs))
+
+
+class _StoppedProc:
+    def terminate(self) -> None:
+        pass
+
+    async def wait(self) -> int:
+        return -15
+
+
+@pytest.mark.usefixtures("store")
+def test_stop_and_interrupted_runs_reach_remote_board(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / "a"
+    remote = tmp_path / "b"
+    remote.mkdir()
+
+    async def remote_status() -> str:
+        project(monkeypatch, remote)
+        try:
+            return str((await projects.list_project_tasks("proj"))[0]["status"])
+        finally:
+            project(monkeypatch, local)
+
+    async def go() -> None:
+        spec = make_spec(local)
+        project(monkeypatch, local)
+        await task_log_store.save_board(TASK, "proj", tasks.board_record("proj", spec))
+        end_logs(spec)  # what the run's log writers do on stop
+        service = AgentService()
+        service.running_tasks[TASK] = _StoppedProc()  # type: ignore[assignment]
+        service._spec_dirs[TASK] = spec
+        assert await service.stop_task(TASK)
+        await asyncio.sleep(0.05)
+        expected = (await projects.list_project_tasks("proj"))[0]["status"]
+        assert expected != "in_progress"
+        assert await remote_status() == expected
+
+        # Pod exit: the row must be written before the cancelled monitor returns.
+        other = make_spec(local, "002-other")
+        task_id = f"proj:{other.name}"
+        await task_log_store.save_board(task_id, "proj", tasks.board_record("proj", other))
+        end_logs(other)
+        await AgentService()._fail_interrupted_run(task_id, local, other.name)
+        record = await task_log_store.load_board(task_id)
+        assert record is not None
+        assert record["task"]["status"] != "in_progress"
+
+    asyncio.run(go())
+
+
+@pytest.mark.usefixtures("store")
+def test_created_task_reaches_remote_board(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    local = tmp_path / "a"
+    remote = tmp_path / "b"
+    remote.mkdir()
+    (local / ".pfactory" / "specs").mkdir(parents=True)
+
+    async def go() -> None:
+        project(monkeypatch, local)
+        created = await tasks.create_task(
+            tasks.TaskCreate(project_id="proj", title="New", description="Work")
+        )
+        await asyncio.sleep(0.05)
+        project(monkeypatch, remote)
+        assert [t.id for t in (await tasks.list_tasks(project_id="proj", status=None)).tasks] == [
+            created.id
+        ]
 
     asyncio.run(go())
