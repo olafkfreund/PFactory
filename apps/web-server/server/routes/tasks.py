@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
-from server.services import run_leases
+from server.services import run_leases, task_log_store
 from server.services.git_utils import safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
@@ -1537,6 +1537,8 @@ async def delete_task(task_id: str):
     import shutil
 
     shutil.rmtree(spec_dir)
+    if task_log_store.enabled():
+        await task_log_store.delete(task_id)
 
 
 class ApprovePlanRequest(BaseModel):
@@ -2024,25 +2026,31 @@ async def get_task_logs(task_id: str):
     logger.info("[GetTaskLogs] Checking spec_dir: %s", sanitize_log(spec_dir))
     logger.info("[GetTaskLogs] Checking worktree_spec_dir: %s", sanitize_log(worktree_spec_dir))
 
-    # Check for task_logs.json (phase-based logs) - prefer worktree if exists
-    task_logs_file = None
-    for check_dir in [worktree_spec_dir, spec_dir]:
-        candidate = check_dir / "task_logs.json"
-        logger.info(
-            "[GetTaskLogs] Checking %s, exists: %s",
-            sanitize_log(candidate),
-            sanitize_log(candidate.exists()),
-        )
-        if candidate.exists():
-            task_logs_file = candidate
-            logger.info("[GetTaskLogs] Found task_logs.json at: %s", sanitize_log(task_logs_file))
-            break
+    task_logs = await task_log_store.load(task_id) if task_log_store.enabled() else None
 
-    if task_logs_file:
-        try:
-            task_logs = json.loads(task_logs_file.read_text())
+    # Check for task_logs.json (phase-based logs) when the shared store has no rows.
+    task_logs_file = None
+    if task_logs is None:
+        for check_dir in [worktree_spec_dir, spec_dir]:
+            candidate = check_dir / "task_logs.json"
             logger.info(
-                "[GetTaskLogs] Successfully loaded task_logs.json, has phases: %s",
+                "[GetTaskLogs] Checking %s, exists: %s",
+                sanitize_log(candidate),
+                sanitize_log(candidate.exists()),
+            )
+            if candidate.exists():
+                task_logs_file = candidate
+                logger.info(
+                    "[GetTaskLogs] Found task_logs.json at: %s", sanitize_log(task_logs_file)
+                )
+                break
+
+    if task_logs_file or task_logs:
+        try:
+            if task_logs is None:
+                task_logs = json.loads(task_logs_file.read_text())
+            logger.info(
+                "[GetTaskLogs] Loaded task logs, has phases: %s",
                 sanitize_log("phases" in task_logs),
             )
             result = {

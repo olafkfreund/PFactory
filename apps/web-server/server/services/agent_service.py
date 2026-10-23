@@ -25,7 +25,7 @@ from ..websockets.events import (
     emit_task_status,
     emit_task_update,
 )
-from . import run_leases
+from . import run_leases, task_log_store
 from .agent_failover import AgentFailoverMixin
 from .agent_process_monitor import AgentProcessMonitorMixin
 from .agent_worktree_sync import AgentWorktreeSyncMixin
@@ -1094,7 +1094,9 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             / spec_id
         )
         worktree_spec_dir.mkdir(parents=True, exist_ok=True)
-        log_writer = TaskLogWriter(worktree_spec_dir)
+        log_writer = TaskLogWriter(worktree_spec_dir, task_id=task_id)
+        if task_log_store.enabled():
+            spawn(task_log_store.prune())
 
         # Also write to main spec dir for immediate visibility
         main_spec_dir = project_path / ".pfactory" / "specs" / spec_id
