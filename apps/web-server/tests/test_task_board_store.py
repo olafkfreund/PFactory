@@ -419,6 +419,7 @@ def test_worktree_sync_reaches_remote_board(
         (worktree / "test_plan.json").write_text(json.dumps(plan))
 
         await AgentService()._sync_worktree_files(local, SPEC, TASK)
+        await _settle()
         local_view = (await projects.list_project_tasks("proj"))[0]
         remote_view = (await _remote_board(monkeypatch, local, remote))[0]
         assert local_view["subtasks"][0]["status"] == "completed"
