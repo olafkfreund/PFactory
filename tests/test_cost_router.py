@@ -239,6 +239,40 @@ def test_invalid_pin_is_ignored(pin):
     assert out["phase_models"]["planning"] == "claude-sonnet-5"
 
 
+def test_requested_and_overrides_survive_apply_cost_routing():
+    requested = {"planning": "frontier", "coding": "mid"}
+    overrides = {"qa_full": "mid"}
+    contract = {
+        "execution": {
+            "autonomy_tier": "medium",
+            "routing": {"requested": requested, "overrides": overrides},
+        },
+        "final_acceptance": ["a"],
+    }
+    apply_cost_routing(contract, catalog=_CATALOG)
+    routing = contract["execution"]["routing"]
+    assert routing["requested"] == {"planning": "frontier", "coding": "mid"}
+    assert routing["overrides"] == {"qa_full": "mid"}
+    assert routing["requested"] is not requested
+    assert routing["overrides"] is not overrides
+    assert "rationale" in routing
+
+
+@pytest.mark.parametrize("value", [["coding"], "mid", 3])
+def test_non_dict_requested_and_overrides_are_dropped(value):
+    contract = {
+        "execution": {
+            "autonomy_tier": "medium",
+            "routing": {"requested": value, "overrides": value},
+        },
+        "final_acceptance": ["a"],
+    }
+    apply_cost_routing(contract, catalog=_CATALOG)
+    routing = contract["execution"]["routing"]
+    assert "requested" not in routing
+    assert "overrides" not in routing
+
+
 def test_planning_ceiling_relaxation_keeps_a_model():
     # A frontier model over the premium $10 per-role ceiling must still route.
     expensive = {

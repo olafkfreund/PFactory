@@ -18,7 +18,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from server.background.tasks import spawn
+
 from ..websockets.events import emit_task_logs_stream  # noqa: TID252
+from . import task_log_store
 from .task_models import TaskPhase
 
 
@@ -62,8 +65,11 @@ class TaskLogWriter:
         TaskPhase.QA_FIXING: "validation",
     }
 
-    def __init__(self, spec_dir: Path):
+    def __init__(self, spec_dir: Path, task_id: str | None = None):
         self.spec_dir = spec_dir
+        self.task_id = task_id if task_id and task_log_store.enabled() else None
+        self._db_ops: list[task_log_store.LogOp] = []
+        self._db_flush_task: asyncio.Task[None] | None = None
         self.log_file = spec_dir / "task_logs.json"
         self._current_tool: str | None = None
         self._tool_start_time: str | None = None
@@ -74,6 +80,40 @@ class TaskLogWriter:
         self._last_text_emit_time: float = 0
         self._text_emit_interval: float = 1.0  # seconds
         self._pending_text_lines: list[str] = []
+
+    def _queue_db(self, op: task_log_store.LogOp) -> None:
+        if self.task_id is None:
+            return
+        self._db_ops.append(op)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._db_flush_task is None or self._db_flush_task.done():
+            self._db_flush_task = spawn(self._drain_db())
+
+    async def _drain_db(self) -> None:
+        """The one flusher: drain queued operations in order, including late arrivals."""
+        while self._db_ops and self.task_id is not None:
+            ops, self._db_ops = self._db_ops, []
+            await task_log_store.write(self.task_id, ops)
+
+    async def flush_db(self) -> None:
+        """Wait until everything queued so far is written (tests, shutdown)."""
+        while self._db_flush_task is not None and not self._db_flush_task.done():
+            await self._db_flush_task
+        if self._db_ops:  # queued while no loop was running
+            self._db_flush_task = spawn(self._drain_db())
+            await self._db_flush_task
+
+    def _queue_phase(self, phase_key: str, phase_data: dict[str, Any]) -> None:
+        self._queue_db(
+            (
+                "phase",
+                phase_key,
+                {key: phase_data[key] for key in ("status", "started_at", "completed_at")},
+            )
+        )
 
     def _ensure_initialized(self, spec_id: str) -> dict[str, Any]:
         """Ensure task_logs.json exists with proper structure."""
@@ -189,11 +229,13 @@ class TaskLogWriter:
             entry["subphase"] = subphase
 
         data["phases"][phase_key]["entries"].append(entry)
+        self._queue_db(("entry", phase_key, entry))
 
         # Update phase status
         if data["phases"][phase_key]["status"] == "pending":
             data["phases"][phase_key]["status"] = "active"
             data["phases"][phase_key]["started_at"] = datetime.now().isoformat()  # noqa: DTZ005
+            self._queue_phase(phase_key, data["phases"][phase_key])
 
         self._save(data)
 
@@ -306,6 +348,7 @@ class TaskLogWriter:
                 self._pending_tool_output = []
 
         self._save(data)
+        self._queue_phase(phase_key, data["phases"][phase_key])
 
     def finalize(self, spec_id: str, phase: TaskPhase) -> None:
         """Finalize logging - close any pending tools and flush text."""

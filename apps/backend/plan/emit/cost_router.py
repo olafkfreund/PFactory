@@ -19,9 +19,10 @@ It writes (additively) onto the contract's ``execution`` block:
 
   - ``phase_models`` — ``{planning, coding, qa, test_gen}`` model ids.
   - ``routing`` — ``{class, cost_estimate_usd, cost_ceiling_usd, policy,
-    rationale, autonomy}``, retaining a valid stronger declared class and a
-    ``pinned_model`` when supplied (``cost_estimate_usd`` is ``None`` for an
-    unpriced/subscription model, mirroring CFactory billing-mode).
+    rationale, autonomy}``, retaining a valid stronger declared class, a
+    ``pinned_model``, and ``requested``/``overrides`` dicts when supplied
+    (``cost_estimate_usd`` is ``None`` for an unpriced/subscription model,
+    mirroring CFactory billing-mode).
 
 Runs in :func:`plan.emit.contract_emit.assemble_contract` **after**
 ``apply_tier`` so the tier floor is already set. Additive + back-compat: when no
@@ -187,6 +188,10 @@ def select_phase_models(
     }
     if pin:
         routing["pinned_model"] = pin
+    # AIFactory's trusted_plan reads these stage->tier maps (#895); copy, not alias.
+    routing.update(
+        {k: dict(prior[k]) for k in ("requested", "overrides") if isinstance(prior.get(k), dict)}
+    )
     return {"phase_models": phase_models, "routing": routing}
 
 
@@ -227,7 +232,8 @@ def apply_cost_routing(
 
     Writes ``execution.phase_models`` (the per-role picks) and
     ``execution.routing`` (class / cost estimate / ceiling / policy / rationale /
-    autonomy), keeping a valid stronger declared class and a routing pin.
+    autonomy), keeping a valid stronger declared class, a routing pin, and
+    the ``requested``/``overrides`` stage->tier dicts (copied; non-dicts dropped).
     Additive: it never removes the existing ``execution.model`` /
     ``provider`` (the tier/complexity default stays as the run-level fallback),
     so a consumer that ignores ``phase_models`` keeps today's behaviour.

@@ -488,6 +488,9 @@ async def start_auto_fix(project_id: str, issue_number: int) -> dict[str, Any]:
     # Determine whether to delegate before recording the queue item, so
     # the queue carries the right initial status.
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
+    from server.routes.tasks import _refresh_board  # noqa: PLC0415 - routes import this module
+
+    _refresh_board(project_id, spec_dir)
     task_metadata = _read_task_metadata(spec_dir)
     # Delegation works on GitHub (Copilot, V1) and GitLab (Duo Workflow,
     # V1.5 #98). ADO has no autonomous-agent equivalent — the provider's
