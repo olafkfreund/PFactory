@@ -354,3 +354,44 @@ def test_archive_and_recover_reach_remote_board(
         assert (await _remote_board(monkeypatch, local, remote))[0]["status"] == expected
 
     asyncio.run(go())
+
+
+@pytest.mark.usefixtures("store")
+def test_plan_review_hold_reaches_remote_board(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / "a"
+    remote = tmp_path / "b"
+    remote.mkdir()
+
+    class Idle:
+        def is_running(self, _task_id: str) -> bool:
+            return False
+
+        async def is_running_anywhere(self, _task_id: str) -> bool:
+            return False
+
+    async def no_emit(*_args: object) -> None:
+        return None
+
+    monkeypatch.setattr(execution, "get_agent_service", Idle)
+    monkeypatch.setattr(execution, "emit_task_status", no_emit)
+
+    async def go() -> None:
+        spec = make_spec(local)
+        (spec / "task_metadata.json").write_text(json.dumps({"requireReviewBeforeCoding": True}))
+        end_logs(spec)  # not started yet: no active phase
+        project(monkeypatch, local)
+        monkeypatch.setattr(execution, "resolve_project_path", lambda _pid: local)
+        await task_log_store.save_board(TASK, "proj", tasks.board_record("proj", spec))
+
+        result = await execution.start_task(TASK, execution.StartTaskRequest(), object())  # type: ignore[arg-type]
+        assert result["status"] == "human_review"
+        await _settle()
+        local_view = (await projects.list_project_tasks("proj"))[0]
+        remote_view = (await _remote_board(monkeypatch, local, remote))[0]
+        assert local_view["status"] == "human_review"
+        assert remote_view["status"] == "human_review"
+        assert remote_view.get("reviewReason") == local_view.get("reviewReason")
+
+    asyncio.run(go())

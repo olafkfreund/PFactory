@@ -442,6 +442,7 @@ async def start_task(task_id: str, request: StartTaskRequest, raw_request: Reque
                     "[StartTask] Failed to persist human_review status: %s", sanitize_log(e)
                 )
 
+            _refresh_board(project_id, spec_dir)
             await emit_task_status(task_id, "human_review", "plan_review")
 
             return {

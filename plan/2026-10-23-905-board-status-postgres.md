@@ -109,3 +109,7 @@ and no test of the mid-run hook.
   phase and subtasks. `test_archive_and_recover_reach_remote_board` covers the
   three routes. Each fails when its hook is removed.
 - Not done: `create_pr_from_task` and the worktree sync paths were not traced.
+
+## Deviations (review fix round 3)
+
+- `start_task` in `apps/web-server/server/routes/execution.py`: the plan-review early return writes `human_review` to test_plan.json without starting a run, so no progress event follows. It now calls `_refresh_board` before `emit_task_status`. Test: `test_plan_review_hold_reaches_remote_board`, which fails without the call.
