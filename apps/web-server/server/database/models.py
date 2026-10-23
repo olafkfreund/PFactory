@@ -8,13 +8,16 @@ Timestamps use server-side defaults via ``func.now()``.
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
     Text,
@@ -437,6 +440,36 @@ class RunLease(Base):
     lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     stop_requested: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
+    )
+
+
+class TaskLogPhase(Base):
+    """Latest status for one task phase."""
+
+    __tablename__ = "task_log_phases"
+
+    task_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    phase: Mapped[str] = mapped_column(String(32), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(64))
+    completed_at: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TaskLogEntry(Base):
+    """One append-only task log line."""
+
+    __tablename__ = "task_log_entries"
+    __table_args__ = (Index("ix_task_log_entries_task_id_id", "task_id", "id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    phase: Mapped[str] = mapped_column(String(32), nullable=False)
+    entry: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 
