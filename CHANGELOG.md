@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.6.32 — Insights chat keeps every message across pods (2026-10-23)
+
+- **Insights chat sessions are no longer cached per pod (#912, #913).** Every
+  load reads the session file on the shared volume, so with two replicas no
+  message, rename or model change is lost. The reply re-reads the session
+  before it saves, and session files are written atomically.
+
 ## 0.6.31 — Task logs and board status work from any replica (2026-10-23)
 
 - **Task logs live in Postgres (#829, #904).** `GET /api/tasks/{id}/logs` reads
