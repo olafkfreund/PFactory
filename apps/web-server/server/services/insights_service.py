@@ -104,7 +104,6 @@ class InsightsService:
 
     def __init__(self):
         self._running_tasks: dict[str, asyncio.Task] = {}  # projectId -> running asyncio task
-        self._sessions: dict[str, InsightsSession] = {}  # Cache
 
     def _get_sessions_dir(self, project_path: Path) -> Path:
         """Get the directory for storing insight sessions."""
@@ -151,13 +150,11 @@ class InsightsService:
         with open(session_file, "w") as f:
             json.dump(data, f, indent=2)
 
-        self._sessions[session.id] = session
-
     def _load_session(self, project_path: Path, session_id: str) -> InsightsSession | None:
-        """Load a session from disk."""
-        if session_id in self._sessions:
-            return self._sessions[session_id]
+        """Load a session from disk.
 
+        Never cached: another replica may have written the file since (#912).
+        """
         session_file = self._get_session_file(project_path, session_id)
         if not session_file.exists():
             return None
@@ -188,7 +185,6 @@ class InsightsService:
                 updated_at=data.get("updatedAt", datetime.now().isoformat()),
             )
 
-            self._sessions[session_id] = session
             return session
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(
@@ -272,9 +268,6 @@ class InsightsService:
             return {"deleted": False}
 
         session_file.unlink()
-
-        if session_id in self._sessions:
-            del self._sessions[session_id]
 
         was_current = False
         current_file = self._get_current_session_file(project_path)
