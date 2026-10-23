@@ -266,12 +266,16 @@ def test_created_task_reaches_remote_board(tmp_path: Path, monkeypatch: pytest.M
     asyncio.run(go())
 
 
-async def _remote_board(monkeypatch: pytest.MonkeyPatch, local: Path, remote: Path) -> Any:
-    # Wait for the spawned board flush itself: a fixed sleep is too short on a loaded CI runner.
+async def _settle() -> None:
+    # Wait for the spawned board flush: reading while it writes races on the one test connection.
     for _ in range(500):
         await asyncio.sleep(0.01)
         if not task_log_store._board_flushers:
-            break
+            return
+
+
+async def _remote_board(monkeypatch: pytest.MonkeyPatch, local: Path, remote: Path) -> Any:
+    await _settle()
     project(monkeypatch, remote)
     try:
         return await projects.list_project_tasks("proj")
@@ -344,6 +348,7 @@ def test_archive_and_recover_reach_remote_board(
         end_logs(spec)  # a dead run: no active phase left
         before = (await _remote_board(monkeypatch, local, remote))[0]["status"]
         await execution.recover_task(TASK)
+        await _settle()
         expected = (await projects.list_project_tasks("proj"))[0]["status"]
         assert expected != before
         assert (await _remote_board(monkeypatch, local, remote))[0]["status"] == expected
