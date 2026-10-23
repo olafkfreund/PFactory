@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.services import task_log_store
 from server.services.git_utils import confine_to_workspace, safe_spec_component
 from server.services.project_paths import (
     NO_LOCAL_CLONE_DETAIL,
@@ -1104,6 +1105,8 @@ async def list_project_tasks(project_id: str):
 
     project_path = Path(projects[project_id]["path"])
     spec_dirs = tasks_module.get_spec_dirs(project_path)
+    local_ids = {spec_dir.name for spec_dir in spec_dirs}
+    boards = await task_log_store.load_boards([project_id]) if task_log_store.enabled() else {}
 
     repo = tasks_module.project_repo(projects[project_id])  # W5 (#218): target repo
     all_tasks = []
@@ -1111,6 +1114,9 @@ async def list_project_tasks(project_id: str):
         task = tasks_module.spec_to_task(project_id, spec_dir)
         task.repo = repo
         all_tasks.append(tasks_module.task_to_dict(task))
+
+    for task in tasks_module.remote_tasks(project_id, boards, local_ids, repo):
+        all_tasks.append(tasks_module.task_to_dict(task, boards[task.id]))
 
     # Sort by created_at descending
     all_tasks.sort(key=lambda t: t.get("createdAt", ""), reverse=True)

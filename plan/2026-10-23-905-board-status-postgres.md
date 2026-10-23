@@ -60,3 +60,14 @@ touched files; `python scripts/ratchet_lint.py` no new findings.
 
 Revert the PR. The migration is additive; `alembic downgrade b3d9e1f7a5c2` drops
 the table, and older code ignores it.
+
+## Deviations (implementation)
+
+- `GET /api/tasks` keeps its `Task` response shape (no `executionProgress`, as
+  before): from a pod without the spec directory it returns the same status,
+  phase and subtasks (the progress counts) as the owning pod. `executionProgress`
+  comes back on `GET /api/projects/{id}/tasks` (the board) and `GET /api/tasks/{id}`.
+- Steps 1-7 were done in one coder run rather than step by step; the coder's
+  extra `Task.execution_progress` field was removed in review.
+- The `_emit_progress` hook has no dedicated test; it calls the same
+  `board_record` builder and `schedule_board` the status-route test covers.

@@ -7,6 +7,7 @@ enabling task execution with real-time streaming of logs and progress.
 
 import asyncio
 import json
+import logging
 import os
 import sys
 from collections.abc import Callable
@@ -245,8 +246,6 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                                     }
                                 )
             except Exception as e:
-                import logging
-
                 logging.getLogger(__name__).debug(
                     "[AgentService] Could not read subtasks for %s: %s",
                     sanitize_log(progress.task_id),
@@ -279,8 +278,6 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                 await self._safe_emit_task_status(progress.task_id, new_status, review_reason)
 
         except Exception as e:
-            import logging
-
             logging.getLogger(__name__).warning(
                 "[AgentService] WebSocket broadcast failed: %s", sanitize_log(e)
             )
@@ -288,6 +285,17 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         # Also emit to local callbacks
         await self._deliver_local_progress(progress)
         await relay.publish("task:progress", asdict(progress))
+        if task_log_store.enabled() and (spec_dir := self._spec_dirs.get(progress.task_id)):
+            from server.routes.tasks import (
+                board_record,
+            )
+
+            project_id = progress.task_id.split(":", 1)[0]
+            task_log_store.schedule_board(
+                progress.task_id,
+                project_id,
+                lambda: board_record(project_id, spec_dir),
+            )
 
     async def _deliver_local_progress(self, progress: TaskProgress) -> None:
         """Emit progress to all callbacks registered on THIS pod.
