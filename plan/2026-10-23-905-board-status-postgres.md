@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 905
 spec: spec/2026-10-23-905-board-status-postgres.md
 ---
