@@ -102,9 +102,8 @@ class InsightsSession:
 class InsightsService:
     """Service for AI-powered insights chat."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._running_tasks: dict[str, asyncio.Task] = {}  # projectId -> running asyncio task
-        self._sessions: dict[str, InsightsSession] = {}  # Cache
 
     def _get_sessions_dir(self, project_path: Path) -> Path:
         """Get the directory for storing insight sessions."""
@@ -148,16 +147,17 @@ class InsightsService:
             "updatedAt": session.updated_at,
         }
 
-        with open(session_file, "w") as f:
+        # Atomic replace: the other pod may be reading this file right now (#912).
+        tmp_file = session_file.with_name(f".{session_file.name}.{uuid.uuid4().hex[:8]}.tmp")
+        with open(tmp_file, "w") as f:
             json.dump(data, f, indent=2)
-
-        self._sessions[session.id] = session
+        tmp_file.replace(session_file)
 
     def _load_session(self, project_path: Path, session_id: str) -> InsightsSession | None:
-        """Load a session from disk."""
-        if session_id in self._sessions:
-            return self._sessions[session_id]
+        """Load a session from disk.
 
+        Never cached: another replica may have written the file since (#912).
+        """
         session_file = self._get_session_file(project_path, session_id)
         if not session_file.exists():
             return None
@@ -188,7 +188,6 @@ class InsightsService:
                 updated_at=data.get("updatedAt", datetime.now().isoformat()),
             )
 
-            self._sessions[session_id] = session
             return session
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(
@@ -272,9 +271,6 @@ class InsightsService:
             return {"deleted": False}
 
         session_file.unlink()
-
-        if session_id in self._sessions:
-            del self._sessions[session_id]
 
         was_current = False
         current_file = self._get_current_session_file(project_path)
@@ -386,6 +382,9 @@ class InsightsService:
                     provider=provider_id,
                     provider_model=provider_model,
                 )
+                # Re-read: a rename, model change or message from another pod may
+                # have been saved while the reply ran (#912).
+                session = self._load_session(project_path, session.id) or session
                 session.messages.append(assistant_msg)
                 self._save_session(project_path, session)
 
