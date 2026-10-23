@@ -19,5 +19,5 @@ Quick Start:
 See README.md for full documentation.
 """
 
-__version__ = "0.6.31"
+__version__ = "0.6.32"
 __author__ = "PFactory Team"
