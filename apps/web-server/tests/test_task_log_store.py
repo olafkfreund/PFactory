@@ -13,6 +13,7 @@ import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -55,7 +56,7 @@ def _project(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
     monkeypatch.setattr(tasks_routes, "load_projects", lambda: {"proj": {"path": str(path)}})
 
 
-def _contents(phase: dict) -> list[str]:
+def _contents(phase: dict[str, Any]) -> list[str]:
     return [e["content"] for e in phase["entries"]]
 
 
@@ -68,7 +69,7 @@ def test_log_written_on_pod_a_is_read_on_pod_b(
     pod_b = tmp_path / "pod-b"  # holds no spec directory and no task_logs.json
     pod_b.mkdir()
 
-    async def _go() -> dict:
+    async def _go() -> dict[str, Any]:
         writer = TaskLogWriter(pod_a / "spec", task_id=TASK)
         writer.set_phase_status(SPEC, TaskPhase.PLANNING, "active")
         writer.add_entry(SPEC, TaskPhase.PLANNING, "text", "planning line")
@@ -76,7 +77,8 @@ def test_log_written_on_pod_a_is_read_on_pod_b(
         writer.add_entry(SPEC, TaskPhase.CODING, "text", "coding line")
         await writer.flush_db()
         _project(monkeypatch, pod_b)
-        return await tasks_routes.get_task_logs(TASK)
+        logs: dict[str, Any] = await tasks_routes.get_task_logs(TASK)
+        return logs
 
     result = asyncio.run(_go())
     phases = result["phases"]
@@ -97,7 +99,7 @@ def test_concurrent_writers_keep_their_append_order(
 ) -> None:
     n = 40
 
-    async def _go() -> dict | None:
+    async def _go() -> dict[str, Any] | None:
         a = TaskLogWriter(tmp_path / "a", task_id=TASK)
         b = TaskLogWriter(tmp_path / "b", task_id=TASK)
         for i in range(n):
@@ -124,7 +126,7 @@ def test_without_shared_store_the_file_is_used(
     monkeypatch.setattr(task_log_store, "enabled", lambda: False)
     spec_dir = tmp_path / ".pfactory" / "specs" / SPEC
 
-    async def _go() -> tuple[dict, int]:
+    async def _go() -> tuple[dict[str, Any], int]:
         writer = TaskLogWriter(spec_dir, task_id=TASK)
         writer.add_entry(SPEC, TaskPhase.CODING, "text", "file only")
         await writer.flush_db()
@@ -221,7 +223,7 @@ def test_delete_task_removes_its_rows(
 ) -> None:
     spec_dir = tmp_path / ".pfactory" / "specs" / SPEC
 
-    async def _go() -> dict | None:
+    async def _go() -> dict[str, Any] | None:
         writer = TaskLogWriter(spec_dir, task_id=TASK)
         writer.add_entry(SPEC, TaskPhase.CODING, "text", "line")
         await writer.flush_db()

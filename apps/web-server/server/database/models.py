@@ -8,6 +8,7 @@ Timestamps use server-side defaults via ``func.now()``.
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -466,7 +467,7 @@ class TaskLogEntry(Base):
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     task_id: Mapped[str] = mapped_column(String(255), nullable=False)
     phase: Mapped[str] = mapped_column(String(32), nullable=False)
-    entry: Mapped[dict] = mapped_column(JSON, nullable=False)
+    entry: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

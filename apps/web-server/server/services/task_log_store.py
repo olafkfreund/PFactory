@@ -105,9 +105,9 @@ async def load(task_id: str) -> dict[str, Any] | None:
                 status=row.status, started_at=row.started_at, completed_at=row.completed_at
             )
             times.append(row.updated_at)
-        for row in entries:
-            result["phases"][row.phase]["entries"].append(row.entry)
-            times.append(row.created_at)
+        for entry_row in entries:
+            result["phases"][entry_row.phase]["entries"].append(entry_row.entry)
+            times.append(entry_row.created_at)
         result["created_at"] = min(times).isoformat()
         result["updated_at"] = max(times).isoformat()
         return result

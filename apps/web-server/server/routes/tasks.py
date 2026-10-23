@@ -2047,7 +2047,7 @@ async def get_task_logs(task_id: str):
 
     if task_logs_file or task_logs:
         try:
-            if task_logs is None:
+            if task_logs is None and task_logs_file is not None:
                 task_logs = json.loads(task_logs_file.read_text())
             logger.info(
                 "[GetTaskLogs] Loaded task logs, has phases: %s",
