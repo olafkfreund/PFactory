@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 912
 spec: spec/2026-10-23-912-insights-session-cache.md
 ---
