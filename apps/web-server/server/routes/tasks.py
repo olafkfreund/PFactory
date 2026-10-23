@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -2049,15 +2049,16 @@ async def get_task_logs(task_id: str):
         try:
             if task_logs is None and task_logs_file is not None:
                 task_logs = json.loads(task_logs_file.read_text())
+            doc: dict[str, Any] = task_logs or {}
             logger.info(
                 "[GetTaskLogs] Loaded task logs, has phases: %s",
-                sanitize_log("phases" in task_logs),
+                sanitize_log("phases" in doc),
             )
             result = {
-                "specId": task_logs.get("spec_id", spec_id),
-                "createdAt": task_logs.get("created_at"),
-                "updatedAt": task_logs.get("updated_at"),
-                "phases": task_logs.get("phases", {}),
+                "specId": doc.get("spec_id", spec_id),
+                "createdAt": doc.get("created_at"),
+                "updatedAt": doc.get("updated_at"),
+                "phases": doc.get("phases", {}),
             }
 
             # Also include build-progress.txt if it exists (detailed human-readable logs)
