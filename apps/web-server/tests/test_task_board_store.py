@@ -267,7 +267,11 @@ def test_created_task_reaches_remote_board(tmp_path: Path, monkeypatch: pytest.M
 
 
 async def _remote_board(monkeypatch: pytest.MonkeyPatch, local: Path, remote: Path) -> Any:
-    await asyncio.sleep(0.05)
+    # Wait for the spawned board flush itself: a fixed sleep is too short on a loaded CI runner.
+    for _ in range(500):
+        await asyncio.sleep(0.01)
+        if not task_log_store._board_flushers:
+            break
     project(monkeypatch, remote)
     try:
         return await projects.list_project_tasks("proj")
