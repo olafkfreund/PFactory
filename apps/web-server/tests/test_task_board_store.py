@@ -395,3 +395,33 @@ def test_plan_review_hold_reaches_remote_board(
         assert remote_view.get("reviewReason") == local_view.get("reviewReason")
 
     asyncio.run(go())
+
+
+@pytest.mark.usefixtures("store")
+def test_worktree_sync_reaches_remote_board(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / "a"
+    remote = tmp_path / "b"
+    remote.mkdir()
+
+    async def go() -> None:
+        spec = make_spec(local)
+        project(monkeypatch, local)
+        plan = json.loads((spec / "test_plan.json").read_text())
+        plan["phases"][0]["subtasks"][0]["status"] = "pending"
+        (spec / "test_plan.json").write_text(json.dumps(plan))
+        await task_log_store.save_board(TASK, "proj", tasks.board_record("proj", spec))
+
+        worktree = local / ".pfactory" / "worktrees" / "tasks" / SPEC / ".pfactory" / "specs" / SPEC
+        worktree.mkdir(parents=True)
+        plan["phases"][0]["subtasks"][0]["status"] = "completed"
+        (worktree / "test_plan.json").write_text(json.dumps(plan))
+
+        await AgentService()._sync_worktree_files(local, SPEC, TASK)
+        local_view = (await projects.list_project_tasks("proj"))[0]
+        remote_view = (await _remote_board(monkeypatch, local, remote))[0]
+        assert local_view["subtasks"][0]["status"] == "completed"
+        assert remote_view["subtasks"] == local_view["subtasks"]
+
+    asyncio.run(go())

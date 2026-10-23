@@ -113,3 +113,4 @@ and no test of the mid-run hook.
 ## Deviations (review fix round 3)
 
 - `start_task` in `apps/web-server/server/routes/execution.py`: the plan-review early return writes `human_review` to test_plan.json without starting a run, so no progress event follows. It now calls `_refresh_board` before `emit_task_status`. Test: `test_plan_review_hold_reaches_remote_board`, which fails without the call.
+- Mid-run worktree sync (`_sync_worktree_files` in `apps/web-server/server/services/agent_worktree_sync.py`): every 3 s it copies subtask progress into the main spec dir, but only phase events rebuilt the board row. It now schedules a board flush when it synced files; flushes are coalesced per task. Test: `test_worktree_sync_reaches_remote_board`, which fails without the call.
