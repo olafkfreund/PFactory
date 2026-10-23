@@ -29,3 +29,9 @@ Decision: drop the per-process `_sessions` cache, so every load reads the sessio
 ## Rollback
 
 Revert the PR.
+
+## Deviations (review round 1)
+
+- `send_message` re-reads the session before it appends the assistant reply. Without the cache, a rename or a model change saved during the reply, on this pod or another, was overwritten by the reply's save. Test: `test_rename_during_reply_survives`, which fails without the re-read.
+- `_save_session` writes a temp file and then `replace()`s it. Every request now reads the file, so a half-written file seen by the other pod would have made `get_current_session` start a new session. The temp name ends in `.tmp`, so `list_sessions`' `*.json` glob skips it.
+- `InsightsService.__init__` is annotated `-> None`, so the test's calls pass `mypy --strict`.

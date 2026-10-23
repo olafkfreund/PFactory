@@ -102,7 +102,7 @@ class InsightsSession:
 class InsightsService:
     """Service for AI-powered insights chat."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._running_tasks: dict[str, asyncio.Task] = {}  # projectId -> running asyncio task
 
     def _get_sessions_dir(self, project_path: Path) -> Path:
@@ -147,8 +147,11 @@ class InsightsService:
             "updatedAt": session.updated_at,
         }
 
-        with open(session_file, "w") as f:
+        # Atomic replace: the other pod may be reading this file right now (#912).
+        tmp_file = session_file.with_name(f".{session_file.name}.{uuid.uuid4().hex[:8]}.tmp")
+        with open(tmp_file, "w") as f:
             json.dump(data, f, indent=2)
+        tmp_file.replace(session_file)
 
     def _load_session(self, project_path: Path, session_id: str) -> InsightsSession | None:
         """Load a session from disk.
@@ -379,6 +382,9 @@ class InsightsService:
                     provider=provider_id,
                     provider_model=provider_model,
                 )
+                # Re-read: a rename, model change or message from another pod may
+                # have been saved while the reply ran (#912).
+                session = self._load_session(project_path, session.id) or session
                 session.messages.append(assistant_msg)
                 self._save_session(project_path, session)
 

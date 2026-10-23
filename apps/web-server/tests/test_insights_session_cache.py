@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from typing import Any
 
+import pytest
+
+from server.services import insights_service
 from server.services.insights_service import InsightsMessage, InsightsService
 
 
@@ -25,3 +30,26 @@ def test_alternating_pods_keep_every_message(tmp_path: Path) -> None:
     fresh = InsightsService()._load_session(tmp_path, session_id)
     assert fresh is not None
     assert [m.content for m in fresh.messages] == ["m1", "m2", "m3"]
+
+
+def test_rename_during_reply_survives(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    replying, other_pod = InsightsService(), InsightsService()
+    session_id = replying.get_current_session(tmp_path, "proj").id
+
+    class Provider:
+        async def send_message(self, **_kwargs: Any) -> str:
+            other_pod.rename_session(tmp_path, session_id, "Renamed")
+            return "answer"
+
+    monkeypatch.setattr(insights_service, "get_provider", lambda _pid: Provider())
+
+    async def no_broadcast(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(insights_service, "broadcast_event", no_broadcast)
+    asyncio.run(replying.send_message(tmp_path, "proj", "hello"))
+
+    fresh = InsightsService()._load_session(tmp_path, session_id)
+    assert fresh is not None
+    assert fresh.title == "Renamed"
+    assert [m.content for m in fresh.messages] == ["hello", "answer"]
