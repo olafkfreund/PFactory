@@ -92,5 +92,20 @@ Review of PR #908 found end and create paths that never wrote a row.
 - `wait_for_task` is unchanged: it writes no file, so the snapshot built from
   files would be the same.
 - Tests: `test_stop_and_interrupted_runs_reach_remote_board` (stop, then pod exit)
-  and `test_created_task_reaches_remote_board`. Both fail without the fix. This
-  also covers the `_emit_progress`/end-path hook named above as untested.
+  and `test_created_task_reaches_remote_board`. Both fail without the fix. They
+  cover the `_update_plan_status` hook, not `_emit_progress` (see round 2).
+
+## Deviations (review fix round 2)
+
+Review of PR #908 (head c07fb58) found more board-facing writers without a refresh
+and no test of the mid-run hook.
+
+- `archive_tasks` and `unarchive_tasks` (`projects.py`) and `recover_task`
+  (`execution.py`) write `test_plan.json` and now call `_refresh_board`.
+  `execution.py` was not in the plan.
+- The round 1 note was wrong: its tests go through `_update_plan_status`, not
+  `_emit_progress`. `test_progress_event_reaches_remote_board` now drives
+  `_emit_progress` with `_spec_dirs` set and checks the remote board shows the new
+  phase and subtasks. `test_archive_and_recover_reach_remote_board` covers the
+  three routes. Each fails when its hook is removed.
+- Not done: `create_pr_from_task` and the worktree sync paths were not traced.

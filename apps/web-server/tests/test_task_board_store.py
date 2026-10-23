@@ -9,6 +9,7 @@ import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,9 +21,10 @@ from sqlalchemy import event, func, select  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
 
 from server.database.models import Base, TaskBoardState  # noqa: E402
-from server.routes import projects, tasks  # noqa: E402
-from server.services import task_log_store  # noqa: E402
+from server.routes import execution, projects, tasks  # noqa: E402
+from server.services import project_paths, run_leases, task_log_store  # noqa: E402
 from server.services.agent_service import AgentService  # noqa: E402
+from server.services.task_models import TaskPhase, TaskProgress  # noqa: E402
 
 TASK = "proj:001-feature"
 SPEC = "001-feature"
@@ -52,6 +54,7 @@ def project(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
 
     monkeypatch.setattr(tasks, "load_projects", loader)
     monkeypatch.setattr(projects, "load_projects", loader)
+    monkeypatch.setattr(project_paths, "load_projects", loader)
 
 
 def make_spec(root: Path, name: str = SPEC) -> Path:
@@ -259,5 +262,86 @@ def test_created_task_reaches_remote_board(tmp_path: Path, monkeypatch: pytest.M
         assert [t.id for t in (await tasks.list_tasks(project_id="proj", status=None)).tasks] == [
             created.id
         ]
+
+    asyncio.run(go())
+
+
+async def _remote_board(monkeypatch: pytest.MonkeyPatch, local: Path, remote: Path) -> Any:
+    await asyncio.sleep(0.05)
+    project(monkeypatch, remote)
+    try:
+        return await projects.list_project_tasks("proj")
+    finally:
+        project(monkeypatch, local)
+
+
+@pytest.mark.usefixtures("store")
+def test_progress_event_reaches_remote_board(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / "a"
+    remote = tmp_path / "b"
+    remote.mkdir()
+
+    async def go() -> None:
+        spec = make_spec(local)
+        project(monkeypatch, local)
+        await task_log_store.save_board(TASK, "proj", tasks.board_record("proj", spec))
+        # What the running agent writes mid-run: a new phase and subtask progress.
+        plan = json.loads((spec / "test_plan.json").read_text())
+        plan["phase"] = "qa_review"
+        plan["phases"][0]["subtasks"].append(
+            {"id": "2", "description": "Test", "status": "in_progress"}
+        )
+        (spec / "test_plan.json").write_text(json.dumps(plan))
+        expected = (await projects.list_project_tasks("proj"))[0]
+        service = AgentService()
+        service._spec_dirs[TASK] = spec
+        await service._emit_progress(
+            TaskProgress(task_id=TASK, phase=TaskPhase.QA_REVIEW, message="qa")
+        )
+        got = (await _remote_board(monkeypatch, local, remote))[0]
+        assert len(got["subtasks"]) == 2
+        for field in ("status", "phase", "subtasks", "executionProgress"):
+            assert got[field] == expected[field]
+
+    asyncio.run(go())
+
+
+@pytest.mark.usefixtures("store")
+def test_archive_and_recover_reach_remote_board(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / "a"
+    remote = tmp_path / "b"
+    remote.mkdir()
+
+    async def inactive(*_args: object) -> bool:
+        return False
+
+    monkeypatch.setattr(run_leases, "is_active", inactive)
+
+    async def go() -> None:
+        spec = make_spec(local)
+        project(monkeypatch, local)
+        await task_log_store.save_board(TASK, "proj", tasks.board_record("proj", spec))
+
+        await projects.unarchive_tasks("proj", projects.UnarchiveTasksRequest(taskIds=[TASK]))
+        assert "archivedAt" not in (await _remote_board(monkeypatch, local, remote))[0].get(
+            "metadata", {}
+        )
+        await projects.archive_tasks("proj", projects.ArchiveTasksRequest(taskIds=[TASK]))
+        assert (
+            (await _remote_board(monkeypatch, local, remote))[0]
+            .get("metadata", {})
+            .get("archivedAt")
+        )
+
+        end_logs(spec)  # a dead run: no active phase left
+        before = (await _remote_board(monkeypatch, local, remote))[0]["status"]
+        await execution.recover_task(TASK)
+        expected = (await projects.list_project_tasks("proj"))[0]["status"]
+        assert expected != before
+        assert (await _remote_board(monkeypatch, local, remote))[0]["status"] == expected
 
     asyncio.run(go())

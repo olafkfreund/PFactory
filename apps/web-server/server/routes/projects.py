@@ -1287,6 +1287,8 @@ async def archive_tasks(project_id: str, request: ArchiveTasksRequest):
     Archived tasks remain in their spec directories but are hidden from
     the default Kanban view.
     """
+    from . import tasks as tasks_module  # noqa: PLC0415 - tasks imports this module
+
     projects = load_projects()
 
     if project_id not in projects:
@@ -1337,6 +1339,7 @@ async def archive_tasks(project_id: str, request: ArchiveTasksRequest):
             plan["archivedInVersion"] = request.version
 
         plan_file.write_text(json.dumps(plan, indent=2))
+        tasks_module._refresh_board(project_id, spec_dir)
         archived_count += 1
 
     if errors and archived_count == 0:
@@ -1359,6 +1362,8 @@ async def unarchive_tasks(project_id: str, request: UnarchiveTasksRequest):
     Removes archivedAt and archivedInVersion from task metadata,
     making them visible in the Kanban board again.
     """
+    from . import tasks as tasks_module  # noqa: PLC0415 - tasks imports this module
+
     projects = load_projects()
 
     if project_id not in projects:
@@ -1411,6 +1416,7 @@ async def unarchive_tasks(project_id: str, request: UnarchiveTasksRequest):
         plan.pop("archivedInVersion", None)
 
         plan_file.write_text(json.dumps(plan, indent=2))
+        tasks_module._refresh_board(project_id, spec_dir)
         unarchived_count += 1
 
     if errors and unarchived_count == 0:

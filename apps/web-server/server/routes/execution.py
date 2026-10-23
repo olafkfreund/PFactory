@@ -17,7 +17,7 @@ from server.services import run_leases
 from ..services.agent_service import get_agent_service
 from ..websockets.events import emit_task_status
 from .projects import load_projects, resolve_project_path
-from .tasks import split_task_id, sync_worktree_to_main_spec
+from .tasks import _refresh_board, split_task_id, sync_worktree_to_main_spec
 
 logger = logging.getLogger(__name__)
 
@@ -676,6 +676,7 @@ async def recover_task(task_id: str, request: RecoverTaskRequest = RecoverTaskRe
             logger.exception("Auto-restart failed for %s", sanitize_log(task_id))
             auto_restart_error = "Auto-restart failed; task remains in reset state"
 
+    _refresh_board(project_id, spec_dir)
     # Emit status change via WebSocket (single final status to avoid UI flicker)
     await emit_task_status(task_id, reset_status)
 
