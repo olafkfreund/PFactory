@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 922
 spec: spec/2026-10-24-922-drain-running-tasks.md
 ---
