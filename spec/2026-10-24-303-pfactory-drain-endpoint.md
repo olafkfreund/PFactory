@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: factory-gitops#303
 intent: intent/2026-10-24-303-pfactory-drain-endpoint.md
 ---
