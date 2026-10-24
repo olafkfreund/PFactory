@@ -44,7 +44,7 @@ Approved decisions, carried over from the spec:
    boolean and `maxWaitSeconds` integer >= 0).
    `charts/pfactory/templates/deployment.yaml`: after the readinessProbe block
    (~line 281), add
-   `{{- if .Values.drain.enabled }} lifecycle: preStop: exec: command: ["sh","-c", "<#306 command>"] {{- end }}`
+   `{{- if (.Values.drain).enabled }} lifecycle: preStop: exec: command: ["sh","-c", "<#306 command>"] {{- end }}`
    at the container indent.
    → `helm lint --strict charts/pfactory`, `helm template pfactory charts/pfactory | grep -A4 preStop`
    Traps: the template's `| default 45` stays, as a fallback when the key is

@@ -279,7 +279,7 @@ spec:
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
-          {{- if .Values.drain.enabled }}
+          {{- if (.Values.drain).enabled }}
           lifecycle:
             preStop:
               exec:
