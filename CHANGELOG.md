@@ -12,6 +12,9 @@
   `undici` moves to 6.29.1 (CVE-2026-109869) and apk floors pull
   `libbrotlicommon1`, `libbrotlidec1` and `libbrotlienc1` to 1.2.0-r7
   (CVE-2026-111497). The web frontend's `zod` moves to 4.6.6.
+- **`GET /api/drain` reports whether the pod still holds a run (factory-gitops#303,
+  #920).** 200 `{"held":0}` when idle, 503 `{"held":n}` otherwise; public, for a
+  preStop hook.
 
 ## 0.6.32 — Insights chat keeps every message across pods (2026-10-23)
 
