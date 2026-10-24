@@ -1,0 +1,17 @@
+name: CodeQL ratchet
+
+# Fails when open critical/high/error/medium CodeQL alerts exceed
+# .github/codeql-baseline.json. Logic lives in the hub (Factory#813).
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  security-events: read
+  contents: read
+
+jobs:
+  ratchet:
+    uses: olafkfreund/Factory/.github/workflows/codeql-ratchet.yml@main
