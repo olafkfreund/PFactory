@@ -44,11 +44,16 @@ image:
 # Tracked for the cluster in factory-gitops#273, whose KEDA ScaledObject also
 # pins maxReplicaCount: 1.
 #
-# Seconds Kubernetes waits after SIGTERM before SIGKILL. 45, not the 30s
-# default: the #804 relay's teardown (drain task, publish pool close, listener
-# cleanup) is each individually bounded but runs in sequence, for ~25s worst
-# case, and the rest of the app still has to stop inside whatever is left.
-terminationGracePeriodSeconds: 45
+# Seconds Kubernetes waits after SIGTERM before SIGKILL. 1800: the preStop drain
+# (below) waits up to drain.maxWaitSeconds for running tasks, and the remaining
+# 60s covers the #804 relay teardown (drain task, publish pool close, listener
+# cleanup), which runs in sequence after it. Matches factory-gitops#306.
+terminationGracePeriodSeconds: 1800
+
+# preStop hook: polls /api/drain until no run lease or agent process is held (#922).
+drain:
+  enabled: true
+  maxWaitSeconds: 1740
 
 replicaCount: 1
 
