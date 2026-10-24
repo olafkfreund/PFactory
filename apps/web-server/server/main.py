@@ -544,12 +544,17 @@ def create_app() -> FastAPI:
             )
         return JSONResponse(content={"status": "ready"})
 
-    # Drain: preStop polls this until the pod holds no run lease (factory-gitops#303).
+    # Drain: preStop polls this until the pod holds no run lease and no running
+    # agent process (factory-gitops#303, #922).
     @app.get("/api/drain")
     async def drain_check() -> JSONResponse:
-        from .services import run_leases  # noqa: PLC0415
+        from .services import agent_service, run_leases  # noqa: PLC0415
 
         held = sum(not t.done() for t in run_leases._WATCHERS.values())
+        # The module global, not get_agent_service(): a probe must not build the service.
+        svc = agent_service._agent_service
+        if svc is not None:
+            held += sum(p.returncode is None for p in svc.running_tasks.values())
         return JSONResponse(status_code=503 if held else 200, content={"held": held})
 
     # Mount static files for SPA (if build directory exists).

@@ -418,3 +418,24 @@ def test_sa_token_is_not_mounted_and_that_is_still_true(helm_template) -> None:
     pod_spec = dep["spec"]["template"]["spec"]
     # A pod-level override wins over the ServiceAccount; it must not contradict.
     assert pod_spec.get("automountServiceAccountToken", False) is False
+
+
+@pytest.mark.helm
+def test_prestop_drain_on_by_default_and_toggleable(helm_available, chart_dir) -> None:
+    """#922. The chart drains running tasks in preStop, as factory-gitops#306 does."""
+    import subprocess
+
+    def render(*sets: str) -> subprocess.CompletedProcess[str]:
+        argv = ["helm", "template", "pfactory", str(chart_dir)]
+        for s in sets:
+            argv += ["--set", s]
+        return subprocess.run(argv, capture_output=True, text=True, timeout=60)
+
+    default = render()
+    assert default.returncode == 0, default.stderr[-1500:]
+    for needle in ("terminationGracePeriodSeconds: 1800", "--max-time 5", "/api/drain", "1740"):
+        assert needle in default.stdout, needle
+
+    off = render("drain.enabled=false")
+    assert off.returncode == 0, off.stderr[-1500:]
+    assert "preStop" not in off.stdout
