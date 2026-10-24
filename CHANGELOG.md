@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`GET /api/drain` reports whether the pod still holds a run (factory-gitops#303).**
+  200 `{"held":0}` when idle, 503 `{"held":n}` otherwise; public, for a preStop hook.
 - **The runtime image clears two new HIGH CVEs.** npm's vendored `undici` moves
   to 6.29.1 (CVE-2026-109869) and apk floors pull `libbrotlicommon1`,
   `libbrotlidec1` and `libbrotlienc1` to 1.2.0-r7 (CVE-2026-111497).
