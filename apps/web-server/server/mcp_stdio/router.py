@@ -164,14 +164,11 @@ async def proxy_get_task_status(task_id: str, _=Depends(require_acw_scope(MCP_RE
 
 
 @router.get("/tasks/{task_id}/logs")
-async def proxy_get_task_logs(
-    task_id: str,
-    tail: int = Query(default=100),
-    _=Depends(require_acw_scope(MCP_READ_SCOPE)),
-):
+async def proxy_get_task_logs(task_id: str, _=Depends(require_acw_scope(MCP_READ_SCOPE))):
+    # #906: get_task_logs takes no tail and no MCP tool sends one; ?tail= is ignored.
     from ..routes.tasks import get_task_logs
 
-    return await get_task_logs(task_id, tail=tail)
+    return await get_task_logs(task_id)
 
 
 @router.get("/tasks/{task_id}/worktree/diff")

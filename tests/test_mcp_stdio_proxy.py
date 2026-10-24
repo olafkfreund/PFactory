@@ -455,3 +455,24 @@ def test_plan_writes_need_plan_write_and_reads_need_mcp_read():
     for path, scopes in seen.items():
         expected = "plan:write" if path in writes else "mcp:read"
         assert expected in scopes, f"{path} not gated by {expected} (got {scopes})"
+
+
+@pytest.mark.parametrize("query", ["", "?tail=50"])
+def test_task_logs_proxy_returns_200_with_and_without_tail(monkeypatch, query):
+    """#906: the proxy passed ``tail=`` to ``get_task_logs``, which takes none (500)."""
+    from server import config
+    from server.routes import tasks as tasks_routes
+
+    async def _logs(task_id):
+        return {"task_id": task_id, "phases": {}}
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(tasks_routes, "get_task_logs", _logs)
+    app = FastAPI()
+    app.include_router(_proxy_module().router)
+    r = TestClient(app).get(
+        f"/api/mcp-stdio/tasks/t1/logs{query}",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"task_id": "t1", "phases": {}}

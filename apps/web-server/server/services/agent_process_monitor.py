@@ -93,6 +93,7 @@ class AgentProcessMonitorMixin:
             *,
             emit_events: bool = True,
         ) -> None: ...
+        async def _save_board_now(self, task_id: str, spec_dir: Path) -> None: ...
         async def start_task_execution(  # noqa: PLR0913
             self,
             task_id: str,
@@ -309,6 +310,9 @@ class AgentProcessMonitorMixin:
         if spec_id and project_path:
             await self._update_plan_status(
                 project_path, spec_id, "failed", task_id, emit_events=False
+            )
+            await self._save_board_now(
+                task_id, project_path / ".pfactory" / "specs" / safe_spec_component(spec_id)
             )
 
     async def _monitor_process(  # noqa: PLR0913, PLR0911, PLR0912, PLR0915

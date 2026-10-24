@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- **The runtime image clears two new HIGH CVEs.** npm's vendored `undici` moves
+  to 6.29.1 (CVE-2026-109869) and apk floors pull `libbrotlicommon1`,
+  `libbrotlidec1` and `libbrotlienc1` to 1.2.0-r7 (CVE-2026-111497).
+
+## 0.6.32 — Insights chat keeps every message across pods (2026-10-23)
+
+- **Insights chat sessions are no longer cached per pod (#912, #913).** Every
+  load reads the session file on the shared volume, so with two replicas no
+  message, rename or model change is lost. The reply re-reads the session
+  before it saves, and session files are written atomically.
+
+## 0.6.31 — Task logs and board status work from any replica (2026-10-23)
+
+- **Task logs live in Postgres (#829, #904).** `GET /api/tasks/{id}/logs` reads
+  the shared store first and falls back to the spec files, so any replica can
+  serve it. Rows are pruned after `PFACTORY_TASK_LOG_RETENTION_DAYS` (default
+  90). Adds migration `b3d9e1f7a5c2`.
+- **Board status, phase and progress live in Postgres (#905, #908).** A replica
+  without the task's spec directory shows the same status, phase, subtasks and
+  progress as the owning pod. The row is written on every status change,
+  archive, recover, plan-review hold and worktree sync. Adds migration
+  `c7e4a2d9b1f3`.
+- **The MCP logs proxy no longer returns 500 (#906, #907).** It stopped passing
+  `tail`, which `get_task_logs` never accepted.
+- The stale-ingest sweep ends orphaned `job_states` rows (#901, #902).
+- Cost routing keeps `routing.requested` and `routing.overrides` (#895, #898).
+
 ## 0.6.30 — WebSocket events reach every pod, and routing keeps what a contract pins (2026-10-22)
 
 - **WebSocket events are relayed between pods through Postgres (#804, #833).**

@@ -11,14 +11,14 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
-from server.services import run_leases
+from server.services import run_leases, task_log_store
 from server.services.git_utils import safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
@@ -953,11 +953,64 @@ def get_execution_progress(spec_dir: Path, subtasks: list) -> dict | None:
         return None
 
 
-def task_to_dict(task: Task) -> dict:
+def _spec_extras(
+    spec_dir: Path, subtasks: list[Subtask]
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    archive_metadata: dict[str, Any] = {}
+    plan_file = spec_dir / "test_plan.json"
+    if plan_file.exists():
+        try:
+            plan = json.loads(plan_file.read_text())
+            for key in ("archivedAt", "archivedInVersion"):
+                if key in plan:
+                    archive_metadata[key] = plan[key]
+        except json.JSONDecodeError:
+            pass
+    return get_execution_progress(spec_dir, subtasks), archive_metadata
+
+
+def board_record(project_id: str, spec_dir: Path) -> dict[str, Any]:
+    task = spec_to_task(project_id, spec_dir)
+    progress, archive = _spec_extras(spec_dir, task.subtasks)
+    return {
+        "task": task.model_dump(exclude={"repo"}, mode="json"),
+        "progress": progress,
+        "archive": archive,
+    }
+
+
+def _refresh_board(project_id: str, spec_dir: Path) -> Task:
+    task_log_store.schedule_board(
+        f"{project_id}:{spec_dir.name}",
+        project_id,
+        lambda: board_record(project_id, spec_dir),
+    )
+    return spec_to_task(project_id, spec_dir)
+
+
+def remote_tasks(
+    project_id: str, boards: dict[str, dict[str, Any]], local_ids: set[str], repo: str | None
+) -> list[Task]:
+    result = []
+    for task_id, record in boards.items():
+        if task_id.split(":", 1)[0] != project_id or task_id.split(":", 1)[-1] in local_ids:
+            continue
+        try:
+            task = Task.model_validate(record["task"])
+        except (KeyError, ValueError):
+            continue
+        if task.id != task_id or task.project_id != project_id:
+            continue
+        task.repo = repo
+        result.append(task)
+    return result
+
+
+def task_to_dict(task: Task, board: dict[str, Any] | None = None) -> dict[str, Any]:
     """Convert a Task model to a dict with camelCase keys for frontend."""
     # Get execution progress and archive metadata if task has a spec directory
     execution_progress = None
-    archive_metadata = {}
+    archive_metadata: dict[str, Any] = {}
     specs_path = None
     if task.spec_id:
         # Try to find spec dir for this task
@@ -967,18 +1020,10 @@ def task_to_dict(task: Task) -> dict:
             spec_dir = project_path / ".pfactory" / "specs" / task.spec_id
             if spec_dir.exists():
                 specs_path = str(spec_dir)  # Store path for frontend Files tab
-                execution_progress = get_execution_progress(spec_dir, task.subtasks)
-                # Load archive metadata from plan file
-                plan_file = spec_dir / "test_plan.json"
-                if plan_file.exists():
-                    try:
-                        plan = json.loads(plan_file.read_text())
-                        if "archivedAt" in plan:
-                            archive_metadata["archivedAt"] = plan["archivedAt"]
-                        if "archivedInVersion" in plan:
-                            archive_metadata["archivedInVersion"] = plan["archivedInVersion"]
-                    except json.JSONDecodeError:
-                        pass
+                execution_progress, archive_metadata = _spec_extras(spec_dir, task.subtasks)
+            elif board:
+                execution_progress = board.get("progress")
+                archive_metadata = board.get("archive") or {}
 
     result = {
         "id": task.id,
@@ -1055,13 +1100,18 @@ async def list_tasks(
 
     # Collect tasks from all projects
     all_tasks = []
+    boards = await task_log_store.load_boards(project_ids) if task_log_store.enabled() else {}
     for pid in project_ids:
         project_path = Path(projects[pid]["path"])
         spec_dirs = get_spec_dirs(project_path)
+        local_ids = {spec_dir.name for spec_dir in spec_dirs}
         repo = project_repo(projects[pid])  # W5 (#218): target repo on every task
         for spec_dir in spec_dirs:
             task = spec_to_task(pid, spec_dir)
             task.repo = repo
+            if status is None or task.status == status:
+                all_tasks.append(task)
+        for task in remote_tasks(pid, boards, local_ids, repo):
             if status is None or task.status == status:
                 all_tasks.append(task)
 
@@ -1098,6 +1148,15 @@ async def get_task(task_id: str):
     spec_dir = project_path / ".pfactory" / "specs" / spec_id
 
     if not spec_dir.exists():
+        board = await task_log_store.load_board(task_id) if task_log_store.enabled() else None
+        if board:
+            try:
+                task = Task.model_validate(board["task"])
+            except (KeyError, ValueError):
+                task = None
+            if task is not None and task.id == task_id and task.project_id == project_id:
+                task.repo = project_repo(projects[project_id])
+                return task_to_dict(task, board)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
@@ -1178,7 +1237,7 @@ Created via PFactory Web UI
 
     (spec_dir / "requirements.json").write_text(json.dumps(requirements, indent=2))
 
-    return spec_to_task(task.project_id, spec_dir)
+    return _refresh_board(task.project_id, spec_dir)
 
 
 # --------------------------------------------------------------------------
@@ -1361,7 +1420,7 @@ async def update_task_status(task_id: str, update: TaskStatusUpdate):
     if update.status == "done":
         _try_close_github_issue(project_path, spec_dir)
 
-    return spec_to_task(project_id, spec_dir)
+    return _refresh_board(project_id, spec_dir)
 
 
 @router.put("/{task_id}", response_model=Task)
@@ -1503,7 +1562,7 @@ async def update_task(task_id: str, update: TaskUpdate):
 
         requirements_file.write_text(json.dumps(requirements, indent=2))
 
-    return spec_to_task(project_id, spec_dir)
+    return _refresh_board(project_id, spec_dir)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1537,6 +1596,8 @@ async def delete_task(task_id: str):
     import shutil
 
     shutil.rmtree(spec_dir)
+    if task_log_store.enabled():
+        await task_log_store.delete(task_id)
 
 
 class ApprovePlanRequest(BaseModel):
@@ -1623,6 +1684,7 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
 
             plan_file.write_text(json.dumps(plan, indent=2))
             plan_updated = True
+            _refresh_board(project_id, spec_dir)
             logger.info(
                 "[ApprovePlan] Updated plan file - status: in_progress, planStatus: in_progress"
             )
@@ -1747,6 +1809,7 @@ async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanReque
             if request.feedback:
                 plan["reviewReason"] = request.feedback
             plan_file.write_text(json.dumps(plan, indent=2))
+            _refresh_board(project_id, spec_dir)
         except (OSError, json.JSONDecodeError) as exc:
             # Plan file unreadable — review state was already updated, so
             # the reject took effect even if the bookkeeping fails. Log
@@ -2024,32 +2087,39 @@ async def get_task_logs(task_id: str):
     logger.info("[GetTaskLogs] Checking spec_dir: %s", sanitize_log(spec_dir))
     logger.info("[GetTaskLogs] Checking worktree_spec_dir: %s", sanitize_log(worktree_spec_dir))
 
-    # Check for task_logs.json (phase-based logs) - prefer worktree if exists
-    task_logs_file = None
-    for check_dir in [worktree_spec_dir, spec_dir]:
-        candidate = check_dir / "task_logs.json"
-        logger.info(
-            "[GetTaskLogs] Checking %s, exists: %s",
-            sanitize_log(candidate),
-            sanitize_log(candidate.exists()),
-        )
-        if candidate.exists():
-            task_logs_file = candidate
-            logger.info("[GetTaskLogs] Found task_logs.json at: %s", sanitize_log(task_logs_file))
-            break
+    task_logs = await task_log_store.load(task_id) if task_log_store.enabled() else None
 
-    if task_logs_file:
-        try:
-            task_logs = json.loads(task_logs_file.read_text())
+    # Check for task_logs.json (phase-based logs) when the shared store has no rows.
+    task_logs_file = None
+    if task_logs is None:
+        for check_dir in [worktree_spec_dir, spec_dir]:
+            candidate = check_dir / "task_logs.json"
             logger.info(
-                "[GetTaskLogs] Successfully loaded task_logs.json, has phases: %s",
-                sanitize_log("phases" in task_logs),
+                "[GetTaskLogs] Checking %s, exists: %s",
+                sanitize_log(candidate),
+                sanitize_log(candidate.exists()),
+            )
+            if candidate.exists():
+                task_logs_file = candidate
+                logger.info(
+                    "[GetTaskLogs] Found task_logs.json at: %s", sanitize_log(task_logs_file)
+                )
+                break
+
+    if task_logs_file or task_logs:
+        try:
+            if task_logs is None and task_logs_file is not None:
+                task_logs = json.loads(task_logs_file.read_text())
+            doc: dict[str, Any] = task_logs or {}
+            logger.info(
+                "[GetTaskLogs] Loaded task logs, has phases: %s",
+                sanitize_log("phases" in doc),
             )
             result = {
-                "specId": task_logs.get("spec_id", spec_id),
-                "createdAt": task_logs.get("created_at"),
-                "updatedAt": task_logs.get("updated_at"),
-                "phases": task_logs.get("phases", {}),
+                "specId": doc.get("spec_id", spec_id),
+                "createdAt": doc.get("created_at"),
+                "updatedAt": doc.get("updated_at"),
+                "phases": doc.get("phases", {}),
             }
 
             # Also include build-progress.txt if it exists (detailed human-readable logs)
