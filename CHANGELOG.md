@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The runtime image clears two new HIGH CVEs.** npm's vendored `undici` moves
+  to 6.29.1 (CVE-2026-109869) and apk floors pull `libbrotlicommon1`,
+  `libbrotlidec1` and `libbrotlienc1` to 1.2.0-r7 (CVE-2026-111497).
+
 ## 0.6.32 — Insights chat keeps every message across pods (2026-10-23)
 
 - **Insights chat sessions are no longer cached per pod (#912, #913).** Every
