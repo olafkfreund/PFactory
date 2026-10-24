@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 911
 intent: intent/2026-10-24-911-invariant-companion-path.md
 ---
