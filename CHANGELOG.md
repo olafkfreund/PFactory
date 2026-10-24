@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The drain counts running agent processes, and the chart drains (#922).**
+  `/api/drain` now holds while an agent subprocess runs, not only a run lease,
+  and the Helm chart ships the preStop drain with a 1800s grace period.
+
 ## 0.6.33 — The backend services invariant companion registers again (2026-10-24)
 
 - **The migration no longer shadows the backend `services` package (#911,
