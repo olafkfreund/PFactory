@@ -75,13 +75,14 @@ COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_mod
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-# The npm copied above ships its OWN vendored deps, and three of them carry HIGH
+# The npm copied above ships its OWN vendored deps, and four of them carry HIGH
 # CVEs the P0 Trivy gate rejects. Measured on this branch's failing run, Trivy
-# attributes all three to usr/local/lib/node_modules/npm/node_modules/*:
+# attributes all four to usr/local/lib/node_modules/npm/node_modules/*:
 #
 #   HIGH CVE-2026-102276  brace-expansion 5.0.9 -> 5.0.10   (stack exhaustion)
 #   HIGH CVE-2026-102278  brace-expansion 5.0.9 -> 5.0.11   (uncontrolled recursion)
 #   HIGH CVE-2026-19534   undici 6.28.0 -> 6.28.1           (WebSocket DoS)
+#   HIGH CVE-2026-109869  undici 6.28.1 -> 6.29.1           (fetch DoS, content codings)
 #
 # They are npm's bundle, not a dependency of this application, so no lockfile of
 # ours can clear them -- and no npm release does either. Measured against the
@@ -89,7 +90,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # bundle the vulnerable versions, so waiting for a newer npm waits forever.
 #
 # Patched versions of the PACKAGES do exist (brace-expansion 5.0.12, undici
-# 6.28.1); they are simply in no npm tarball. So replace npm's vendored copies
+# 6.29.1); they are simply in no npm tarball. So replace npm's vendored copies
 # rather than allow-listing: .trivyignore is for "no known patched version
 # exists", which is false here, and silencing the report would leave the
 # vulnerable code in an image that runs npm against untrusted repo content.
@@ -102,14 +103,14 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # would exit 0 and ship an unpatched bundle. The trailing `npm --version` proves
 # npm still runs after the surgery.
 RUN M=/usr/local/lib/node_modules/npm/node_modules \
- && for p in brace-expansion@5.0.12 undici@6.28.1; do \
+ && for p in brace-expansion@5.0.12 undici@6.29.1; do \
       n="${p%@*}"; \
       npm pack "$p" --pack-destination /tmp >/dev/null \
    && rm -rf "$M/$n" && mkdir -p "$M/$n" \
    && tar xzf /tmp/"$n"-*.tgz -C "$M/$n" --strip-components=1 \
    && rm -f /tmp/"$n"-*.tgz; \
     done \
- && node -e "const want={'brace-expansion':'5.0.12','undici':'6.28.1'}; let bad=0; for (const [n,v] of Object.entries(want)) { const got=require('/usr/local/lib/node_modules/npm/node_modules/'+n+'/package.json').version; console.log(n, got, got===v?'ok':'EXPECTED '+v); if (got!==v) bad=1; } process.exit(bad)" \
+ && node -e "const want={'brace-expansion':'5.0.12','undici':'6.29.1'}; let bad=0; for (const [n,v] of Object.entries(want)) { const got=require('/usr/local/lib/node_modules/npm/node_modules/'+n+'/package.json').version; console.log(n, got, got===v?'ok':'EXPECTED '+v); if (got!==v) bad=1; } process.exit(bad)" \
  && npm --version
 # .nvmrc is the one declaration of the Node major: fail the build on drift.
 COPY .nvmrc /tmp/.nvmrc
@@ -156,10 +157,14 @@ RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
 #                        same origin, and the base pins libcurl-openssl4.
 #   ca-certificates-bundle 20260909-r2 — CVE-2026-111943 (HIGH, distrusted
 #                        intermediate CA), fixed in 20260909-r3.
+#   libbrotlicommon1 / libbrotlidec1 / libbrotlienc1 1.2.0-r5 — CVE-2026-111497
+#                        (HIGH, decoder out-of-bounds write), fixed in 1.2.0-r7.
+#                        Named together: same brotli origin.
 # Floors rather than == pins, so the build stays green as Wolfi revs further
 # (1.38.0-r1 and later already exist); drop each once the base digest ships it.
 # Verified present in the Wolfi x86_64 APKINDEX before pinning — a floor above
-# the newest available version fails the build outright.
+# the newest available version fails the build outright. (brotli 1.2.0-r7:
+# verified present 2026-10-24.)
 # How base-layer security fixes reach this image (#733). The chainguard base
 # pins every installed package exactly in /etc/apk/world, so `apk upgrade`
 # cannot move any of them -- it was measured to upgrade nothing and has been
@@ -184,6 +189,9 @@ RUN echo "security refresh: ${SECURITY_REFRESH}" \
         "ca-certificates-bundle>=20260909-r3" \
         "curl>=8.23.0-r0" \
         "libcurl-openssl4>=8.23.0-r0" \
+        "libbrotlicommon1>=1.2.0-r7" \
+        "libbrotlidec1>=1.2.0-r7" \
+        "libbrotlienc1>=1.2.0-r7" \
         git \
         gh \
         gnupg \
