@@ -32,9 +32,9 @@ Create Date: 2026-05-25
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
-from typing import Sequence, Union
+from collections.abc import Sequence
+from pathlib import Path
 
 import sqlalchemy as sa
 from alembic import op
@@ -42,16 +42,16 @@ from alembic import op
 # Make `server.crypto` importable from inside the migration. env.py
 # adds apps/web-server to sys.path; this is a defensive no-op for
 # direct-invocation paths.
-_WEB_SERVER = Path(__file__).resolve().parents[3]
+_WEB_SERVER = Path(__file__).resolve().parents[4]
 if str(_WEB_SERVER) not in sys.path:
     sys.path.insert(0, str(_WEB_SERVER))
 
 
 # revision identifiers, used by Alembic.
 revision: str = "c6e3b2d4a8f0"
-down_revision: Union[str, Sequence[str], None] = "a4c2e9f8b1d3"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "a4c2e9f8b1d3"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 # Columns to migrate: (table, column, nullable).

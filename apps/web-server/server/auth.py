@@ -226,6 +226,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         "/openapi.json",
         "/api/health",
         "/api/ready",  # readiness probe, no token
+        "/api/drain",  # preStop drain poll, no token; exposes only a count
         "/api/logs/frontend",  # Allow frontend error logs without auth
         # RFC-0019 section 3.4 — the agent-skills capability manifest. Agents
         # enumerate what a service can do BEFORE they hold a token, so this must
