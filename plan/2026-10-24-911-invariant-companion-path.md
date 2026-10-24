@@ -38,3 +38,8 @@ spec: spec/2026-10-24-911-invariant-companion-path.md
 ## Rollback
 
 Revert the PR. The migration is already applied, so nothing has to run.
+
+## Deviations
+
+- Step 2: before loading the migration, the probe puts `apps/backend` on `sys.path`, as the routes do in the app before `init_db()`. Without that, `invariants.py` inserts the backend ahead of the bad entry, and the registration check passes on the unfixed code. With it, each assertion fails on its own on `origin/dev`.
+- Step 1: the pre-commit `ruff --fix` also rewrote the migration's `typing.Union`/`Sequence` imports and its three revision annotations to `X | Y` and `collections.abc.Sequence`. The values are unchanged, and the module has `from __future__ import annotations`, so alembic reads the same thing.
