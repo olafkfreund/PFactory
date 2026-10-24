@@ -2,9 +2,12 @@
 
 ## Unreleased
 
-- **The drain counts running agent processes, and the chart drains (#922).**
-  `/api/drain` now holds while an agent subprocess runs, not only a run lease,
-  and the Helm chart ships the preStop drain with a 1800s grace period.
+## 0.6.34 — The drain waits for every running task, in the chart too (2026-10-24)
+
+- **The drain counts running agent processes, and the chart drains (#922,
+  #924).** `/api/drain` now holds while an agent subprocess runs, not only a
+  run lease. The Helm chart ships the preStop drain with a 1800s grace period,
+  behind `drain.enabled` and `drain.maxWaitSeconds`.
 
 ## 0.6.33 — The backend services invariant companion registers again (2026-10-24)
 
