@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.6.35 — Signed contracts, a valid handback and an authenticated completion webhook (2026-10-26)
+
+- **Optional Ed25519 contract signature, warn-only (TFactory#1432, #929).** If
+  `PFACTORY_CONTRACT_SIGNING_KEY__<KID>` is set, the emitted contract also
+  carries `approval.pubkey_signature` next to the HMAC signature. No key is
+  configured yet, so nothing changes today. A bad or ambiguous key logs the
+  exception type only and leaves the contract as it was. New dependency:
+  `cryptography>=42` (already installed transitively).
+- **The handback sender sends a valid triage block (#928, #930).** The
+  `apply-correction` POST to AIFactory now carries `triage`
+  (`handback-triage-1`), `confirm: true` and `Authorization: Bearer <token>`
+  (`PFACTORY_AIFACTORY_API_TOKEN`, then `APP_API_TOKEN`, then
+  `PFACTORY_MCP_SECRET`), sent only to the `PFACTORY_AIFACTORY_API_URL`
+  origin. Sending stays off by default (`PFACTORY_HANDBACK_SEND`).
+- **The completion webhook authenticates to CFactory (CFactory#501, #931).**
+  Completion events to CFactory `/api/events` send
+  `Authorization: Bearer $APP_API_TOKEN`, only to the configured webhook's
+  origin. CFactory accepts events with or without it until its enforce flip.
+- **Baked agent-CLI pins bumped (#927).** claude-code 2.1.310, gemini-cli
+  0.65.0, codex 0.164.0.
+
 ## 0.6.34 — The drain waits for every running task, in the chart too (2026-10-24)
 
 - **The drain counts running agent processes, and the chart drains (#922,
