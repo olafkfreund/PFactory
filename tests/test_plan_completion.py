@@ -190,10 +190,28 @@ def test_process_does_not_set_a_correlation_key():
 # ── transport is best-effort (webhook + sentinel) ────────────────────────────
 
 
+@pytest.mark.parametrize(
+    ("url", "token", "expected"),
+    [
+        ("https://hook.test/other-path", "test-token", {"Authorization": "Bearer test-token"}),
+        ("https://other.test/notify", "test-token", {}),
+        ("https://hook.test/notify", None, {}),
+    ],
+)
+def test_webhook_auth_headers(monkeypatch, url, token, expected):
+    monkeypatch.setenv("PFACTORY_COMPLETION_WEBHOOK", " https://hook.test/notify ")
+    if token is None:
+        monkeypatch.delenv("APP_API_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("APP_API_TOKEN", token)
+    assert completion._auth_headers(url) == expected
+
+
 def test_webhook_posts_the_envelope_when_configured(monkeypatch):
     svc = PlanService()
     session = svc.ingest_text(_PLAN, title="Refund flow")
     monkeypatch.setenv("PFACTORY_COMPLETION_WEBHOOK", "http://localhost:9/hook")
+    monkeypatch.setenv("APP_API_TOKEN", "test-token")
 
     captured: dict = {}
 
@@ -206,6 +224,7 @@ def test_webhook_posts_the_envelope_when_configured(monkeypatch):
 
         captured["url"] = req.full_url
         captured["body"] = json.loads(req.data.decode())
+        captured["authorization"] = req.get_header("Authorization")
         return _Resp()
 
     import urllib.request
@@ -216,6 +235,7 @@ def test_webhook_posts_the_envelope_when_configured(monkeypatch):
     assert captured["url"] == "http://localhost:9/hook"
     assert captured["body"] == event
     assert captured["body"]["service"] == "pfactory"
+    assert captured["authorization"] == "Bearer test-token"
 
 
 def test_webhook_failure_never_raises(monkeypatch):

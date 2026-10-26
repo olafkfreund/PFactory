@@ -11,6 +11,7 @@ policy.
 
 from __future__ import annotations
 
+import binascii
 import logging
 import os
 from datetime import UTC, datetime
@@ -27,7 +28,7 @@ from plan.emit.handoff_sanitize import attach_constraints
 from plan.emit.house_standards import attach_house_standards
 from plan.emit.migration_block import attach_migration
 from plan.emit.review_tier import attach_review_tier
-from plan.emit.signing import attach_signature, key_from_env
+from plan.emit.signing import attach_signature, key_from_env, sign_pubkey
 from plan.emit.skills_block import attach_skills
 from plan.emit.task_contract import validate_contract
 from plan.emit.tfactory_block import attach_tfactory
@@ -292,6 +293,32 @@ def _post_with_readback(
     }
 
 
+def _attach_pubkey_signature(contract: dict[str, Any]) -> None:
+    """#1432: add an optional Ed25519 envelope; never breaks the HMAC path."""
+    try:
+        seed, kid = key_from_env(
+            "",
+            prefix="PFACTORY_CONTRACT_SIGNING_KEY",
+            kid_env="PFACTORY_CONTRACT_SIGNING_KID",
+        )
+        if not seed:
+            return
+        if not kid:
+            logger.warning("Ed25519 contract signing key has no kid; skipping pubkey_signature")
+            return
+        approval = contract["approval"]
+        contract["approval"]["pubkey_signature"] = sign_pubkey(
+            contract,
+            seed_b64=seed,
+            kid=kid,
+            approved_by=approval["approved_by"],
+            approval_timestamp=approval["approval_timestamp"],
+            contract_version=approval["plan_contract_version"],
+        )
+    except (ValueError, binascii.Error, ImportError) as exc:  # ImportError: no cryptography
+        logger.warning("Ed25519 contract signing skipped: %s", type(exc).__name__)
+
+
 def emit_contract(
     plan: NormalizedPlan,
     epic: EpicPlan,
@@ -360,6 +387,7 @@ def emit_contract(
             kid=signing_kid,
         )
         signed = True
+        _attach_pubkey_signature(contract)
 
     url = _from_plan_url(base_url)
     if dry_run:

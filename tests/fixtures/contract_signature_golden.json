@@ -1,0 +1,42 @@
+{
+  "_note": "RFC 8032 section 7.1 TEST 1 public test vector. Not a real key; signs nothing in production.",
+  "approval_timestamp": "2026-01-01T00:00:00Z",
+  "approved_by": "pfactory",
+  "contract": {
+    "contract_version": "2",
+    "execution": {
+      "complexity": "low",
+      "phase_models": {
+        "coding": "sonnet"
+      }
+    },
+    "provenance": {
+      "plan_id": "golden-1",
+      "repo": "example-org/example-repo"
+    },
+    "review_tier": "standard",
+    "tfactory": {
+      "api_base": "http://localhost:8000",
+      "coverage_target": 0.8,
+      "frameworks": {
+        "api": "pytest",
+        "unit": "pytest"
+      },
+      "lanes": [
+        "unit",
+        "api"
+      ]
+    },
+    "title": "Add café menu endpoint",
+    "verification": {
+      "acceptance": [
+        "GET /menu returns 200"
+      ]
+    }
+  },
+  "contract_version": "2",
+  "kid": "golden",
+  "public_key": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+  "sig": "P4rA3Xzq/6eHMxSAoCuipV0zgy0mBkd5OI5ObKtpZwTc5kb4yN1BM5rurbzg5ZAXiMTuCfFVYAwB1h0Cc5xjDw==",
+  "test_only_seed": "nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A="
+}

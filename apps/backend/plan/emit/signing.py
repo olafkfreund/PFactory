@@ -26,6 +26,7 @@ deployed.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -81,7 +82,11 @@ def _signing_bytes(
 
 
 def key_from_env(
-    authority: str = "pfactory", env: dict | None = None
+    authority: str = "pfactory",
+    env: dict | None = None,
+    *,
+    prefix: str = _ENV_KEY_PREFIX,
+    kid_env: str = _KID_ENV,
 ) -> tuple[str | None, str | None]:
     """Resolve the signing key **and its key id** for ``authority``.
 
@@ -103,29 +108,29 @@ def key_from_env(
     unrevocable contract this exists to prevent.
     """
     env = env if env is not None else os.environ
-    prefix = f"{_ENV_KEY_PREFIX}{authority.upper()}"
-    keyed_prefix = prefix + _KID_SEP
+    legacy_var = f"{prefix}{authority.upper()}"
+    keyed_prefix = legacy_var + _KID_SEP
     keyed = {
         name[len(keyed_prefix) :].strip().lower(): value
         for name, value in env.items()
         if name.upper().startswith(keyed_prefix) and value
     }
     keyed.pop("", None)
-    pinned = (env.get(_KID_ENV) or "").strip().lower()
+    pinned = (env.get(kid_env) or "").strip().lower()
 
     if pinned:
         if pinned not in keyed:
-            raise ValueError(f"{_KID_ENV}={pinned!r} but {keyed_prefix}{pinned.upper()} is not set")
+            raise ValueError(f"{kid_env}={pinned!r} but {keyed_prefix}{pinned.upper()} is not set")
         return keyed[pinned], pinned
     if len(keyed) > 1:
         raise ValueError(
             f"{len(keyed)} signing keys configured for authority {authority!r} "
-            f"({', '.join(sorted(keyed))}) — set {_KID_ENV} to choose one"
+            f"({', '.join(sorted(keyed))}) — set {kid_env} to choose one"
         )
     if keyed:
         kid, key = next(iter(keyed.items()))
         return key, kid
-    return env.get(prefix) or None, None
+    return env.get(legacy_var) or None, None
 
 
 def sign_contract(  # noqa: PLR0913 - a signature needs all of its inputs; kid is optional
@@ -178,3 +183,28 @@ def attach_signature(  # noqa: PLR0913 - mirrors sign_contract's inputs; kid is 
         kid=kid,
     )
     return contract
+
+
+def sign_pubkey(  # noqa: PLR0913 - a signature needs all of its inputs
+    contract: dict[str, Any],
+    *,
+    seed_b64: str,
+    kid: str,
+    approved_by: str,
+    approval_timestamp: str,
+    contract_version: str,
+) -> dict[str, str]:
+    """Ed25519 envelope over the same bytes as the HMAC signature (#1432).
+
+    ``seed_b64`` is the base64 32-byte private seed. Raises ``ValueError`` /
+    ``binascii.Error`` on a bad seed; never include the seed in a message.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
+        Ed25519PrivateKey,
+    )
+
+    key = Ed25519PrivateKey.from_private_bytes(base64.b64decode(seed_b64, validate=True))
+    sig = key.sign(
+        _signing_bytes(contract, approved_by, approval_timestamp, contract_version, kid=kid)
+    )
+    return {"alg": "ed25519", "kid": kid, "sig": base64.b64encode(sig).decode()}
