@@ -23,6 +23,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from plan.service import PlanSession
@@ -182,6 +183,15 @@ def _write_sentinel(event: dict) -> None:
         pass
 
 
+def _auth_headers(url: str) -> dict[str, str]:
+    token = os.environ.get("APP_API_TOKEN")
+    target = urlsplit(url)
+    configured = urlsplit((os.environ.get("PFACTORY_COMPLETION_WEBHOOK") or "").strip())
+    if not token or (target.scheme, target.netloc) != (configured.scheme, configured.netloc):
+        return {}
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _post_webhook(event: dict) -> None:
     """Opt-in webhook POST — the standardized transport. Best-effort."""
     url = (os.environ.get("PFACTORY_COMPLETION_WEBHOOK") or "").strip()
@@ -194,7 +204,7 @@ def _post_webhook(event: dict) -> None:
         req = urllib.request.Request(
             url,
             data=json.dumps(event).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **_auth_headers(url)},
             method="POST",
         )
         urllib.request.urlopen(req, timeout=timeout).close()  # noqa: S310
