@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.dev/schemas/handback-triage-1.json",
+  "title": "TFactory→AIFactory handback triage report (v1)",
+  "description": "The structured triage report TFactory's CorrectionRequest produces, validated by AIFactory before the QA Fixer runs (#467). additionalProperties is permitted so the contract can grow additively. The runtime source of truth is qa/handback_contract.py::validate_triage_report; this file is the published contract for cross-repo CI.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["source"],
+  "properties": {
+    "source": { "type": "string", "enum": ["triage", "visual_inspection"] },
+    "aifactory_task_id": { "type": "string" },
+    "aifactory": {
+      "type": "object",
+      "properties": {
+        "project_id": { "type": "string" },
+        "spec_id": { "type": "string" },
+        "api_url": { "type": "string" },
+        "task_id": { "type": "string" }
+      }
+    },
+    "failing_tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["test_id", "reason"],
+        "properties": {
+          "test_id": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "file": { "type": ["string", "null"] },
+          "lane": { "type": ["string", "null"] },
+          "verdict": { "type": ["string", "null"] },
+          "acceptance_criterion": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "has_visual_plan": { "type": "boolean" },
+    "manifest_hash": { "type": "string" },
+    "correlation_key": { "type": "string" },
+    "triager_version": { "type": "string" },
+    "generated_at": { "type": "string" }
+  },
+  "anyOf": [
+    { "properties": { "failing_tests": { "type": "array", "minItems": 1 } }, "required": ["failing_tests"] },
+    { "properties": { "has_visual_plan": { "const": true } }, "required": ["has_visual_plan"] }
+  ]
+}
