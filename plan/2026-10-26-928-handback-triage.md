@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 928
 spec: spec/2026-10-26-928-handback-triage.md
 coders:
