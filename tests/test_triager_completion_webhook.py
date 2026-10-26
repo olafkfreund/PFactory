@@ -57,6 +57,7 @@ def test_non_terminal_status_does_not_fire(tmp_path: Path, monkeypatch: pytest.M
 
 def test_webhook_opt_in_posts_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PFACTORY_COMPLETION_WEBHOOK", "http://hook.test/notify")
+    monkeypatch.setenv("APP_API_TOKEN", "test-token")
     _seed_status(tmp_path)
 
     captured: dict = {}
@@ -70,6 +71,7 @@ def test_webhook_opt_in_posts_payload(tmp_path: Path, monkeypatch: pytest.Monkey
         captured["method"] = req.get_method()
         captured["body"] = json.loads(req.data.decode("utf-8"))
         captured["timeout"] = timeout
+        captured["authorization"] = req.get_header("Authorization")
         return _Resp()
 
     import urllib.request
@@ -82,6 +84,7 @@ def test_webhook_opt_in_posts_payload(tmp_path: Path, monkeypatch: pytest.Monkey
     assert captured["body"]["task_id"] == "042"
     assert captured["body"]["status"] == "triager_failed"
     assert captured["body"]["phase"] == "boom"
+    assert captured["authorization"] == "Bearer test-token"
 
 
 def test_webhook_failure_is_swallowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
