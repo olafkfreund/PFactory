@@ -186,14 +186,14 @@ def attach_signature(  # noqa: PLR0913 - mirrors sign_contract's inputs; kid is 
 
 
 def sign_pubkey(  # noqa: PLR0913 - a signature needs all of its inputs
-    contract: dict,
+    contract: dict[str, Any],
     *,
     seed_b64: str,
     kid: str,
     approved_by: str,
     approval_timestamp: str,
     contract_version: str,
-) -> dict:
+) -> dict[str, str]:
     """Ed25519 envelope over the same bytes as the HMAC signature (#1432).
 
     ``seed_b64`` is the base64 32-byte private seed. Raises ``ValueError`` /

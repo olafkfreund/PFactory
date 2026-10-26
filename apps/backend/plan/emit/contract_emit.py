@@ -293,7 +293,7 @@ def _post_with_readback(
     }
 
 
-def _attach_pubkey_signature(contract: dict) -> None:
+def _attach_pubkey_signature(contract: dict[str, Any]) -> None:
     """#1432: add an optional Ed25519 envelope; never breaks the HMAC path."""
     try:
         seed, kid = key_from_env(
