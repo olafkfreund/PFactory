@@ -315,7 +315,7 @@ def _attach_pubkey_signature(contract: dict[str, Any]) -> None:
             approval_timestamp=approval["approval_timestamp"],
             contract_version=approval["plan_contract_version"],
         )
-    except (ValueError, binascii.Error) as exc:
+    except (ValueError, binascii.Error, ImportError) as exc:  # ImportError: no cryptography
         logger.warning("Ed25519 contract signing skipped: %s", type(exc).__name__)
 
 

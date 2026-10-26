@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import sys
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,16 @@ def test_bad_config_warns_and_keeps_hmac(env, monkeypatch, caplog):
     assert c["approval"]["signature"]
     assert "Ed25519 contract signing skipped" in caplog.text
     assert all(v not in caplog.text for v in env.values() if v != "not base64!!")
+
+
+def test_missing_cryptography_warns_and_keeps_hmac(monkeypatch, caplog):
+    # A None entry makes the lazy import in sign_pubkey raise ImportError.
+    monkeypatch.setitem(sys.modules, "cryptography.hazmat.primitives.asymmetric.ed25519", None)
+    with caplog.at_level(logging.WARNING):
+        c = _emit({KEY_VAR: SEED}, monkeypatch)
+    assert "pubkey_signature" not in c["approval"]
+    assert c["approval"]["signature"]
+    assert "Ed25519 contract signing skipped" in caplog.text and SEED not in caplog.text
 
 
 def test_key_from_env_defaults_unchanged():
