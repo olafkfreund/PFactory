@@ -23,10 +23,14 @@ dependency).
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from workspaces.snapshotter import _default_api_url
 
 from .render import render_fix_request_md
 from .request import CorrectionRequest
@@ -55,6 +59,24 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _auth_headers(api_url: str) -> dict[str, str]:
+    """Bearer token for AIFactory, same env chain as ``routes/plan_pipeline.py``.
+
+    The route needs ``require_task_access("member")``. ``api_url`` is read back
+    from ``source.json`` on disk, so the token rides only to the configured
+    AIFactory origin (``PFACTORY_AIFACTORY_API_URL``), never to another host.
+    """
+    token = (
+        os.environ.get("PFACTORY_AIFACTORY_API_TOKEN")
+        or os.environ.get("APP_API_TOKEN")
+        or os.environ.get("PFACTORY_MCP_SECRET")
+    )
+    target, configured = urlsplit(api_url), urlsplit(_default_api_url())
+    if not token or (target.scheme, target.netloc) != (configured.scheme, configured.netloc):
+        return {}
+    return {"Authorization": f"Bearer {token}"}
+
+
 def default_sender(payload: dict) -> dict:
     """POST the fix-request to AIFactory's apply-correction route (P3).
 
@@ -78,9 +100,8 @@ def default_sender(payload: dict) -> dict:
             "triage": payload.get("triage"),
         }
     ).encode()
-    req = urllib.request.Request(
-        url, data=body, method="POST", headers={"Content-Type": "application/json"}
-    )
+    headers = {"Content-Type": "application/json", **_auth_headers(api_url)}
+    req = urllib.request.Request(url, data=body, method="POST", headers=headers)
     with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 (trusted host)
         raw = resp.read().decode() or "{}"
     return json.loads(raw)

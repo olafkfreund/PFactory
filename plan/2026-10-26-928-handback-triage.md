@@ -46,3 +46,8 @@ Coders: the lane brief for this wave names `codex-implement` as the implementer;
 ## Rollback
 
 Revert the PR. Sending is off by default, so nothing deployed changes.
+
+## Deviations
+
+- Added after review (lead request): `default_sender` sends `Authorization: Bearer <token>`, because the route has `require_task_access("member")` and an unauthenticated send would swap the 422 for a 401/403. TFactory's sender sends no credential, so there was nothing to copy there. PFactory's own env chain from `apps/web-server/server/routes/plan_pipeline.py` is used instead: `PFACTORY_AIFACTORY_API_TOKEN`, then `APP_API_TOKEN`, then `PFACTORY_MCP_SECRET`. `api_url` is read back from `source.json` on disk, so the header is attached only when its scheme and host match `PFACTORY_AIFACTORY_API_URL` (the snapshotter's `_default_api_url()`). The token is never logged. `tests/test_handback_triage_contract.py::test_default_sender_auth_header` covers three cases: token present, token absent, and a foreign origin.
+- Step 3 was written by the session, not Codex (handoff fallback).

@@ -101,3 +101,32 @@ def test_default_sender_posts_triage(monkeypatch):
         }
     )
     assert sent["triage"] == triage and sent["confirm"] is True
+
+
+_TOKEN_VARS = ("PFACTORY_AIFACTORY_API_TOKEN", "APP_API_TOKEN", "PFACTORY_MCP_SECRET")
+
+
+@pytest.mark.parametrize(
+    ("token", "api_url", "expected"),
+    [
+        ("tok", "http://af:3101", "Bearer tok"),
+        (None, "http://af:3101", None),
+        ("tok", "http://elsewhere:3101", None),  # token never leaves the configured origin
+    ],
+    ids=["token", "no_token", "foreign_origin"],
+)
+def test_default_sender_auth_header(monkeypatch, token, api_url, expected):
+    for var in _TOKEN_VARS:
+        monkeypatch.delenv(var, raising=False)
+    if token:
+        monkeypatch.setenv("PFACTORY_AIFACTORY_API_TOKEN", token)
+    monkeypatch.setenv("PFACTORY_AIFACTORY_API_URL", "http://af:3101")
+    seen = {}
+
+    def fake_urlopen(req, **_kw):
+        seen["auth"] = req.get_header("Authorization")
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    default_sender({"api_url": api_url, "task_id": "x", "fix_request_md": "m", "confirm": True})
+    assert seen["auth"] == expected
