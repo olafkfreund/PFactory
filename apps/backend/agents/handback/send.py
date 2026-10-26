@@ -58,7 +58,7 @@ def _now_iso() -> str:
 def default_sender(payload: dict) -> dict:
     """POST the fix-request to AIFactory's apply-correction route (P3).
 
-    ``payload`` = ``{api_url, task_id, fix_request_md, source, confirm}``.
+    ``payload`` = ``{api_url, task_id, fix_request_md, source, confirm, triage}``.
     Raises on transport error or non-2xx — ``send_correction`` catches it.
     """
     import urllib.error
@@ -75,6 +75,7 @@ def default_sender(payload: dict) -> dict:
             "fix_request_md": payload["fix_request_md"],
             "source": payload.get("source"),
             "confirm": bool(payload.get("confirm")),
+            "triage": payload.get("triage"),
         }
     ).encode()
     req = urllib.request.Request(
@@ -135,12 +136,17 @@ def send_correction(
     if not (not dry_run and confirm):
         return result  # prepared only — the dry-run / unconfirmed path
 
+    triage = {"contract_version": "handback-triage-1", **request.to_dict()}
+    triage["aifactory"] = {
+        key: value for key, value in triage["aifactory"].items() if value is not None
+    }
     payload = {
         "api_url": (request.aifactory or {}).get("api_url"),
         "task_id": task_id,
         "fix_request_md": md,
         "source": request.source_kind,
         "confirm": True,
+        "triage": triage,
     }
     try:
         result.response = (sender_fn or default_sender)(payload)
