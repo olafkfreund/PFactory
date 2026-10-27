@@ -24,3 +24,8 @@ As above, plus the stdio MCP tests.
 ## Rollback
 
 Revert the PR.
+
+## Deviations
+
+- None in the code. The test seeds its user with `password_hash=""` (an OIDC-style user) to
+  satisfy ruff S106.
