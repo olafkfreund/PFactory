@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 937
 intent: intent/2026-10-27-937-mcp-key-expiry.md
 ---
