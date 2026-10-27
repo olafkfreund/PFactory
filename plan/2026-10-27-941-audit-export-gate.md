@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 941
 spec: spec/2026-10-27-941-audit-export-gate.md
 ---
