@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     CFACTORY_SEARCH_URL: str = "http://cfactory.factory.svc.cluster.local:3111"
     CFACTORY_READ_KEY: str = ""
     DISABLE_AUTH: bool = False  # Set to True to disable auth (dev only)
+    # Factory#312 S2: org role checks on task/plan write routes. Off = shadow
+    # (log + audit would-deny, never block) until S6 backfills project org_id.
+    RBAC_ENFORCE_TASK_ROUTES: bool = False
 
     # JWT Configuration
     JWT_SECRET: str = Field(default="", repr=False)  # Auto-generated if not set

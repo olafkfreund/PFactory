@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from factory_common.logsafe import sanitize_log
@@ -23,6 +23,7 @@ from server.services.git_utils import safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
 from ..services.git_utils import run_git_command
+from .project_authz import require_task_access
 from .projects import load_projects
 
 logger = logging.getLogger(__name__)
@@ -1270,7 +1271,11 @@ def _resolve_task(task_id: str) -> tuple[str, str, Path, Path]:
     return project_id, spec_id, project_path, spec_dir
 
 
-@router.post("/{task_id}/clarifications", response_model=ClarificationResponse)
+@router.post(
+    "/{task_id}/clarifications",
+    response_model=ClarificationResponse,
+    dependencies=[Depends(require_task_access("member"))],
+)
 async def generate_clarifications(task_id: str):
     """Generate clarification questions for a task using an LLM."""
     from ..services.clarification_service import generate_clarification_questions
@@ -1295,7 +1300,11 @@ async def generate_clarifications(task_id: str):
     )
 
 
-@router.post("/{task_id}/clarifications/answers", response_model=Task)
+@router.post(
+    "/{task_id}/clarifications/answers",
+    response_model=Task,
+    dependencies=[Depends(require_task_access("member"))],
+)
 async def submit_clarification_answers(task_id: str, request: ClarificationAnswersRequest):
     """Submit answers to clarification questions and append them to the task."""
     project_id, spec_id, project_path, spec_dir = _resolve_task(task_id)
@@ -1373,7 +1382,9 @@ class TaskStatusUpdate(BaseModel):
     force: bool = False  # Skip validation (e.g., after successful merge)
 
 
-@router.patch("/{task_id}/status", response_model=Task)
+@router.patch(
+    "/{task_id}/status", response_model=Task, dependencies=[Depends(require_task_access("member"))]
+)
 async def update_task_status(task_id: str, update: TaskStatusUpdate):
     """Update a task's status (for kanban drag-and-drop)."""
     if ":" not in task_id:
@@ -1423,8 +1434,12 @@ async def update_task_status(task_id: str, update: TaskStatusUpdate):
     return _refresh_board(project_id, spec_dir)
 
 
-@router.put("/{task_id}", response_model=Task)
-@router.patch("/{task_id}", response_model=Task)
+@router.put(
+    "/{task_id}", response_model=Task, dependencies=[Depends(require_task_access("member"))]
+)
+@router.patch(
+    "/{task_id}", response_model=Task, dependencies=[Depends(require_task_access("member"))]
+)
 async def update_task(task_id: str, update: TaskUpdate):
     """Update a task's metadata (supports both PUT and PATCH)."""
     if ":" not in task_id:
@@ -1565,7 +1580,11 @@ async def update_task(task_id: str, update: TaskUpdate):
     return _refresh_board(project_id, spec_dir)
 
 
-@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{task_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_task_access("member"))],
+)
 async def delete_task(task_id: str):
     """Delete a task (removes spec directory)."""
     if ":" not in task_id:
@@ -1619,7 +1638,7 @@ class RejectPlanRequest(BaseModel):
     )
 
 
-@router.post("/{task_id}/approve-plan")
+@router.post("/{task_id}/approve-plan", dependencies=[Depends(require_task_access("member"))])
 async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRequest()):
     """Approve a task's plan to allow coding to proceed.
 
@@ -1759,7 +1778,7 @@ async def approve_plan(task_id: str, request: ApprovePlanRequest = ApprovePlanRe
     }
 
 
-@router.post("/{task_id}/reject-plan")
+@router.post("/{task_id}/reject-plan", dependencies=[Depends(require_task_access("member"))])
 async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanRequest()):
     """Reject a task's plan and send the planner back to iterate.
 
@@ -2176,7 +2195,7 @@ async def get_task_logs(task_id: str):
     return result
 
 
-@router.post("/{task_id}/logs/watch")
+@router.post("/{task_id}/logs/watch", dependencies=[Depends(require_task_access("viewer"))])
 async def watch_task_logs(task_id: str):
     """
     Start watching task logs (stub endpoint for frontend compatibility).
@@ -2187,7 +2206,7 @@ async def watch_task_logs(task_id: str):
     return {"success": True, "message": "Log watching handled via WebSocket"}
 
 
-@router.post("/{task_id}/logs/unwatch")
+@router.post("/{task_id}/logs/unwatch", dependencies=[Depends(require_task_access("viewer"))])
 async def unwatch_task_logs(task_id: str):
     """
     Stop watching task logs (stub endpoint for frontend compatibility).
@@ -2535,7 +2554,9 @@ async def get_worktree_merge_preview(task_id: str):
     }
 
 
-@router.post("/{task_id}/worktree/resolve-conflicts")
+@router.post(
+    "/{task_id}/worktree/resolve-conflicts", dependencies=[Depends(require_task_access("member"))]
+)
 async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptions = None):
     """
     Resolve merge conflicts between the worktree branch and the base branch using AI.
@@ -2807,7 +2828,9 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
     }
 
 
-@router.post("/{task_id}/worktree/resolve-uncommitted")
+@router.post(
+    "/{task_id}/worktree/resolve-uncommitted", dependencies=[Depends(require_task_access("member"))]
+)
 async def resolve_uncommitted_conflicts(task_id: str):
     """
     Resolve conflicts between uncommitted local changes and task branch changes using AI.
@@ -3061,7 +3084,9 @@ async def resolve_uncommitted_conflicts(task_id: str):
     }
 
 
-@router.post("/{task_id}/worktree/resolve-git-merge")
+@router.post(
+    "/{task_id}/worktree/resolve-git-merge", dependencies=[Depends(require_task_access("member"))]
+)
 async def resolve_git_merge_conflicts(task_id: str):
     """
     Resolve files with git merge conflict markers using AI.
@@ -3332,7 +3357,9 @@ def _clean_conflict_markers(content: str) -> str:
     return cleaned
 
 
-@router.post("/{task_id}/worktree/abort-merge")
+@router.post(
+    "/{task_id}/worktree/abort-merge", dependencies=[Depends(require_task_access("member"))]
+)
 async def abort_worktree_merge(task_id: str):
     """
     Abort a failed merge in the worktree or main project.
@@ -3460,7 +3487,7 @@ async def abort_worktree_merge(task_id: str):
         }
 
 
-@router.post("/{task_id}/worktree/create-pr")
+@router.post("/{task_id}/worktree/create-pr", dependencies=[Depends(require_task_access("member"))])
 async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = None):
     """
     Push the worktree branch and create a GitHub Pull Request.
@@ -3751,7 +3778,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     }
 
 
-@router.post("/{task_id}/worktree/merge")
+@router.post("/{task_id}/worktree/merge", dependencies=[Depends(require_task_access("member"))])
 async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
     """
     Merge the worktree branch into the base branch.
@@ -4217,7 +4244,7 @@ async def get_worktree_diff(task_id: str):
     }
 
 
-@router.post("/{task_id}/worktree/discard")
+@router.post("/{task_id}/worktree/discard", dependencies=[Depends(require_task_access("member"))])
 async def discard_worktree(task_id: str):
     """
     Discard/delete the worktree for a task.

@@ -101,3 +101,17 @@ flag off; `ruff`, mypy ratchet (`scripts/ratchet_lint.py` if present) clean.
 
 Flag is off by default: merging changes no response. Revert the PR to undo.
 Once S6 turns the flag on, set it back to `false` in gitops first.
+
+## Deviations (recorded during implementation)
+
+- Step 1: `authorize_project_for_user` always enforces, as in AIFactory,
+  and ignores the flag. It has no caller in PF yet (it is for WebSockets and
+  for the #949 follow-up).
+- Step 1: on a shadow would-deny the request session is not rolled back,
+  since the decision completed normally. On an unexpected lookup error in
+  shadow mode it is rolled back before allowing, so a handler that shares
+  the `get_db` session gets a usable session.
+- Step 2: `ruff format` wraps long decorators over several lines, so the
+  one-line `git grep` check undercounts. The introspection test in step 3
+  is the check: it asserts all 34 routes carry the right checker and role,
+  and goes red when one is removed (verified by removing reject-plan's).
