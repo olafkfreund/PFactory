@@ -125,7 +125,8 @@ def _hash_api_key(raw_key: str) -> str:
 async def _try_authenticate_api_key(token: str) -> dict | None:
     """Validate a personal ``acw_`` API key against the database.
 
-    Returns a ``request.state.user`` dict (``{id, email, role}``) when the key
+    Returns a ``request.state.user`` dict (``{id, email, role, api_key_id,
+    org_id}``) when the key
     exists, is unexpired, and carries the :data:`API_SCOPE`. Returns ``None``
     for anything else (unknown key, expired, or lacking the ``api`` scope) so
     the caller can fall through to the next strategy / reject.
@@ -175,7 +176,13 @@ async def _try_authenticate_api_key(token: str) -> dict | None:
         if user is None or not user.is_active:
             return None
 
-        return {"id": user.id, "email": user.email, "role": user.role}
+        return {
+            "id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "api_key_id": api_key.id,
+            "org_id": api_key.org_id,
+        }
 
     return None
 
@@ -279,6 +286,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 "id": "default",
                 "email": "default@localhost",
                 "role": "admin",
+                "is_service": True,
             }
             return await call_next(request)
 
@@ -343,6 +351,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 "id": "default",
                 "email": None,
                 "role": "user",
+                "is_service": True,
             }
             return await call_next(request)
 
