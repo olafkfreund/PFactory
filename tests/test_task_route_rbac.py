@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import Depends, FastAPI, Request
@@ -29,10 +30,8 @@ MEMBERS = [
 def env(tmp_path, monkeypatch):
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from server.config import get_settings
     from server.database.models import Base, Organization, OrgMember, User
     from server.routes import project_authz as pa
-    from server.services import audit_service, project_paths
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 't.db'}")
     session_local = async_sessionmaker(engine, expire_on_commit=False)
@@ -60,12 +59,15 @@ def env(tmp_path, monkeypatch):
         events.append("audit")
         audits.append(kw)
 
-    monkeypatch.setattr(audit_service, "log_audit_event_bg", _capture)
-    monkeypatch.setattr(project_paths, "load_projects", lambda: PROJECTS)
-    settings = get_settings()
+    # Patch through pa's own references: other tests reload server.* and flip
+    # DISABLE_AUTH, so a fresh import may not be the object pa reads.
+    monkeypatch.setattr(pa.audit_service, "log_audit_event_bg", _capture)
+    monkeypatch.setattr(pa.project_paths, "load_projects", lambda: PROJECTS)
+    settings = SimpleNamespace(DISABLE_AUTH=False, RBAC_ENFORCE_TASK_ROUTES=False)
+    monkeypatch.setattr(pa, "get_settings", lambda: settings)
 
     def enforce(on: bool):
-        monkeypatch.setattr(settings, "RBAC_ENFORCE_TASK_ROUTES", on)
+        settings.RBAC_ENFORCE_TASK_ROUTES = on
 
     def make(*, guarded=True, plan=False, broken_db=False):
         app = FastAPI()
@@ -109,6 +111,7 @@ def env(tmp_path, monkeypatch):
         return TestClient(app), path
 
     make.events = events
+    make.pa = pa
     yield make, enforce, audits
     asyncio.run(engine.dispose())
 
@@ -161,15 +164,13 @@ def test_shadow_unknown_project_matches_unguarded_app(env):
 
 
 def test_shadow_decision_error_allows(env, monkeypatch):
-    from server.services import project_paths
-
     make, enforce, _ = env
     enforce(False)
 
     def boom():
         raise RuntimeError("projects.json unreadable")
 
-    monkeypatch.setattr(project_paths, "load_projects", boom)
+    monkeypatch.setattr(make.pa.project_paths, "load_projects", boom)
     client, path = make()
     assert _post(client, path, user="viewer-a").status_code == 200
     enforce(True)
