@@ -75,6 +75,7 @@ def _api_key(scopes: str, *, expires_at=None, user_id="user-1"):
     return SimpleNamespace(
         id="key-1",
         user_id=user_id,
+        org_id="org-1",
         scopes=scopes,
         expires_at=expires_at,
         last_used_at=None,
@@ -103,7 +104,13 @@ async def test_api_scoped_key_authenticates_owner(monkeypatch):
     raw = "acw_validtoken"
     _install_fake_db(monkeypatch, [_api_key("api,mcp:read"), _user()])
     result = await auth_mod._try_authenticate_api_key(raw)
-    assert result == {"id": "user-1", "email": "ada@example.com", "role": "user"}
+    assert result == {
+        "id": "user-1",
+        "email": "ada@example.com",
+        "role": "user",
+        "api_key_id": "key-1",
+        "org_id": "org-1",
+    }
 
 
 @pytest.mark.asyncio

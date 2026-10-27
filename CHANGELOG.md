@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.6.37 — MCP keys checked, audit export gated (2026-10-27)
+
+- **Behaviour change: `acw_` API keys now authenticate on the stdio and remote
+  MCP paths (#938, closes #937).** The MCP key lookup read a column `ApiKey`
+  does not have, so every real key failed with a 500. It now applies the same
+  rules as the REST path: a key whose `expires_at` is past is rejected, and a
+  key whose owner is missing or deactivated (`User.is_active` False) is
+  rejected. Keys that used to fail on MCP will start working. REST auth is
+  unchanged.
+- **Behaviour change: `GET /api/audit/export` requires org admin (#942,
+  closes #941).** With `org_id`, the caller needs `admin`/`owner` in that org
+  (from the DB membership row, never the JWT); an `acw_` key may export only
+  its own org. Without `org_id`, only a service principal (legacy API token,
+  or `DISABLE_AUTH` dev) may export; other callers get 403. No known caller
+  uses the unscoped form.
+- No new env vars.
+
 ## 0.6.36 — postcss-selector-parser patched (2026-10-27)
 
 - **postcss-selector-parser overridden to ^6.1.5 (Dependabot alert #71,
