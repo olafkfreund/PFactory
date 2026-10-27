@@ -83,9 +83,7 @@ def _api_key(scopes: str, *, expires_at=None, user_id="user-1"):
 
 
 def _user(active=True):
-    return SimpleNamespace(
-        id="user-1", email="ada@example.com", role="user", is_active=active
-    )
+    return SimpleNamespace(id="user-1", email="ada@example.com", role="user", is_active=active)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +100,7 @@ async def test_non_acw_token_returns_none(monkeypatch):
 @pytest.mark.asyncio
 async def test_api_scoped_key_authenticates_owner(monkeypatch):
     raw = "acw_validtoken"
-    _install_fake_db(monkeypatch, [_api_key("api,mcp:read"), _user()])
+    _install_fake_db(monkeypatch, [_api_key("api,mcp:read"), "member", _user()])
     result = await auth_mod._try_authenticate_api_key(raw)
     assert result == {
         "id": "user-1",
@@ -116,21 +114,21 @@ async def test_api_scoped_key_authenticates_owner(monkeypatch):
 @pytest.mark.asyncio
 async def test_mcp_only_key_is_rejected_on_rest_api(monkeypatch):
     # A key minted purely for the MCP control plane must NOT unlock /api/*.
-    _install_fake_db(monkeypatch, [_api_key("mcp:read,task:write"), _user()])
+    _install_fake_db(monkeypatch, [_api_key("mcp:read,task:write"), "member", _user()])
     assert await auth_mod._try_authenticate_api_key("acw_mcponly") is None
 
 
 @pytest.mark.asyncio
 async def test_expired_key_is_rejected(monkeypatch):
     past = datetime.now(timezone.utc) - timedelta(days=1)
-    _install_fake_db(monkeypatch, [_api_key("api", expires_at=past), _user()])
+    _install_fake_db(monkeypatch, [_api_key("api", expires_at=past), "member", _user()])
     assert await auth_mod._try_authenticate_api_key("acw_expired") is None
 
 
 @pytest.mark.asyncio
 async def test_unexpired_key_is_accepted(monkeypatch):
     future = datetime.now(timezone.utc) + timedelta(days=30)
-    _install_fake_db(monkeypatch, [_api_key("api", expires_at=future), _user()])
+    _install_fake_db(monkeypatch, [_api_key("api", expires_at=future), "member", _user()])
     result = await auth_mod._try_authenticate_api_key("acw_future")
     assert result is not None
     assert result["id"] == "user-1"
@@ -144,7 +142,7 @@ async def test_unknown_key_returns_none(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_inactive_owner_returns_none(monkeypatch):
-    _install_fake_db(monkeypatch, [_api_key("api"), _user(active=False)])
+    _install_fake_db(monkeypatch, [_api_key("api"), "member", _user(active=False)])
     assert await auth_mod._try_authenticate_api_key("acw_orphan") is None
 
 
@@ -154,7 +152,7 @@ async def test_last_used_is_bumped_on_success(monkeypatch):
     session_holder = {}
 
     async def fake_get_db():
-        sess = _FakeSession([key, _user()])
+        sess = _FakeSession([key, "member", _user()])
         session_holder["sess"] = sess
         yield sess
 

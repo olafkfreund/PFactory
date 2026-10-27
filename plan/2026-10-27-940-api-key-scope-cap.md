@@ -103,3 +103,13 @@ touched files; `scripts/ratchet_lint.py` if present. Pre-commit runs the rest.
 ## Rollback
 
 Revert the PR. No migration, no data change.
+
+## Deviations
+
+- Step 1: `MCP_READ_SCOPE` is imported absolutely (`server.mcp_remote.auth`) so
+  no new TID252 finding is added; `_role_level` is a sibling relative import.
+- Step 2: `_role_level` is a module-level import in `mcp_remote/auth.py` (no
+  cycle). The lazy `cap_by_owner_role` import in `auth.py` carries
+  `# noqa: PLC0415`, the repo's convention, so the lint ratchet passes. The
+  `MCPAuthError` docstring raise-site count was already stale (6, said 5); it
+  now says 7.

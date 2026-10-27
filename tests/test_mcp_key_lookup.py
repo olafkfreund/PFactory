@@ -115,3 +115,36 @@ def test_deactivated_owner_key_fails(db):
     _exec(db, update(User).where(User.id == "u").values(is_active=False))
     with pytest.raises(MCPAuthError, match="deactivated"):
         _scopes(db)
+
+
+def _set_role(db, role):
+    _exec(db, update(OrgMember).where(OrgMember.user_id == "u").values(role=role))
+
+
+def test_demoted_to_viewer_keeps_only_read(db):
+    _set_role(db, "viewer")
+    assert _scopes(db) == {"mcp:read"}
+
+
+def test_removed_member_key_fails(db):
+    _exec(db, delete(OrgMember).where(OrgMember.user_id == "u"))
+    with pytest.raises(MCPAuthError, match="no scopes"):
+        _scopes(db)
+
+
+def test_viewer_with_only_write_key_fails(db):
+    _set_role(db, "viewer")
+    _exec(db, update(ApiKey).values(scopes="mcp:write"))
+    with pytest.raises(MCPAuthError, match="no scopes"):
+        _scopes(db)
+
+
+def test_member_of_other_org_only_fails(db):
+    async def _move(s):
+        s.add(Organization(id="org-2", name="o2", slug="o2", owner_id="u"))
+        await s.flush()
+        await s.execute(update(OrgMember).where(OrgMember.user_id == "u").values(org_id="org-2"))
+
+    db(_move)
+    with pytest.raises(MCPAuthError, match="no scopes"):
+        _scopes(db)
