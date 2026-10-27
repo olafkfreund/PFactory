@@ -115,3 +115,14 @@ Once S6 turns the flag on, set it back to `false` in gitops first.
   one-line `git grep` check undercounts. The introspection test in step 3
   is the check: it asserts all 34 routes carry the right checker and role,
   and goes red when one is removed (verified by removing reject-plan's).
+- Review fix (lead's Opus review of #950): `_handle_denial` rolls back the
+  request session before the audit in both modes, not only on enforce, so a
+  shadow would-deny never holds two pooled connections (AIFactory #1936).
+  Tests: rollback-before-audit spy for task and plan routes, and a plan-route
+  shadow test where the DB lookup raises.
+- Scope added in review: the five project-path task writes in
+  `routes/projects.py` take `require_project_access`: `POST
+  /{project_id}/tasks`, `/tasks/archive`, `/tasks/unarchive` at `member`, and
+  `/tasks/{spec_id}/logs/watch|unwatch` at `viewer`. The introspection test
+  now covers 39 routes. `auto_fix.py` routes (`{projectId}` path param) stay
+  in #949.

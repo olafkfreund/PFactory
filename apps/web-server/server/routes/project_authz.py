@@ -140,11 +140,12 @@ async def _handle_denial(  # noqa: PLR0913 - keyword-only audit context
     """The one shadow/enforce switch. Returns (allow) in shadow, raises in enforce."""
     action = audit_service.ACTION_GATE_REJECTED if member else audit_service.ACTION_AUTHZ_DENIED
     args = (action, user, resource_type, resource_id, org_id, minimum_role, exc.detail)
+    # Free the request's connection before the audit takes a second one, in
+    # both modes: two pooled connections per denial can stall the pool (#1936).
+    with contextlib.suppress(Exception):
+        await db.rollback()
     if enforce:
         if exc.status_code == status.HTTP_403_FORBIDDEN:
-            # Free the request's connection before the audit takes a second one.
-            with contextlib.suppress(Exception):
-                await db.rollback()
             await _audit_denial(*args)
         raise exc
     principal = user.get("id") if isinstance(user, dict) else None

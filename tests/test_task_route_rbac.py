@@ -54,8 +54,10 @@ def env(tmp_path, monkeypatch):
     asyncio.run(_init())
 
     audits: list[dict] = []
+    events: list[str] = []  # request-session rollbacks and audit writes, in order
 
     async def _capture(**kw):
+        events.append("audit")
         audits.append(kw)
 
     monkeypatch.setattr(audit_service, "log_audit_event_bg", _capture)
@@ -65,7 +67,7 @@ def env(tmp_path, monkeypatch):
     def enforce(on: bool):
         monkeypatch.setattr(settings, "RBAC_ENFORCE_TASK_ROUTES", on)
 
-    def make(*, guarded=True, plan=False):
+    def make(*, guarded=True, plan=False, broken_db=False):
         app = FastAPI()
         if plan:
             deps = [Depends(pa.require_plan_access("member"))] if guarded else []
@@ -77,6 +79,18 @@ def env(tmp_path, monkeypatch):
 
         async def _db():
             async with session_local() as session:
+                rollback = session.rollback
+
+                async def _spy_rollback():
+                    events.append("rollback")
+                    await rollback()
+
+                async def _boom(*_a, **_k):
+                    raise RuntimeError("db down")
+
+                session.rollback = _spy_rollback
+                if broken_db:
+                    session.execute = _boom
                 yield session
 
         # Override on the module's own reference: other tests reload server.*.
@@ -94,6 +108,7 @@ def env(tmp_path, monkeypatch):
 
         return TestClient(app), path
 
+    make.events = events
     yield make, enforce, audits
     asyncio.run(engine.dispose())
 
@@ -190,6 +205,25 @@ def test_plan_route_shadow_passes(env):
     assert audits[0]["details"]["shadow"] is True
 
 
+@pytest.mark.parametrize("plan", [False, True])
+def test_shadow_releases_request_session_before_audit(env, plan):
+    # Two pooled connections per would-deny can stall the pool (AIFactory#1936).
+    make, enforce, _ = env
+    enforce(False)
+    client, path = make(plan=plan)
+    assert _post(client, path, user="viewer-a").status_code == 200
+    assert make.events[:2] == ["rollback", "audit"]
+
+
+def test_plan_route_shadow_db_error_allows(env):
+    make, enforce, audits = env
+    enforce(False)
+    client, path = make(plan=True, broken_db=True)
+    assert _post(client, path, user="viewer-a").status_code == 200
+    assert audits == []  # a lookup error is not a would-deny
+    assert "rollback" in make.events
+
+
 TASK_ROUTES = {
     "execution": {
         "member": ["/{task_id}/start", "/{task_id}/stop", "/{task_id}/recover"],
@@ -212,6 +246,17 @@ TASK_ROUTES = {
         ],
         "viewer": ["/{task_id}/logs/watch", "/{task_id}/logs/unwatch"],
     },
+}
+PROJECT_ROUTES = {
+    "member": [
+        "/{project_id}/tasks",
+        "/{project_id}/tasks/archive",
+        "/{project_id}/tasks/unarchive",
+    ],
+    "viewer": [
+        "/{project_id}/tasks/{spec_id}/logs/watch",
+        "/{project_id}/tasks/{spec_id}/logs/unwatch",
+    ],
 }
 PLAN_ROUTES = [
     ("POST", s)
@@ -253,8 +298,12 @@ def test_every_listed_route_carries_the_dependency():
                 for m in methods:
                     assert _guards(module, m, path) == [("TaskAccessChecker", role)], (m, path)
                     n += 1
+    for role, paths in PROJECT_ROUTES.items():
+        for path in paths:
+            assert _guards("projects", "POST", path) == [("ProjectAccessChecker", role)], path
+            n += 1
     for method, suffix in PLAN_ROUTES:
         path = f"/api/plan/sessions/{suffix}".rstrip("/")
         assert _guards("plan_pipeline", method, path) == [("PlanAccessChecker", "member")], path
         n += 1
-    assert n == 34
+    assert n == 39
