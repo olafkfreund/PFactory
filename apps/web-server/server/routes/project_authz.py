@@ -165,7 +165,8 @@ async def _project_decision(
 ) -> None:
     """Load project + membership and apply the rule; fills ``ctx`` for audit."""
     if is_service_principal(user):
-        return check_project_access(user, None, None, minimum_role)
+        check_project_access(user, None, None, minimum_role)
+        return None
     project = project_paths.load_projects().get(project_id) if project_id else None
     ctx["org_id"] = org_id = project.get("org_id") if project else None
     membership = None
@@ -176,6 +177,7 @@ async def _project_decision(
         membership = result.scalar_one_or_none()
     ctx["member"] = membership is not None
     check_project_access(user, project, membership, minimum_role)
+    return None
 
 
 async def authorize_project_for_user(
@@ -227,8 +229,8 @@ class _AccessChecker:
                 else {"id": "default", "role": "admin", "is_service": True}
             )
         ctx: dict[str, Any] = {}
+        enforce = _safe_enforcing()  # decided once, before anything can raise
         try:
-            enforce = _enforcing()
             await self._decide(user, key, db, ctx)
         except HTTPException as exc:
             await _handle_denial(
@@ -237,7 +239,7 @@ class _AccessChecker:
                 member=bool(ctx.get("member")), minimum_role=self.minimum_role, db=db,
             )  # fmt: skip
         except Exception:  # shadow mode fails open on lookup errors
-            if _safe_enforcing():
+            if enforce:
                 raise
             # The handler may share this session (Depends cache): leave it usable.
             with contextlib.suppress(Exception):
@@ -281,9 +283,10 @@ class PlanAccessChecker(_AccessChecker):
         self, user: dict[str, Any] | None, _key: str, db: AsyncSession, ctx: dict[str, Any]
     ) -> None:
         if not user:
-            return check_project_access(user, None, None)  # 401
+            check_project_access(user, None, None)  # raises 401
+            return None
         if is_service_principal(user):
-            return
+            return None
         query = select(OrgMember.role).where(OrgMember.user_id == user.get("id"))
         if user.get("api_key_id"):
             ctx["org_id"] = user.get("org_id")
@@ -293,6 +296,7 @@ class PlanAccessChecker(_AccessChecker):
         if not roles:
             raise _forbidden("You do not have access to any organization")
         _check_role(max(roles, key=lambda r: ROLE_LEVELS.get(r, -1)), self.minimum_role)
+        return None
 
     async def __call__(
         self, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
