@@ -113,3 +113,7 @@ Revert the PR. No migration, no data change.
   `# noqa: PLC0415`, the repo's convention, so the lint ratchet passes. The
   `MCPAuthError` docstring raise-site count was already stale (6, said 5); it
   now says 7.
+- Step 3: the test also reads `last_used_at` back from the row, because the
+  REST write is best-effort and swallows failures. Run locally against a
+  throwaway Postgres 16: passes on this branch, fails on dev with asyncpg's
+  "can't subtract offset-naive and offset-aware datetimes".
