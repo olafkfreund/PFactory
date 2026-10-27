@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.36 — postcss-selector-parser patched (2026-10-27)
+
+- **postcss-selector-parser overridden to ^6.1.5 (Dependabot alert #71,
+  #934).** `@tailwindcss/typography` pins 6.0.10, which parses some selectors
+  in quadratic time (CPU exhaustion). A root `overrides` entry moves it to
+  6.1.5; typography moves 0.5.19 → 0.5.20 within its range. No behaviour
+  change and no new env vars.
+
 ## 0.6.35 — Signed contracts, a valid handback and an authenticated completion webhook (2026-10-26)
 
 - **Optional Ed25519 contract signature, warn-only (TFactory#1432, #929).** If
