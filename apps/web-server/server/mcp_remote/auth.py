@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database.engine import get_db
-from ..database.models import ApiKey
+from server.database.engine import get_db
+from server.database.models import ApiKey, User
 
 MCP_READ_SCOPE = "mcp:read"
 MCP_WRITE_SCOPE = "mcp:write"
@@ -94,7 +95,8 @@ async def authenticate(authorization_header: str | None) -> AuthenticatedKey:
     - Missing ``Authorization`` header
     - Non-Bearer scheme
     - Unknown key (hash doesn't match any row)
-    - Disabled key (``is_active=False``)
+    - Key whose owner is missing or deactivated
+    - Expired key (``expires_at`` in the past)
 
     Scope enforcement is the CALLER's job — this function only proves
     the key exists and is enabled. Use ``require_scope()`` after to
@@ -123,8 +125,17 @@ async def _lookup_by_digest(session: AsyncSession, digest: str) -> Authenticated
     row = result.scalar_one_or_none()
     if row is None:
         raise MCPAuthError("Invalid API key")
-    if not row.is_active:
-        raise MCPAuthError("API key has been revoked")
+    # Revoke hard-deletes the row (no is_active on ApiKey); a SCIM-deprovisioned
+    # owner is soft-deleted instead, so their keys must stop here (#937).
+    if row.user_id:
+        owner = await session.get(User, row.user_id)
+        if owner is None or not owner.is_active:
+            raise MCPAuthError("API key owner is deactivated")
+    # SQLite hands back naive datetimes; they are stored as UTC.
+    if row.expires_at is not None and row.expires_at.replace(
+        tzinfo=row.expires_at.tzinfo or UTC
+    ) <= datetime.now(UTC):
+        raise MCPAuthError("API key has expired")
 
     scopes_raw = row.scopes or ""
     scopes = frozenset(s.strip() for s in scopes_raw.split(",") if s.strip())
