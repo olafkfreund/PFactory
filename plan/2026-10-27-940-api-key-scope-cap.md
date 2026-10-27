@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 940
 spec: spec/2026-10-27-940-api-key-scope-cap.md
 ---
