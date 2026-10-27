@@ -11,11 +11,12 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.routes.project_authz import require_project_access
 from server.services import task_log_store
 from server.services.git_utils import confine_to_workspace, safe_spec_component
 from server.services.project_paths import (
@@ -1132,7 +1133,7 @@ class TaskCreateRequest(BaseModel):
     metadata: dict | None = Field(default=None, description="Optional task metadata")
 
 
-@router.post("/{project_id}/tasks")
+@router.post("/{project_id}/tasks", dependencies=[Depends(require_project_access("member"))])
 async def create_project_task(project_id: str, task_data: TaskCreateRequest):
     """Create a new task in a project.
 
@@ -1230,7 +1231,10 @@ Created via PFactory Web UI
     return tasks_module.task_to_dict(task)
 
 
-@router.post("/{project_id}/tasks/{spec_id}/logs/watch")
+@router.post(
+    "/{project_id}/tasks/{spec_id}/logs/watch",
+    dependencies=[Depends(require_project_access("viewer"))],
+)
 async def watch_project_task_logs(project_id: str, spec_id: str):
     """
     Start watching task logs (stub endpoint for frontend compatibility).
@@ -1241,7 +1245,10 @@ async def watch_project_task_logs(project_id: str, spec_id: str):
     return {"success": True, "message": "Log watching handled via WebSocket"}
 
 
-@router.post("/{project_id}/tasks/{spec_id}/logs/unwatch")
+@router.post(
+    "/{project_id}/tasks/{spec_id}/logs/unwatch",
+    dependencies=[Depends(require_project_access("viewer"))],
+)
 async def unwatch_project_task_logs(project_id: str, spec_id: str):
     """
     Stop watching task logs (stub endpoint for frontend compatibility).
@@ -1279,7 +1286,9 @@ class UnarchiveTasksRequest(BaseModel):
     taskIds: list[str] = Field(..., description="List of task IDs to unarchive")
 
 
-@router.post("/{project_id}/tasks/archive")
+@router.post(
+    "/{project_id}/tasks/archive", dependencies=[Depends(require_project_access("member"))]
+)
 async def archive_tasks(project_id: str, request: ArchiveTasksRequest):
     """Archive completed tasks.
 
@@ -1355,7 +1364,9 @@ async def archive_tasks(project_id: str, request: ArchiveTasksRequest):
     }
 
 
-@router.post("/{project_id}/tasks/unarchive")
+@router.post(
+    "/{project_id}/tasks/unarchive", dependencies=[Depends(require_project_access("member"))]
+)
 async def unarchive_tasks(project_id: str, request: UnarchiveTasksRequest):
     """Unarchive tasks.
 

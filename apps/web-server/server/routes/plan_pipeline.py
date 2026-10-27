@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
 from ..tenancy import multi_tenant_enabled, resolve_tenant
+from .project_authz import require_plan_access
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -192,7 +193,7 @@ async def list_sessions(request: Request, include_discarded: bool = False) -> di
     }
 
 
-@router.post("/ingest-text")
+@router.post("/ingest-text", dependencies=[Depends(require_plan_access("member"))])
 async def ingest_text(body: IngestTextBody, request: Request) -> dict:
     try:
         session = SERVICE.ingest_text(
@@ -216,7 +217,7 @@ async def ingest_text(body: IngestTextBody, request: Request) -> dict:
     return _session_dict(session)
 
 
-@router.post("/from-issue")
+@router.post("/from-issue", dependencies=[Depends(require_plan_access("member"))])
 async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
     """Turn an upstream issue into a plan session (RFC-0011 hard tier, #874).
 
@@ -248,7 +249,7 @@ async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
     return _session_dict(session)
 
 
-@router.post("/ingest")
+@router.post("/ingest", dependencies=[Depends(require_plan_access("member"))])
 async def ingest_upload(
     request: Request,
     file: UploadFile = File(...),
@@ -346,7 +347,7 @@ def _guard_tenant(session_id: str, request: Request) -> None:
         raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
 
 
-@router.post("/{session_id}/process")
+@router.post("/{session_id}/process", dependencies=[Depends(require_plan_access("member"))])
 async def process(session_id: str, request: Request, updates: PlanUpdateBody | None = None) -> dict:
     # RFC-0016 (#217): offload the blocking pipeline (recon clone, decompose,
     # gates) off the event loop into a worker thread, under an admission cap, so
@@ -402,7 +403,9 @@ class ApplySuggestionsBody(_StrictBody):
     reprocess: bool = True
 
 
-@router.post("/{session_id}/suggestions/apply")
+@router.post(
+    "/{session_id}/suggestions/apply", dependencies=[Depends(require_plan_access("member"))]
+)
 async def apply_suggestions(
     session_id: str, body: ApplySuggestionsBody, request: Request
 ) -> dict[str, Any]:
@@ -427,7 +430,7 @@ async def apply_suggestions(
     return {**_session_dict(session), "applied": applied}
 
 
-@router.post("/{session_id}/re-gate")
+@router.post("/{session_id}/re-gate", dependencies=[Depends(require_plan_access("member"))])
 async def re_gate(session_id: str) -> dict[str, Any]:
     """Recompute the readiness verdicts alone, without re-running planning (#450).
 
@@ -446,7 +449,7 @@ async def re_gate(session_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
-@router.post("/{session_id}/approve")
+@router.post("/{session_id}/approve", dependencies=[Depends(require_plan_access("member"))])
 async def approve(session_id: str, body: ApproveBody) -> dict:
     try:
         return _session_dict(
@@ -460,7 +463,7 @@ async def approve(session_id: str, body: ApproveBody) -> dict:
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
 
 
-@router.post("/{session_id}/access/approve")
+@router.post("/{session_id}/access/approve", dependencies=[Depends(require_plan_access("member"))])
 async def approve_access(session_id: str, body: ApproveAccessBody) -> dict:
     """Record a human-verified access approval for one resource (RFC-0007 #86).
 
@@ -483,7 +486,7 @@ async def approve_access(session_id: str, body: ApproveAccessBody) -> dict:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
-@router.post("/{session_id}/waive")
+@router.post("/{session_id}/waive", dependencies=[Depends(require_plan_access("member"))])
 async def waive(session_id: str, body: WaiveBody) -> dict:
     """Record a human waiver of hard readiness failures (#77).
 
@@ -505,7 +508,7 @@ async def waive(session_id: str, body: WaiveBody) -> dict:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
-@router.post("/{session_id}/reject")
+@router.post("/{session_id}/reject", dependencies=[Depends(require_plan_access("member"))])
 async def reject(session_id: str, body: RejectBody) -> dict:
     try:
         return _session_dict(
@@ -517,7 +520,7 @@ async def reject(session_id: str, body: RejectBody) -> dict:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
-@router.post("/{session_id}/discard")
+@router.post("/{session_id}/discard", dependencies=[Depends(require_plan_access("member"))])
 async def discard(session_id: str, body: DiscardBody) -> dict:
     """Abandon a session outright (#360) — "this should not exist".
 
@@ -535,7 +538,7 @@ async def discard(session_id: str, body: DiscardBody) -> dict:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
-@router.delete("/{session_id}")
+@router.delete("/{session_id}", dependencies=[Depends(require_plan_access("member"))])
 async def delete_session(
     session_id: str,
     body: DeleteBody,
@@ -625,7 +628,7 @@ async def _load_docs_connections(request: Request, db: AsyncSession) -> list[dic
     ]
 
 
-@router.post("/{session_id}/emit")
+@router.post("/{session_id}/emit", dependencies=[Depends(require_plan_access("member"))])
 async def emit(
     session_id: str,
     body: EmitBody,
@@ -661,7 +664,7 @@ async def emit(
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 
 
-@router.post("/{session_id}/emit-contract")
+@router.post("/{session_id}/emit-contract", dependencies=[Depends(require_plan_access("member"))])
 async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
     """Emit the RFC-0002 signed Task Contract v2 to AIFactory (#65).
 

@@ -72,6 +72,9 @@ ACTION_PLAN_SESSION_DELETE = "plan_session.delete"
 ACTION_API_KEY_CREATE = "api_key.create"
 ACTION_API_KEY_REVOKE = "api_key.revoke"
 
+ACTION_AUTHZ_DENIED = "authz.denied"
+ACTION_GATE_REJECTED = "gate.rejected"  # member below the minimum role
+
 # MCP control-plane actions (Epic #50 acceptance criterion #2).
 # Every write tool exposed via the ``/api/mcp-stdio/*`` proxy logs
 # its action under the ``mcp.*`` namespace. The mcp prefix keeps these
