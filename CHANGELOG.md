@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Security: Authlib floor raised to `>=1.9.1`** in
+  `apps/web-server/requirements.txt`, past CVE-2026-96760 (CRITICAL),
+  CVE-2026-114615 and CVE-2026-114616. The image already resolves the latest
+  release; the floor stops a resolver from settling on a vulnerable one. Not
+  reachable in this code: the OIDC client verifies ID tokens with joserfc,
+  and nothing calls `authlib.jose`.
+
 ## 0.6.38 — acw_ key scopes capped, task route RBAC in shadow mode (2026-10-27)
 
 - **Behaviour change: `acw_` key scopes are capped by the owner's org role
