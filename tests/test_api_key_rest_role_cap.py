@@ -16,8 +16,6 @@ if str(_WEB_SERVER_DIR) not in sys.path:
 from sqlalchemy import delete, update  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
 
-import server.database.engine as engine_mod  # noqa: E402
-from server import auth as auth_mod  # noqa: E402
 from server.database.models import (  # noqa: E402
     ApiKey,
     Base,
@@ -60,6 +58,10 @@ def env(tmp_path, monkeypatch):
         async with session_local() as s:
             yield s
 
+    # Resolved at call time: other suite tests swap server.* modules in
+    # sys.modules, and a module-level reference would patch a stale copy.
+    import server.database.engine as engine_mod  # noqa: PLC0415
+
     monkeypatch.setattr(engine_mod, "get_db", _get_db)
 
     def _exec(stmt):
@@ -75,6 +77,8 @@ def env(tmp_path, monkeypatch):
 
 
 def _auth():
+    from server import auth as auth_mod  # noqa: PLC0415
+
     return asyncio.run(auth_mod._try_authenticate_api_key(RAW))
 
 

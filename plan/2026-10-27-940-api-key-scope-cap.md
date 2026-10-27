@@ -117,3 +117,8 @@ Revert the PR. No migration, no data change.
   REST write is best-effort and swallows failures. Run locally against a
   throwaway Postgres 16: passes on this branch, fails on dev with asyncpg's
   "can't subtract offset-naive and offset-aware datetimes".
+- Step 2 test fix: `tests/test_api_key_rest_role_cap.py` resolves
+  `server.database.engine` and `server.auth` at call time. In the full suite
+  (P1 job, `DATABASE_URL` on Postgres) other tests swap `server.*` modules, so
+  a module-level reference patched a stale copy and the call hit the global
+  Postgres engine.
