@@ -28,7 +28,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database.engine import get_db
-from server.database.models import ApiKey, User
+from server.database.models import ApiKey, OrgMember, User
+from server.routes.organizations import _role_level
 
 MCP_READ_SCOPE = "mcp:read"
 MCP_WRITE_SCOPE = "mcp:write"
@@ -58,7 +59,7 @@ class AuthenticatedKey:
 class MCPAuthError(Exception):
     """Raised on auth failures; the SSE/JSON-RPC layer maps to HTTP 401/403.
 
-    Verified safe to return to the client verbatim (Factory#718): all 5 raise
+    Verified safe to return to the client verbatim (Factory#718): all 7 raise
     sites in this module are developer-written literals, never an inner
     exception. See ``client_errors.client_error``.
     """
@@ -97,6 +98,7 @@ async def authenticate(authorization_header: str | None) -> AuthenticatedKey:
     - Unknown key (hash doesn't match any row)
     - Key whose owner is missing or deactivated
     - Expired key (``expires_at`` in the past)
+    - Key with no scopes left after capping by its owner's current org role
 
     Scope enforcement is the CALLER's job — this function only proves
     the key exists and is enabled. Use ``require_scope()`` after to
@@ -113,6 +115,29 @@ async def authenticate(authorization_header: str | None) -> AuthenticatedKey:
     # get_db yields exactly once; if we got here, the dependency didn't
     # run — surface as an auth error rather than a silent pass.
     raise MCPAuthError("Database session not available")
+
+
+async def cap_by_owner_role(
+    session: AsyncSession, row: ApiKey, scopes: frozenset[str]
+) -> frozenset[str]:
+    """Cap stored scopes by the owner's CURRENT role in the key's org (#940).
+
+    Same mapping as the mint cap in ``routes/api_keys.py``: below ``member``
+    only ``mcp:read`` survives, no membership leaves nothing. A demotion or
+    removal therefore takes effect on the next call.
+    """
+    role = (
+        await session.execute(
+            select(OrgMember.role).where(
+                OrgMember.org_id == row.org_id, OrgMember.user_id == row.user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if role is None:
+        return frozenset()
+    if _role_level(role) < _role_level("member"):
+        return scopes & {MCP_READ_SCOPE}
+    return scopes
 
 
 async def _lookup_by_digest(session: AsyncSession, digest: str) -> AuthenticatedKey:
@@ -139,6 +164,10 @@ async def _lookup_by_digest(session: AsyncSession, digest: str) -> Authenticated
 
     scopes_raw = row.scopes or ""
     scopes = frozenset(s.strip() for s in scopes_raw.split(",") if s.strip())
+    if row.user_id:
+        scopes = await cap_by_owner_role(session, row, scopes)
+        if not scopes:
+            raise MCPAuthError("API key has no scopes for its owner's current role")
     return AuthenticatedKey(
         key_id=str(row.id),
         scopes=scopes,

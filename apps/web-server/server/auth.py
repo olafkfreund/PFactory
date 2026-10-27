@@ -142,6 +142,7 @@ async def _try_authenticate_api_key(token: str) -> dict | None:
     # app startup, mirroring mcp_remote/auth.py).
     from .database import ApiKey, User
     from .database.engine import get_db
+    from .mcp_remote.auth import cap_by_owner_role  # noqa: PLC0415
 
     digest = _hash_api_key(token)
     # Stored form is ``<8-char-preview>$<sha256-hex>`` — match the part after $.
@@ -160,13 +161,14 @@ async def _try_authenticate_api_key(token: str) -> dict | None:
                 return None
 
         # Require the general ``api`` scope for REST access.
-        scopes = {s.strip() for s in (api_key.scopes or "").split(",") if s.strip()}
+        scopes = frozenset(s.strip() for s in (api_key.scopes or "").split(",") if s.strip())
+        scopes = await cap_by_owner_role(session, api_key, scopes)
         if API_SCOPE not in scopes:
             return None
 
         # Record last-used (best-effort — never block auth on a write failure).
         try:
-            api_key.last_used_at = datetime.now(UTC)
+            api_key.last_used_at = datetime.now(UTC).replace(tzinfo=None)
             await session.commit()
         except Exception:  # noqa: BLE001 — last_used is non-critical telemetry
             await session.rollback()
