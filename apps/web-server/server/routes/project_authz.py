@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -52,7 +52,7 @@ def _enforcing() -> bool:
     return bool(get_settings().RBAC_ENFORCE_TASK_ROUTES)
 
 
-def is_service_principal(user: dict | None) -> bool:
+def is_service_principal(user: dict[str, Any] | None) -> bool:
     """True for ``is_service`` principals only; a ``role`` claim never counts."""
     return isinstance(user, dict) and bool(user.get("is_service"))
 
@@ -69,8 +69,8 @@ def _check_role(role: str | None, minimum_role: str) -> None:
 
 
 def check_project_access(
-    user: dict | None,
-    project: dict | None,
+    user: dict[str, Any] | None,
+    project: dict[str, Any] | None,
     membership: OrgMember | None,
     minimum_role: str = "viewer",
 ) -> None:
@@ -102,13 +102,13 @@ def check_project_access(
 
 async def _audit_denial(  # noqa: PLR0913 - one audit row's fields
     action: str,
-    user: dict | None,
+    user: dict[str, Any] | None,
     resource_type: str,
     resource_id: str | None,
     org_id: str | None,
     minimum_role: str,
     detail: object,
-    extra: dict | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """Chained audit row on its own session (the request session is rolled back
     with a 403, #1919). Never raises."""
@@ -129,7 +129,7 @@ async def _handle_denial(  # noqa: PLR0913 - keyword-only audit context
     exc: HTTPException,
     *,
     enforce: bool,
-    user: dict | None,
+    user: dict[str, Any] | None,
     resource_type: str,
     resource_id: str | None,
     org_id: str | None,
@@ -157,7 +157,11 @@ async def _handle_denial(  # noqa: PLR0913 - keyword-only audit context
 
 
 async def _project_decision(
-    user: dict | None, project_id: str | None, db: AsyncSession, minimum_role: str, ctx: dict
+    user: dict[str, Any] | None,
+    project_id: str | None,
+    db: AsyncSession,
+    minimum_role: str,
+    ctx: dict[str, Any],
 ) -> None:
     """Load project + membership and apply the rule; fills ``ctx`` for audit."""
     if is_service_principal(user):
@@ -175,7 +179,7 @@ async def _project_decision(
 
 
 async def authorize_project_for_user(
-    user: dict | None,
+    user: dict[str, Any] | None,
     project_id: str | None,
     db: AsyncSession,
     minimum_role: str = "viewer",
@@ -187,7 +191,7 @@ async def authorize_project_for_user(
     """
     if _auth_disabled():
         return None
-    ctx: dict = {}
+    ctx: dict[str, Any] = {}
     try:
         await _project_decision(user, project_id, db, minimum_role, ctx)
     except HTTPException as exc:
@@ -199,18 +203,22 @@ async def authorize_project_for_user(
     return ctx.get("org_id")
 
 
-class ProjectAccessChecker:
-    """Dependency: authorize the caller against a ``project_id`` path param."""
+class _AccessChecker:
+    """Shared shadow/enforce path; subclasses add ``__call__`` with their path param."""
 
     resource_type = "project"
 
     def __init__(self, minimum_role: str = "viewer") -> None:
         self.minimum_role = minimum_role
 
-    async def _decide(self, user: dict | None, key: str, db: AsyncSession, ctx: dict) -> None:
+    async def _decide(
+        self, user: dict[str, Any] | None, key: str, db: AsyncSession, ctx: dict[str, Any]
+    ) -> None:
         await _project_decision(user, key, db, self.minimum_role, ctx)
 
-    async def _authorize(self, key: str, request: Request, db: AsyncSession) -> dict | None:
+    async def _authorize(
+        self, key: str, request: Request, db: AsyncSession
+    ) -> dict[str, Any] | None:
         user = getattr(request.state, "user", None)
         if _auth_disabled():
             return (
@@ -218,7 +226,7 @@ class ProjectAccessChecker:
                 if isinstance(user, dict)
                 else {"id": "default", "role": "admin", "is_service": True}
             )
-        ctx: dict = {}
+        ctx: dict[str, Any] = {}
         try:
             enforce = _enforcing()
             await self._decide(user, key, db, ctx)
@@ -237,9 +245,13 @@ class ProjectAccessChecker:
             logger.warning("rbac.check_failed (shadow, allowing)", exc_info=True)
         return user
 
+
+class ProjectAccessChecker(_AccessChecker):
+    """Dependency: authorize the caller against a ``project_id`` path param."""
+
     async def __call__(
         self, project_id: str, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         return await self._authorize(project_id, request, db)
 
 
@@ -250,22 +262,24 @@ def _safe_enforcing() -> bool:
         return False
 
 
-class TaskAccessChecker(ProjectAccessChecker):
+class TaskAccessChecker(_AccessChecker):
     """Keyed on a ``task_id`` path param of the form ``project_id:spec_id``."""
 
     async def __call__(
         self, task_id: str, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         return await self._authorize(task_id.split(":", 1)[0], request, db)
 
 
-class PlanAccessChecker(ProjectAccessChecker):
+class PlanAccessChecker(_AccessChecker):
     """Plan-pipeline routes have no project path param: the caller needs the
     minimum role in at least one org (an ``acw_`` key: in its own org)."""
 
     resource_type = "plan_session"
 
-    async def _decide(self, user: dict | None, key: str, db: AsyncSession, ctx: dict) -> None:  # noqa: ARG002 - key is the audit resource id only
+    async def _decide(
+        self, user: dict[str, Any] | None, _key: str, db: AsyncSession, ctx: dict[str, Any]
+    ) -> None:
         if not user:
             return check_project_access(user, None, None)  # 401
         if is_service_principal(user):
@@ -282,7 +296,7 @@ class PlanAccessChecker(ProjectAccessChecker):
 
     async def __call__(
         self, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         return await self._authorize(request.url.path, request, db)
 
 
