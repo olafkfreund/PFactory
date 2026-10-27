@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 939
 spec: spec/2026-10-27-939-task-route-rbac.md
 ---
