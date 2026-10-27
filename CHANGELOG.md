@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.6.38 — acw_ key scopes capped by org role (2026-10-27)
+## 0.6.38 — acw_ key scopes capped, task route RBAC in shadow mode (2026-10-27)
 
 - **Behaviour change: `acw_` key scopes are capped by the owner's org role
   (#945, closes #940).** At mint, an API key cannot mint another key (403),
@@ -16,7 +16,15 @@
 - **Postgres:** API key `expires_at` and `last_used_at` are stored as naive
   UTC; asyncpg rejected the timezone-aware values, so minting a key with an
   expiry failed on Postgres.
-- No new env vars.
+- **Org role checks on task and plan-pipeline write routes, shadow mode
+  (#950, closes #939).** 39 write routes (task start/stop/edit/delete, plan
+  approve/reject, worktree merge/PR/discard, plan-pipeline writes) now run an
+  org role check (member, or viewer for log watch). New env var
+  `RBAC_ENFORCE_TASK_ROUTES`, **default off**: the check only logs
+  `rbac.would_deny` and audits the would-be denial (`details.shadow=true`);
+  responses do not change. Set it to `true` to enforce (403). Same flag name
+  as TFactory, so gitops can flip both together.
+- New env var: `RBAC_ENFORCE_TASK_ROUTES` (default off).
 
 ## 0.6.37 — MCP keys checked, audit export gated (2026-10-27)
 
