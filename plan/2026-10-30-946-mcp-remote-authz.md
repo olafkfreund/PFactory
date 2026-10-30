@@ -79,3 +79,12 @@ Revert the PR. Remote MCP is off by default.
   the real mcp 2.3.0 transport binds its session to the key and drops it on close.
 - `_authorize_call` refuses a call whose id argument is missing instead of
   returning early.
+- Second review: on mcp 2.x each posted message carries the POST request's
+  contextvars, so `_current_key` set only in `sse_endpoint` left every
+  `tools/call` with "missing auth context". `messages_endpoint` now sets
+  `_current_key` to the posting key after the session-owner check (it equals
+  the owner) and resets it afterwards. `sse_endpoint` returns a no-op
+  `Response()` after the transport has sent the stream. New end-to-end test on
+  the real transport: initialize, then tools/call reaches dispatch with the
+  session's key, and another key's post to that session is 403. It fails
+  without the fix.

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from mcp.types import (
@@ -173,6 +173,8 @@ async def sse_endpoint(request: Request):
         _current_key.reset(token)
         for session_id in session_ids:
             _session_keys.pop(session_id, None)
+    # The transport already sent the whole SSE response.
+    return Response()
 
 
 @router.post("/messages/")
@@ -198,4 +200,12 @@ async def messages_endpoint(request: Request):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This MCP session belongs to another API key",
         )
-    return await _sse_transport.handle_post_message(request.scope, request.receive, request._send)
+    # mcp 2.x hands each message the POSTer's contextvars, not the SSE task's,
+    # so the tool handler reads the key from here; it equals the session owner.
+    token = _current_key.set(key)
+    try:
+        return await _sse_transport.handle_post_message(
+            request.scope, request.receive, request._send
+        )
+    finally:
+        _current_key.reset(token)
