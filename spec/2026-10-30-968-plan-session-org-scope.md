@@ -1,5 +1,5 @@
 ---
-status: approved
+status: draft
 issue: 968
 intent: intent/2026-10-30-968-plan-session-org-scope.md
 ---
@@ -185,3 +185,50 @@ to an org key with the flag off, and allowed to a human in shadow mode (rule 3).
 that persists the org during an in-flight `process()` does not break that run: the run
 saves without `StaleSessionError`, and the stamp survives. The migration upgrades and
 downgrades on Postgres.
+
+## Review revision (lead's Opus review of #976, 2026-10-30)
+
+The read rule was confirmed, with no cross-org read leak. The lead decided these
+changes before merge:
+
+1. **An org key ingesting a repo with no known org stamps the key's org.** "No known
+   org" means no project, an org-less project, or an ambiguous match. The key can then
+   read its own session back. Humans are unchanged: they get the repo's org, or none.
+2. **A cross-org ingest is refused.** If the repo's org is known and the caller lacks
+   `member` in it:
+   - an org-scoped `acw_` key on another org's repo gets **403 always**, audited and
+     not behind the flag;
+   - a human is logged as `rbac.would_deny` in shadow mode (the session is stamped
+     with the repo's org) and refused (403) under enforce;
+   - a same-org key without membership follows the flag, as in #966.
+   No session ever gets another org's id stamped on it by an org key. The rule is
+   `authorize_plan_ingest` in `routes/project_authz.py`. The MCP ingest proxies now set
+   `request.state.user = _principal(key)`, as the read proxies do, so a registry error
+   gives an org key 503 there too. The upload proxy also passes `repo=None` /
+   `base_ref=None` explicitly: called directly, FastAPI does not fill those `Form()`
+   defaults.
+3. **Performance.** `GET /{id}` and `/audit-pack` look up the stamp by id, with a
+   one-row `SELECT` (`PlanSessionStore.org_stamp`), instead of `org_stamps()` over the
+   table. They resolve the org (and read `projects.json`) only past the auth-disabled
+   and service-principal early returns: `authorize_plan_session` takes a callable.
+   Lists still read every stamp once per request.
+4. **Under enforce, org-less sessions disappear for humans too.** This is correct as
+   designed: shadow-only today. The S6 runbook (`docs/dev/rbac-enforce-runbook.md`)
+   now says every project needs an `org_id` before enforce, for humans as well as keys.
+
+Known limits, left as they are (lead's decision):
+- Repo matching drops the provider (`gitlab:acme/a` matches a project with `repo:
+  acme/a`), because `ensure_tracked_project` stores the bare path. Two providers
+  hosting the same path would match each other's projects.
+- Org-less and unknown are both `org_id=None` in code. They differ only in
+  description: both are denied to org keys, and both keep today's behaviour for
+  humans in shadow mode.
+
+Out of scope (the lead is filing an issue): cross-org plan **writes**
+(process/approve/emit on another org's session), and the `mcp_rpc` shared-secret path.
+
+Added verification: an org key's ingest of an unregistered repo stamps the key's org
+and reads back. A cross-org key ingest gets 403 with the flag off and creates nothing.
+A human cross-org ingest is shadowed, then refused under enforce. The MCP ingest gives
+503 on a registry error. A human under enforce loses org-less sessions. The cross-org
+read assertions fail against `origin/dev`, rather than erroring at fixture setup.
