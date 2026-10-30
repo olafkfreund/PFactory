@@ -80,7 +80,7 @@ Repo traps (every step):
      `dependencies=[Depends(SpecAccessChecker("member"))]` on merge (~664),
      dismiss (~745), accept-baseline (~828). Handlers stay sync.
    - Tests: extend the inventory test (`test_every_listed_route_carries_the_dependency`
-     and its `n`) with these 8 routes and their checker class names; one test that
+     and its `n`) with these 9 routes and their checker class names; one test that
      `SpecAccessChecker` resolves `workspaces/p1/specs/s1/status.json` under a
      `PFACTORY_WORKSPACE_ROOT` tmp root to project `p1` (member-a allowed,
      viewer-a 403 in enforce) and an unknown spec gives a 404 decision.

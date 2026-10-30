@@ -31,7 +31,7 @@ def env(tmp_path, monkeypatch):  # noqa: PLR0915 - one fixture builds every rout
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from server.database.models import Base, Organization, OrgMember, User
-    from server.routes import project_authz as pa
+    from server.routes import pfactory_tasks as pt, project_authz as pa
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 't.db'}")
     session_local = async_sessionmaker(engine, expire_on_commit=False)
@@ -76,6 +76,7 @@ def env(tmp_path, monkeypatch):  # noqa: PLR0915 - one fixture builds every rout
             "plan": (pa.require_plan_access, "/plan/{sid}/approve"),
             "camel": (pa.require_camel_project_access, "/x/{projectId}/y"),
             "body": (pa.require_body_project_access, "/body"),
+            "spec": (pt.SpecAccessChecker, "/{spec_id}/merge"),
             "direct": (None, "/direct"),
         }
         factory, path = guards[kind]
@@ -284,6 +285,23 @@ def test_body_project_key_and_invalid_json(env):
     assert audits[0]["resource_id"] is None
 
 
+def test_spec_access_resolves_project_and_unknown_spec(env, tmp_path, monkeypatch):
+    make, enforce, audits = env
+    spec_dir = tmp_path / "workspaces" / "p1" / "specs" / "s1"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "status.json").write_text("{}")
+    monkeypatch.setenv("PFACTORY_WORKSPACE_ROOT", str(tmp_path))
+    enforce(True)
+    client, path = make(kind="spec")
+    known = path.replace("{spec_id}", "s1")
+    unknown = path.replace("{spec_id}", "missing")
+    assert client.post(known, headers={"X-U": "member-a"}).status_code == 200
+    assert client.post(known, headers={"X-U": "viewer-a"}).status_code == 403
+    assert [(a["resource_id"], a["org_id"]) for a in audits] == [("s1", "A")]
+    assert client.post(unknown, headers={"X-U": "member-a"}).status_code == 404
+    assert len(audits) == 1  # enforce audits 403s only
+
+
 TASK_ROUTES = {
     "execution": {
         "member": ["/{task_id}/start", "/{task_id}/stop", "/{task_id}/recover"],
@@ -336,13 +354,25 @@ PLAN_ROUTES = [
         "{session_id}/emit-contract",
     ]
 ] + [("DELETE", "{session_id}")]
+BODY_ROUTES = [("tasks", "POST", "", "BodyProjectAccessChecker")]
+CAMEL_ROUTES = [
+    ("auto_fix", "PUT", "/{projectId}/auto-fix/config"),
+    ("auto_fix", "POST", "/{projectId}/auto-fix/check-new"),
+    ("auto_fix", "POST", "/{projectId}/auto-fix/{issueNumber}/start"),
+    ("insights", "POST", "/create-task"),
+]
+SPEC_ROUTES = [
+    "/{spec_id}/merge",
+    "/{spec_id}/dismiss",
+    "/{spec_id}/visual-baselines/{target}/{snapshot}/accept",
+]
 
 
 def _guards(module, method, path):
     from importlib import import_module
 
     router = import_module(f"server.routes.{module}").router
-    hits = [r for r in router.routes if method in r.methods and r.path == path]
+    hits = [r for r in router.routes if method in getattr(r, "methods", ()) and r.path == path]
     assert len(hits) == 1, (module, method, path)
     return [(type(d.dependency).__name__, d.dependency.minimum_role) for d in hits[0].dependencies]
 
@@ -366,4 +396,15 @@ def test_every_listed_route_carries_the_dependency():
         path = f"/api/plan/sessions/{suffix}".rstrip("/")
         assert _guards("plan_pipeline", method, path) == [("PlanAccessChecker", "member")], path
         n += 1
-    assert n == 39
+    for module, method, path, checker in BODY_ROUTES:
+        assert _guards(module, method, path) == [(checker, "member")], path
+        n += 1
+    assert _guards("execution", "POST", "/create-and-run") == [("ProjectAccessChecker", "member")]
+    n += 1
+    for module, method, path in CAMEL_ROUTES:
+        assert _guards(module, method, path) == [("CamelProjectAccessChecker", "member")], path
+        n += 1
+    for path in SPEC_ROUTES:
+        assert _guards("pfactory_tasks", "POST", path) == [("SpecAccessChecker", "member")], path
+        n += 1
+    assert n == 48
