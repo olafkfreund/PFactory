@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import secrets as _secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -30,14 +30,15 @@ from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from server.oidc import authorize_access_token
+
 from ..config import get_settings
-from ..database import Organization, OrgMember, User
+from ..database import User
 from ..database.engine import get_db
 from ..database.models import OidcRefreshSession
 from ..oidc import get_oauth_client, is_oidc_enabled
 from ..oidc.provisioning import jit_provision_user
-from ..oidc.userinfo_cache import get_cached, invalidate
-from ..oidc.userinfo_cache import put as cache_put
+from ..oidc.userinfo_cache import get_cached, invalidate, put as cache_put
 from .auth_routes import create_access_token
 
 logger = logging.getLogger(__name__)
@@ -54,13 +55,13 @@ router = APIRouter(prefix="/api/auth/oidc", tags=["Auth (OIDC)"])
 def _create_refresh_token(user: User, jti: str) -> str:
     """Create a refresh token with a JTI that ties it to a RefreshSession row."""
     settings = get_settings()
-    expires = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    expires = datetime.now(UTC) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": user.id,
         "type": "refresh",
         "jti": jti,
         "exp": expires,
-        "iat": datetime.now(timezone.utc),
+        "iat": datetime.now(UTC),
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
@@ -157,7 +158,7 @@ async def oidc_callback(request: Request, db: AsyncSession = Depends(get_db)):
 
     oauth = get_oauth_client()
     try:
-        token = await oauth.oidc.authorize_access_token(request)
+        token = await authorize_access_token(oauth.oidc, request)
     except Exception as exc:  # authlib's specific exceptions vary by version
         logger.warning(
             "OIDC callback rejected: %s: %s",
@@ -190,9 +191,7 @@ async def oidc_callback(request: Request, db: AsyncSession = Depends(get_db)):
     # session row; logging out / revocation = deleting the row.
     settings = get_settings()
     jti = _secrets.token_urlsafe(32)
-    refresh_expires = datetime.now(timezone.utc) + timedelta(
-        days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
-    )
+    refresh_expires = datetime.now(UTC) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     session_row = OidcRefreshSession(
         user_id=user.id,
         jti=jti,
