@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+## 0.6.40 — DB pool caps, repo-scoped correlation keys, MCP read RBAC, remote MCP authz (2026-10-30)
+
+- **Postgres pools capped per pod (#964, closes #961).** Main engine 5 + 3
+  (was 5 + 10), JobStateStore and PlanSessionStore 2 + 2 each (were 5 + 5),
+  `pool_timeout` 10 s (was 30 s). With the WS relay's 3 connections a pod
+  now holds at most 19 connections (was 38). A saturated pool fails fast
+  with `QueuePool limit ... timed out`. `/emit` releases its DB session
+  before the long emit thread. SQLite URLs keep SQLAlchemy's own pool.
+  **New optional env vars** (defaults as above): `DB_POOL_SIZE`,
+  `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `JOBSTORE_DB_POOL_SIZE`,
+  `JOBSTORE_DB_MAX_OVERFLOW`, `PLAN_SESSION_DB_POOL_SIZE`,
+  `PLAN_SESSION_DB_MAX_OVERFLOW`.
+- **Behaviour change: correlation keys are repo-scoped (#965, closes #960).**
+  A task with an issue but no known repo now gets the synthetic
+  `pf-<session_id>` key instead of a bare issue number, so issue n from two
+  repos no longer lands on one CFactory work item. A task already in flight
+  under a bare number continues on a new card.
+- **Read-path RBAC for the stdio MCP proxies and the agent console (#966,
+  closes #958).** Per-task MCP reads check `viewer`; MCP list reads drop
+  other orgs' projects; plan reads use `PlanAccessChecker("viewer")`. The
+  cross-org `acw_` key check is now always enforced (not behind
+  `RBAC_ENFORCE_TASK_ROUTES`) on the four reads and the seven task write
+  proxies. An org-scoped `acw_` key on an unknown project always gets 404,
+  and a project registry read error gets 503 for org-scoped keys (it used to
+  fail open). `GET /api/tasks/{task_id}/agent-console/sse` requires
+  `viewer`, and console attach/detach audit rows now record the actor.
+  Human and same-org role checks stay in shadow mode behind the flag.
+- **Behaviour change: `/worktree/diff` and `/worktree/status` need
+  `project_id:spec_id` (#966).** A bare spec id gets 400; callers passing a
+  bare spec id must send `project_id:spec_id`.
+- **Remote MCP authorizes the calling key per tool call (#967, closes
+  #946).** Ported to the mcp 2.x lowlevel API (`mcp>=2.0` pinned in
+  `apps/web-server/requirements.txt`), so tool calls no longer fail with
+  "missing auth context". Each call checks the key owner's org and project
+  role (`viewer` for `mcp:read`, `member` for `mcp:write`), and each SSE
+  session is bound to the key that opened it. Remote MCP stays off
+  (`PFACTORY_MCP_REMOTE_ENABLED`); **once enabled, projects without
+  `org_id` refuse owned keys.**
+- No other new env vars.
+
 ## 0.6.39 — OIDC ID-token hardening, more task RBAC in shadow mode (2026-10-30)
 
 - **Behaviour change: OIDC ID tokens are checked against our own config
