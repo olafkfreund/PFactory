@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 958
 spec: spec/2026-10-30-958-mcp-read-authz.md
 coders:   # the user asked for agy as a team member this wave
