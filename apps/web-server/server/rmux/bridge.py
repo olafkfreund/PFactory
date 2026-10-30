@@ -43,8 +43,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSo
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import verify_websocket_token
-from ..database.engine import get_db
+from server.auth import WebSocketAuthError, authenticate_websocket
+from server.database.engine import async_session_factory, get_db
+from server.routes.project_authz import authorize_project
+
 from ..services.audit_service import log_audit_event
 from .session import SessionState, get_registry
 from .wrapper import RmuxError
@@ -57,6 +59,10 @@ router = APIRouter(prefix="/api/tasks", tags=["rmux Live Console"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _project_of(spec_id: str) -> str | None:
+    return spec_id.split(":", 1)[0] if ":" in spec_id else None
 
 
 async def _read_fifo_chunks(fifo_path: Path, chunk: int = 4096):
@@ -150,6 +156,9 @@ async def attach(
     The audit row binds (user_id, org_id, ip, connection_id, spec_id)
     so an investigator can answer "who attached when?" for any session.
     """
+    await authorize_project(
+        getattr(request.state, "user", None), _project_of(spec_id), db, "member"
+    )
     state = _resolve_state_or_404(spec_id)
     cid = body.connection_id
 
@@ -211,6 +220,9 @@ async def detach(
     disconnect cleanup path can be fire-and-forget — that case is
     benign (race between client close and explicit detach).
     """
+    await authorize_project(
+        getattr(request.state, "user", None), _project_of(spec_id), db, "member"
+    )
     state = _resolve_state_or_404(spec_id)
     cid = body.connection_id
 
@@ -245,7 +257,7 @@ async def detach(
 
 
 @router.websocket("/{spec_id}/agent-console/ws")
-async def agent_console_ws(websocket: WebSocket, spec_id: str):
+async def agent_console_ws(websocket: WebSocket, spec_id: str) -> None:  # noqa: PLR0915
     """Stream pane bytes FIFO→browser; accept browser keys when attached.
 
     Protocol:
@@ -258,11 +270,20 @@ async def agent_console_ws(websocket: WebSocket, spec_id: str):
         Otherwise silently dropped (with a debug log) — read-only
         viewers MUST NOT be able to type by accident.
 
-    Auth: ``verify_websocket_token`` is the same gate ``terminal.py``
-    uses.  Adding org-membership check is a v1.1 follow-up (when we add
-    cross-org pane sharing).
+    Auth: authenticate the caller, then require viewer access to the project.
     """
-    if not await verify_websocket_token(websocket):
+    try:
+        principal = await authenticate_websocket(websocket)
+    except WebSocketAuthError:
+        return
+    if principal is None:
+        principal = {"id": "default", "is_service": True}
+    try:
+        async with async_session_factory() as db:
+            await authorize_project(principal, _project_of(spec_id), db, "viewer")
+    except HTTPException:  # enforce mode only; shadow never raises
+        await websocket.accept()
+        await websocket.close(code=4003, reason="forbidden")
         return
 
     try:
