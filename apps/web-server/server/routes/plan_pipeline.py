@@ -249,7 +249,7 @@ async def list_sessions(
     keep: Callable[[PlanSession], bool] | None = None
     if allow is not None:
         projects = _projects_for(user)
-        stamps = SERVICE.org_stamps()
+        stamps = cast(PlanService, SERVICE).org_stamps()
         keep = lambda s: allow(_session_org(s, projects, stamps))  # noqa: E731
     return {
         "sessions": SERVICE.list_sessions(
