@@ -115,3 +115,6 @@ opentelemetry-exporter-otlp-proto-http>=1.27
 # out. Those two are what make one trace cross a service boundary.
 opentelemetry-instrumentation-fastapi>=0.48b0
 opentelemetry-instrumentation-httpx>=0.48b0
+# #946 — server/mcp_remote/server.py uses the mcp 2.x lowlevel Server API
+# (handlers passed to Server(...)); claude-agent-sdk already pulls mcp 2.x.
+mcp>=2.0
