@@ -12,6 +12,32 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
+ID_TOKEN_SIGNING_ALGS = [
+    "RS256",
+    "RS384",
+    "RS512",
+    "ES256",
+    "ES384",
+    "ES512",
+    "PS256",
+    "PS384",
+    "PS512",
+]
+
+
+async def authorize_access_token(oidc, request):
+    metadata = await oidc.load_server_metadata()
+    # Pin ID-token algorithms and claims against discovery overrides (#953).
+    metadata["id_token_signing_alg_values_supported"] = ID_TOKEN_SIGNING_ALGS
+    return await oidc.authorize_access_token(
+        request,
+        claims_options={
+            "iss": {"essential": True, "value": os.environ["APP_OIDC_ISSUER_URL"].rstrip("/")},
+            "aud": {"essential": True, "values": [oidc.client_id]},
+            "exp": {"essential": True},
+        },
+    )
+
 
 def is_oidc_enabled() -> bool:
     """True iff the deployment has APP_OIDC_ENABLED=true and the
