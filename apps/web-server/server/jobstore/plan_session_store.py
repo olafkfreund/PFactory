@@ -26,6 +26,8 @@ from typing import Any
 from sqlalchemy import delete as sa_delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
+from server.db_pool import pool_kwargs
+
 from .plan_session_models import (
     PLAN_SESSION_SCHEMA_VERSION,
     PlanSessionCounter,
@@ -68,7 +70,9 @@ class PlanSessionStore:
 
     @staticmethod
     async def _make_engine_coro(url: str) -> AsyncEngine:
-        return create_async_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+        return create_async_engine(
+            url, pool_pre_ping=True, **pool_kwargs(url, "PLAN_SESSION_DB", 2, 2)
+        )
 
     def _run(self, coro: Any) -> Any:
         """Run a coroutine on the store's loop and block. Safe from any thread."""
