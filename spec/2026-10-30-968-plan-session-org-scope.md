@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 968
 intent: intent/2026-10-30-968-plan-session-org-scope.md
 ---
