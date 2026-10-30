@@ -100,6 +100,7 @@ pydantic `Settings`, prefix `APP_`. Read in `apps/web-server/server/config.py`.
 | `PFACTORY_MCP_LOOPBACK_URL` | `http://localhost:3114` | No | — | Loopback base URL the remote MCP tools call back into. | `mcp_remote/tools.py` |
 | `PFACTORY_API_TOKEN_FILE` | `~/.pfactory/.token` | No | — | File the agent HTTP client reads the API token from. | `agents/tools_pkg/http_client.py` |
 | `METRICS_SCRAPE_TOKEN` | `""` | For protected `/metrics` | — | Bearer token required to scrape Prometheus metrics. Empty leaves metrics open. | `observability/metrics.py` |
+| `APP_RBAC_ENFORCE_TASK_ROUTES` | off | No | On enforces org role checks; off = shadow (log + audit only). | Factory#312 RBAC on project, task and plan routes. Flip only after the [S6 runbook](rbac-enforce-runbook.md). | `config.py`, `routes/project_authz.py` |
 | `APP_OIDC_ENABLED` | off | For SSO | On turns on OIDC login. | Master switch for OIDC/SSO. | `oidc/client.py` |
 | `APP_OIDC_PROVIDER` | `keycloak` | No | — | OIDC preset (keycloak, etc.) selecting default scope/endpoints. | `oidc/presets.py` |
 | `APP_OIDC_ISSUER_URL` | none | If OIDC on | — | OIDC issuer/discovery base URL. | `oidc/client.py`, `routes/oidc_routes.py` |
