@@ -644,6 +644,8 @@ async def emit(
     Other failures, such as an unprocessed plan, stay 400 (#758).
     """
     docs_connections = await _load_docs_connections(request, db)
+    # #961: release the main-pool connection before the minutes-long emit thread.
+    await db.close()
     try:
         # Off the event loop (#725): a live emit is dozens of `gh` subprocess
         # calls, and holding the loop for minutes starved /api/health until the

@@ -31,6 +31,14 @@ class _Request:
     headers: ClassVar[dict[str, str]] = {}
 
 
+class _Session:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 class _RaisingService:
     """Every SERVICE method a route calls raises the configured error."""
 
@@ -47,7 +55,7 @@ class _RaisingService:
 def _call(route: str):
     sid = "PLAN-1"
     calls = {
-        "emit": lambda: pp.emit(sid, pp.EmitBody(repo="o/r", dry_run=False), None, None),
+        "emit": lambda: pp.emit(sid, pp.EmitBody(repo="o/r", dry_run=False), None, _Session()),
         "emit_contract": lambda: pp.emit_contract(sid, pp.EmitContractBody(dry_run=False)),
         "approve": lambda: pp.approve(sid, pp.ApproveBody(approver="a")),
         "discard": lambda: pp.discard(sid, pp.DiscardBody(actor="a", reason="r")),
@@ -70,6 +78,23 @@ def _status(monkeypatch, route: str, exc: Exception) -> int:
 def test_emit_conflicts_are_409(monkeypatch, route, error):
     exc = getattr(pp, error)("another replica is on it")
     assert _status(monkeypatch, route, exc) == 409
+
+
+def test_emit_releases_db_before_service_runs(monkeypatch):
+    db = _Session()
+    observed = []
+
+    class _Service:
+        def emit(self, *_args, **_kwargs):
+            observed.append(db.closed)
+            return {"ok": True}
+
+    monkeypatch.setattr(pp, "SERVICE", _Service())
+    monkeypatch.setattr(pp, "_session_dict", lambda session: session)
+
+    result = asyncio.run(pp.emit("PLAN-1", pp.EmitBody(repo="o/r"), None, db))
+    assert result == {"ok": True}
+    assert observed == [True]
 
 
 @pytest.mark.parametrize("route", ["approve", "discard", "reject", "process"])

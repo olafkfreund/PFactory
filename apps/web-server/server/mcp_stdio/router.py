@@ -25,9 +25,19 @@ UI-driven actions in the audit log.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request as FastAPIRequest, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request as FastAPIRequest,
+    UploadFile,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database.engine import get_db
@@ -43,7 +53,12 @@ from server.routes.plan_pipeline import (
     list_sessions as plan_list_sessions,
     process as plan_process,
 )
-from server.routes.project_authz import PlanAccessChecker, authorize_project
+from server.routes.project_authz import (
+    PlanAccessChecker,
+    authorize_project,
+    authorize_project_for_user,
+)
+from server.services import project_paths
 from server.services.audit_service import (
     ACTION_MCP_PLAN_APPROVE,
     ACTION_MCP_PLAN_INGEST,
@@ -73,12 +88,63 @@ from .auth import (
 )
 
 router = APIRouter(prefix="/api/mcp-stdio", tags=["MCP (stdio)"])
+logger = logging.getLogger(__name__)
 
 
 def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
     if isinstance(key, AuthenticatedKey):
         return {"id": key.user_id, "api_key_id": key.key_id, "org_id": key.org_id}
     return {"id": "default", "is_service": True}
+
+
+def _key_projects(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any] | None:
+    """The project map for an org-scoped key; None when the key has no org to check.
+
+    Fails closed (503): an unreadable registry must not let an org key through.
+    """
+    if not isinstance(key, AuthenticatedKey) or not key.org_id:
+        return None
+    try:
+        projects: dict[str, Any] = project_paths.load_projects()
+        return projects
+    except Exception:  # noqa: BLE001 - any registry error fails closed
+        logger.warning("rbac.projects_unavailable", exc_info=True)
+        raise HTTPException(status_code=503, detail="Project registry unavailable") from None
+
+
+def _foreign_ids(key: AuthenticatedKey, projects: dict[str, Any]) -> set[str]:
+    return {
+        pid
+        for pid, pdata in projects.items()
+        if isinstance(pdata, dict) and pdata.get("org_id") and pdata.get("org_id") != key.org_id
+    }
+
+
+def _foreign_projects(key: AuthenticatedKey | _LegacyAdminKey) -> set[str]:
+    """Project ids in another org (not behind the flag: org-A keys never read org B)."""
+    projects = _key_projects(key)
+    if projects is None or not isinstance(key, AuthenticatedKey):
+        return set()
+    return _foreign_ids(key, projects)
+
+
+async def _authorize_key(
+    key: AuthenticatedKey | _LegacyAdminKey,
+    project_id: str,
+    db: AsyncSession,
+    minimum_role: str = "viewer",
+) -> None:
+    """Org key on an unknown or another org's project: always 404/403 (like
+    TFactory #1465). Role check: shadow or enforce."""
+    principal = _principal(key)
+    projects = _key_projects(key)
+    if (
+        projects is not None
+        and isinstance(key, AuthenticatedKey)
+        and (project_id not in projects or project_id in _foreign_ids(key, projects))
+    ):
+        await authorize_project_for_user(principal, project_id, db, minimum_role)
+    await authorize_project(principal, project_id, db, minimum_role)
 
 
 async def _read_json_body(request: FastAPIRequest) -> dict:
@@ -134,54 +200,82 @@ async def _audit_mcp_write(
 
 
 @router.get("/projects")
-async def proxy_list_projects(_=Depends(require_acw_scope(MCP_READ_SCOPE))):
+async def proxy_list_projects(key=Depends(require_acw_scope(MCP_READ_SCOPE))):
     from ..routes.projects import list_projects
 
-    return await list_projects()
+    foreign = _foreign_projects(key)
+    projects = await list_projects()
+    return [p for p in projects if p.get("id") not in foreign]
 
 
 @router.get("/tasks")
 async def proxy_list_tasks(
     project_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
-    _=Depends(require_acw_scope(MCP_READ_SCOPE)),
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
 ):
-    from ..routes.tasks import list_tasks
+    from server.routes.tasks import TaskList, list_tasks
 
-    return await list_tasks(project_id=project_id, status=status)
+    foreign = _foreign_projects(key)
+    result = await list_tasks(project_id=project_id, status=status)
+    tasks = [t for t in result.tasks if t.project_id not in foreign]
+    return TaskList(tasks=tasks, total=len(tasks))
 
 
 @router.get("/tasks/running")
-async def proxy_get_running_tasks(_=Depends(require_acw_scope(MCP_READ_SCOPE))):
-    from ..routes.execution import get_running_tasks
+async def proxy_get_running_tasks(key=Depends(require_acw_scope(MCP_READ_SCOPE))):
+    from server.routes.execution import RunningTasksResponse, get_running_tasks
 
-    return await get_running_tasks()
+    foreign = _foreign_projects(key)
+    result = await get_running_tasks()
+    tasks = [tid for tid in result.tasks if tid.split(":", 1)[0] not in foreign]
+    return RunningTasksResponse(tasks=tasks, count=len(tasks))
 
 
 @router.get("/tasks/{task_id}")
-async def proxy_get_task(task_id: str, _=Depends(require_acw_scope(MCP_READ_SCOPE))):
+async def proxy_get_task(
+    task_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
+):
+    await _authorize_key(key, task_id.split(":", 1)[0], db)
     from ..routes.tasks import get_task
 
     return await get_task(task_id)
 
 
 @router.get("/tasks/{task_id}/status")
-async def proxy_get_task_status(task_id: str, _=Depends(require_acw_scope(MCP_READ_SCOPE))):
+async def proxy_get_task_status(
+    task_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
+):
+    await _authorize_key(key, task_id.split(":", 1)[0], db)
     from ..routes.execution import get_task_status
 
     return await get_task_status(task_id)
 
 
 @router.get("/tasks/{task_id}/logs")
-async def proxy_get_task_logs(task_id: str, _=Depends(require_acw_scope(MCP_READ_SCOPE))):
+async def proxy_get_task_logs(
+    task_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
+):
     # #906: get_task_logs takes no tail and no MCP tool sends one; ?tail= is ignored.
+    await _authorize_key(key, task_id.split(":", 1)[0], db)
     from ..routes.tasks import get_task_logs
 
     return await get_task_logs(task_id)
 
 
 @router.get("/tasks/{task_id}/worktree/diff")
-async def proxy_get_worktree_diff(task_id: str, _=Depends(require_acw_scope(MCP_READ_SCOPE))):
+async def proxy_get_worktree_diff(
+    task_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
+):
+    await _authorize_key(key, task_id.split(":", 1)[0], db)
     from ..routes.tasks import get_worktree_diff
 
     return await get_worktree_diff(task_id)
@@ -227,7 +321,7 @@ async def proxy_create_and_run_task(  # noqa: PLR0913 - one param per query fiel
     description: str = Query(...),
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), project_id, db, "member")
+    await _authorize_key(key, project_id, db, "member")
     from ..routes.execution import StartTaskRequest, create_and_run_task
 
     body = await _read_json_body(request)
@@ -251,7 +345,7 @@ async def proxy_start_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import StartTaskRequest, start_task
 
     body = await _read_json_body(request)
@@ -273,7 +367,7 @@ async def proxy_stop_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import stop_task
 
     result = await stop_task(task_id)
@@ -294,7 +388,7 @@ async def proxy_recover_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import RecoverTaskRequest, recover_task
 
     body = await _read_json_body(request)
@@ -316,7 +410,7 @@ async def proxy_approve_plan(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import ApprovePlanRequest, approve_plan
 
     body = await _read_json_body(request)
@@ -343,7 +437,7 @@ async def proxy_create_pr(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_MERGE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import CreatePRFromTaskOptions, create_pr_from_task
 
     body = await _read_json_body(request)
@@ -365,7 +459,7 @@ async def proxy_merge_worktree(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_MERGE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import WorktreeMergeOptions, merge_worktree
 
     body = await _read_json_body(request)
@@ -403,24 +497,34 @@ _PlanWrite = Annotated[
 
 
 @router.get("/plan/sessions")
-async def proxy_list_plan_sessions(request: FastAPIRequest, _: _Read) -> dict[str, Any]:
+async def proxy_list_plan_sessions(
+    request: FastAPIRequest, key: _Read, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, Any]:
+    await PlanAccessChecker("viewer").check(_principal(key), request.url.path, db)
     return await plan_list_sessions(request)
 
 
 @router.get("/plan/sessions/{session_id}")
 async def proxy_get_plan_session(
-    session_id: str, request: FastAPIRequest, _: _Read
+    session_id: str,
+    request: FastAPIRequest,
+    key: _Read,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
+    await PlanAccessChecker("viewer").check(_principal(key), request.url.path, db)
     return await plan_get_session(session_id, request)
 
 
 @router.get("/plan/sessions/{session_id}/audit-pack")
 async def proxy_plan_audit_pack(
     session_id: str,
-    _: _Read,
+    request: FastAPIRequest,
+    key: _Read,
+    db: Annotated[AsyncSession, Depends(get_db)],
     # Aliased because the REST parameter is `format`, which shadows a builtin.
     fmt: Annotated[str, Query(alias="format")] = "json",
 ) -> Any:
+    await PlanAccessChecker("viewer").check(_principal(key), request.url.path, db)
     return await plan_audit_pack(session_id, format=fmt)
 
 

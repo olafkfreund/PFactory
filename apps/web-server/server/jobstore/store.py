@@ -48,6 +48,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from server.db_pool import pool_kwargs
+
 from .lifecycle import (
     IN_FLIGHT_LIFECYCLE,
     TERMINAL_LIFECYCLE,
@@ -185,7 +187,7 @@ class JobStateStore:
 
     @staticmethod
     async def _make_engine_coro(url: str) -> AsyncEngine:
-        return create_async_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+        return create_async_engine(url, pool_pre_ping=True, **pool_kwargs(url, "JOBSTORE_DB", 2, 2))
 
     def _cap(self) -> int:
         """The admission cap: the explicit fixed cap, else the live env value."""

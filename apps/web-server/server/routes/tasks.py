@@ -1899,7 +1899,7 @@ async def get_qa_report(task_id: str):
     }
 
 
-@router.get("/{task_id}/agent-console/sse")
+@router.get("/{task_id}/agent-console/sse", dependencies=[Depends(require_task_access("viewer"))])
 async def stream_agent_console(task_id: str):
     """Server-Sent Events stream of the running agent's console output.
 
@@ -3923,6 +3923,18 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
         }
 
 
+def _exact_project_path(projects_data: Any, project_id: str) -> Path | None:
+    """The project's path by exact id (dict or list ``projects.json``); no spec scan."""
+    if isinstance(projects_data, dict):
+        project = projects_data.get(project_id)
+    else:
+        project = next(
+            (p for p in projects_data if isinstance(p, dict) and p.get("id") == project_id),
+            None,
+        )
+    return Path(project["path"]) if isinstance(project, dict) and project.get("path") else None
+
+
 @router.get("/{task_id}/worktree/status")
 async def get_worktree_status(task_id: str):
     """
@@ -3930,18 +3942,14 @@ async def get_worktree_status(task_id: str):
     Returns information about the worktree including changed files count,
     additions/deletions, and whether it exists.
     """
-    # Parse task_id to get project_id and spec_id
-    if ":" in task_id:
-        project_id, spec_id = split_task_id(task_id)
-    else:
-        # task_id is just the spec_id, search for project
-        # #335 barrier the bare id (the split branch is validated by split_task_id)
-        try:
-            spec_id = safe_spec_component(task_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="invalid task id") from None
-        project_id = None
-
+    # Exact project_id:spec_id only: a bare id or unknown prefix must not scan
+    # other projects for the spec (cross-org read, #958/#1466).
+    if ":" not in task_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Task ID must include project ID (format: project_id:spec_id)",
+        )
+    project_id, spec_id = split_task_id(task_id)
     # Find project path
     projects_data_dir = get_data_dir()
     projects_file = projects_data_dir / "projects.json"
@@ -3956,27 +3964,7 @@ async def get_worktree_status(task_id: str):
 
     projects_data = json.loads(projects_file.read_text())
 
-    # Handle both dict format (id -> project) and list format
-    project_path = None
-    if isinstance(projects_data, dict):
-        if project_id and project_id in projects_data:
-            project_path = Path(projects_data[project_id]["path"])
-        else:
-            # Search all projects for this spec
-            for proj in projects_data.values():
-                path = Path(proj["path"])
-                if (path / ".pfactory" / "specs" / spec_id).exists():
-                    project_path = path
-                    break
-    else:
-        for project in projects_data:
-            path = Path(project.get("path", ""))
-            if (project_id and project.get("id") == project_id) or (
-                path / ".pfactory" / "specs" / spec_id
-            ).exists():
-                project_path = path
-                break
-
+    project_path = _exact_project_path(projects_data, project_id)
     if not project_path:
         return {
             "success": True,
@@ -4063,17 +4051,14 @@ async def get_worktree_diff(task_id: str):
     """
     import subprocess
 
-    # Parse task_id to get project_id and spec_id
-    if ":" in task_id:
-        project_id, spec_id = split_task_id(task_id)
-    else:
-        # #335 barrier the bare id (the split branch is validated by split_task_id)
-        try:
-            spec_id = safe_spec_component(task_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="invalid task id") from None
-        project_id = None
-
+    # Exact project_id:spec_id only: a bare id or unknown prefix must not scan
+    # other projects for the spec (cross-org read, #958/#1466).
+    if ":" not in task_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Task ID must include project ID (format: project_id:spec_id)",
+        )
+    project_id, spec_id = split_task_id(task_id)
     # Find project path
     projects_data_dir = get_data_dir()
     projects_file = projects_data_dir / "projects.json"
@@ -4083,26 +4068,7 @@ async def get_worktree_diff(task_id: str):
 
     projects_data = json.loads(projects_file.read_text())
 
-    # Handle both dict format (id -> project) and list format
-    project_path = None
-    if isinstance(projects_data, dict):
-        if project_id and project_id in projects_data:
-            project_path = Path(projects_data[project_id]["path"])
-        else:
-            for proj in projects_data.values():
-                path = Path(proj["path"])
-                if (path / ".pfactory" / "specs" / spec_id).exists():
-                    project_path = path
-                    break
-    else:
-        for project in projects_data:
-            path = Path(project.get("path", ""))
-            if (project_id and project.get("id") == project_id) or (
-                path / ".pfactory" / "specs" / spec_id
-            ).exists():
-                project_path = path
-                break
-
+    project_path = _exact_project_path(projects_data, project_id)
     if not project_path:
         return {"success": False, "error": f"Project not found for task {task_id}"}
 

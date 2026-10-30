@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -70,11 +71,15 @@ def env(tmp_path, monkeypatch):
 
     @app.middleware("http")
     async def _principal(request: Request, call_next):
-        request.state.user = {"id": request.headers.get("X-U", "viewer-a")}
+        request.state.user = {
+            "id": request.headers.get("X-U", "viewer-a"),
+            "org_id": request.headers.get("X-Org", "A"),
+        }
         return await call_next(request)
 
     yield TestClient(app), settings, audits, bridge
     bridge.get_registry()._states.pop("sB", None)
+    bridge.get_registry()._states.pop("s1", None)
     asyncio.run(engine.dispose())
 
 
@@ -201,11 +206,13 @@ def mcp_env(env, monkeypatch):
     _, settings, audits, bridge = env
     proxy = importlib.import_module("server.mcp_stdio.router")
     execution = importlib.import_module("server.routes.execution")
+    tasks = importlib.import_module("server.routes.tasks")
+    projects = importlib.import_module("server.routes.projects")
     auth = importlib.import_module("server.mcp_remote.auth")
     legacy = importlib.import_module("server.mcp_stdio.auth")._LegacyAdminKey()
     key = auth.AuthenticatedKey(
         key_id="key-b",
-        scopes=frozenset({"task:write", "plan:write"}),
+        scopes=frozenset({"mcp:read", "task:write", "plan:write"}),
         user_id="member-a",
         org_id="B",
     )
@@ -219,46 +226,288 @@ def mcp_env(env, monkeypatch):
 
     app.dependency_overrides[proxy.get_db] = _db
     for route in app.routes:
-        if route.path in {
-            "/api/mcp-stdio/tasks/{task_id}/start",
-            "/api/mcp-stdio/plan/sessions/{session_id}/process",
-        }:
+        if hasattr(route, "dependant"):
             for dependency in route.dependant.dependencies:
                 if dependency.call.__closure__:
                     app.dependency_overrides[dependency.call] = lambda: selected["key"]
 
+    monkeypatch.setattr(
+        proxy.project_paths,
+        "load_projects",
+        lambda: {"p1": {"org_id": "A"}, "pB": {"org_id": "B"}},
+    )
     handler = AsyncMock(return_value={"ok": True})
     plan_handler = AsyncMock(return_value={"ok": True})
+    read_handler = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr(execution, "start_task", handler)
+    monkeypatch.setattr(execution, "get_task_status", read_handler)
+    monkeypatch.setattr(
+        execution,
+        "get_running_tasks",
+        AsyncMock(return_value=execution.RunningTasksResponse(tasks=["p1:s1", "pB:sB"], count=2)),
+    )
+    monkeypatch.setattr(tasks, "get_task", read_handler)
+    monkeypatch.setattr(tasks, "get_task_logs", read_handler)
+    monkeypatch.setattr(tasks, "get_worktree_diff", read_handler)
+    monkeypatch.setattr(
+        tasks,
+        "list_tasks",
+        AsyncMock(
+            return_value=tasks.TaskList(
+                tasks=[
+                    tasks.Task(
+                        id=f"{pid}:s",
+                        spec_id="s",
+                        project_id=pid,
+                        title=pid,
+                        description=pid,
+                        created_at="2026-01-01T00:00:00Z",
+                        updated_at="2026-01-01T00:00:00Z",
+                    )
+                    for pid in ("p1", "pB")
+                ],
+                total=2,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        projects,
+        "list_projects",
+        AsyncMock(return_value=[{"id": "p1"}, {"id": "pB"}]),
+    )
     monkeypatch.setattr(proxy, "plan_process", plan_handler)
+    monkeypatch.setattr(proxy, "plan_list_sessions", read_handler)
+    monkeypatch.setattr(proxy, "plan_get_session", read_handler)
+    monkeypatch.setattr(proxy, "plan_audit_pack", read_handler)
     monkeypatch.setattr(proxy, "log_audit_event_bg", AsyncMock())
-    return TestClient(app), settings, audits, selected, legacy, handler, plan_handler
+    return (
+        TestClient(app),
+        settings,
+        audits,
+        selected,
+        legacy,
+        handler,
+        plan_handler,
+        read_handler,
+        auth.AuthenticatedKey,
+    )
 
 
-@pytest.mark.parametrize(
-    ("path", "handler_index"),
-    [
-        ("/api/mcp-stdio/tasks/p1:s/start", 5),
-        ("/api/mcp-stdio/plan/sessions/s/process", 6),
-    ],
-)
-def test_mcp_write_requires_member(mcp_env, path, handler_index):
-    client, settings, audits, selected, legacy, _, _ = mcp_env
-    handler = mcp_env[handler_index]
+def test_mcp_write_requires_member(mcp_env):
+    client, settings, audits, selected, legacy, handler, plan_handler, _, key_cls = mcp_env
 
-    settings.RBAC_ENFORCE_TASK_ROUTES = True
-    response = client.post(path)
+    # Org-B key on org-A task write: always 403 even with flag off (Deviation).
+    settings.RBAC_ENFORCE_TASK_ROUTES = False
+    response = client.post("/api/mcp-stdio/tasks/p1:s/start")
     assert response.status_code == 403
     handler.assert_not_awaited()
+    assert len(audits) == 1
 
-    settings.RBAC_ENFORCE_TASK_ROUTES = False
-    response = client.post(path)
+    # Plan write with org-B key (user has no membership in B): shadow 200, enforce 403.
+    response = client.post("/api/mcp-stdio/plan/sessions/s/process")
     assert response.status_code == 200
-    handler.assert_awaited_once()
+    plan_handler.assert_awaited_once()
     assert len(audits) == 2
     assert audits[1]["details"]["shadow"] is True
 
+    settings.RBAC_ENFORCE_TASK_ROUTES = True
+    plan_handler.reset_mock()
+    response = client.post("/api/mcp-stdio/plan/sessions/s/process")
+    assert response.status_code == 403
+    plan_handler.assert_not_awaited()
+    assert len(audits) == 3
+
+    # Same-org (org A) key whose user has no membership: shadow 200 + audit, enforce 403.
+    selected["key"] = key_cls(
+        key_id="key-a-outsider",
+        scopes=frozenset({"task:write", "plan:write"}),
+        user_id="outsider",
+        org_id="A",
+    )
+    response = client.post("/api/mcp-stdio/tasks/p1:s/start")
+    assert response.status_code == 403
+    handler.assert_not_awaited()
+    assert len(audits) == 4
+
+    settings.RBAC_ENFORCE_TASK_ROUTES = False
+    response = client.post("/api/mcp-stdio/tasks/p1:s/start")
+    assert response.status_code == 200
+    handler.assert_awaited_once()
+    assert len(audits) == 5
+    assert audits[4]["details"]["shadow"] is True
+
     selected["key"] = legacy
-    response = client.post(path)
+    for path in ("/api/mcp-stdio/tasks/p1:s/start", "/api/mcp-stdio/plan/sessions/s/process"):
+        assert client.post(path).status_code == 200
+    assert len(audits) == 5
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/mcp-stdio/tasks/p1:s/logs",
+        "/api/mcp-stdio/tasks/p1:s/worktree/diff",
+    ],
+)
+def test_mcp_read_rejects_foreign_org_key_with_flag_off(mcp_env, path):
+    client, settings, audits, _, _, _, _, read_handler, _ = mcp_env
+    settings.RBAC_ENFORCE_TASK_ROUTES = False
+    response = client.get(path)
+    assert response.status_code == 403
+    read_handler.assert_not_awaited()
+    assert len(audits) == 1
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/mcp-stdio/tasks/p1:s",
+        "/api/mcp-stdio/tasks/p1:s/status",
+        "/api/mcp-stdio/tasks/p1:s/logs",
+        "/api/mcp-stdio/tasks/p1:s/worktree/diff",
+    ],
+)
+def test_mcp_read_same_org_and_legacy_keys(mcp_env, path):
+    client, settings, audits, selected, legacy, _, _, read_handler, key_cls = mcp_env
+    selected["key"] = key_cls(
+        key_id="key-a-viewer",
+        scopes=frozenset({"mcp:read"}),
+        user_id="viewer-a",
+        org_id="A",
+    )
+    response = client.get(path)
+    assert response.status_code == 200
+    assert audits == []
+
+    selected["key"] = key_cls(
+        key_id="key-a-outsider",
+        scopes=frozenset({"mcp:read"}),
+        user_id="outsider",
+        org_id="A",
+    )
+    settings.RBAC_ENFORCE_TASK_ROUTES = False
+    response = client.get(path)
+    assert response.status_code == 200
+    assert len(audits) == 1
+    assert audits[0]["details"]["shadow"] is True
+
+    settings.RBAC_ENFORCE_TASK_ROUTES = True
+    read_handler.reset_mock()
+    response = client.get(path)
+    assert response.status_code == 403
+    read_handler.assert_not_awaited()
+    assert len(audits) == 2
+
+    selected["key"] = legacy
+    response = client.get(path)
     assert response.status_code == 200
     assert len(audits) == 2
+
+
+def test_mcp_lists_filter_foreign_projects(mcp_env):
+    client, _, _, selected, legacy, _, _, _, _ = mcp_env
+    assert client.get("/api/mcp-stdio/projects").json() == [{"id": "pB"}]
+    assert [t["project_id"] for t in client.get("/api/mcp-stdio/tasks").json()["tasks"]] == ["pB"]
+    assert client.get("/api/mcp-stdio/tasks").json()["total"] == 1
+    assert client.get("/api/mcp-stdio/tasks/running").json() == {"tasks": ["pB:sB"], "count": 1}
+
+    selected["key"] = legacy
+    assert [p["id"] for p in client.get("/api/mcp-stdio/projects").json()] == ["p1", "pB"]
+    assert client.get("/api/mcp-stdio/tasks").json()["total"] == 2
+    assert client.get("/api/mcp-stdio/tasks/running").json() == {
+        "tasks": ["p1:s1", "pB:sB"],
+        "count": 2,
+    }
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/mcp-stdio/plan/sessions",
+        "/api/mcp-stdio/plan/sessions/s1",
+        "/api/mcp-stdio/plan/sessions/s1/audit-pack",
+    ],
+)
+def test_mcp_plan_read_requires_viewer(mcp_env, path):
+    client, settings, audits, _, _, _, _, read_handler, _ = mcp_env
+    settings.RBAC_ENFORCE_TASK_ROUTES = False
+    assert client.get(path).status_code == 200
+    assert len(audits) == 1
+    assert audits[0]["details"]["shadow"] is True
+
+    settings.RBAC_ENFORCE_TASK_ROUTES = True
+    read_handler.reset_mock()
+    assert client.get(path).status_code == 403
+    read_handler.assert_not_awaited()
+    assert len(audits) == 2
+
+
+def test_console_attach_audit_carries_user_and_org(env, tmp_path, monkeypatch):
+    client, _, _, bridge = env
+    bridge.get_registry()._states["s1"] = bridge.SessionState(
+        spec_id="s1",
+        session_name="pfactory-task-s1",
+        fifo_path=tmp_path / "s1.fifo",
+        project_id="p1",
+    )
+    captured = {}
+
+    async def _log(_db, **kw):
+        captured.update(kw)
+
+    monkeypatch.setattr(bridge, "log_audit_event", _log)
+    response = client.post(
+        "/api/tasks/p1:s1/agent-console/attach",
+        json={"connection_id": "c1"},
+        headers={"X-U": "member-a", "X-Org": "A"},
+    )
+    assert response.status_code == 200
+    assert captured["user_id"] == "member-a"
+    assert captured["org_id"] == "A"
+
+
+@pytest.mark.parametrize("task_id", ["nope:s", "s"])
+def test_mcp_org_key_on_unknown_project_denied_with_flag_off(mcp_env, task_id):
+    # get_worktree_diff once scanned every project for a bare/unknown-prefix spec.
+    client, settings, _, selected, _, _, _, read_handler, key_cls = mcp_env
+    settings.RBAC_ENFORCE_TASK_ROUTES = False
+    selected["key"] = key_cls(
+        key_id="key-a", scopes=frozenset({"mcp:read"}), user_id="viewer-a", org_id="A"
+    )
+    response = client.get(f"/api/mcp-stdio/tasks/{task_id}/worktree/diff")
+    assert response.status_code == 404
+    read_handler.assert_not_awaited()
+
+
+def test_mcp_project_registry_failure_fails_closed(mcp_env, monkeypatch):
+    client, _, _, _, _, handler, _, read_handler, _ = mcp_env
+    proxy = importlib.import_module("server.mcp_stdio.router")
+
+    def _boom():
+        raise RuntimeError("projects.json unreadable")
+
+    monkeypatch.setattr(proxy.project_paths, "load_projects", _boom)
+    assert client.get("/api/mcp-stdio/tasks/p1:s/worktree/diff").status_code == 503
+    assert client.post("/api/mcp-stdio/tasks/p1:s/start").status_code == 503
+    assert client.get("/api/mcp-stdio/projects").status_code == 503
+    read_handler.assert_not_awaited()
+    handler.assert_not_awaited()
+
+
+def test_worktree_status_and_diff_need_exact_project(tmp_path, monkeypatch):
+    """#958: a bare id or unknown prefix must not find p1's spec by scanning."""
+    tasks = importlib.import_module("server.routes.tasks")
+    proj = tmp_path / "p1"
+    (proj / ".pfactory" / "specs" / "s1").mkdir(parents=True)
+    (proj / ".pfactory" / "worktrees" / "tasks" / "s1").mkdir(parents=True)
+    (tmp_path / "projects.json").write_text(json.dumps({"p1": {"path": str(proj)}}))
+    monkeypatch.setattr(tasks, "get_data_dir", lambda: tmp_path)
+
+    for handler in (tasks.get_worktree_status, tasks.get_worktree_diff):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(handler("s1"))
+        assert exc.value.status_code == 400
+    status = asyncio.run(tasks.get_worktree_status("nope:s1"))
+    assert status == {"success": True, "data": {"exists": False}}
+    diff = asyncio.run(tasks.get_worktree_diff("nope:s1"))
+    assert diff == {"success": False, "error": "Project not found for task nope:s1"}
