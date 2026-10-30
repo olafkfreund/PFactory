@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 949
 spec: spec/2026-10-30-949-body-keyed-task-rbac.md
 coders:   # the user asked for Codex as a team member this wave
