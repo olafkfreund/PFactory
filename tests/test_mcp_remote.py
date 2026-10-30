@@ -14,6 +14,7 @@ Three concerns:
 
 from __future__ import annotations
 
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -120,6 +121,7 @@ def test_hash_key_deterministic():
     assert len(digest) == 64
     # SHA-256 hex digest of the literal string
     import hashlib
+
     expected = hashlib.sha256(b"acw_abc123").hexdigest()
     assert digest == expected
 
@@ -136,9 +138,7 @@ def test_require_scope_pass():
 
 
 def test_require_scope_fail():
-    key = AuthenticatedKey(
-        key_id="k1", scopes=frozenset({MCP_READ_SCOPE}), user_id=None
-    )
+    key = AuthenticatedKey(key_id="k1", scopes=frozenset({MCP_READ_SCOPE}), user_id=None)
     with pytest.raises(MCPAuthError) as exc_info:
         require_scope(key, MCP_WRITE_SCOPE)
     assert "mcp:write" in str(exc_info.value)
@@ -146,9 +146,7 @@ def test_require_scope_fail():
 
 
 def test_authenticated_key_has_scope():
-    key = AuthenticatedKey(
-        key_id="k1", scopes=frozenset({"mcp:read"}), user_id=None
-    )
+    key = AuthenticatedKey(key_id="k1", scopes=frozenset({"mcp:read"}), user_id=None)
     assert key.has_scope("mcp:read")
     assert not key.has_scope("mcp:write")
 
@@ -156,11 +154,16 @@ def test_authenticated_key_has_scope():
 # ── Dispatch — scope enforcement + envelope shape ─────────────────
 
 
+@pytest.fixture(autouse=True)
+def _stub_project_authz(monkeypatch):
+    tools_mod = importlib.import_module("server.mcp_remote.tools")
+    monkeypatch.setattr(tools_mod, "_authorize_call", AsyncMock())
+    monkeypatch.setattr(tools_mod, "_visible_org_ids", AsyncMock(return_value=None))
+
+
 @pytest.fixture
 def read_only_key():
-    return AuthenticatedKey(
-        key_id="key-r", scopes=frozenset({MCP_READ_SCOPE}), user_id="u1"
-    )
+    return AuthenticatedKey(key_id="key-r", scopes=frozenset({MCP_READ_SCOPE}), user_id="u1")
 
 
 @pytest.fixture
@@ -184,17 +187,13 @@ async def test_unknown_tool_returns_error(read_only_key):
 
 
 async def test_read_tool_blocked_without_read_scope(no_scope_key):
-    result = await dispatch_tool_call(
-        "pfactory.list_projects", {}, no_scope_key
-    )
+    result = await dispatch_tool_call("pfactory.list_projects", {}, no_scope_key)
     assert result.get("isError") is True
     assert "mcp:read" in result["content"][0]["text"]
 
 
 async def test_write_tool_blocked_with_only_read_scope(read_only_key):
-    result = await dispatch_tool_call(
-        "pfactory.start_task", {"task_id": "t1"}, read_only_key
-    )
+    result = await dispatch_tool_call("pfactory.start_task", {"task_id": "p1:001"}, read_only_key)
     assert result.get("isError") is True
     assert "mcp:write" in result["content"][0]["text"]
 
@@ -216,15 +215,15 @@ async def test_write_tool_blocked_with_only_read_scope(read_only_key):
         ),
         (
             "pfactory.get_task",
-            {"task_id": "t1"},
+            {"task_id": "p1:001"},
             "GET",
-            "/api/tasks/t1",
+            "/api/tasks/p1:001",
         ),
         (
             "pfactory.get_worktree_diff",
-            {"task_id": "t1"},
+            {"task_id": "p1:001"},
             "GET",
-            "/api/tasks/t1/worktree/diff",
+            "/api/tasks/p1:001/worktree/diff",
         ),
     ],
 )
@@ -251,27 +250,27 @@ async def test_read_tools_hit_correct_endpoint(
     [
         (
             "pfactory.start_task",
-            {"task_id": "t1"},
+            {"task_id": "p1:001"},
             "POST",
-            "/api/tasks/t1/start",
+            "/api/tasks/p1:001/start",
         ),
         (
             "pfactory.stop_task",
-            {"task_id": "t1"},
+            {"task_id": "p1:001"},
             "POST",
-            "/api/tasks/t1/stop",
+            "/api/tasks/p1:001/stop",
         ),
         (
             "pfactory.approve_plan",
-            {"task_id": "t1"},
+            {"task_id": "p1:001"},
             "POST",
-            "/api/tasks/t1/approve-plan",
+            "/api/tasks/p1:001/approve-plan",
         ),
         (
             "pfactory.merge_pr",
-            {"task_id": "t1", "merge_method": "squash"},
+            {"task_id": "p1:001", "merge_method": "squash"},
             "POST",
-            "/api/tasks/t1/worktree/merge",
+            "/api/tasks/p1:001/worktree/merge",
         ),
     ],
 )
@@ -295,7 +294,7 @@ async def test_merge_pr_passes_merge_method(write_key):
     with patch("server.mcp_remote.tools._call_internal", mock_call):
         await dispatch_tool_call(
             "pfactory.merge_pr",
-            {"task_id": "t1", "merge_method": "squash"},
+            {"task_id": "p1:001", "merge_method": "squash"},
             write_key,
         )
 
@@ -308,7 +307,9 @@ async def test_missing_required_argument_is_actionable(write_key):
     mock_call = AsyncMock(return_value={"ok": True})
     with patch("server.mcp_remote.tools._call_internal", mock_call):
         result = await dispatch_tool_call(
-            "pfactory.get_task", {}, write_key  # missing task_id
+            "pfactory.get_task",
+            {},
+            write_key,  # missing task_id
         )
     assert result.get("isError") is True
     assert "missing required argument" in result["content"][0]["text"]
@@ -323,9 +324,7 @@ async def test_http_error_becomes_isError_content(read_only_key):
     exc = httpx.HTTPStatusError("", request=request, response=response)
     mock_call = AsyncMock(side_effect=exc)
     with patch("server.mcp_remote.tools._call_internal", mock_call):
-        result = await dispatch_tool_call(
-            "pfactory.list_projects", {}, read_only_key
-        )
+        result = await dispatch_tool_call("pfactory.list_projects", {}, read_only_key)
     assert result.get("isError") is True
     assert "503" in result["content"][0]["text"]
 
@@ -334,9 +333,7 @@ async def test_arbitrary_exception_becomes_isError(read_only_key):
     """An unexpected internal failure shouldn't leak to the MCP client."""
     mock_call = AsyncMock(side_effect=RuntimeError("boom"))
     with patch("server.mcp_remote.tools._call_internal", mock_call):
-        result = await dispatch_tool_call(
-            "pfactory.list_projects", {}, read_only_key
-        )
+        result = await dispatch_tool_call("pfactory.list_projects", {}, read_only_key)
     assert result.get("isError") is True
     assert "boom" in result["content"][0]["text"]
 
@@ -347,9 +344,7 @@ async def test_arbitrary_exception_becomes_isError(read_only_key):
 
 
 async def test_get_qa_report_hits_correct_endpoint(read_only_key):
-    mock_call = AsyncMock(
-        return_value={"content": "# QA report\nAll good", "exists": True}
-    )
+    mock_call = AsyncMock(return_value={"content": "# QA report\nAll good", "exists": True})
     with patch("server.mcp_remote.tools._call_internal", mock_call):
         result = await dispatch_tool_call(
             "pfactory.get_qa_report", {"task_id": "p1:001"}, read_only_key
@@ -361,9 +356,7 @@ async def test_get_qa_report_hits_correct_endpoint(read_only_key):
 
 
 async def test_qa_report_requires_read_scope(no_scope_key):
-    result = await dispatch_tool_call(
-        "pfactory.get_qa_report", {"task_id": "p1:001"}, no_scope_key
-    )
+    result = await dispatch_tool_call("pfactory.get_qa_report", {"task_id": "p1:001"}, no_scope_key)
     assert result.get("isError") is True
     assert "mcp:read" in result["content"][0]["text"]
 
@@ -376,9 +369,7 @@ async def test_tail_agent_console_returns_sse_url(read_only_key, monkeypatch):
         "pfactory.tail_agent_console", {"task_id": "p1:001"}, read_only_key
     )
     payload = json.loads(result["content"][0]["text"])
-    assert payload["sse_url"] == (
-        "https://pfactory.example.com/api/tasks/p1:001/agent-console/sse"
-    )
+    assert payload["sse_url"] == ("https://pfactory.example.com/api/tasks/p1:001/agent-console/sse")
     assert "auth_hint" in payload
 
 
@@ -409,17 +400,13 @@ async def test_reject_plan_without_feedback(write_key):
     """Feedback is optional — omitting it produces an empty JSON body."""
     mock_call = AsyncMock(return_value={"success": True, "feedback_recorded": False})
     with patch("server.mcp_remote.tools._call_internal", mock_call):
-        await dispatch_tool_call(
-            "pfactory.reject_plan", {"task_id": "p1:001"}, write_key
-        )
+        await dispatch_tool_call("pfactory.reject_plan", {"task_id": "p1:001"}, write_key)
     call_args = mock_call.call_args
     assert call_args.kwargs["json"] == {}
 
 
 async def test_reject_plan_blocked_with_only_read_scope(read_only_key):
-    result = await dispatch_tool_call(
-        "pfactory.reject_plan", {"task_id": "p1:001"}, read_only_key
-    )
+    result = await dispatch_tool_call("pfactory.reject_plan", {"task_id": "p1:001"}, read_only_key)
     assert result.get("isError") is True
     assert "mcp:write" in result["content"][0]["text"]
 
@@ -446,16 +433,12 @@ async def test_recover_task_hits_correct_endpoint(write_key):
 async def test_recover_task_default_auto_restart_is_false(write_key):
     mock_call = AsyncMock(return_value={"recovered": True})
     with patch("server.mcp_remote.tools._call_internal", mock_call):
-        await dispatch_tool_call(
-            "pfactory.recover_task", {"task_id": "p1:001"}, write_key
-        )
+        await dispatch_tool_call("pfactory.recover_task", {"task_id": "p1:001"}, write_key)
     call_args = mock_call.call_args
     assert call_args.kwargs["json"] == {"autoRestart": False}
 
 
 async def test_recover_task_blocked_with_only_read_scope(read_only_key):
-    result = await dispatch_tool_call(
-        "pfactory.recover_task", {"task_id": "p1:001"}, read_only_key
-    )
+    result = await dispatch_tool_call("pfactory.recover_task", {"task_id": "p1:001"}, read_only_key)
     assert result.get("isError") is True
     assert "mcp:write" in result["content"][0]["text"]
