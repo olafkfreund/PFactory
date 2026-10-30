@@ -107,13 +107,17 @@ def _foreign_projects(key: AuthenticatedKey | _LegacyAdminKey) -> set[str]:
     }
 
 
-async def _authorize_read(
-    key: AuthenticatedKey | _LegacyAdminKey, project_id: str, db: AsyncSession
+async def _authorize_key(
+    key: AuthenticatedKey | _LegacyAdminKey,
+    project_id: str,
+    db: AsyncSession,
+    minimum_role: str = "viewer",
 ) -> None:
+    """Cross-org key: always 403 (like TFactory #1465). Role check: shadow or enforce."""
     principal = _principal(key)
     if project_id in _foreign_projects(key):
-        await authorize_project_for_user(principal, project_id, db, "viewer")
-    await authorize_project(principal, project_id, db, "viewer")
+        await authorize_project_for_user(principal, project_id, db, minimum_role)
+    await authorize_project(principal, project_id, db, minimum_role)
 
 
 async def _read_json_body(request: FastAPIRequest) -> dict:
@@ -207,7 +211,7 @@ async def proxy_get_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(MCP_READ_SCOPE)),
 ):
-    await _authorize_read(key, task_id.split(":", 1)[0], db)
+    await _authorize_key(key, task_id.split(":", 1)[0], db)
     from ..routes.tasks import get_task
 
     return await get_task(task_id)
@@ -219,7 +223,7 @@ async def proxy_get_task_status(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(MCP_READ_SCOPE)),
 ):
-    await _authorize_read(key, task_id.split(":", 1)[0], db)
+    await _authorize_key(key, task_id.split(":", 1)[0], db)
     from ..routes.execution import get_task_status
 
     return await get_task_status(task_id)
@@ -232,7 +236,7 @@ async def proxy_get_task_logs(
     key=Depends(require_acw_scope(MCP_READ_SCOPE)),
 ):
     # #906: get_task_logs takes no tail and no MCP tool sends one; ?tail= is ignored.
-    await _authorize_read(key, task_id.split(":", 1)[0], db)
+    await _authorize_key(key, task_id.split(":", 1)[0], db)
     from ..routes.tasks import get_task_logs
 
     return await get_task_logs(task_id)
@@ -244,7 +248,7 @@ async def proxy_get_worktree_diff(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(MCP_READ_SCOPE)),
 ):
-    await _authorize_read(key, task_id.split(":", 1)[0], db)
+    await _authorize_key(key, task_id.split(":", 1)[0], db)
     from ..routes.tasks import get_worktree_diff
 
     return await get_worktree_diff(task_id)
@@ -290,7 +294,7 @@ async def proxy_create_and_run_task(  # noqa: PLR0913 - one param per query fiel
     description: str = Query(...),
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), project_id, db, "member")
+    await _authorize_key(key, project_id, db, "member")
     from ..routes.execution import StartTaskRequest, create_and_run_task
 
     body = await _read_json_body(request)
@@ -314,7 +318,7 @@ async def proxy_start_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import StartTaskRequest, start_task
 
     body = await _read_json_body(request)
@@ -336,7 +340,7 @@ async def proxy_stop_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import stop_task
 
     result = await stop_task(task_id)
@@ -357,7 +361,7 @@ async def proxy_recover_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import RecoverTaskRequest, recover_task
 
     body = await _read_json_body(request)
@@ -379,7 +383,7 @@ async def proxy_approve_plan(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import ApprovePlanRequest, approve_plan
 
     body = await _read_json_body(request)
@@ -406,7 +410,7 @@ async def proxy_create_pr(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_MERGE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import CreatePRFromTaskOptions, create_pr_from_task
 
     body = await _read_json_body(request)
@@ -428,7 +432,7 @@ async def proxy_merge_worktree(
     db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_MERGE_SCOPE)),
 ):
-    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
+    await _authorize_key(key, task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import WorktreeMergeOptions, merge_worktree
 
     body = await _read_json_body(request)

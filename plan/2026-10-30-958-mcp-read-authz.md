@@ -74,6 +74,20 @@ Repo traps (every step):
    → verify by the step-2 command; then ruff, `scripts/ratchet_lint.py` exactly as CI
      runs it, and the full suite on Postgres.
 
+## Deviation (lead's correction, 2026-10-30)
+
+#957's PF write proxies call `authorize_project`, which follows the flag, so their
+cross-org key check was shadow-only (TFactory #1465's is always on). The lead asked
+for PF to match TF. `_authorize_read` became `_authorize_key(key, project_id, db,
+minimum_role="viewer")`. It is used by the four task reads and by the seven task
+write proxies (`create-and-run`, `start`, `stop`, `recover`, `approve-plan`,
+`create-pr`, `merge`) with `"member"`, so an org-B `acw_` key on an org-A project gets
+403 with the flag off. Human role checks stay in shadow. The plan-pipeline writes
+keep `PlanAccessChecker("member")`, which already scopes an `acw_` key to its own
+org. Step 3 also covers this: an org-B key on `/tasks/p1:s/start` gets 403 with the
+flag off and the handler is not awaited. `test_mcp_write_requires_member` keeps its
+shadow assertions for the plan route and for a same-org key without membership.
+
 ## Tests
 
 `cd apps/backend && PYTHONPATH=. .venv/bin/pytest ../../tests -q` with the Postgres
