@@ -26,12 +26,17 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
+
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # git_utils's own import already put apps/backend on sys.path.
 from agents.lane_progress import derive_lane_progress
 from client_errors import client_error
+from server.database.engine import get_db
 from server.error_ref import error_message
+from server.routes.project_authz import _AccessChecker, _project_decision
 from server.services.git_utils import safe_spec_component
 
 # Evidence artifact content-type map (mirrors agents.evidence.layout)
@@ -117,6 +122,28 @@ def _find_spec_dir(root: Path, spec_id: str) -> Path | None:
         if (candidate / "status.json").exists():
             return candidate
     return None
+
+
+class SpecAccessChecker(_AccessChecker):
+    """Authorize a spec write against its containing project."""
+
+    async def _decide(
+        self, user: dict[str, Any] | None, key: str | None, db: AsyncSession, ctx: dict[str, Any]
+    ) -> None:
+        spec_dir = None
+        try:
+            _validate_spec_id(key or "")
+        except HTTPException:
+            pass
+        else:
+            spec_dir = _find_spec_dir(_resolve_workspace_root(), key or "")
+        project_id = spec_dir.parent.parent.name if spec_dir else None
+        await _project_decision(user, project_id, db, self.minimum_role, ctx)
+
+    async def __call__(
+        self, spec_id: str, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
+    ) -> dict[str, Any] | None:
+        return await self._authorize(spec_id, request, db)
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────
@@ -661,7 +688,7 @@ class MergeRequest(BaseModel):
     include_flagged: bool = False
 
 
-@router.post("/{spec_id}/merge")
+@router.post("/{spec_id}/merge", dependencies=[Depends(SpecAccessChecker("member"))])
 def merge_accepted_tests(spec_id: str, body: MergeRequest) -> dict[str, Any]:
     """Commit the accepted (and optionally flagged) tests to the feature
     branch via the Triager's git_writer. Dry-run by default — returns the
@@ -742,7 +769,7 @@ def merge_accepted_tests(spec_id: str, body: MergeRequest) -> dict[str, Any]:
     }
 
 
-@router.post("/{spec_id}/dismiss")
+@router.post("/{spec_id}/dismiss", dependencies=[Depends(SpecAccessChecker("member"))])
 def dismiss_run(spec_id: str) -> dict[str, Any]:
     """Mark a run dismissed (operator chose not to merge). Records a
     ``dismissed`` flag on status.json — non-destructive."""
@@ -825,7 +852,10 @@ class _AcceptBaselineBody(BaseModel):
     source: str
 
 
-@router.post("/{spec_id}/visual-baselines/{target}/{snapshot}/accept")
+@router.post(
+    "/{spec_id}/visual-baselines/{target}/{snapshot}/accept",
+    dependencies=[Depends(SpecAccessChecker("member"))],
+)
 def accept_visual_baseline(
     spec_id: str, target: str, snapshot: str, body: _AcceptBaselineBody
 ) -> dict:

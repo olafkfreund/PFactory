@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## 0.6.39 — OIDC ID-token hardening, more task RBAC in shadow mode (2026-10-30)
+
+- **Behaviour change: OIDC ID tokens are checked against our own config
+  (#956, closes #953).** The callback rejects an ID token whose `iss` is not
+  `APP_OIDC_ISSUER_URL` (with or without a trailing slash), whose `aud` does
+  not contain our client_id, that has no `exp`, or that is not signed with an
+  asymmetric algorithm (RS/ES/PS 256–512). This holds even when the IdP's
+  discovery document advertises another issuer or HS256. **Azure AD v1
+  setups using `login.microsoftonline.com/<tid>` must switch the issuer to
+  the v2.0 endpoint.** The deployed issuer already matches Keycloak's.
+- **Org role checks on more task writes, shadow mode (#957, closes #949).**
+  `POST /api/tasks` (body `project_id`), `POST /api/tasks/create-and-run`
+  (query), auto-fix config/check-new/start and insights create-task
+  (`projectId`), task merge/dismiss/accept-baseline (spec id), the rmux agent
+  console attach/detach/WebSocket, and the stdio-MCP task and plan write
+  proxies (checked against the `acw_` key's own user and org). All behind
+  `RBAC_ENFORCE_TASK_ROUTES` (default off): a denial is only logged
+  (`rbac.would_deny`) and audited. The role check now releases its pooled
+  connection instead of holding it for the whole handler.
+- **Behaviour change in every mode: rmux console sessions are bound to their
+  project (#957).** For a non-service caller, an attach, detach or WebSocket
+  whose `project_id:` prefix is missing or does not match the session's
+  project gets a 404, so one project's console cannot reach another's.
+- **Security: Authlib floor raised to `>=1.9.1` (#952)** in
+  `apps/web-server/requirements.txt`, past CVE-2026-96760 (CRITICAL),
+  CVE-2026-114615 and CVE-2026-114616. The image already resolves the latest
+  release; the floor stops a resolver from settling on a vulnerable one. Not
+  reachable in this code: the OIDC client verifies ID tokens with joserfc,
+  and nothing calls `authlib.jose`.
+- **Security: Docker runtime floor `py3-pip-wheel>=26.2.2-r1` (#955)** for
+  CVE-2026-114613 (msgpack vendored in pip's wheel). Not reachable: nothing
+  imports msgpack or runs pip at runtime.
+- CI: GitHub Actions group bump (setup-python 7.1.0, setup-uv 10.3.2,
+  codeql-action 4.39.1, docker/login-action 4.7.0) (#954).
+- No new env vars.
+
 ## 0.6.38 — acw_ key scopes capped, task route RBAC in shadow mode (2026-10-27)
 
 - **Behaviour change: `acw_` key scopes are capped by the owner's org role

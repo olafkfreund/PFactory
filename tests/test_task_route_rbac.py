@@ -27,11 +27,11 @@ MEMBERS = [
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
+def env(tmp_path, monkeypatch):  # noqa: PLR0915 - one fixture builds every route variant
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from server.database.models import Base, Organization, OrgMember, User
-    from server.routes import project_authz as pa
+    from server.routes import pfactory_tasks as pt, project_authz as pa
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 't.db'}")
     session_local = async_sessionmaker(engine, expire_on_commit=False)
@@ -69,15 +69,27 @@ def env(tmp_path, monkeypatch):
     def enforce(on: bool):
         settings.RBAC_ENFORCE_TASK_ROUTES = on
 
-    def make(*, guarded=True, plan=False, broken_db=False):
+    def make(*, guarded=True, kind="task", broken_db=False):
         app = FastAPI()
-        if plan:
-            deps = [Depends(pa.require_plan_access("member"))] if guarded else []
-            path = "/plan/{sid}/approve"
+        guards = {
+            "task": (pa.require_task_access, "/tasks/{task_id}/start"),
+            "plan": (pa.require_plan_access, "/plan/{sid}/approve"),
+            "camel": (pa.require_camel_project_access, "/x/{projectId}/y"),
+            "body": (pa.require_body_project_access, "/body"),
+            "spec": (pt.SpecAccessChecker, "/{spec_id}/merge"),
+            "direct": (None, "/direct"),
+        }
+        factory, path = guards[kind]
+        deps = [Depends(factory("member"))] if guarded and factory else []
+        if kind == "direct":
+
+            async def _direct(request: Request, db=Depends(pa.get_db)):  # noqa: B008
+                await pa.authorize_project(getattr(request.state, "user", None), "p1", db, "member")
+                return {"ok": True}
+
+            app.post(path)(_direct)
         else:
-            deps = [Depends(pa.require_task_access("member"))] if guarded else []
-            path = "/tasks/{task_id}/start"
-        app.post(path, dependencies=deps)(lambda: {"ok": True})
+            app.post(path, dependencies=deps)(lambda: {"ok": True})
 
         async def _db():
             async with session_local() as session:
@@ -117,7 +129,11 @@ def env(tmp_path, monkeypatch):
 
 
 def _post(client, path, project="p1", user="member-a", **headers):
-    url = path.replace("{task_id}", f"{project}:spec").replace("{sid}", "s1")
+    url = (
+        path.replace("{task_id}", f"{project}:spec")
+        .replace("{sid}", "s1")
+        .replace("{projectId}", project)
+    )
     return client.post(url, headers={"X-U": user, **headers})
 
 
@@ -193,7 +209,7 @@ def test_shadow_decision_error_allows(env, monkeypatch):
 def test_plan_route(env, user, headers, expected):
     make, enforce, audits = env
     enforce(True)
-    client, path = make(plan=True)
+    client, path = make(kind="plan")
     assert _post(client, path, user=user, **headers).status_code == expected
     assert [a["resource_type"] for a in audits] == ["plan_session"] * (expected == 403)
 
@@ -201,17 +217,17 @@ def test_plan_route(env, user, headers, expected):
 def test_plan_route_shadow_passes(env):
     make, enforce, audits = env
     enforce(False)
-    client, path = make(plan=True)
+    client, path = make(kind="plan")
     assert _post(client, path, user="viewer-a").status_code == 200
     assert audits[0]["details"]["shadow"] is True
 
 
-@pytest.mark.parametrize("plan", [False, True])
-def test_shadow_releases_request_session_before_audit(env, plan):
+@pytest.mark.parametrize("kind", ["task", "plan"])
+def test_shadow_releases_request_session_before_audit(env, kind):
     # Two pooled connections per would-deny can stall the pool (AIFactory#1936).
     make, enforce, _ = env
     enforce(False)
-    client, path = make(plan=plan)
+    client, path = make(kind=kind)
     assert _post(client, path, user="viewer-a").status_code == 200
     assert make.events[:2] == ["rollback", "audit"]
 
@@ -219,10 +235,71 @@ def test_shadow_releases_request_session_before_audit(env, plan):
 def test_plan_route_shadow_db_error_allows(env):
     make, enforce, audits = env
     enforce(False)
-    client, path = make(plan=True, broken_db=True)
+    client, path = make(kind="plan", broken_db=True)
     assert _post(client, path, user="viewer-a").status_code == 200
     assert audits == []  # a lookup error is not a would-deny
     assert "rollback" in make.events
+
+
+def test_allowed_check_rolls_back_without_audit(env):
+    make, enforce, audits = env
+    enforce(True)
+    client, path = make()
+    assert _post(client, path).status_code == 200
+    assert make.events[-1] == "rollback"
+    assert audits == []
+
+
+def test_authorize_project_uses_shadow_and_enforce(env):
+    make, enforce, audits = env
+    client, path = make(kind="direct")
+    assert _post(client, path, user="viewer-a").status_code == 200
+    assert len(audits) == 1
+    assert audits[0]["details"]["shadow"] is True
+    enforce(True)
+    assert _post(client, path, user="viewer-a").status_code == 403
+    assert len(audits) == 2
+    assert "shadow" not in audits[1]["details"]
+
+
+def test_camel_project_path_is_checked(env):
+    make, enforce, audits = env
+    enforce(True)
+    client, path = make(kind="camel")
+    assert _post(client, path).status_code == 200
+    assert _post(client, path, user="viewer-a").status_code == 403
+    assert len(audits) == 1
+    assert audits[0]["resource_id"] == "p1"
+
+
+def test_body_project_key_and_invalid_json(env):
+    make, _, audits = env
+    client, path = make(kind="body")
+    assert (
+        client.post(path, json={"project_id": "p1"}, headers={"X-U": "member-a"}).status_code == 200
+    )
+    assert audits == []
+    assert client.post(path, content="bad json", headers={"X-U": "member-a"}).status_code == 200
+    assert len(audits) == 1
+    assert audits[0]["details"]["status"] == 404
+    assert audits[0]["resource_id"] is None
+
+
+def test_spec_access_resolves_project_and_unknown_spec(env, tmp_path, monkeypatch):
+    make, enforce, audits = env
+    spec_dir = tmp_path / "workspaces" / "p1" / "specs" / "s1"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "status.json").write_text("{}")
+    monkeypatch.setenv("PFACTORY_WORKSPACE_ROOT", str(tmp_path))
+    enforce(True)
+    client, path = make(kind="spec")
+    known = path.replace("{spec_id}", "s1")
+    unknown = path.replace("{spec_id}", "missing")
+    assert client.post(known, headers={"X-U": "member-a"}).status_code == 200
+    assert client.post(known, headers={"X-U": "viewer-a"}).status_code == 403
+    assert [(a["resource_id"], a["org_id"]) for a in audits] == [("s1", "A")]
+    assert client.post(unknown, headers={"X-U": "member-a"}).status_code == 404
+    assert len(audits) == 1  # enforce audits 403s only
 
 
 TASK_ROUTES = {
@@ -277,13 +354,25 @@ PLAN_ROUTES = [
         "{session_id}/emit-contract",
     ]
 ] + [("DELETE", "{session_id}")]
+BODY_ROUTES = [("tasks", "POST", "", "BodyProjectAccessChecker")]
+CAMEL_ROUTES = [
+    ("auto_fix", "PUT", "/{projectId}/auto-fix/config"),
+    ("auto_fix", "POST", "/{projectId}/auto-fix/check-new"),
+    ("auto_fix", "POST", "/{projectId}/auto-fix/{issueNumber}/start"),
+    ("insights", "POST", "/create-task"),
+]
+SPEC_ROUTES = [
+    "/{spec_id}/merge",
+    "/{spec_id}/dismiss",
+    "/{spec_id}/visual-baselines/{target}/{snapshot}/accept",
+]
 
 
 def _guards(module, method, path):
     from importlib import import_module
 
     router = import_module(f"server.routes.{module}").router
-    hits = [r for r in router.routes if method in r.methods and r.path == path]
+    hits = [r for r in router.routes if method in getattr(r, "methods", ()) and r.path == path]
     assert len(hits) == 1, (module, method, path)
     return [(type(d.dependency).__name__, d.dependency.minimum_role) for d in hits[0].dependencies]
 
@@ -307,4 +396,15 @@ def test_every_listed_route_carries_the_dependency():
         path = f"/api/plan/sessions/{suffix}".rstrip("/")
         assert _guards("plan_pipeline", method, path) == [("PlanAccessChecker", "member")], path
         n += 1
-    assert n == 39
+    for module, method, path, checker in BODY_ROUTES:
+        assert _guards(module, method, path) == [(checker, "member")], path
+        n += 1
+    assert _guards("execution", "POST", "/create-and-run") == [("ProjectAccessChecker", "member")]
+    n += 1
+    for module, method, path in CAMEL_ROUTES:
+        assert _guards(module, method, path) == [("CamelProjectAccessChecker", "member")], path
+        n += 1
+    for path in SPEC_ROUTES:
+        assert _guards("pfactory_tasks", "POST", path) == [("SpecAccessChecker", "member")], path
+        n += 1
+    assert n == 48

@@ -16,7 +16,7 @@ from server.services import run_leases
 
 from ..services.agent_service import get_agent_service
 from ..websockets.events import emit_task_status
-from .project_authz import require_task_access
+from .project_authz import require_project_access, require_task_access
 from .projects import load_projects, resolve_project_path
 from .tasks import _refresh_board, split_task_id, sync_worktree_to_main_spec
 
@@ -697,7 +697,7 @@ async def recover_task(task_id: str, request: RecoverTaskRequest = RecoverTaskRe
     }
 
 
-@router.post("/create-and-run")
+@router.post("/create-and-run", dependencies=[Depends(require_project_access("member"))])
 async def create_and_run_task(
     project_id: str,
     title: str,

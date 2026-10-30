@@ -58,6 +58,7 @@ class SessionState:
     spec_id: str
     session_name: str
     fifo_path: Path
+    project_id: str | None = None
     attached_connection_id: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -91,6 +92,7 @@ class SessionRegistry:
         spec_id: str,
         worktree_path: str | Path,
         agent_cmd: str | list[str],
+        project_id: str | None = None,
     ) -> Path:
         """Spin up the rmux session + FIFO + pipe-pane for ``spec_id``.
 
@@ -134,6 +136,7 @@ class SessionRegistry:
                 spec_id=spec_id,
                 session_name=session_name,
                 fifo_path=fifo_path,
+                project_id=project_id,
             )
             logger.info(
                 "rmux session created: spec_id=%s session=%s fifo=%s",
