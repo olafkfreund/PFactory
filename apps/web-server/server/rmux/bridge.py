@@ -172,8 +172,9 @@ async def attach(
     # Audit-relevant metadata — pulled from middleware-set request state
     # rather than the body so a malicious client can't lie about who
     # they are.  Mirror existing audit callsites in routes/audit.py.
-    user_id = getattr(request.state, "user_id", None)
-    org_id = getattr(request.state, "org_id", None)
+    user = getattr(request.state, "user", None) or {}
+    user_id = user.get("id")
+    org_id = user.get("org_id")
     client_ip = request.client.host if request.client else None
 
     async with state.lock:
@@ -233,8 +234,9 @@ async def detach(
     state = _resolve_state_or_404(spec_id, getattr(request.state, "user", None))
     cid = body.connection_id
 
-    user_id = getattr(request.state, "user_id", None)
-    org_id = getattr(request.state, "org_id", None)
+    user = getattr(request.state, "user", None) or {}
+    user_id = user.get("id")
+    org_id = user.get("org_id")
     client_ip = request.client.host if request.client else None
 
     released = False

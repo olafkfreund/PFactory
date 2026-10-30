@@ -1899,7 +1899,7 @@ async def get_qa_report(task_id: str):
     }
 
 
-@router.get("/{task_id}/agent-console/sse")
+@router.get("/{task_id}/agent-console/sse", dependencies=[Depends(require_task_access("viewer"))])
 async def stream_agent_console(task_id: str):
     """Server-Sent Events stream of the running agent's console output.
 
