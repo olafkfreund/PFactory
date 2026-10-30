@@ -45,6 +45,14 @@ stay the service principal (`is_service`) and bypass the per-org checks.
 > database created before the baseline, or restored from an older dump, can still
 > hold such rows. AIFactory #1914 also found 0 rows in `api_keys` at that time.
 
+## Before minting the first org-scoped key
+
+Give the projects an `org_id` first. From #968 on, an org-scoped `acw_` key sees a
+plan session only when the session's project is in the key's org. Sessions whose
+project has no `org_id`, or whose repo matches no project, are hidden from every org
+key, even in shadow mode. A key minted before the projects have an org therefore sees
+no plan sessions.
+
 ## Order of operations
 
 Do these in order. Do not flip the flag until steps 1 to 4 are clean.
