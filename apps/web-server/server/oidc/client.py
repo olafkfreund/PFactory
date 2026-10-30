@@ -11,6 +11,43 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
+ID_TOKEN_SIGNING_ALGS = [
+    "RS256",
+    "RS384",
+    "RS512",
+    "ES256",
+    "ES384",
+    "ES512",
+    "PS256",
+    "PS384",
+    "PS512",
+]
+
+
+async def authorize_access_token(oidc: Any, request: Request) -> dict[str, Any]:
+    """Exchange the callback code, enforcing ID-token iss/aud/exp and asymmetric algs.
+
+    Done per call because authlib ignores register()-time ``claims_options``
+    and reads the accepted algs from discovery metadata (#953). ``iss`` also
+    accepts a trailing slash (Azure AD v1, Auth0).
+    """
+    metadata = await oidc.load_server_metadata()
+    metadata["id_token_signing_alg_values_supported"] = ID_TOKEN_SIGNING_ALGS
+    issuer = os.environ["APP_OIDC_ISSUER_URL"].rstrip("/")
+    result: dict[str, Any] = await oidc.authorize_access_token(
+        request,
+        claims_options={
+            "iss": {"essential": True, "values": [issuer, issuer + "/"]},
+            "aud": {"essential": True, "values": [oidc.client_id]},
+            "exp": {"essential": True},
+        },
+    )
+    return result
 
 
 def is_oidc_enabled() -> bool:

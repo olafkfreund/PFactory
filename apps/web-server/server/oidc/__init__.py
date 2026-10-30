@@ -15,6 +15,6 @@ Configured via env vars (mapped from values.yaml in Helm):
                             ``https://pfactory.example.com/api/auth/oidc/callback``
 """
 
-from .client import get_oauth_client, is_oidc_enabled
+from .client import authorize_access_token, get_oauth_client, is_oidc_enabled
 
-__all__ = ["get_oauth_client", "is_oidc_enabled"]
+__all__ = ["authorize_access_token", "get_oauth_client", "is_oidc_enabled"]
