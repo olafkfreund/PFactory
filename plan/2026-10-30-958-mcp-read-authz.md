@@ -88,6 +88,25 @@ org. Step 3 also covers this: an org-B key on `/tasks/p1:s/start` gets 403 with 
 flag off and the handler is not awaited. `test_mcp_write_requires_member` keeps its
 shadow assertions for the plan route and for a same-org key without membership.
 
+## Deviation (lead's Opus review, 2026-10-30)
+
+CRITICAL: `get_worktree_diff` and `get_worktree_status` (`routes/tasks.py`) accepted a
+bare spec id or an unknown project prefix and then scanned every project for
+the spec. `nope:<spec>` and `<spec>` skipped the cross-org check, and the shadow
+404 was let through, so an org-B key could read org A's diff with the flag off.
+- Root cause: both handlers now require `project_id:spec_id` (a bare id gets 400)
+  and look the project up by exact id through `_exact_project_path`. There is no
+  spec scan, the same as `merge_worktree` / `create_pr_from_task`.
+- Second layer in `mcp_stdio/router.py`: for an org-scoped `acw_` key, a
+  `project_id` that is not a known project is always denied, not behind the flag
+  (`authorize_project_for_user` (404 unknown / 403 foreign, audited)). A `load_projects()` error fails closed with 503 for org-scoped keys
+  (`_key_projects`), on lists too. Previously it failed open in shadow mode.
+- Tests, flag OFF: `nope:s` and bare `s` on `/worktree/diff` with a same-org key
+  get 404 and the handler is not called; a registry error gets 503; at the
+  handler level, a bare id gets 400 and `nope:s1` does not find p1's spec.
+- Not changed: `get_worktree_merge_preview` takes a bare spec id by design and
+  scans every project. It is not an MCP proxy. Reported to the lead.
+
 ## Tests
 
 `cd apps/backend && PYTHONPATH=. .venv/bin/pytest ../../tests -q` with the Postgres

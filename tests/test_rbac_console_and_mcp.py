@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -243,9 +244,7 @@ def mcp_env(env, monkeypatch):
     monkeypatch.setattr(
         execution,
         "get_running_tasks",
-        AsyncMock(
-            return_value=execution.RunningTasksResponse(tasks=["p1:s1", "pB:sB"], count=2)
-        ),
+        AsyncMock(return_value=execution.RunningTasksResponse(tasks=["p1:s1", "pB:sB"], count=2)),
     )
     monkeypatch.setattr(tasks, "get_task", read_handler)
     monkeypatch.setattr(tasks, "get_task_logs", read_handler)
@@ -465,3 +464,50 @@ def test_console_attach_audit_carries_user_and_org(env, tmp_path, monkeypatch):
     assert response.status_code == 200
     assert captured["user_id"] == "member-a"
     assert captured["org_id"] == "A"
+
+
+@pytest.mark.parametrize("task_id", ["nope:s", "s"])
+def test_mcp_org_key_on_unknown_project_denied_with_flag_off(mcp_env, task_id):
+    # get_worktree_diff once scanned every project for a bare/unknown-prefix spec.
+    client, settings, _, selected, _, _, _, read_handler, key_cls = mcp_env
+    settings.RBAC_ENFORCE_TASK_ROUTES = False
+    selected["key"] = key_cls(
+        key_id="key-a", scopes=frozenset({"mcp:read"}), user_id="viewer-a", org_id="A"
+    )
+    response = client.get(f"/api/mcp-stdio/tasks/{task_id}/worktree/diff")
+    assert response.status_code == 404
+    read_handler.assert_not_awaited()
+
+
+def test_mcp_project_registry_failure_fails_closed(mcp_env, monkeypatch):
+    client, _, _, _, _, handler, _, read_handler, _ = mcp_env
+    proxy = importlib.import_module("server.mcp_stdio.router")
+
+    def _boom():
+        raise RuntimeError("projects.json unreadable")
+
+    monkeypatch.setattr(proxy.project_paths, "load_projects", _boom)
+    assert client.get("/api/mcp-stdio/tasks/p1:s/worktree/diff").status_code == 503
+    assert client.post("/api/mcp-stdio/tasks/p1:s/start").status_code == 503
+    assert client.get("/api/mcp-stdio/projects").status_code == 503
+    read_handler.assert_not_awaited()
+    handler.assert_not_awaited()
+
+
+def test_worktree_status_and_diff_need_exact_project(tmp_path, monkeypatch):
+    """#958: a bare id or unknown prefix must not find p1's spec by scanning."""
+    tasks = importlib.import_module("server.routes.tasks")
+    proj = tmp_path / "p1"
+    (proj / ".pfactory" / "specs" / "s1").mkdir(parents=True)
+    (proj / ".pfactory" / "worktrees" / "tasks" / "s1").mkdir(parents=True)
+    (tmp_path / "projects.json").write_text(json.dumps({"p1": {"path": str(proj)}}))
+    monkeypatch.setattr(tasks, "get_data_dir", lambda: tmp_path)
+
+    for handler in (tasks.get_worktree_status, tasks.get_worktree_diff):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(handler("s1"))
+        assert exc.value.status_code == 400
+    status = asyncio.run(tasks.get_worktree_status("nope:s1"))
+    assert status == {"success": True, "data": {"exists": False}}
+    diff = asyncio.run(tasks.get_worktree_diff("nope:s1"))
+    assert diff == {"success": False, "error": "Project not found for task nope:s1"}

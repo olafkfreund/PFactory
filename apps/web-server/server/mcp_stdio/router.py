@@ -28,7 +28,16 @@ import json
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request as FastAPIRequest, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request as FastAPIRequest,
+    UploadFile,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database.engine import get_db
@@ -46,7 +55,6 @@ from server.routes.plan_pipeline import (
 )
 from server.routes.project_authz import (
     PlanAccessChecker,
-    _safe_enforcing,
     authorize_project,
     authorize_project_for_user,
 )
@@ -89,22 +97,35 @@ def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
     return {"id": "default", "is_service": True}
 
 
-def _foreign_projects(key: AuthenticatedKey | _LegacyAdminKey) -> set[str]:
-    """Project ids in another org (not behind the flag: org-A keys never read org B)."""
+def _key_projects(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any] | None:
+    """The project map for an org-scoped key; None when the key has no org to check.
+
+    Fails closed (503): an unreadable registry must not let an org key through.
+    """
     if not isinstance(key, AuthenticatedKey) or not key.org_id:
-        return set()
+        return None
     try:
-        projects = project_paths.load_projects()
-    except Exception:
-        if _safe_enforcing():
-            raise
-        logger.warning("rbac.check_failed (shadow, allowing)", exc_info=True)
-        return set()
+        projects: dict[str, Any] = project_paths.load_projects()
+        return projects
+    except Exception:  # noqa: BLE001 - any registry error fails closed
+        logger.warning("rbac.projects_unavailable", exc_info=True)
+        raise HTTPException(status_code=503, detail="Project registry unavailable") from None
+
+
+def _foreign_ids(key: AuthenticatedKey, projects: dict[str, Any]) -> set[str]:
     return {
         pid
         for pid, pdata in projects.items()
         if isinstance(pdata, dict) and pdata.get("org_id") and pdata.get("org_id") != key.org_id
     }
+
+
+def _foreign_projects(key: AuthenticatedKey | _LegacyAdminKey) -> set[str]:
+    """Project ids in another org (not behind the flag: org-A keys never read org B)."""
+    projects = _key_projects(key)
+    if projects is None or not isinstance(key, AuthenticatedKey):
+        return set()
+    return _foreign_ids(key, projects)
 
 
 async def _authorize_key(
@@ -113,9 +134,15 @@ async def _authorize_key(
     db: AsyncSession,
     minimum_role: str = "viewer",
 ) -> None:
-    """Cross-org key: always 403 (like TFactory #1465). Role check: shadow or enforce."""
+    """Org key on an unknown or another org's project: always 404/403 (like
+    TFactory #1465). Role check: shadow or enforce."""
     principal = _principal(key)
-    if project_id in _foreign_projects(key):
+    projects = _key_projects(key)
+    if (
+        projects is not None
+        and isinstance(key, AuthenticatedKey)
+        and (project_id not in projects or project_id in _foreign_ids(key, projects))
+    ):
         await authorize_project_for_user(principal, project_id, db, minimum_role)
     await authorize_project(principal, project_id, db, minimum_role)
 
