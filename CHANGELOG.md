@@ -2,12 +2,36 @@
 
 ## Unreleased
 
-- **Security: joserfc floor `>=1.7.5`** in
+## 0.6.41 — plan session org scope, merge preview by project id, joserfc CVE floor (2026-10-30)
+
+- **Plan session reads scoped to the caller's org (#976, closes #968).**
+  `GET /api/plan/sessions`, `/{id}`, `/{id}/audit-pack` and the stdio MCP
+  proxies for the same three. An org-scoped `acw_` key sees a session only
+  when the session's org is the key's org; lists leave other sessions out
+  and per-session reads get 404. This is always enforced, with the flag off
+  too, and org-scoped keys are denied org-less sessions as well. Human
+  viewers stay in shadow mode behind `APP_RBAC_ENFORCE_TASK_ROUTES`.
+  A session's org comes from the project registered for its repo, stamped
+  at intake, or else a write-once lazy stamp.
+  **New alembic migration `e5b8c3f1a9d7`** (down `c7e4a2d9b1f3`): adds
+  nullable `plan_sessions.org_id`. Additive; applied at boot.
+  **Before enforce, every project needs an `org_id`, for humans as well as
+  keys.**
+- **Behaviour change: `/worktree/merge-preview` needs `project_id:spec_id`
+  (#974, closes #969).** A bare spec id gets 400, and the project is looked
+  up by exact id. This also fixes the web UI's merge preview, which sends
+  `project_id:spec_id` and was broken.
+- **Security: joserfc floor `>=1.7.5` (#973)** in
   `apps/web-server/requirements.txt`, past CVE-2026-119283 (HIGH,
   GHSA-jpxq-7h8p-2q76), which fails the Trivy P0 gate. joserfc arrives through
   Authlib, which uses it to verify OIDC ID tokens. Not reachable here: the
   flaw is in `joserfc.jwe.decrypt_json` (JWE General JSON), and the OIDC
   client only verifies compact JWS through `joserfc.jwt.decode`.
+- **Docs: S6 enforce runbook (#972, closes #959).**
+  `docs/dev/rbac-enforce-runbook.md` covers legacy `acw_` keys with no
+  `user_id` before `APP_RBAC_ENFORCE_TASK_ROUTES` is flipped;
+  `docs/dev/environment-reference.md` now lists that variable.
+- No new env vars.
 
 ## 0.6.40 — DB pool caps, repo-scoped correlation keys, MCP read RBAC, remote MCP authz (2026-10-30)
 
