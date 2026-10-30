@@ -2254,11 +2254,12 @@ async def get_worktree_merge_preview(task_id: str):
     """
     import subprocess
 
-    # #335 sanitize the caller-supplied task id before it is joined onto a root
-    try:
-        task_id = safe_spec_component(task_id, field="task_id")
-    except ValueError:
-        return {"success": False, "error": "invalid task id"}
+    if ":" not in task_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Task ID must include project ID (format: project_id:spec_id)",
+        )
+    project_id, spec_id = split_task_id(task_id)
 
     # Find the task's spec directory and worktree
     projects_data_dir = get_data_dir()
@@ -2269,35 +2270,20 @@ async def get_worktree_merge_preview(task_id: str):
 
     projects_data = json.loads(projects_file.read_text())
 
-    # Find the task across all projects
-    task_info = None
-    project_path = None
-
-    # Handle both dict format (id -> project) and list format
-    if isinstance(projects_data, dict):
-        projects = list(projects_data.values())
-    else:
-        projects = projects_data
-
-    for project in projects:
-        if isinstance(project, str):
-            project_path = Path(project)
-        else:
-            project_path = Path(project.get("path", ""))
-
-        spec_dir = project_path / ".pfactory" / "specs" / task_id
-
-        if spec_dir.exists():
-            # Found the task
-            impl_plan = spec_dir / "test_plan.json"
-            if impl_plan.exists():
-                task_info = json.loads(impl_plan.read_text())
-            break
-    else:
+    project_path = _exact_project_path(projects_data, project_id)
+    if not project_path:
+        return {"success": False, "error": f"Task {task_id} not found"}
+    spec_dir = project_path / ".pfactory" / "specs" / spec_id
+    if not spec_dir.exists():
         return {"success": False, "error": f"Task {task_id} not found"}
 
+    task_info = None
+    impl_plan = spec_dir / "test_plan.json"
+    if impl_plan.exists():
+        task_info = json.loads(impl_plan.read_text())
+
     # Find the worktree
-    worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / task_id
+    worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id
 
     if not worktree_path.exists():
         return {"success": False, "error": "No worktree found for this task"}

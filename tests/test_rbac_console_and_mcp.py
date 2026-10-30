@@ -511,3 +511,24 @@ def test_worktree_status_and_diff_need_exact_project(tmp_path, monkeypatch):
     assert status == {"success": True, "data": {"exists": False}}
     diff = asyncio.run(tasks.get_worktree_diff("nope:s1"))
     assert diff == {"success": False, "error": "Project not found for task nope:s1"}
+
+
+def test_merge_preview_needs_exact_project(tmp_path, monkeypatch):
+    """#969: merge preview requires an exact project id."""
+    tasks = importlib.import_module("server.routes.tasks")
+    proj = tmp_path / "p1"
+    (proj / ".pfactory" / "specs" / "s1").mkdir(parents=True)
+    (tmp_path / "projects.json").write_text(json.dumps({"p1": {"path": str(proj)}}))
+    monkeypatch.setattr(tasks, "get_data_dir", lambda: tmp_path)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(tasks.get_worktree_merge_preview("s1"))
+    assert exc.value.status_code == 400
+    assert asyncio.run(tasks.get_worktree_merge_preview("nope:s1")) == {
+        "success": False,
+        "error": "Task nope:s1 not found",
+    }
+    assert asyncio.run(tasks.get_worktree_merge_preview("p1:s1")) == {
+        "success": False,
+        "error": "No worktree found for this task",
+    }
