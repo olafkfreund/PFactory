@@ -18,7 +18,7 @@ import os
 import re
 import socket
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -105,6 +105,8 @@ class PlanSession(BaseModel):
     # "default" so single-tenant behaviour (and old persisted sessions) are
     # unchanged.
     tenant_id: str = "default"
+    # #968: the session's org, stamped at intake from its project; None = derive at read time.
+    org_id: str | None = None
     # RFC-0010: the target repo this plan changes, captured at ingest so the
     # reconnaissance stage (Phase 2) can read it during process(). Today `repo`
     # was only known at emit; threading it here lets planning be code-aware.
@@ -892,6 +894,7 @@ class PlanService:
         autonomy_tier: str | None = None,
         origin_issue_number: int | None = None,
         tenant_id: str = "default",
+        org_id: str | None = None,
     ) -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title, seq=self._next_seq())
         # RFC-0011: carry the label-driven difficulty tier from intake so process()
@@ -899,6 +902,7 @@ class PlanService:
         plan = _carry_tier(plan, autonomy_tier)
         session = self._store(plan)
         session.tenant_id = tenant_id or "default"  # #308: stamp at intake
+        session.org_id = org_id or None  # #968: stamp at intake
         session.selected_category = category
         session.selected_template = template
         session.repo = repo or None  # RFC-0010: target repo for reconnaissance
@@ -926,6 +930,7 @@ class PlanService:
         base_ref: str | None = None,
         autonomy_tier: str | None = None,
         tenant_id: str = "default",
+        org_id: str | None = None,
     ) -> PlanSession:
         plan = ingest_bytes(
             data,
@@ -937,6 +942,7 @@ class PlanService:
         plan = _carry_tier(plan, autonomy_tier)  # RFC-0011 (#182)
         session = self._store(plan)
         session.tenant_id = tenant_id or "default"  # #308: stamp at intake
+        session.org_id = org_id or None  # #968: stamp at intake
         session.original_filename = filename  # preserve for honouring the doc (#D)
         session.selected_category = category
         session.selected_template = template
@@ -964,7 +970,11 @@ class PlanService:
     # ── query ──────────────────────────────────────────────────────────
 
     def list_sessions(
-        self, *, tenant_id: str | None = None, include_discarded: bool = False
+        self,
+        *,
+        tenant_id: str | None = None,
+        include_discarded: bool = False,
+        keep: Callable[[PlanSession], bool] | None = None,
     ) -> list[dict]:
         """Session summaries; ``tenant_id`` filters to one tenant (#308).
 
@@ -972,7 +982,8 @@ class PlanService:
         ``discarded`` sessions are hidden by default (#798) — they are
         abandoned probes, not work anyone needs to see on the board — unless
         ``include_discarded`` asks for them. ``rejected`` is unaffected: that
-        is a plan someone may still fix.
+        is a plan someone may still fix. ``keep`` filters sessions before
+        summarizing (#968).
         """
         sessions = self._all_sessions()
         return [
@@ -980,6 +991,7 @@ class PlanService:
             for s in sessions
             if (tenant_id is None or s.tenant_id == tenant_id)
             and (include_discarded or s.status != "discarded")
+            and (keep is None or keep(s))
         ]
 
     def _all_sessions(self) -> list[PlanSession]:
