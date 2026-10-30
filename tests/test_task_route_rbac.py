@@ -322,7 +322,11 @@ TASK_ROUTES = {
             "/{task_id}/worktree/merge",
             "/{task_id}/worktree/discard",
         ],
-        "viewer": ["/{task_id}/logs/watch", "/{task_id}/logs/unwatch"],
+        "viewer": [
+            "/{task_id}/logs/watch",
+            "/{task_id}/logs/unwatch",
+            "/{task_id}/agent-console/sse",
+        ],
     },
 }
 PROJECT_ROUTES = {
@@ -385,6 +389,8 @@ def test_every_listed_route_carries_the_dependency():
                 methods = ("PUT", "PATCH", "DELETE") if path == "/{task_id}" else ("POST",)
                 if path == "/{task_id}/status":
                     methods = ("PATCH",)
+                elif path == "/{task_id}/agent-console/sse":
+                    methods = ("GET",)
                 for m in methods:
                     assert _guards(module, m, path) == [("TaskAccessChecker", role)], (m, path)
                     n += 1
@@ -407,4 +413,4 @@ def test_every_listed_route_carries_the_dependency():
     for path in SPEC_ROUTES:
         assert _guards("pfactory_tasks", "POST", path) == [("SpecAccessChecker", "member")], path
         n += 1
-    assert n == 48
+    assert n == 49
