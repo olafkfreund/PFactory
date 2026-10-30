@@ -59,13 +59,13 @@ def synthetic_key(session_id: str) -> str:
     return f"pf-{session_id}"
 
 
-def origin_key(repo: str | None, issue_number: int) -> str:
-    """Correlation key for a plan that originated from an upstream issue.
+def origin_key(repo: str, issue_number: int) -> str:
+    """Repo-qualified correlation key (``<repo>#<n>``).
 
-    Repo-qualified because issue numbers only identify an issue *within* a repo
-    (``pf-`` synthetic keys already establish that a key need not be numeric).
+    Issue numbers only identify an issue *within* a repo, so a bare number is
+    never emitted as a key (#960).
     """
-    return f"{repo}#{issue_number}" if repo else str(issue_number)
+    return f"{repo}#{issue_number}"
 
 
 def correlation_key_for(session: PlanSession) -> str:
@@ -77,12 +77,16 @@ def correlation_key_for(session: PlanSession) -> str:
     filed, and it is stable from ingest onward. The emitted epic is an artifact
     PFactory *creates* downstream of it, so keying on the epic would silently
     re-point the chain at PFactory's own output at emit time and lose the link to
-    the request. Falls back to the emitted epic issue# (the pre-#874 behaviour,
-    unchanged for every session with no origin), else a synthetic key.
+    the request. Falls back to the emitted epic issue# for sessions with no origin.
+    A key is only built when its repo is known; otherwise (including an origin
+    with no repo, which does not fall through to the epic) the synthetic
+    ``pf-<session_id>`` key is used (#960).
     """
     if session.origin_issue_number is not None:
-        return origin_key(session.repo, session.origin_issue_number)
-    if session.emitted_issue_number is not None:
+        if session.repo:
+            return origin_key(session.repo, session.origin_issue_number)
+        return synthetic_key(session.session_id)
+    if session.emitted_issue_number is not None and session.emit_repo:
         return origin_key(session.emit_repo, session.emitted_issue_number)
     return synthetic_key(session.session_id)
 
