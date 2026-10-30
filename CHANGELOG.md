@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Security: joserfc floor `>=1.7.5`** in
+  `apps/web-server/requirements.txt`, past CVE-2026-119283 (HIGH,
+  GHSA-jpxq-7h8p-2q76), which fails the Trivy P0 gate. joserfc arrives through
+  Authlib, which uses it to verify OIDC ID tokens. Not reachable here: the
+  flaw is in `joserfc.jwe.decrypt_json` (JWE General JSON), and the OIDC
+  client only verifies compact JWS through `joserfc.jwt.decode`.
+
 ## 0.6.40 — DB pool caps, repo-scoped correlation keys, MCP read RBAC, remote MCP authz (2026-10-30)
 
 - **Postgres pools capped per pod (#964, closes #961).** Main engine 5 + 3
