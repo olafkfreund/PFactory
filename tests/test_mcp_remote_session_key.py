@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import anyio
+
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 
@@ -90,3 +92,71 @@ async def test_post_from_another_key_is_refused(monkeypatch):
     assert own.status_code == 200
     assert unknown.status_code == 403
     assert len(delivered) == 1  # only the session's own key got through
+
+
+OTHER = "f" * 32
+
+
+def _sse_scope() -> dict:
+    return {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/mcp-remote/sse",
+        "root_path": "",
+        "headers": [(b"authorization", b"Bearer acw_a")],
+        "query_string": b"",
+    }
+
+
+async def test_only_the_first_endpoint_event_binds(monkeypatch):
+    srv = importlib.import_module("server.mcp_remote.server")
+
+    async def authenticate(_header):
+        return _key("key-a")
+
+    seen = {}
+
+    @asynccontextmanager
+    async def connect_sse(_scope, _receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": f"data: x?session_id={SID}\r\n".encode()})
+        endpoint = f"event: endpoint\r\ndata: /m/?session_id={OTHER}\r\n\r\n"
+        await send({"type": "http.response.body", "body": endpoint.encode()})
+        seen.update(srv._session_keys)
+        yield None, None
+
+    monkeypatch.setattr(srv, "authenticate", authenticate)
+    monkeypatch.setattr(srv._sse_transport, "connect_sse", connect_sse)
+    monkeypatch.setattr(srv._mcp_server, "run", AsyncMock())
+
+    await srv.sse_endpoint(Request(_sse_scope(), AsyncMock(), AsyncMock()))
+    # The first body was not an endpoint event, and a later one may not bind.
+    assert seen == {}
+
+
+async def test_real_transport_binds_its_session_to_the_key(monkeypatch):
+    srv = importlib.import_module("server.mcp_remote.server")
+
+    async def authenticate(_header):
+        return _key("key-a")
+
+    bound = {}
+    done = anyio.Event()
+
+    async def run(*_args):
+        with anyio.fail_after(5):
+            while not srv._session_keys:
+                await anyio.sleep(0.01)
+        bound.update(srv._session_keys)
+        done.set()
+
+    async def receive():
+        await done.wait()
+        return {"type": "http.disconnect"}
+
+    monkeypatch.setattr(srv, "authenticate", authenticate)
+    monkeypatch.setattr(srv._mcp_server, "run", run)
+
+    await srv.sse_endpoint(Request(_sse_scope(), receive, AsyncMock()))
+    assert list(bound.values()) == ["key-a"]
+    assert not srv._session_keys  # dropped when the stream closes

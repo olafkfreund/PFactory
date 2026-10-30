@@ -63,3 +63,19 @@ suite (Postgres).
 ## Rollback
 
 Revert the PR. Remote MCP is off by default.
+
+## Deviations (lead's Opus review)
+
+- `mcp_remote/server.py` is ported to the mcp 2.x lowlevel API, as AIFactory's
+  is: `_list_tools`/`_call_tool` take `(ctx, params)` and return
+  `ListToolsResult`/`CallToolResult`, they are passed to `Server(...)`, and
+  `run` uses `create_initialization_options()`. CI installs mcp 2.3.0 (via
+  claude-agent-sdk), where the 1.x decorators no longer exist, so the module
+  could not import and remote MCP could not start. `apps/web-server/requirements.txt`
+  now pins `mcp>=2.0`.
+- Session binding reads only the transport's first body, and only when that
+  body is the `event: endpoint` event; a later body cannot (re)bind.
+  Tests: a non-endpoint first body and a later endpoint body bind nothing;
+  the real mcp 2.3.0 transport binds its session to the key and drops it on close.
+- `_authorize_call` refuses a call whose id argument is missing instead of
+  returning early.

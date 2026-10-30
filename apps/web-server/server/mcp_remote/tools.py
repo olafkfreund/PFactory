@@ -104,7 +104,7 @@ async def _authorize_call(
         return
     arg = "project_id" if tool_name == "pfactory.list_tasks" else "task_id"
     if arg not in arguments:
-        return  # the tool's KeyError reports the missing argument
+        raise MCPAuthError(f"missing required argument: {arg}")
     value = arguments[arg]
     if (
         not isinstance(value, str)
