@@ -1,4 +1,4 @@
-"""Step 3 RBAC coverage for the rmux console."""
+"""RBAC coverage for the rmux console and stdio MCP proxies."""
 
 from __future__ import annotations
 
@@ -121,3 +121,71 @@ def test_console_websocket_legacy_principal_reaches_session_lookup(env, monkeypa
         ws.receive_text()
     assert exc.value.code == 4004
     assert audits == []
+
+
+@pytest.fixture
+def mcp_env(env, monkeypatch):
+    _, settings, audits, bridge = env
+    proxy = importlib.import_module("server.mcp_stdio.router")
+    execution = importlib.import_module("server.routes.execution")
+    auth = importlib.import_module("server.mcp_remote.auth")
+    legacy = importlib.import_module("server.mcp_stdio.auth")._LegacyAdminKey()
+    key = auth.AuthenticatedKey(
+        key_id="key-b",
+        scopes=frozenset({"task:write", "plan:write"}),
+        user_id="member-a",
+        org_id="B",
+    )
+    selected = {"key": key}
+    app = FastAPI()
+    app.include_router(proxy.router)
+
+    async def _db():
+        async with bridge.async_session_factory() as db:
+            yield db
+
+    app.dependency_overrides[proxy.get_db] = _db
+    for route in app.routes:
+        if route.path in {
+            "/api/mcp-stdio/tasks/{task_id}/start",
+            "/api/mcp-stdio/plan/sessions/{session_id}/process",
+        }:
+            for dependency in route.dependant.dependencies:
+                if dependency.call.__closure__:
+                    app.dependency_overrides[dependency.call] = lambda: selected["key"]
+
+    handler = AsyncMock(return_value={"ok": True})
+    plan_handler = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(execution, "start_task", handler)
+    monkeypatch.setattr(proxy, "plan_process", plan_handler)
+    monkeypatch.setattr(proxy, "log_audit_event_bg", AsyncMock())
+    return TestClient(app), settings, audits, selected, legacy, handler, plan_handler
+
+
+@pytest.mark.parametrize(
+    ("path", "handler_index"),
+    [
+        ("/api/mcp-stdio/tasks/p1:s/start", 5),
+        ("/api/mcp-stdio/plan/sessions/s/process", 6),
+    ],
+)
+def test_mcp_write_requires_member(mcp_env, path, handler_index):
+    client, settings, audits, selected, legacy, _, _ = mcp_env
+    handler = mcp_env[handler_index]
+
+    settings.RBAC_ENFORCE_TASK_ROUTES = True
+    response = client.post(path)
+    assert response.status_code == 403
+    handler.assert_not_awaited()
+
+    settings.RBAC_ENFORCE_TASK_ROUTES = False
+    response = client.post(path)
+    assert response.status_code == 200
+    handler.assert_awaited_once()
+    assert len(audits) == 2
+    assert audits[1]["details"]["shadow"] is True
+
+    selected["key"] = legacy
+    response = client.post(path)
+    assert response.status_code == 200
+    assert len(audits) == 2

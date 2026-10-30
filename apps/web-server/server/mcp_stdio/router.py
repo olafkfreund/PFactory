@@ -28,7 +28,9 @@ import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request as FastAPIRequest, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from server.database.engine import get_db
 from server.routes.plan_meta import categories as plan_categories
 from server.routes.plan_pipeline import (
     ApproveBody,
@@ -41,6 +43,7 @@ from server.routes.plan_pipeline import (
     list_sessions as plan_list_sessions,
     process as plan_process,
 )
+from server.routes.project_authz import PlanAccessChecker, authorize_project
 from server.services.audit_service import (
     ACTION_MCP_PLAN_APPROVE,
     ACTION_MCP_PLAN_INGEST,
@@ -70,6 +73,12 @@ from .auth import (
 )
 
 router = APIRouter(prefix="/api/mcp-stdio", tags=["MCP (stdio)"])
+
+
+def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict:
+    if isinstance(key, AuthenticatedKey):
+        return {"id": key.user_id, "api_key_id": key.key_id, "org_id": key.org_id}
+    return {"id": "default", "is_service": True}
 
 
 async def _read_json_body(request: FastAPIRequest) -> dict:
@@ -210,13 +219,15 @@ async def proxy_add_project(
 
 
 @router.post("/tasks/create-and-run")
-async def proxy_create_and_run_task(
+async def proxy_create_and_run_task(  # noqa: PLR0913 - one param per query field
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     project_id: str = Query(...),
     title: str = Query(...),
     description: str = Query(...),
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
+    await authorize_project(_principal(key), project_id, db, "member")
     from ..routes.execution import StartTaskRequest, create_and_run_task
 
     body = await _read_json_body(request)
@@ -237,8 +248,10 @@ async def proxy_create_and_run_task(
 async def proxy_start_task(
     task_id: str,
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
+    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import StartTaskRequest, start_task
 
     body = await _read_json_body(request)
@@ -257,8 +270,10 @@ async def proxy_start_task(
 async def proxy_stop_task(
     task_id: str,
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
+    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import stop_task
 
     result = await stop_task(task_id)
@@ -276,8 +291,10 @@ async def proxy_stop_task(
 async def proxy_recover_task(
     task_id: str,
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
+    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
     from ..routes.execution import RecoverTaskRequest, recover_task
 
     body = await _read_json_body(request)
@@ -296,8 +313,10 @@ async def proxy_recover_task(
 async def proxy_approve_plan(
     task_id: str,
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_WRITE_SCOPE)),
 ):
+    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import ApprovePlanRequest, approve_plan
 
     body = await _read_json_body(request)
@@ -321,8 +340,10 @@ async def proxy_approve_plan(
 async def proxy_create_pr(
     task_id: str,
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_MERGE_SCOPE)),
 ):
+    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import CreatePRFromTaskOptions, create_pr_from_task
 
     body = await _read_json_body(request)
@@ -341,8 +362,10 @@ async def proxy_create_pr(
 async def proxy_merge_worktree(
     task_id: str,
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(TASK_MERGE_SCOPE)),
 ):
+    await authorize_project(_principal(key), task_id.split(":", 1)[0], db, "member")
     from ..routes.tasks import WorktreeMergeOptions, merge_worktree
 
     body = await _read_json_body(request)
@@ -407,7 +430,10 @@ async def proxy_plan_categories(_: _Read) -> dict[str, Any]:
 
 
 @router.post("/plan/sessions/ingest-text")
-async def proxy_plan_ingest_text(request: FastAPIRequest, key: _PlanWrite) -> dict[str, Any]:
+async def proxy_plan_ingest_text(
+    request: FastAPIRequest, key: _PlanWrite, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, Any]:
+    await PlanAccessChecker("member").check(_principal(key), request.url.path, db)
     body = await _read_json_body(request)
     result = await plan_ingest_text(IngestTextBody(**body), request)
     session_id = result.get("session_id") if isinstance(result, dict) else None
@@ -427,6 +453,7 @@ async def proxy_plan_ingest_upload(  # noqa: PLR0913 - one param per multipart f
     request: FastAPIRequest,
     key: _PlanWrite,
     file: Annotated[UploadFile, File()],
+    db: Annotated[AsyncSession, Depends(get_db)],
     title: Annotated[str | None, Form()] = None,
     category: Annotated[str, Form()] = "",
     template: Annotated[str, Form()] = "",
@@ -437,6 +464,7 @@ async def proxy_plan_ingest_upload(  # noqa: PLR0913 - one param per multipart f
     filesystem. The tool reads the file locally and uploads the bytes here, so
     text extraction stays server-side where the parsers live.
     """
+    await PlanAccessChecker("member").check(_principal(key), request.url.path, db)
     result = await plan_ingest_upload(
         request, file=file, title=title, category=category, template=template
     )
@@ -454,8 +482,12 @@ async def proxy_plan_ingest_upload(  # noqa: PLR0913 - one param per multipart f
 
 @router.post("/plan/sessions/{session_id}/process")
 async def proxy_plan_process(
-    session_id: str, request: FastAPIRequest, key: _PlanWrite
+    session_id: str,
+    request: FastAPIRequest,
+    key: _PlanWrite,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
+    await PlanAccessChecker("member").check(_principal(key), request.url.path, db)
     result = await plan_process(session_id, request)
     await _audit_mcp_write(key, ACTION_MCP_PLAN_PROCESS, "plan_session", session_id, request)
     return result
@@ -463,8 +495,12 @@ async def proxy_plan_process(
 
 @router.post("/plan/sessions/{session_id}/approve")
 async def proxy_plan_approve(
-    session_id: str, request: FastAPIRequest, key: _PlanWrite
+    session_id: str,
+    request: FastAPIRequest,
+    key: _PlanWrite,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
+    await PlanAccessChecker("member").check(_principal(key), request.url.path, db)
     body = await _read_json_body(request)
     result = await plan_approve(session_id, ApproveBody(**body))
     await _audit_mcp_write(
