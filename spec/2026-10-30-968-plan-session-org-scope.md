@@ -1,5 +1,5 @@
 ---
-status: approved
+status: draft
 issue: 968
 intent: intent/2026-10-30-968-plan-session-org-scope.md
 ---
@@ -121,3 +121,67 @@ New in `routes/project_authz.py`, built on the existing pieces
   `tests/test_plan_session_delete.py`, `tests/test_rbac_console_and_mcp.py`,
   `tests/test_mcp_stdio_proxy.py`.
 - Ruff + the mypy ratchet as in CI. The full suite on Postgres 16.
+
+## Amendment (lead's rules, 2026-10-30)
+
+The lead confirmed the direction (a payload field for the intake stamp) and added
+three rules. They replace the matching parts of the design above.
+
+1. **Stamp at create whenever the project's org is known.** This is unchanged: the
+   ingest routes pass the org of the repo's project into `PlanSession.org_id`.
+2. **A lazy resolution is persisted once and never re-resolved.** The first read
+   that resolves an org for an unstamped session writes it. Every later read uses the
+   written value, so re-registering a repo under another org cannot move an existing
+   session.
+   - The value is **not** written into the session payload. `process()` holds one
+     session copy for the whole pipeline run and saves it once at the end with a
+     compare-and-set on `version`. A read-time payload write would bump `version`, and
+     the in-flight run would then fail with `StaleSessionError`.
+   - It goes in a new nullable **`plan_sessions.org_id` column**, written with
+     `UPDATE ... SET org_id = :org WHERE session_id = :id AND org_id IS NULL`. The
+     write does not touch `payload` or `version`, the same way the emit lease columns
+     (#758) work. The first writer wins, and the stamp returns the stored value.
+   - **This is a schema change.** Alembic revision `e5b8c3f1a9d7` (down revision
+     `c7e4a2d9b1f3`) adds the column. Downgrade drops it. Older code ignores it.
+   - Without a shared store (no `DATABASE_URL`, single-process dev), the stamp is
+     kept in an in-process dict. shortcut: it does not survive a restart, and is fine
+     for single-process dev only.
+   - Precedence: the payload `org_id` (intake) first, then the persisted lazy stamp,
+     then resolve and persist. A store error while stamping is logged, and the
+     resolved value is still used for that request.
+3. **Org-less versus unknown** (lead's refinement, consistent with #966). The resolver
+   (`_repo_org`) looks at every project whose `repo` matches the session's repo, and
+   never picks the first match:
+   - **An org:** every match carries the same `org_id`. Persisted (rule 2).
+   - **Org-less:** every match has no `org_id`, which is normal before S6. Not
+     persisted, so the session picks up the project's org once S6 assigns one.
+   - **Unknown:** no match, matches that disagree (two orgs, or an org and an org-less
+     one), or a session with no `repo`. Not persisted.
+   - Access: humans are unchanged. Org-less and unknown sessions are allowed in shadow
+     mode without an audit row, and denied under enforce. **An org-scoped `acw_` key is
+     denied both, always, with the flag off too:** lists hide them, and per-session
+     reads and audit-pack exports get 404. That is #966's unknown-project rule. In
+     code, both are `org_id=None`, and an org key passes only when the session's org
+     equals the key's org (`_key_outside_org`).
+
+**Deviation from the lead's rule 3 (accepted by the lead, 2026-10-30).** The lead's
+rule kept org-less sessions as today for every caller. For org-scoped keys this design
+denies them too, even in shadow mode. One reason is fail-closed consistency with #966.
+The other is that an org-less session cannot be shown to belong to the key's org.
+Evidence that nothing breaks: the lead verified that `api_keys` has 0 rows in all three
+prod databases, so no org-scoped key exists today. The consequence is recorded in the
+S6 runbook (#959, PR #972): projects need an `org_id` before the first org-scoped key is
+minted, or that key sees no plan sessions.
+
+This reverses the earlier "an org key sees org-less sessions in shadow mode" in the
+design above.
+
+The "No schema change" and "Alternatives rejected → alembic migration" text above is
+superseded for the lazy stamp. The intake stamp still lives in the payload.
+
+Added verification: a persisted lazy stamp survives re-registering the repo under
+another org (rule 2). No match, a two-org match and an org-less match are each denied
+to an org key with the flag off, and allowed to a human in shadow mode (rule 3). A read
+that persists the org during an in-flight `process()` does not break that run: the run
+saves without `StaleSessionError`, and the stamp survives. The migration upgrades and
+downgrades on Postgres.
