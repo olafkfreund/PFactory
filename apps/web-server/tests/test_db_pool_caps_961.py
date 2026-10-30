@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 
 from server.db_pool import pool_kwargs
 from server.jobstore.plan_session_store import PlanSessionStore
@@ -54,6 +55,7 @@ def test_store_engine_pool_caps(store: type[JobStateStore] | type[PlanSessionSto
     async def check() -> None:
         engine = await store._make_engine_coro(POSTGRES_URL)
         try:
+            assert isinstance(engine.pool, AsyncAdaptedQueuePool)
             assert engine.pool.size() == 2
             assert engine.pool._max_overflow == 2
             assert engine.pool._timeout == 10
