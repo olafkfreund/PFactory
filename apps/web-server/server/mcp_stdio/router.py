@@ -500,8 +500,11 @@ _PlanWrite = Annotated[
 async def proxy_list_plan_sessions(
     request: FastAPIRequest, key: _Read, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> dict[str, Any]:
-    await PlanAccessChecker("viewer").check(_principal(key), request.url.path, db)
-    return await plan_list_sessions(request)
+    principal = _principal(key)
+    await PlanAccessChecker("viewer").check(principal, request.url.path, db)
+    # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
+    request.state.user = principal
+    return await plan_list_sessions(request, db=db)
 
 
 @router.get("/plan/sessions/{session_id}")
@@ -511,8 +514,11 @@ async def proxy_get_plan_session(
     key: _Read,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
-    await PlanAccessChecker("viewer").check(_principal(key), request.url.path, db)
-    return await plan_get_session(session_id, request)
+    principal = _principal(key)
+    await PlanAccessChecker("viewer").check(principal, request.url.path, db)
+    # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
+    request.state.user = principal
+    return await plan_get_session(session_id, request, db=db)
 
 
 @router.get("/plan/sessions/{session_id}/audit-pack")
@@ -524,8 +530,11 @@ async def proxy_plan_audit_pack(
     # Aliased because the REST parameter is `format`, which shadows a builtin.
     fmt: Annotated[str, Query(alias="format")] = "json",
 ) -> Any:
-    await PlanAccessChecker("viewer").check(_principal(key), request.url.path, db)
-    return await plan_audit_pack(session_id, format=fmt)
+    principal = _principal(key)
+    await PlanAccessChecker("viewer").check(principal, request.url.path, db)
+    # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
+    request.state.user = principal
+    return await plan_audit_pack(session_id, request, format=fmt, db=db)
 
 
 @router.get("/plan/meta/categories")
