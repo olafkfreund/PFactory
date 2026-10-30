@@ -128,15 +128,15 @@ class SpecAccessChecker(_AccessChecker):
     """Authorize a spec write against its containing project."""
 
     async def _decide(
-        self, user: dict[str, Any] | None, key: str, db: AsyncSession, ctx: dict[str, Any]
+        self, user: dict[str, Any] | None, key: str | None, db: AsyncSession, ctx: dict[str, Any]
     ) -> None:
         spec_dir = None
         try:
-            _validate_spec_id(key)
+            _validate_spec_id(key or "")
         except HTTPException:
             pass
         else:
-            spec_dir = _find_spec_dir(_resolve_workspace_root(), key)
+            spec_dir = _find_spec_dir(_resolve_workspace_root(), key or "")
         project_id = spec_dir.parent.parent.name if spec_dir else None
         await _project_decision(user, project_id, db, self.minimum_role, ctx)
 

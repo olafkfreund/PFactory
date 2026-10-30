@@ -219,7 +219,7 @@ class _AccessChecker:
         self.minimum_role = minimum_role
 
     async def _decide(
-        self, user: dict[str, Any] | None, key: str, db: AsyncSession, ctx: dict[str, Any]
+        self, user: dict[str, Any] | None, key: str | None, db: AsyncSession, ctx: dict[str, Any]
     ) -> None:
         await _project_decision(user, key, db, self.minimum_role, ctx)
 
@@ -326,7 +326,7 @@ class PlanAccessChecker(_AccessChecker):
     resource_type = "plan_session"
 
     async def _decide(
-        self, user: dict[str, Any] | None, _key: str, db: AsyncSession, ctx: dict[str, Any]
+        self, user: dict[str, Any] | None, _key: str | None, db: AsyncSession, ctx: dict[str, Any]
     ) -> None:
         if not user:
             check_project_access(user, None, None)  # raises 401

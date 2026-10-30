@@ -75,7 +75,7 @@ from .auth import (
 router = APIRouter(prefix="/api/mcp-stdio", tags=["MCP (stdio)"])
 
 
-def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict:
+def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
     if isinstance(key, AuthenticatedKey):
         return {"id": key.user_id, "api_key_id": key.key_id, "org_id": key.org_id}
     return {"id": "default", "is_service": True}
