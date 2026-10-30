@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 969
 spec: spec/2026-10-30-969-merge-preview-exact-project.md
 coders:   # the user asked for Codex as a team member this wave
