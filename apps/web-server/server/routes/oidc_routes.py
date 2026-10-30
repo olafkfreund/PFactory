@@ -30,11 +30,13 @@ from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from server.oidc import authorize_access_token
+
 from ..config import get_settings
 from ..database import User
 from ..database.engine import get_db
 from ..database.models import OidcRefreshSession
-from ..oidc import authorize_access_token, get_oauth_client, is_oidc_enabled
+from ..oidc import get_oauth_client, is_oidc_enabled
 from ..oidc.provisioning import jit_provision_user
 from ..oidc.userinfo_cache import get_cached, invalidate, put as cache_put
 from .auth_routes import create_access_token

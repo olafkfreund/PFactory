@@ -46,3 +46,22 @@ check + format on touched files. Pre-commit hooks run on commit.
 ## Rollback
 
 Revert the PR; the callback returns to authlib defaults.
+
+## Deviations (lead review, 2026-10-30)
+
+- `iss` accepts `[issuer, issuer + "/"]`. An exact match would lock out IdPs whose
+  `iss` ends in "/" (the Azure AD v1 preset, Auth0).
+- The helper is typed for `mypy --strict` (`Request` under `TYPE_CHECKING`,
+  `-> dict[str, Any]`), and so is the test.
+- The route imports the helper with an absolute `from server.oidc import ...`
+  line. The ruff ratchet counts TID252 per name, so adding the name to the
+  relative import adds one violation.
+- Step 2 adds these cases: `alg=none` rejected even when discovery advertises
+  it; configured issuer with a trailing slash; `aud` other with `azp` = client_id
+  rejected; and a mutation control (authlib called without the helper accepts
+  HS256). The test is shared with AIFactory #1954.
+- `routes/oidc_routes.py` also carries ruff autofix churn: `timezone.utc` → `UTC`,
+  the unused `Organization`/`OrgMember` imports dropped, and the `userinfo_cache`
+  imports merged. PFactory's `.husky/pre-commit` runs `ruff check --fix` + `format`
+  with the pinned ruff and re-stages every staged .py file. A revert would be
+  rewritten on commit, and `--no-verify` is not allowed, so the churn stays.

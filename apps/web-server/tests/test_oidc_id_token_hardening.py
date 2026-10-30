@@ -1,104 +1,156 @@
-"""ID-token claims and signing algorithms are enforced during OIDC callback."""
+"""ID-token validation through the configured Authlib Starlette client."""
+
+from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import time
+from collections.abc import Iterator
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from authlib.jose import JsonWebKey, jwt
-from joserfc.errors import InvalidClaimError, MissingClaimError, UnsupportedAlgorithmError
+from joserfc.errors import (
+    InvalidClaimError,
+    MissingClaimError,
+    UnsupportedAlgorithmError,
+)
 
-from server.oidc.client import authorize_access_token, get_oauth_client, reset_oauth_client_cache
+from server.oidc import client as oidc_client
+from server.oidc.client import (
+    authorize_access_token,
+    get_oauth_client,
+    reset_oauth_client_cache,
+)
 
 
 @pytest.fixture(autouse=True)
-def _drop_cached_client():
-    # The client is built from this test's env; don't leak it to later tests.
+def _drop_cached_client() -> Iterator[None]:
     yield
     reset_oauth_client_cache()
 
 
-def _exchange(monkeypatch, claims, *, alg="RS256", discovery_issuer="https://idp.example"):
-    monkeypatch.setenv("APP_OIDC_ISSUER_URL", "https://idp.example")
-    monkeypatch.setenv("APP_OIDC_CLIENT_ID", "client-id")
-    monkeypatch.setenv("APP_OIDC_CLIENT_SECRET", "client-secret")
+def _authorize(
+    monkeypatch: pytest.MonkeyPatch,
+    claims: dict[str, Any] | None = None,
+    *,
+    issuer: str = "https://issuer.example/realms/test",
+    alg: str = "RS256",
+    discovery_issuer: str | None = None,
+) -> dict[str, Any]:
+    client_id = "test-client"
+    nonce = "test-nonce"
+    now = int(time.time())
+    monkeypatch.setenv("APP_OIDC_ISSUER_URL", issuer)
+    monkeypatch.setenv("APP_OIDC_CLIENT_ID", client_id)
+    monkeypatch.setenv("APP_OIDC_CLIENT_SECRET", "test-secret")
     reset_oauth_client_cache()
-    oauth = get_oauth_client()
+    oidc = get_oauth_client().oidc
 
     rsa_key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
     keys = [rsa_key.as_dict(is_private=False)]
     signing_key = rsa_key
-    algorithms = ["RS256"]
     if alg == "HS256":
         signing_key = JsonWebKey.generate_key("oct", 256, is_private=True)
         keys.append(signing_key.as_dict())
-        algorithms.append("HS256")
-
-    oauth.oidc.server_metadata = {
+    oidc.server_metadata = {
         "_loaded_at": time.time(),
-        "issuer": discovery_issuer,
+        "issuer": discovery_issuer or issuer,
         "jwks": {"keys": keys},
-        "id_token_signing_alg_values_supported": algorithms,
+        "id_token_signing_alg_values_supported": ["RS256", alg],
     }
-    id_token = jwt.encode(
-        {"alg": alg, "kid": signing_key.as_dict()["kid"]}, claims, signing_key
-    ).decode()
+    payload: dict[str, Any] = {
+        "iss": issuer,
+        "aud": client_id,
+        "exp": now + 3600,
+        "iat": now,
+        "sub": "user-123",
+        "nonce": nonce,
+    }
+    if claims:
+        payload.update(claims)
+    if claims is not None and "exp" in claims and claims["exp"] is None:
+        payload.pop("exp")
 
-    async def fetch_access_token(**_kwargs):
-        return {"access_token": "access-token", "id_token": id_token}
+    if alg == "none":
 
-    monkeypatch.setattr(oauth.oidc, "fetch_access_token", fetch_access_token)
-    request = SimpleNamespace(
+        def encode_part(value: dict[str, Any]) -> bytes:
+            return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=")
+
+        signed = encode_part({"alg": "none"}) + b"." + encode_part(payload) + b"."
+    else:
+        signed = jwt.encode({"alg": alg, "kid": signing_key.as_dict()["kid"]}, payload, signing_key)
+
+    async def fetch_access_token(**_kwargs: Any) -> dict[str, Any]:
+        return {"access_token": "access-token", "id_token": signed}
+
+    monkeypatch.setattr(oidc, "fetch_access_token", fetch_access_token)
+    # Stands in for a starlette Request; authlib only reads these attributes.
+    request: Any = SimpleNamespace(
         scope={"method": "GET"},
-        query_params={"code": "code", "state": "state"},
+        query_params={"code": "test-code", "state": "test-state"},
         session={},
     )
 
-    async def exchange():
-        await oauth.oidc.framework.set_state_data(request.session, "state", {"nonce": "nonce"})
-        return await authorize_access_token(oauth.oidc, request)
+    async def run() -> dict[str, Any]:
+        await oidc.framework.set_state_data(request.session, "test-state", {"nonce": nonce})
+        result: dict[str, Any] = await authorize_access_token(oidc, request)
+        return result
 
-    return asyncio.run(exchange())
-
-
-def _claims():
-    now = int(time.time())
-    return {
-        "iss": "https://idp.example",
-        "aud": "client-id",
-        "exp": now + 300,
-        "iat": now,
-        "sub": "user-123",
-        "nonce": "nonce",
-    }
+    return asyncio.run(run())
 
 
-def test_valid_rs256_id_token(monkeypatch):
-    token = _exchange(monkeypatch, _claims())
+def test_valid_rs256_id_token_without_trailing_slash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = _authorize(monkeypatch)
     assert token["userinfo"]["sub"] == "user-123"
 
 
-def test_issuer_must_match_configured_issuer_not_discovery(monkeypatch):
-    claims = _claims()
-    claims["iss"] = "https://attacker.example"
-    with pytest.raises(InvalidClaimError, match="iss"):
-        _exchange(monkeypatch, claims, discovery_issuer=claims["iss"])
+def test_valid_rs256_id_token_with_trailing_slash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = _authorize(monkeypatch, issuer="https://issuer.example/realms/test/")
+    assert token["userinfo"]["sub"] == "user-123"
 
 
-def test_exp_is_required(monkeypatch):
-    claims = _claims()
-    del claims["exp"]
-    with pytest.raises(MissingClaimError, match="exp"):
-        _exchange(monkeypatch, claims)
+def test_discovery_cannot_override_configured_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wrong_issuer = "https://other.example/realms/test"
+    with pytest.raises(InvalidClaimError):
+        _authorize(monkeypatch, {"iss": wrong_issuer}, discovery_issuer=wrong_issuer)
 
 
-def test_audience_must_match_client_id(monkeypatch):
-    claims = _claims()
-    claims["aud"] = "other-client"
-    with pytest.raises(InvalidClaimError, match="aud"):
-        _exchange(monkeypatch, claims)
+def test_missing_exp_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(MissingClaimError):
+        _authorize(monkeypatch, {"exp": None})
 
 
-def test_hs256_rejected_even_when_discovery_advertises_it(monkeypatch):
-    with pytest.raises(UnsupportedAlgorithmError, match="HS256"):
-        _exchange(monkeypatch, _claims(), alg="HS256")
+def test_wrong_audience_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(InvalidClaimError):
+        _authorize(monkeypatch, {"aud": "other-client"})
+
+
+def test_azp_cannot_override_wrong_audience(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(InvalidClaimError):
+        _authorize(monkeypatch, {"aud": "other-client", "azp": "test-client"})
+
+
+def test_discovery_cannot_enable_hs256(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(UnsupportedAlgorithmError):
+        _authorize(monkeypatch, alg="HS256")
+
+
+def test_discovery_cannot_enable_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(UnsupportedAlgorithmError):
+        _authorize(monkeypatch, alg="none")
+
+
+def test_hs256_passes_once_the_pin_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Mutation control: the HS256 rejection above comes from our pin, not authlib.
+    monkeypatch.setattr(oidc_client, "ID_TOKEN_SIGNING_ALGS", ["RS256", "HS256"])
+    token = _authorize(monkeypatch, alg="HS256")
+    assert token["userinfo"]["sub"] == "user-123"
