@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -41,6 +42,7 @@ from plan.service import (  # noqa: E402
     PlanInputError,
     PlanService,
     PlanServiceError,
+    PlanSession,
     SessionNotDeletableError,
     StaleSessionError,
 )
@@ -195,9 +197,9 @@ def _user(request: Request) -> dict[str, Any] | None:
     return getattr(getattr(request, "state", None), "user", None)
 
 
-def _projects_for(user: dict[str, Any] | None) -> dict[str, dict]:
+def _projects_for(user: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     try:
-        projects: dict[str, dict] = project_paths.load_projects()
+        projects = project_paths.load_projects()
         return projects
     except Exception:  # noqa: BLE001 - registry read failure
         if isinstance(user, dict) and user.get("api_key_id") and user.get("org_id"):
@@ -206,7 +208,7 @@ def _projects_for(user: dict[str, Any] | None) -> dict[str, dict]:
         return {}
 
 
-def _repo_org(repo: str | None, projects: dict[str, dict]) -> str | None:
+def _repo_org(repo: str | None, projects: dict[str, dict[str, Any]]) -> str | None:
     # #968: none, several orgs, or an org-less match = unknown.
     if not repo:
         return None
@@ -226,7 +228,7 @@ def _repo_org(repo: str | None, projects: dict[str, dict]) -> str | None:
 
 
 def _session_org(
-    session, projects: dict[str, dict], stamps: dict[str, str] | None = None
+    session: PlanSession, projects: dict[str, dict[str, Any]], stamps: dict[str, str] | None = None
 ) -> str | None:
     return cast(PlanService, SERVICE).session_org(
         session, lambda s: _repo_org(s.repo, projects), stamps
@@ -244,7 +246,7 @@ async def list_sessions(
     tenant = resolve_tenant(request) if multi_tenant_enabled() else None
     user = _user(request)
     allow = await plan_session_filter(user, db)
-    keep = None
+    keep: Callable[[PlanSession], bool] | None = None
     if allow is not None:
         projects = _projects_for(user)
         stamps = SERVICE.org_stamps()
