@@ -27,7 +27,7 @@ MEMBERS = [
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
+def env(tmp_path, monkeypatch):  # noqa: PLR0915 - one fixture builds every route variant
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from server.database.models import Base, Organization, OrgMember, User
@@ -69,15 +69,26 @@ def env(tmp_path, monkeypatch):
     def enforce(on: bool):
         settings.RBAC_ENFORCE_TASK_ROUTES = on
 
-    def make(*, guarded=True, plan=False, broken_db=False):
+    def make(*, guarded=True, kind="task", broken_db=False):
         app = FastAPI()
-        if plan:
-            deps = [Depends(pa.require_plan_access("member"))] if guarded else []
-            path = "/plan/{sid}/approve"
+        guards = {
+            "task": (pa.require_task_access, "/tasks/{task_id}/start"),
+            "plan": (pa.require_plan_access, "/plan/{sid}/approve"),
+            "camel": (pa.require_camel_project_access, "/x/{projectId}/y"),
+            "body": (pa.require_body_project_access, "/body"),
+            "direct": (None, "/direct"),
+        }
+        factory, path = guards[kind]
+        deps = [Depends(factory("member"))] if guarded and factory else []
+        if kind == "direct":
+
+            async def _direct(request: Request, db=Depends(pa.get_db)):  # noqa: B008
+                await pa.authorize_project(getattr(request.state, "user", None), "p1", db, "member")
+                return {"ok": True}
+
+            app.post(path)(_direct)
         else:
-            deps = [Depends(pa.require_task_access("member"))] if guarded else []
-            path = "/tasks/{task_id}/start"
-        app.post(path, dependencies=deps)(lambda: {"ok": True})
+            app.post(path, dependencies=deps)(lambda: {"ok": True})
 
         async def _db():
             async with session_local() as session:
@@ -117,7 +128,11 @@ def env(tmp_path, monkeypatch):
 
 
 def _post(client, path, project="p1", user="member-a", **headers):
-    url = path.replace("{task_id}", f"{project}:spec").replace("{sid}", "s1")
+    url = (
+        path.replace("{task_id}", f"{project}:spec")
+        .replace("{sid}", "s1")
+        .replace("{projectId}", project)
+    )
     return client.post(url, headers={"X-U": user, **headers})
 
 
@@ -193,7 +208,7 @@ def test_shadow_decision_error_allows(env, monkeypatch):
 def test_plan_route(env, user, headers, expected):
     make, enforce, audits = env
     enforce(True)
-    client, path = make(plan=True)
+    client, path = make(kind="plan")
     assert _post(client, path, user=user, **headers).status_code == expected
     assert [a["resource_type"] for a in audits] == ["plan_session"] * (expected == 403)
 
@@ -201,17 +216,17 @@ def test_plan_route(env, user, headers, expected):
 def test_plan_route_shadow_passes(env):
     make, enforce, audits = env
     enforce(False)
-    client, path = make(plan=True)
+    client, path = make(kind="plan")
     assert _post(client, path, user="viewer-a").status_code == 200
     assert audits[0]["details"]["shadow"] is True
 
 
-@pytest.mark.parametrize("plan", [False, True])
-def test_shadow_releases_request_session_before_audit(env, plan):
+@pytest.mark.parametrize("kind", ["task", "plan"])
+def test_shadow_releases_request_session_before_audit(env, kind):
     # Two pooled connections per would-deny can stall the pool (AIFactory#1936).
     make, enforce, _ = env
     enforce(False)
-    client, path = make(plan=plan)
+    client, path = make(kind=kind)
     assert _post(client, path, user="viewer-a").status_code == 200
     assert make.events[:2] == ["rollback", "audit"]
 
@@ -219,10 +234,54 @@ def test_shadow_releases_request_session_before_audit(env, plan):
 def test_plan_route_shadow_db_error_allows(env):
     make, enforce, audits = env
     enforce(False)
-    client, path = make(plan=True, broken_db=True)
+    client, path = make(kind="plan", broken_db=True)
     assert _post(client, path, user="viewer-a").status_code == 200
     assert audits == []  # a lookup error is not a would-deny
     assert "rollback" in make.events
+
+
+def test_allowed_check_rolls_back_without_audit(env):
+    make, enforce, audits = env
+    enforce(True)
+    client, path = make()
+    assert _post(client, path).status_code == 200
+    assert make.events[-1] == "rollback"
+    assert audits == []
+
+
+def test_authorize_project_uses_shadow_and_enforce(env):
+    make, enforce, audits = env
+    client, path = make(kind="direct")
+    assert _post(client, path, user="viewer-a").status_code == 200
+    assert len(audits) == 1
+    assert audits[0]["details"]["shadow"] is True
+    enforce(True)
+    assert _post(client, path, user="viewer-a").status_code == 403
+    assert len(audits) == 2
+    assert "shadow" not in audits[1]["details"]
+
+
+def test_camel_project_path_is_checked(env):
+    make, enforce, audits = env
+    enforce(True)
+    client, path = make(kind="camel")
+    assert _post(client, path).status_code == 200
+    assert _post(client, path, user="viewer-a").status_code == 403
+    assert len(audits) == 1
+    assert audits[0]["resource_id"] == "p1"
+
+
+def test_body_project_key_and_invalid_json(env):
+    make, _, audits = env
+    client, path = make(kind="body")
+    assert (
+        client.post(path, json={"project_id": "p1"}, headers={"X-U": "member-a"}).status_code == 200
+    )
+    assert audits == []
+    assert client.post(path, content="bad json", headers={"X-U": "member-a"}).status_code == 200
+    assert len(audits) == 1
+    assert audits[0]["details"]["status"] == 404
+    assert audits[0]["resource_id"] is None
 
 
 TASK_ROUTES = {

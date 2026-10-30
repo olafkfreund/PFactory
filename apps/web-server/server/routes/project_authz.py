@@ -28,12 +28,17 @@ from server.services import audit_service, project_paths
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "BodyProjectAccessChecker",
+    "CamelProjectAccessChecker",
     "PlanAccessChecker",
     "ProjectAccessChecker",
     "TaskAccessChecker",
+    "authorize_project",
     "authorize_project_for_user",
     "check_project_access",
     "is_service_principal",
+    "require_body_project_access",
+    "require_camel_project_access",
     "require_plan_access",
     "require_project_access",
     "require_task_access",
@@ -218,10 +223,9 @@ class _AccessChecker:
     ) -> None:
         await _project_decision(user, key, db, self.minimum_role, ctx)
 
-    async def _authorize(
-        self, key: str, request: Request, db: AsyncSession
+    async def check(
+        self, user: dict[str, Any] | None, key: str | None, db: AsyncSession
     ) -> dict[str, Any] | None:
-        user = getattr(request.state, "user", None)
         if _auth_disabled():
             return (
                 user
@@ -241,11 +245,17 @@ class _AccessChecker:
         except Exception:  # shadow mode fails open on lookup errors
             if enforce:
                 raise
+            logger.warning("rbac.check_failed (shadow, allowing)", exc_info=True)
+        finally:
             # The handler may share this session (Depends cache): leave it usable.
             with contextlib.suppress(Exception):
                 await db.rollback()
-            logger.warning("rbac.check_failed (shadow, allowing)", exc_info=True)
         return user
+
+    async def _authorize(
+        self, key: str, request: Request, db: AsyncSession
+    ) -> dict[str, Any] | None:
+        return await self.check(getattr(request.state, "user", None), key, db)
 
 
 class ProjectAccessChecker(_AccessChecker):
@@ -255,6 +265,42 @@ class ProjectAccessChecker(_AccessChecker):
         self, project_id: str, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
     ) -> dict[str, Any] | None:
         return await self._authorize(project_id, request, db)
+
+
+async def authorize_project(
+    user: dict[str, Any] | None,
+    project_id: str | None,
+    db: AsyncSession,
+    minimum_role: str = "viewer",
+) -> None:
+    """In-handler check (rmux, MCP proxies): shadow or enforce, like the dependencies."""
+    await ProjectAccessChecker(minimum_role).check(user, project_id, db)
+
+
+class CamelProjectAccessChecker(_AccessChecker):
+    """Dependency for routes with a camelCase project path parameter."""
+
+    async def __call__(
+        self,
+        projectId: str,  # noqa: N803
+        request: Request,
+        db: Annotated[AsyncSession, Depends(get_db)],
+    ) -> dict[str, Any] | None:
+        return await self._authorize(projectId, request, db)
+
+
+class BodyProjectAccessChecker(_AccessChecker):
+    """Dependency for routes with a project ID in the JSON body."""
+
+    async def __call__(
+        self, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
+    ) -> dict[str, Any] | None:
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - invalid JSON has no project key
+            body = None
+        key = body.get("project_id") if isinstance(body, dict) else None
+        return await self.check(getattr(request.state, "user", None), key, db)
 
 
 def _safe_enforcing() -> bool:
@@ -306,6 +352,14 @@ class PlanAccessChecker(_AccessChecker):
 
 def require_project_access(minimum_role: str = "viewer") -> ProjectAccessChecker:
     return ProjectAccessChecker(minimum_role)
+
+
+def require_camel_project_access(minimum_role: str = "viewer") -> CamelProjectAccessChecker:
+    return CamelProjectAccessChecker(minimum_role)
+
+
+def require_body_project_access(minimum_role: str = "viewer") -> BodyProjectAccessChecker:
+    return BodyProjectAccessChecker(minimum_role)
 
 
 def require_task_access(minimum_role: str = "viewer") -> TaskAccessChecker:
