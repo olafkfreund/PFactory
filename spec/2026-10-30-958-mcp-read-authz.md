@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 958
 intent: intent/2026-10-30-958-mcp-read-authz.md
 ---
