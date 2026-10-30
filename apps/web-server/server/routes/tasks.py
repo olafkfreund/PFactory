@@ -23,7 +23,7 @@ from server.services.git_utils import safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
 from ..services.git_utils import run_git_command
-from .project_authz import require_task_access
+from .project_authz import require_body_project_access, require_task_access
 from .projects import load_projects
 
 logger = logging.getLogger(__name__)
@@ -1167,7 +1167,12 @@ async def get_task(task_id: str):
     return task_to_dict(task)
 
 
-@router.post("", response_model=Task, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=Task,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_body_project_access("member"))],
+)
 async def create_task(task: TaskCreate):
     """Create a new task (spec) in a project."""
     projects = load_projects()

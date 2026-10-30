@@ -12,7 +12,7 @@ Two routers, mounted at distinct prefixes by ``routes/projects.py``:
 import logging
 from pathlib import Path as FilePath
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
 from factory_common.logsafe import sanitize_log
@@ -21,6 +21,7 @@ from server.services import run_leases
 from server.services.project_paths import resolve_project_path
 
 from ..services.insights_service import get_insights_service
+from .project_authz import require_camel_project_access
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ async def clear_insights_session(projectId: str = Path(...)):
         ) from e
 
 
-@router.post("/create-task")
+@router.post("/create-task", dependencies=[Depends(require_camel_project_access("member"))])
 async def create_task_from_insights(projectId: str = Path(...), request: CreateTaskRequest = ...):
     """Create a task from insights conversation."""
     from .tasks import TaskCreate, create_task

@@ -65,9 +65,18 @@ def app_with_bridge(tmp_path) -> tuple[FastAPI, SessionRegistry]:
     # the routes without needing a real database or token middleware.
     from server.auth import verify_websocket_token
     from server.database.engine import get_db
+
     async def _no_op_db():
         yield None
+
     app.dependency_overrides[get_db] = _no_op_db
+
+    # Attach semantics, not authz: the service principal the auth middleware
+    # sets when auth is disabled (the rmux session binding skips it).
+    @app.middleware("http")
+    async def _service_principal(request, call_next):
+        request.state.user = {"id": "default", "role": "admin", "is_service": True}
+        return await call_next(request)
 
     return app, registry
 
@@ -110,9 +119,7 @@ class TestAttach404:
 
 
 class TestAttachHappy:
-    def test_attach_first_caller_wins(
-        self, client: TestClient, primed_session: str
-    ) -> None:
+    def test_attach_first_caller_wins(self, client: TestClient, primed_session: str) -> None:
         r = client.post(
             f"/api/tasks/{primed_session}/agent-console/attach",
             json={"connection_id": "conn-001"},
@@ -133,9 +140,7 @@ class TestAttachHappy:
         state = registry.get_state(primed_session)
         assert state.attached_connection_id == "conn-A"
 
-    def test_second_attach_returns_409(
-        self, client: TestClient, primed_session: str
-    ) -> None:
+    def test_second_attach_returns_409(self, client: TestClient, primed_session: str) -> None:
         # First caller wins
         client.post(
             f"/api/tasks/{primed_session}/agent-console/attach",
@@ -177,9 +182,7 @@ class TestDetach:
         )
         assert r2.status_code == 200
 
-    def test_non_holder_detach_is_no_op(
-        self, client: TestClient, primed_session: str
-    ) -> None:
+    def test_non_holder_detach_is_no_op(self, client: TestClient, primed_session: str) -> None:
         """A hostile client can't detach someone else by guessing IDs."""
         client.post(
             f"/api/tasks/{primed_session}/agent-console/attach",
@@ -218,9 +221,7 @@ class TestAttachRace:
     so we don't fork 1000 rmux subprocesses.
     """
 
-    def test_one_200_999_409(
-        self, client: TestClient, primed_session: str
-    ) -> None:
+    def test_one_200_999_409(self, client: TestClient, primed_session: str) -> None:
         import concurrent.futures as cf
 
         N = 1000

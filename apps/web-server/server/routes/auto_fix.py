@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 # auto_fix_service's own import already put apps/backend on sys.path.
@@ -33,6 +33,7 @@ from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
 
 from ..services import auto_fix_service
+from .project_authz import require_camel_project_access
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,10 @@ async def get_auto_fix_config(projectId: str) -> dict[str, Any] | None:
     return {k: v for k, v in cfg.items() if k != "queue"}
 
 
-@router.put("/{projectId}/auto-fix/config")
+@router.put(
+    "/{projectId}/auto-fix/config",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def save_auto_fix_config(projectId: str, payload: AutoFixConfigPayload) -> dict[str, bool]:
     """Save AutoFixConfig. Returns ``{success: bool}``."""
     ok = auto_fix_service.save_config(projectId, payload.model_dump())
@@ -85,7 +89,10 @@ async def get_auto_fix_queue(projectId: str) -> list[dict[str, Any]]:
     return auto_fix_service.get_queue(projectId)
 
 
-@router.post("/{projectId}/auto-fix/check-new")
+@router.post(
+    "/{projectId}/auto-fix/check-new",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def check_new_issues(projectId: str) -> dict[str, Any]:
     """Manually trigger a poll: find new issues + start each one.
 
@@ -110,7 +117,10 @@ async def check_new_issues(projectId: str) -> dict[str, Any]:
     return result
 
 
-@router.post("/{projectId}/auto-fix/{issueNumber}/start")
+@router.post(
+    "/{projectId}/auto-fix/{issueNumber}/start",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def start_auto_fix_one(projectId: str, issueNumber: int) -> dict[str, Any]:
     """Import + start the agent on a single issue."""
     try:
