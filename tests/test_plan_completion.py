@@ -84,13 +84,23 @@ def test_terminal_statuses_are_emitted_rejected_and_discarded():
 # ── correlation key: issue# with synthetic fallback ──────────────────────────
 
 
-@pytest.mark.parametrize(("repo", "expected"), [("o/r", "o/r#12"), (None, "12")])
-def test_emitted_epic_key_is_scoped_to_the_repo(repo: str | None, expected: str) -> None:
-    """#1775: with no origin issue the key is the epic, named by its repo."""
+@pytest.mark.parametrize(("repo", "expected"), [("o/r", "o/r#12"), (None, None)])
+def test_emitted_epic_key_is_scoped_to_the_repo(repo: str | None, expected: str | None) -> None:
+    """#1775/#960: the epic key names its repo; with none it is synthetic, never bare."""
     session = PlanService().ingest_text(_PLAN, title="Refund flow")
     session.emit_repo = repo
     session.emitted_issue_number = 12
-    assert correlation_key_for(session) == expected
+    assert correlation_key_for(session) == (expected or f"pf-{session.session_id}")
+
+
+def test_origin_without_repo_is_synthetic_not_the_epic() -> None:
+    """#960: a repo-less origin neither goes bare nor falls through to the epic."""
+    session = PlanService().ingest_text(_PLAN, title="Refund flow")
+    session.repo = None
+    session.origin_issue_number = 7
+    session.emit_repo = "o/r"
+    session.emitted_issue_number = 12
+    assert correlation_key_for(session) == f"pf-{session.session_id}"
 
 
 def test_emitted_epic_key_names_the_emit_repo_not_the_analysed_one(monkeypatch):

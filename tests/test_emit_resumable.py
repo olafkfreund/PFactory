@@ -224,8 +224,12 @@ def slow_service(monkeypatch):
 
 
 def test_emit_route_does_not_block_the_event_loop(slow_service):
+    class _Db:
+        async def close(self):
+            pass
+
     body = pp.EmitBody(repo="acme/widget", dry_run=True)
-    ticks = asyncio.run(_ticks_while(pp.emit(slow_service, body, _Request(), db=None)))
+    ticks = asyncio.run(_ticks_while(pp.emit(slow_service, body, _Request(), db=_Db())))
     assert ticks > 20
 
 
