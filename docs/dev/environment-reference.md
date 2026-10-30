@@ -185,6 +185,13 @@ inspect it. Read in the respective agent modules.
 | Variable | Default | Required? | Purpose | Read in |
 | --- | --- | --- | --- | --- |
 | `DATABASE_URL` | sqlite under data dir | No | Primary DB URL (Postgres in prod, e.g. `postgresql+asyncpg://...`). Read unprefixed by the DB engine, jobstore, alembic, and crypto tooling; `APP_DATABASE_URL` is the Settings alias. | `web-server/server/database/engine.py`, `jobstore/store.py`, `database/alembic/env.py`, `plan/service.py` |
+| `DB_POOL_SIZE` | `5` | No | Main engine base pool size; part of the #961 per-pod budget of 19 connections. Ignored for SQLite. | `web-server/server/db_pool.py`, `web-server/server/database/engine.py` |
+| `DB_MAX_OVERFLOW` | `3` | No | Main engine overflow connections; part of the #961 per-pod budget of 19. Ignored for SQLite. | `web-server/server/db_pool.py`, `web-server/server/database/engine.py` |
+| `DB_POOL_TIMEOUT` | `10` seconds | No | Connection checkout timeout for all three engines. Ignored for SQLite. | `web-server/server/db_pool.py`, `web-server/server/database/engine.py`, `web-server/server/jobstore/store.py`, `web-server/server/jobstore/plan_session_store.py` |
+| `JOBSTORE_DB_POOL_SIZE` | `2` | No | Jobstore engine base pool size; part of the #961 per-pod budget of 19. Ignored for SQLite. | `web-server/server/db_pool.py`, `web-server/server/jobstore/store.py` |
+| `JOBSTORE_DB_MAX_OVERFLOW` | `2` | No | Jobstore engine overflow connections; part of the #961 per-pod budget of 19. Ignored for SQLite. | `web-server/server/db_pool.py`, `web-server/server/jobstore/store.py` |
+| `PLAN_SESSION_DB_POOL_SIZE` | `2` | No | Plan session engine base pool size; part of the #961 per-pod budget of 19. Ignored for SQLite. | `web-server/server/db_pool.py`, `web-server/server/jobstore/plan_session_store.py` |
+| `PLAN_SESSION_DB_MAX_OVERFLOW` | `2` | No | Plan session engine overflow connections; part of the #961 per-pod budget of 19. Ignored for SQLite. | `web-server/server/db_pool.py`, `web-server/server/jobstore/plan_session_store.py` |
 | `PFACTORY_WORKSPACE_ROOT` | `~/.pfactory` | No | Workspace root the portal + agents read/write. | `agents/tools_pkg/tools/task_control.py`, `agents/liveness_sweep.py`, `routes/pfactory_tasks.py` |
 | `PFACTORY_WORKSPACES_DIR` | derived | No | Override the per-plan workspaces directory. | `plan/service_helpers.py` |
 | `PROJECT_WORKSPACE_ROOT` | derived | No | Root for project workspaces in the web server. | `services/project_workspace_service.py` |
