@@ -422,6 +422,14 @@ class SessionStore(Protocol):
 
     def release_emit_lease(self, session_id: str, owner: str) -> None: ...
 
+    def stamp_org(self, session_id: str, org_id: str) -> str | None:
+        """Write-once org stamp outside payload/version (#968); returns stored org or None."""
+        ...
+
+    def org_stamps(self) -> dict[str, str]:
+        """Every persisted lazy ``session_id -> org_id`` stamp (#968)."""
+        ...
+
     def next_seq(self) -> int: ...
 
     def session_ids(self) -> set[str]: ...
@@ -640,6 +648,8 @@ class PlanService:
         # both see "no epic yet" and both create one. Per-process is enough:
         # replicaCount is pinned to 1.
         self._emit_locks: dict[str, threading.Lock] = {}
+        # shortcut: does not survive a restart, single-process dev only (#968).
+        self._org_stamps: dict[str, str] = {}
         # Monotonic sequence counter (RFC-0016 #217). Was derived as
         # ``len(_sessions)+1`` at each call — a TOCTOU race under concurrent
         # ingests (two readers see the same length → identical seq → identical
@@ -993,6 +1003,51 @@ class PlanService:
             and (include_discarded or s.status != "discarded")
             and (keep is None or keep(s))
         ]
+
+    def org_stamps(self) -> dict[str, str]:
+        """Persisted lazy ``session_id -> org_id`` stamps (#968)."""
+        store = self._session_store
+        if store is None:
+            return dict(self._org_stamps)
+        try:
+            return store.org_stamps()
+        except Exception as exc:  # noqa: BLE001 — degrade to uncached resolution
+            logger.warning("shared plan-session org_stamps read failed: %s", exc)
+            return {}
+
+    def session_org(
+        self,
+        session: PlanSession,
+        resolve: Callable[[PlanSession], str | None],
+        stamps: dict[str, str] | None = None,
+    ) -> str | None:
+        """A session's owning org (#968).
+
+        Precedence: (1) ``session.org_id`` stamped into the payload at intake;
+        (2) the write-once lazy stamp in ``plan_sessions.org_id`` (or the
+        in-memory fallback dict when there is no shared store); (3) ``resolve``
+        evaluated once and persisted as (2) when non-empty. Stored outside the
+        JSON payload and ``version`` so a read-time stamp never invalidates an
+        in-flight ``process()`` holding an earlier copy of the session.
+        """
+        if session.org_id:
+            return session.org_id
+        sid = session.session_id
+        known = self.org_stamps() if stamps is None else stamps
+        stamped = known.get(sid)
+        if stamped:
+            return stamped
+        org = resolve(session)
+        if not org:
+            return None
+        store = self._session_store
+        if store is None:
+            return self._org_stamps.setdefault(sid, org)
+        try:
+            return store.stamp_org(sid, org) or org
+        except Exception as exc:  # noqa: BLE001 — a DB hiccup must not fail the read
+            logger.warning("shared plan-session stamp_org failed for %s: %s", sid, exc)
+            return org
 
     def _all_sessions(self) -> list[PlanSession]:
         """Every session: from the shared store when set, else the local dict."""
