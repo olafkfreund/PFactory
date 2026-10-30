@@ -24,6 +24,7 @@ from ..database import DocsTargetConnection
 from ..database.engine import get_db
 from ..tenancy import multi_tenant_enabled, resolve_tenant
 from .project_authz import (
+    authorize_plan_ingest,
     authorize_plan_session,
     plan_session_filter,
     require_plan_access,
@@ -228,11 +229,22 @@ def _repo_org(repo: str | None, projects: dict[str, dict[str, Any]]) -> str | No
 
 
 def _session_org(
-    session: PlanSession, projects: dict[str, dict[str, Any]], stamps: dict[str, str] | None = None
+    session: PlanSession,
+    user: dict[str, Any] | None,
+    stamps: dict[str, str] | None = None,
+    projects: dict[str, dict[str, Any]] | None = None,
 ) -> str | None:
-    return cast(PlanService, SERVICE).session_org(
-        session, lambda s: _repo_org(s.repo, projects), stamps
-    )
+    # The registry is read only when no stamp answers (#968: the cockpit polls reads).
+    def _resolve(s: PlanSession) -> str | None:
+        return _repo_org(s.repo, _projects_for(user) if projects is None else projects)
+
+    return cast(PlanService, SERVICE).session_org(session, _resolve, stamps)
+
+
+async def _ingest_org(request: Request, repo: str | None, db: AsyncSession) -> str | None:
+    """The org to stamp on a new session; refuses a cross-org ingest (#968)."""
+    user = _user(request)
+    return await authorize_plan_ingest(user, _repo_org(repo, _projects_for(user)), db)
 
 
 @router.get("")
@@ -250,7 +262,7 @@ async def list_sessions(
     if allow is not None:
         projects = _projects_for(user)
         stamps = cast(PlanService, SERVICE).org_stamps()
-        keep = lambda s: allow(_session_org(s, projects, stamps))  # noqa: E731
+        keep = lambda s: allow(_session_org(s, user, stamps, projects))  # noqa: E731
     return {
         "sessions": SERVICE.list_sessions(
             tenant_id=tenant, include_discarded=include_discarded, keep=keep
@@ -259,8 +271,12 @@ async def list_sessions(
 
 
 @router.post("/ingest-text", dependencies=[Depends(require_plan_access("member"))])
-async def ingest_text(body: IngestTextBody, request: Request) -> dict:
-    org_id = _repo_org(body.repo, _projects_for(_user(request)))
+async def ingest_text(
+    body: IngestTextBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> dict:
+    org_id = await _ingest_org(request, body.repo, db)
     try:
         session = SERVICE.ingest_text(
             body.text,
@@ -285,7 +301,11 @@ async def ingest_text(body: IngestTextBody, request: Request) -> dict:
 
 
 @router.post("/from-issue", dependencies=[Depends(require_plan_access("member"))])
-async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
+async def ingest_from_issue(
+    body: FromIssueBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> dict:
     """Turn an upstream issue into a plan session (RFC-0011 hard tier, #874).
 
     The door AIFactory's intake poller routes ``factory:hard`` issues through: an
@@ -297,7 +317,7 @@ async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
     # The issue body IS the plan text. No title fallback: a bare title carries no
     # acceptance criteria, so it cannot parse either way — better a 400 naming
     # that than a session built from a one-line plan nobody can verify against.
-    org_id = _repo_org(body.repo, _projects_for(_user(request)))
+    org_id = await _ingest_org(request, body.repo, db)
     try:
         session = SERVICE.ingest_text(
             body.body or "",
@@ -327,9 +347,10 @@ async def ingest_upload(
     template: str = Form(""),
     repo: str | None = Form(None),
     base_ref: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     data = await file.read()
-    org_id = _repo_org(repo, _projects_for(_user(request)))
+    org_id = await _ingest_org(request, repo, db)
     try:
         session = SERVICE.ingest_bytes(
             data,
@@ -367,7 +388,7 @@ async def get_session(
     if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
         raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
     user = _user(request)
-    await authorize_plan_session(user, session_id, _session_org(session, _projects_for(user)), db)
+    await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
     return _session_dict(session)
 
 
@@ -391,7 +412,7 @@ async def audit_pack(
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc
     user = _user(request)
-    await authorize_plan_session(user, session_id, _session_org(session, _projects_for(user)), db)
+    await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
     pack = build_audit_pack(session)
     if format == "markdown":
         return PlainTextResponse(render_markdown(pack), media_type="text/markdown")

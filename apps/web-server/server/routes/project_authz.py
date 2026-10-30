@@ -34,6 +34,7 @@ __all__ = [
     "PlanAccessChecker",
     "ProjectAccessChecker",
     "TaskAccessChecker",
+    "authorize_plan_ingest",
     "authorize_plan_session",
     "authorize_project",
     "authorize_project_for_user",
@@ -427,13 +428,18 @@ async def _member_roles(user: dict[str, Any] | None, db: AsyncSession) -> dict[s
 async def authorize_plan_session(
     user: dict[str, Any] | None,
     session_id: str,
-    org_id: str | None,
+    org_of: Callable[[], str | None],
     db: AsyncSession,
     minimum_role: str = "viewer",
 ) -> None:
-    """Authorize reading a single plan session; translates 403 denials to 404 (#968)."""
+    """Authorize reading a single plan session; translates 403 denials to 404 (#968).
+
+    ``org_of`` is called only past the auth-disabled / service early returns: the
+    cockpit polls these reads, and resolving an org can hit the registry and DB.
+    """
     if _auth_disabled() or is_service_principal(user):
         return None
+    org_id = org_of()
     enforce = _safe_enforcing() or _key_outside_org(user, org_id)
     if not org_id and not enforce:
         return None
@@ -486,3 +492,41 @@ async def plan_session_filter(
         return True
 
     return _allow
+
+
+def _org_key(user: dict[str, Any] | None) -> str | None:
+    """The org of an org-scoped ``acw_`` key, else None."""
+    if isinstance(user, dict) and user.get("api_key_id") and user.get("org_id"):
+        return str(user["org_id"])
+    return None
+
+
+async def authorize_plan_ingest(
+    user: dict[str, Any] | None,
+    repo_org: str | None,
+    db: AsyncSession,
+    minimum_role: str = "member",
+) -> str | None:
+    """Check a plan ingest against its repo's org; return the org to stamp (#968).
+
+    An org key on a repo in another org: 403 always (audited). An org key on a
+    repo with no known org stamps the key's own org, so it can read its session
+    back. Humans need ``minimum_role`` in the repo's org, in shadow or enforce
+    mode, and get the repo's org (or none). Never stamps another org's id on a
+    session an org key creates.
+    """
+    key_org = _org_key(user)
+    if _auth_disabled() or is_service_principal(user) or not repo_org:
+        return repo_org or key_org
+    # Cross-org key: always (#966). Same-org role checks follow the flag.
+    enforce = _safe_enforcing() or (key_org is not None and key_org != repo_org)
+    roles = await _member_roles(user, db)
+    try:
+        check_plan_session_access(user, repo_org, roles.get(repo_org), minimum_role)
+    except HTTPException as exc:
+        await _handle_denial(
+            exc, enforce=enforce, user=user, resource_type="plan_session",
+            resource_id=None, org_id=repo_org, member=repo_org in roles,
+            minimum_role=minimum_role, db=db,
+        )  # fmt: skip
+    return repo_org

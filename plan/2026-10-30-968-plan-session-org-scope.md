@@ -247,3 +247,27 @@ and the old step 3 is now step 4 with the rule 2/3 tests.
    Older code ignores the column, so the downgrade is optional and can follow the revert.
 3. Sessions stamped at intake keep `org_id` in their JSON payload. The old `PlanSession`
    ignores unknown keys (pydantic's default `extra="ignore"`), so they load unchanged.
+
+## Deviation (lead's Opus review of #976, 2026-10-30)
+
+These were implemented by Claude, not agy, as review fixes. See spec, "Review revision".
+- `routes/project_authz.py`: `authorize_plan_session(user, session_id, org_of, db)` takes
+  a callable, resolved after the auth-disabled and service early returns. New
+  `authorize_plan_ingest(user, repo_org, db)`: an org key on another org's repo gets 403
+  always (audited). A repo with no known org returns the key's org. Humans need `member`
+  in the repo's org, in shadow or enforce mode.
+- `routes/plan_pipeline.py`: `_ingest_org` gates the three ingest routes, which take a
+  `db`. `_session_org(session, user, stamps=None, projects=None)` reads `projects.json`
+  only when no stamp answers.
+- `apps/backend/plan/service.py` and `server/jobstore/plan_session_store.py`: an
+  `org_stamp(session_id)` one-row lookup, which `session_org` uses when no bulk `stamps`
+  are passed.
+- `mcp_stdio/router.py`: the ingest proxies set `request.state.user` and pass `db`. The
+  upload proxy passes `repo=None`, `base_ref=None`.
+- `docs/dev/rbac-enforce-runbook.md`: every project needs an `org_id` before enforce, for
+  humans too.
+- `tests/test_plan_session_org_scope.py`: the fixture patches
+  `server.services.project_paths` and maps session B by repo, so the cross-org assertions
+  run, and fail, on dev. Added cases: key ingest of an unregistered repo, cross-org key
+  ingest, human cross-org ingest, MCP ingest 503, and a human under enforce with org-less
+  sessions.

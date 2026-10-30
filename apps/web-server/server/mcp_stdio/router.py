@@ -546,9 +546,12 @@ async def proxy_plan_categories(_: _Read) -> dict[str, Any]:
 async def proxy_plan_ingest_text(
     request: FastAPIRequest, key: _PlanWrite, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> dict[str, Any]:
-    await PlanAccessChecker("member").check(_principal(key), request.url.path, db)
+    principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, request.url.path, db)
+    # AuthMiddleware skips /api/mcp-stdio/: the ingest org rule needs the principal.
+    request.state.user = principal
     body = await _read_json_body(request)
-    result = await plan_ingest_text(IngestTextBody(**body), request)
+    result = await plan_ingest_text(IngestTextBody(**body), request, db=db)
     session_id = result.get("session_id") if isinstance(result, dict) else None
     await _audit_mcp_write(
         key,
@@ -577,9 +580,20 @@ async def proxy_plan_ingest_upload(  # noqa: PLR0913 - one param per multipart f
     filesystem. The tool reads the file locally and uploads the bytes here, so
     text extraction stays server-side where the parsers live.
     """
-    await PlanAccessChecker("member").check(_principal(key), request.url.path, db)
+    principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, request.url.path, db)
+    # AuthMiddleware skips /api/mcp-stdio/: the ingest org rule needs the principal.
+    request.state.user = principal
     result = await plan_ingest_upload(
-        request, file=file, title=title, category=category, template=template
+        request,
+        file=file,
+        title=title,
+        category=category,
+        template=template,
+        # Called directly, so FastAPI does not fill the Form() defaults.
+        repo=None,
+        base_ref=None,
+        db=db,
     )
     session_id = result.get("session_id") if isinstance(result, dict) else None
     await _audit_mcp_write(

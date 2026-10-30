@@ -75,14 +75,16 @@ def env(tmp_path, monkeypatch):
         "pa": {"repo": "acme/a", "org_id": "A"},
         "pb": {"repo": "acme/b", "org_id": "B"},
     }
-    monkeypatch.setattr(pp.project_paths, "load_projects", lambda: projects)
+    # Patched on the registry module, which dev's routes also read (tests run on dev).
+    registry = importlib.import_module("server.services.project_paths")
+    monkeypatch.setattr(registry, "load_projects", lambda: projects)
     settings = SimpleNamespace(DISABLE_AUTH=False, RBAC_ENFORCE_TASK_ROUTES=False)
     monkeypatch.setattr(pa, "get_settings", lambda: settings)
 
     service = PlanService(persist=False)
     monkeypatch.setattr(pp, "SERVICE", service)
     sid_a = service.ingest_text(_PLAN, title="A", repo="acme/a").session_id
-    sid_b = service.ingest_text(_PLAN, title="B", org_id="B").session_id
+    sid_b = service.ingest_text(_PLAN, title="B", repo="acme/b").session_id
     sid_u = service.ingest_text(_PLAN, title="U").session_id
 
     app = FastAPI()
@@ -104,7 +106,7 @@ def env(tmp_path, monkeypatch):
         request.state.user = user
         return await call_next(request)
 
-    yield TestClient(app), settings, audits, service, pp, session_local, (sid_a, sid_b, sid_u)
+    yield TestClient(app), settings, audits, service, registry, session_local, (sid_a, sid_b, sid_u)
     asyncio.run(engine.dispose())
 
 
@@ -216,7 +218,7 @@ def test_human_viewer_shadow_and_enforce_modes(env):
 
 
 def test_rule2_lazy_stamp_persists_once_and_never_reresolves(env, monkeypatch):
-    client, settings, _, service, pp, _, (sid_a, _, _) = env
+    client, settings, _, service, registry, _, (sid_a, _, _) = env
 
     # First read resolves acme/a -> org A and persists the lazy stamp.
     assert client.get(f"/api/plan/sessions/{sid_a}", headers={"X-U": "viewer-a"}).status_code == 200
@@ -224,7 +226,7 @@ def test_rule2_lazy_stamp_persists_once_and_never_reresolves(env, monkeypatch):
 
     # Re-register acme/a under org B: the persisted stamp still wins.
     monkeypatch.setattr(
-        pp.project_paths,
+        registry,
         "load_projects",
         lambda: {"pa": {"repo": "acme/a", "org_id": "B"}, "pb": {"repo": "acme/b", "org_id": "B"}},
     )
@@ -245,10 +247,10 @@ def test_rule2_lazy_stamp_persists_once_and_never_reresolves(env, monkeypatch):
     ],
 )
 def test_rule3_unmapped_ambiguous_or_orgless_repo_is_unknown(env, monkeypatch, projects):
-    client, _, audits, service, pp, _, (sid_a, _, _) = env
-    monkeypatch.setattr(pp.project_paths, "load_projects", lambda: projects)
-
-    assert pp._repo_org("acme/a", projects) is None
+    client, _, audits, service, registry, _, (sid_a, _, _) = env
+    # Patched on the registry module, which dev's routes also read (tests run on dev).
+    registry = importlib.import_module("server.services.project_paths")
+    monkeypatch.setattr(registry, "load_projects", lambda: projects)
 
     key_a = {"X-U": "viewer-a", "X-Key": "key-a", "X-Org": "A"}
     assert client.get(f"/api/plan/sessions/{sid_a}", headers=key_a).status_code == 404
@@ -257,7 +259,10 @@ def test_rule3_unmapped_ambiguous_or_orgless_repo_is_unknown(env, monkeypatch, p
     audits.clear()
     assert client.get(f"/api/plan/sessions/{sid_a}", headers={"X-U": "viewer-a"}).status_code == 200
     assert audits == []
-    assert service.org_stamps() == {}
+    assert sid_a not in service.org_stamps()
+    # Checked last, so on dev the HTTP assertions above are what fail.
+    pp = importlib.import_module("server.routes.plan_pipeline")
+    assert pp._repo_org("acme/a", projects) is None
 
 
 def test_persisting_read_does_not_break_inflight_process_save(tmp_path):
@@ -287,16 +292,17 @@ def test_persisting_read_does_not_break_inflight_process_save(tmp_path):
 
 
 def test_stamped_payload_org_beats_derived_and_gitlab_prefix_resolves(env):
-    _, _, _, service, pp, _, _ = env
-    projects = pp.project_paths.load_projects()
+    _, _, _, service, registry, _, _ = env
+    pp = importlib.import_module("server.routes.plan_pipeline")
+    projects = registry.load_projects()
 
     stamped = service.ingest_text(_PLAN, title="Stamped", repo="acme/a", org_id="B")
-    assert pp._session_org(stamped, projects) == "B"
+    assert pp._session_org(stamped, None, projects=projects) == "B"
     assert service.org_stamps() == {}
 
     assert pp._repo_org("gitlab:acme/a", projects) == "A"
     gl_session = service.ingest_text(_PLAN, title="GitLab", repo="gitlab:acme/a")
-    assert pp._session_org(gl_session, projects) == "A"
+    assert pp._session_org(gl_session, None, projects=projects) == "A"
 
 
 def test_ingest_text_stamps_org_from_repo(env):
@@ -311,12 +317,118 @@ def test_ingest_text_stamps_org_from_repo(env):
 
 
 def test_registry_error_with_org_key_on_unstamped_session_returns_503(env, monkeypatch):
-    client, _, _, _, pp, _, (sid_a, _, _) = env
+    client, _, _, _, registry, _, (sid_a, _, _) = env
 
     def _boom():
         raise RuntimeError("projects.json unreadable")
 
-    monkeypatch.setattr(pp.project_paths, "load_projects", _boom)
+    monkeypatch.setattr(registry, "load_projects", _boom)
     key_b = {"X-U": "viewer-a", "X-Key": "key-b", "X-Org": "B"}
     assert client.get(f"/api/plan/sessions/{sid_a}", headers=key_b).status_code == 503
     assert client.get(f"/api/plan/sessions/{sid_a}/audit-pack", headers=key_b).status_code == 503
+
+
+def test_human_under_enforce_loses_orgless_sessions(env, monkeypatch):
+    client, settings, _, _, registry, _, (sid_a, _, _) = env
+    monkeypatch.setattr(registry, "load_projects", lambda: {"pa": {"repo": "acme/a"}})
+    settings.RBAC_ENFORCE_TASK_ROUTES = True
+    headers = {"X-U": "viewer-a"}
+    assert client.get(f"/api/plan/sessions/{sid_a}", headers=headers).status_code == 404
+    assert client.get("/api/plan/sessions", headers=headers).json()["sessions"] == []
+
+
+def test_org_key_ingest_of_unregistered_repo_stamps_key_org(env):
+    client, _, _, service, _, _, _ = env
+    key_b = {"X-U": "viewer-a", "X-Key": "key-b", "X-Org": "B"}
+    resp = client.post(
+        "/api/plan/sessions/ingest-text",
+        json={"text": _PLAN, "title": "Mine", "repo": "acme/new"},
+        headers=key_b,
+    )
+    assert resp.status_code == 200
+    sid = resp.json()["session_id"]
+    assert service.get(sid).org_id == "B"
+    # The key reads its own session back, and sees it in its list.
+    assert client.get(f"/api/plan/sessions/{sid}", headers=key_b).status_code == 200
+    listed = client.get("/api/plan/sessions", headers=key_b).json()["sessions"]
+    assert sid in {s["session_id"] for s in listed}
+
+
+def test_human_ingest_of_unregistered_repo_stamps_no_org(env):
+    client, _, _, service, _, _, _ = env
+    resp = client.post(
+        "/api/plan/sessions/ingest-text",
+        json={"text": _PLAN, "title": "Theirs", "repo": "acme/new"},
+        headers={"X-U": "viewer-a"},
+    )
+    assert resp.status_code == 200
+    assert service.get(resp.json()["session_id"]).org_id is None
+
+
+def test_org_key_cross_org_ingest_is_refused_with_flag_off(env):
+    client, settings, audits, service, _, _, _ = env
+    assert settings.RBAC_ENFORCE_TASK_ROUTES is False
+    before = {s["session_id"] for s in service.list_sessions()}
+    key_b = {"X-U": "viewer-a", "X-Key": "key-b", "X-Org": "B"}
+    resp = client.post(
+        "/api/plan/sessions/ingest-text",
+        json={"text": _PLAN, "title": "Theirs", "repo": "acme/a"},
+        headers=key_b,
+    )
+    assert resp.status_code == 403
+    assert {s["session_id"] for s in service.list_sessions()} == before
+    # One enforced (non-shadow) denial, on org A. The route's PlanAccessChecker may
+    # add its own shadow row: viewer-a holds no role in the key's org B.
+    enforced = [a for a in audits if not a["details"].get("shadow")]
+    assert [a["org_id"] for a in enforced] == ["A"]
+
+
+def test_human_cross_org_ingest_shadow_then_enforce(env):
+    client, settings, audits, service, _, _, _ = env
+    # viewer-a is only a viewer in A; ingest needs member in the repo's org (B here).
+    body = {"text": _PLAN, "title": "Cross", "repo": "acme/b"}
+    resp = client.post("/api/plan/sessions/ingest-text", json=body, headers={"X-U": "viewer-a"})
+    assert resp.status_code == 200
+    assert service.get(resp.json()["session_id"]).org_id == "B"
+    assert [a["details"].get("shadow") for a in audits if a["org_id"] == "B"] == [True]
+
+    settings.RBAC_ENFORCE_TASK_ROUTES = True
+    resp = client.post("/api/plan/sessions/ingest-text", json=body, headers={"X-U": "viewer-a"})
+    assert resp.status_code == 403
+
+
+def test_mcp_ingest_registry_error_with_org_key_returns_503(env, monkeypatch):
+    _, _, _, _, registry, session_local, _ = env
+    proxy = importlib.import_module("server.mcp_stdio.router")
+    auth = importlib.import_module("server.mcp_remote.auth")
+    key_b = auth.AuthenticatedKey(
+        key_id="key-b", scopes=frozenset({"plan:write"}), user_id="viewer-a", org_id="B"
+    )
+    app = FastAPI()
+    app.include_router(proxy.router)
+
+    async def _db():
+        async with session_local() as db:
+            yield db
+
+    app.dependency_overrides[proxy.get_db] = _db
+    for route in app.routes:
+        if hasattr(route, "dependant"):
+            for dependency in route.dependant.dependencies:
+                if dependency.call.__closure__:
+                    app.dependency_overrides[dependency.call] = lambda: key_b
+    monkeypatch.setattr(proxy, "log_audit_event_bg", _noop_audit)
+
+    def _boom():
+        raise RuntimeError("projects.json unreadable")
+
+    monkeypatch.setattr(registry, "load_projects", _boom)
+    resp = TestClient(app).post(
+        "/api/mcp-stdio/plan/sessions/ingest-text",
+        json={"text": _PLAN, "title": "X", "repo": "acme/a"},
+    )
+    assert resp.status_code == 503
+
+
+async def _noop_audit(**_kw: Any) -> None:
+    return None

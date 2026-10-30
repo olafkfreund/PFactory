@@ -246,6 +246,16 @@ class PlanSessionStore:
             stmt = select(PlanSessionRow.org_id).where(PlanSessionRow.session_id == session_id)
             return (await session.execute(stmt)).scalar_one_or_none()
 
+    def org_stamp(self, session_id: str) -> str | None:
+        """One session's lazy org stamp, or None (#968: per-read lookup by id)."""
+        stamped: str | None = self._run(self._org_stamp_coro(session_id))
+        return stamped
+
+    async def _org_stamp_coro(self, session_id: str) -> str | None:
+        async with self._sessionmaker() as session:
+            stmt = select(PlanSessionRow.org_id).where(PlanSessionRow.session_id == session_id)
+            return (await session.execute(stmt)).scalar_one_or_none()
+
     def org_stamps(self) -> dict[str, str]:
         """Every non-null ``(session_id, org_id)`` stamp (#968)."""
         stamps: dict[str, str] = self._run(self._org_stamps_coro())

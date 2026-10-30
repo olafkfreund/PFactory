@@ -426,6 +426,10 @@ class SessionStore(Protocol):
         """Write-once org stamp outside payload/version (#968); returns stored org or None."""
         ...
 
+    def org_stamp(self, session_id: str) -> str | None:
+        """One session's persisted lazy org stamp, or None (#968)."""
+        ...
+
     def org_stamps(self) -> dict[str, str]:
         """Every persisted lazy ``session_id -> org_id`` stamp (#968)."""
         ...
@@ -1015,6 +1019,17 @@ class PlanService:
             logger.warning("shared plan-session org_stamps read failed: %s", exc)
             return {}
 
+    def _org_stamp(self, session_id: str) -> str | None:
+        """One persisted lazy stamp, looked up by id (#968: the cockpit polls reads)."""
+        store = self._session_store
+        if store is None:
+            return self._org_stamps.get(session_id)
+        try:
+            return store.org_stamp(session_id)
+        except Exception as exc:  # noqa: BLE001 — degrade to resolving again
+            logger.warning("shared plan-session org_stamp read failed: %s", exc)
+            return None
+
     def session_org(
         self,
         session: PlanSession,
@@ -1033,8 +1048,7 @@ class PlanService:
         if session.org_id:
             return session.org_id
         sid = session.session_id
-        known = self.org_stamps() if stamps is None else stamps
-        stamped = known.get(sid)
+        stamped = self._org_stamp(sid) if stamps is None else stamps.get(sid)
         if stamped:
             return stamped
         org = resolve(session)
