@@ -1164,7 +1164,12 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
         from ..rmux.integration import create_if_enabled as _rmux_create
 
         try:
-            await _rmux_create(spec_id, project_path, " ".join(cmd))
+            await _rmux_create(
+                spec_id,
+                project_path,
+                " ".join(cmd),
+                project_id=task_id.split(":", 1)[0] if ":" in task_id else None,
+            )
         except Exception:
             # Already swallowed inside _rmux_create; this except is a
             # belt-and-suspenders guard so a wrapper bug here cannot

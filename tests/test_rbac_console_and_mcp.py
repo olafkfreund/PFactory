@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.websockets import WebSocketDisconnect
@@ -37,6 +37,7 @@ def env(tmp_path, monkeypatch):
                 db.add(models.User(id=uid, email=f"{uid}@x.test", password_hash=uid))
             await db.flush()
             db.add(models.Organization(id="A", name="A", slug="A", owner_id="owner"))
+            db.add(models.Organization(id="B", name="B", slug="B", owner_id="owner"))
             await db.flush()
             db.add(models.OrgMember(org_id="A", user_id="viewer-a", role="viewer"))
             db.add(models.OrgMember(org_id="A", user_id="member-a", role="member"))
@@ -49,7 +50,11 @@ def env(tmp_path, monkeypatch):
         audits.append(kw)
 
     monkeypatch.setattr(pa.audit_service, "log_audit_event_bg", _capture)
-    monkeypatch.setattr(pa.project_paths, "load_projects", lambda: {"p1": {"org_id": "A"}})
+    monkeypatch.setattr(
+        pa.project_paths,
+        "load_projects",
+        lambda: {"p1": {"org_id": "A"}, "pB": {"org_id": "B"}},
+    )
     settings = SimpleNamespace(DISABLE_AUTH=False, RBAC_ENFORCE_TASK_ROUTES=False)
     monkeypatch.setattr(pa, "get_settings", lambda: settings)
     monkeypatch.setattr(bridge, "async_session_factory", session_local)
@@ -69,6 +74,7 @@ def env(tmp_path, monkeypatch):
         return await call_next(request)
 
     yield TestClient(app), settings, audits, bridge
+    bridge.get_registry()._states.pop("sB", None)
     asyncio.run(engine.dispose())
 
 
@@ -121,6 +127,73 @@ def test_console_websocket_legacy_principal_reaches_session_lookup(env, monkeypa
         ws.receive_text()
     assert exc.value.code == 4004
     assert audits == []
+
+
+@pytest.mark.parametrize("action", ["attach", "detach"])
+def test_console_rejects_cross_project_session(env, tmp_path, action):
+    client, settings, _, bridge = env
+    bridge.get_registry()._states["sB"] = bridge.SessionState(
+        spec_id="sB",
+        session_name="pfactory-task-sB",
+        fifo_path=tmp_path / "sB.fifo",
+        project_id="pB",
+    )
+    settings.RBAC_ENFORCE_TASK_ROUTES = True
+    for spec_id, expected in (("p1:sB", 404), ("pB:sB", 403)):
+        response = client.post(
+            f"/api/tasks/{spec_id}/agent-console/{action}",
+            json={"connection_id": "c1"},
+            headers={"X-U": "member-a"},
+        )
+        assert response.status_code == expected
+
+
+def test_console_websocket_rejects_cross_project_session(env, monkeypatch, tmp_path):
+    client, settings, _, bridge = env
+    bridge.get_registry()._states["sB"] = bridge.SessionState(
+        spec_id="sB",
+        session_name="pfactory-task-sB",
+        fifo_path=tmp_path / "sB.fifo",
+        project_id="pB",
+    )
+    monkeypatch.setattr(
+        bridge, "authenticate_websocket", AsyncMock(return_value={"id": "member-a"})
+    )
+    settings.RBAC_ENFORCE_TASK_ROUTES = True
+    for spec_id, expected in (("p1:sB", 4004), ("pB:sB", 4003)):
+        with (
+            client.websocket_connect(f"/api/tasks/{spec_id}/agent-console/ws") as ws,
+            pytest.raises(WebSocketDisconnect) as exc,
+        ):
+            ws.receive_text()
+        assert exc.value.code == expected
+
+
+def test_bare_session_requires_service_principal(env, tmp_path):
+    _, _, _, bridge = env
+    state = bridge.SessionState(
+        spec_id="sB",
+        session_name="pfactory-task-sB",
+        fifo_path=tmp_path / "sB.fifo",
+        project_id="pB",
+    )
+    bridge.get_registry()._states["sB"] = state
+    with pytest.raises(HTTPException) as exc:
+        bridge._resolve_state_or_404("sB", {"id": "member-a"})
+    assert exc.value.status_code == 404
+    assert bridge._resolve_state_or_404("sB", {"id": "service", "is_service": True}) is state
+    state.project_id = None
+    with pytest.raises(HTTPException) as exc:
+        bridge._resolve_state_or_404("sB", {"id": "member-a"})
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_for_task_records_project_id(tmp_path):
+    session = importlib.import_module("server.rmux.session")
+    registry = session.SessionRegistry(wrapper=AsyncMock(), panes_dir=tmp_path / "panes")
+    await registry.create_for_task("sB", tmp_path, "true", project_id="pB")
+    assert registry.get_state("sB").project_id == "pB"
 
 
 @pytest.fixture

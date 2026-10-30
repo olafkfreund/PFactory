@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.auth import WebSocketAuthError, authenticate_websocket
 from server.database.engine import async_session_factory, get_db
-from server.routes.project_authz import authorize_project
+from server.routes.project_authz import authorize_project, is_service_principal
 
 from ..services.audit_service import log_audit_event
 from .session import SessionState, get_registry
@@ -93,7 +93,7 @@ async def _read_fifo_chunks(fifo_path: Path, chunk: int = 4096):
             pass
 
 
-def _resolve_state_or_404(spec_id: str) -> SessionState:
+def _resolve_state_or_404(spec_id: str, user: dict | None) -> SessionState:
     """Look up a session in the registry; raise 404 if missing.
 
     ``spec_id`` may arrive as a composite ``project_id:spec_id`` from
@@ -106,6 +106,13 @@ def _resolve_state_or_404(spec_id: str) -> SessionState:
         # Try the suffix half — some frontend routes pass the
         # ``project_id:spec_id`` form
         state = registry.get_state(spec_id.split(":", 1)[1])
+    project_id = _project_of(spec_id)
+    if (
+        state is not None
+        and not is_service_principal(user)
+        and (project_id is None or project_id != state.project_id)
+    ):
+        state = None
     if state is None:
         raise HTTPException(
             status_code=404,
@@ -159,7 +166,7 @@ async def attach(
     await authorize_project(
         getattr(request.state, "user", None), _project_of(spec_id), db, "member"
     )
-    state = _resolve_state_or_404(spec_id)
+    state = _resolve_state_or_404(spec_id, getattr(request.state, "user", None))
     cid = body.connection_id
 
     # Audit-relevant metadata — pulled from middleware-set request state
@@ -223,7 +230,7 @@ async def detach(
     await authorize_project(
         getattr(request.state, "user", None), _project_of(spec_id), db, "member"
     )
-    state = _resolve_state_or_404(spec_id)
+    state = _resolve_state_or_404(spec_id, getattr(request.state, "user", None))
     cid = body.connection_id
 
     user_id = getattr(request.state, "user_id", None)
@@ -287,7 +294,7 @@ async def agent_console_ws(websocket: WebSocket, spec_id: str) -> None:  # noqa:
         return
 
     try:
-        state = _resolve_state_or_404(spec_id)
+        state = _resolve_state_or_404(spec_id, principal)
     except HTTPException:
         await websocket.accept()
         await websocket.close(code=4004, reason="no rmux session for spec_id")
