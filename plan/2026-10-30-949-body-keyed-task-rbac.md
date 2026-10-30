@@ -1,11 +1,12 @@
 ---
-status: approved
+status: draft
 issue: 949
 spec: spec/2026-10-30-949-body-keyed-task-rbac.md
 coders:   # the user asked for Codex as a team member this wave
   1: codex
   2: codex
   3: codex
+  3b: codex
   4: codex
 ---
 
@@ -98,7 +99,9 @@ Repo traps (every step):
      `{"id": "default", "is_service": True}` when it returns `None` (legacy
      token / auth disabled). Then
      `async with async_session_factory() as db: await authorize_project(principal, _project_of(spec_id), db, "viewer")`
-     catching `HTTPException` → `await websocket.close(code=4003, reason="forbidden")`
+     catching `HTTPException` → `await websocket.accept()` then
+     `await websocket.close(code=4003, reason="forbidden")` (closing before accept
+     is an HTTP 403 handshake reject under uvicorn and loses the code)
      and `return` (only reachable in enforce mode). Do this before
      `_resolve_state_or_404`. Import `async_session_factory` from
      `..database.engine` at module top as a module reference the test can patch.
@@ -108,6 +111,28 @@ Repo traps (every step):
      `_project_of` cases.
    → verify by pytest on the new test file plus any existing rmux tests
      (`grep -rl rmux tests apps/web-server/tests`).
+
+3b. Revision after the lead's review (cross-project bypass, as TFactory #1465):
+   the registry is keyed by bare spec id and `_resolve_state_or_404` falls back
+   to the suffix of `project_id:spec_id`, so `p1:<pB spec>` was authorized
+   against p1 and then reached pB's session.
+   - `rmux/session.py`: `SessionState.project_id: str | None = None`;
+     `create_for_task(..., project_id: str | None = None)` stores it.
+   - `rmux/integration.py` `create_if_enabled(..., project_id=None)` passes it on.
+   - `services/agent_service.py` `start_task_execution` (~1167):
+     `_rmux_create(spec_id, project_path, cmd, project_id=_project half of task_id_ or None)`.
+   - `rmux/bridge.py` `_resolve_state_or_404(spec_id, user)`: after the lookup,
+     unless `is_service_principal(user)`, drop the state (→ 404) when
+     `_project_of(spec_id)` is `None` (a bare id has no project binding) or
+     `!= state.project_id`. attach, detach and the WebSocket pass their principal.
+     All modes: this is a lookup fix, not the shadow-mode role decision.
+   - Tests in `tests/test_rbac_console_and_mcp.py`: org-A member on
+     `p1:sB` where `sB` belongs to `pB` (org B) gets 404 for attach, detach and
+     the WebSocket (close 4004) in enforce mode, while `pB:sB` gets 403/4003; a
+     bare `sB` is 404 for a non-service caller and found for the service
+     principal; `create_for_task` records `project_id` (fake wrapper). The
+     reviewer's repro (`p1:sB` attach must not be 200) is one of these.
+   → verify by pytest on the new test file plus `tests/rmux`.
 
 4. `mcp_stdio/router.py`.
    - `def _principal(key) -> dict`: `AuthenticatedKey` →
