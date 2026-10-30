@@ -178,4 +178,7 @@ def test_non_issue_sessions_keep_the_pre_874_key(service: PlanService) -> None:
     assert correlation_key_for(session) == f"pf-{session.session_id}"
 
     session.emitted_issue_number = 4242
-    assert correlation_key_for(session) == "4242"
+    assert correlation_key_for(session) == f"pf-{session.session_id}"  # no emit_repo: never bare
+
+    session.emit_repo = "o/r"
+    assert correlation_key_for(session) == "o/r#4242"
