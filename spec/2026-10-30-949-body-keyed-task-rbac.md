@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 949
 intent: intent/2026-10-30-949-body-keyed-task-rbac.md
 ---
