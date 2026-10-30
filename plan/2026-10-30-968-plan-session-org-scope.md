@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 968
 spec: spec/2026-10-30-968-plan-session-org-scope.md
 coders:   # the user asked for agy as a team member this wave
