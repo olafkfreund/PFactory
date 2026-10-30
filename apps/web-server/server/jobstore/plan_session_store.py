@@ -223,6 +223,52 @@ class PlanSessionStore:
         async with self._sessionmaker() as session, session.begin():
             await session.execute(stmt)
 
+    def stamp_org(self, session_id: str, org_id: str) -> str | None:
+        """Write-once org stamp outside payload/version (#968).
+
+        Sets ``org_id`` only when it is still NULL, without bumping ``version``
+        or ``updated_at``, then returns the stored ``org_id`` (the first
+        writer's value) or None if the row is gone.
+        """
+        stamped: str | None = self._run(self._stamp_org_coro(session_id, org_id))
+        return stamped
+
+    async def _stamp_org_coro(self, session_id: str, org_id: str) -> str | None:
+        async with self._sessionmaker() as session, session.begin():
+            await session.execute(
+                update(PlanSessionRow)
+                .where(
+                    PlanSessionRow.session_id == session_id,
+                    PlanSessionRow.org_id.is_(None),
+                )
+                .values(org_id=org_id)
+            )
+            stmt = select(PlanSessionRow.org_id).where(PlanSessionRow.session_id == session_id)
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    def org_stamp(self, session_id: str) -> str | None:
+        """One session's lazy org stamp, or None (#968: per-read lookup by id)."""
+        stamped: str | None = self._run(self._org_stamp_coro(session_id))
+        return stamped
+
+    async def _org_stamp_coro(self, session_id: str) -> str | None:
+        async with self._sessionmaker() as session:
+            stmt = select(PlanSessionRow.org_id).where(PlanSessionRow.session_id == session_id)
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    def org_stamps(self) -> dict[str, str]:
+        """Every non-null ``(session_id, org_id)`` stamp (#968)."""
+        stamps: dict[str, str] = self._run(self._org_stamps_coro())
+        return stamps
+
+    async def _org_stamps_coro(self) -> dict[str, str]:
+        async with self._sessionmaker() as session:
+            stmt = select(PlanSessionRow.session_id, PlanSessionRow.org_id).where(
+                PlanSessionRow.org_id.is_not(None)
+            )
+            rows = (await session.execute(stmt)).all()
+            return {sid: oid for sid, oid in rows if oid is not None}
+
     def next_seq(self) -> int:
         """Allocate the next session number, atomically across replicas.
 

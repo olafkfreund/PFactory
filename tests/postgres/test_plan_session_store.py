@@ -297,3 +297,18 @@ def test_delete_of_an_absent_id_returns_false(test_postgres_url):
 
     removed = store.delete("no-such-session")
     assert removed is False
+
+
+@pytest.mark.usefixtures("pg_schema")
+def test_stamp_org_is_write_once_and_does_not_bump_version(test_postgres_url):
+    """PlanSessionStore.stamp_org (#968): write-once, outside payload/version."""
+    store = _store(test_postgres_url)
+    assert store.stamp_org("001-x", "A") is None  # no row yet
+
+    assert store.upsert("001-x", payload="v1", seq=1, tenant_id=None, expected_version=0) == 1
+    assert store.org_stamps() == {}
+
+    assert store.stamp_org("001-x", "A") == "A"
+    assert store.stamp_org("001-x", "B") == "A"
+    assert store.org_stamps() == {"001-x": "A"}
+    assert store.get("001-x") == ("v1", 1)

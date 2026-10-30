@@ -8,7 +8,9 @@ store keyed by ``session_id`` (== the plan id). All emission is dry-run by defau
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -21,13 +23,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
 from ..tenancy import multi_tenant_enabled, resolve_tenant
-from .project_authz import require_plan_access
+from .project_authz import (
+    authorize_plan_ingest,
+    authorize_plan_session,
+    plan_session_filter,
+    require_plan_access,
+)
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from client_errors import client_error  # noqa: E402
+from plan.repo_ref import parse_repo_ref  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import (  # noqa: E402
     SERVICE,
@@ -35,14 +43,17 @@ from plan.service import (  # noqa: E402
     PlanInputError,
     PlanService,
     PlanServiceError,
+    PlanSession,
     SessionNotDeletableError,
     StaleSessionError,
 )
+from server.services import project_paths  # noqa: E402
 from server.services.audit_service import (  # noqa: E402
     ACTION_PLAN_SESSION_DELETE,
     log_audit_event,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/plan/sessions", tags=["plan-pipeline"])
 
 
@@ -183,18 +194,89 @@ def _session_dict(session) -> dict:
     return data
 
 
+def _user(request: Request) -> dict[str, Any] | None:
+    return getattr(getattr(request, "state", None), "user", None)
+
+
+def _projects_for(user: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    try:
+        projects = project_paths.load_projects()
+        return projects
+    except Exception:  # noqa: BLE001 - registry read failure
+        if isinstance(user, dict) and user.get("api_key_id") and user.get("org_id"):
+            raise HTTPException(status_code=503, detail="Project registry unavailable") from None
+        logger.warning("plan.projects_unavailable", exc_info=True)
+        return {}
+
+
+def _repo_org(repo: str | None, projects: dict[str, dict[str, Any]]) -> str | None:
+    # #968: none, several orgs, or an org-less match = unknown.
+    if not repo:
+        return None
+    parsed = parse_repo_ref(repo)
+    if not parsed:
+        return None
+    _, name = parsed
+    orgs = {
+        pdata.get("org_id") or None
+        for pdata in projects.values()
+        if isinstance(pdata, dict) and pdata.get("repo") == name
+    }
+    if len(orgs) == 1:
+        org = next(iter(orgs))
+        return str(org) if org else None
+    return None
+
+
+def _session_org(
+    session: PlanSession,
+    user: dict[str, Any] | None,
+    stamps: dict[str, str] | None = None,
+    projects: dict[str, dict[str, Any]] | None = None,
+) -> str | None:
+    # The registry is read only when no stamp answers (#968: the cockpit polls reads).
+    def _resolve(s: PlanSession) -> str | None:
+        return _repo_org(s.repo, _projects_for(user) if projects is None else projects)
+
+    return cast(PlanService, SERVICE).session_org(session, _resolve, stamps)
+
+
+async def _ingest_org(request: Request, repo: str | None, db: AsyncSession) -> str | None:
+    """The org to stamp on a new session; refuses a cross-org ingest (#968)."""
+    user = _user(request)
+    return await authorize_plan_ingest(user, _repo_org(repo, _projects_for(user)), db)
+
+
 @router.get("")
-async def list_sessions(request: Request, include_discarded: bool = False) -> dict:
+async def list_sessions(
+    request: Request,
+    include_discarded: bool = False,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> dict:
     # Multi-tenancy (#308): with the flag on, list only the caller's tenant;
     # off (the default) the filter is None and behaviour is unchanged.
     tenant = resolve_tenant(request) if multi_tenant_enabled() else None
+    user = _user(request)
+    allow = await plan_session_filter(user, db)
+    keep: Callable[[PlanSession], bool] | None = None
+    if allow is not None:
+        projects = _projects_for(user)
+        stamps = cast(PlanService, SERVICE).org_stamps()
+        keep = lambda s: allow(_session_org(s, user, stamps, projects))  # noqa: E731
     return {
-        "sessions": SERVICE.list_sessions(tenant_id=tenant, include_discarded=include_discarded)
+        "sessions": SERVICE.list_sessions(
+            tenant_id=tenant, include_discarded=include_discarded, keep=keep
+        )
     }
 
 
 @router.post("/ingest-text", dependencies=[Depends(require_plan_access("member"))])
-async def ingest_text(body: IngestTextBody, request: Request) -> dict:
+async def ingest_text(
+    body: IngestTextBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> dict:
+    org_id = await _ingest_org(request, body.repo, db)
     try:
         session = SERVICE.ingest_text(
             body.text,
@@ -205,6 +287,7 @@ async def ingest_text(body: IngestTextBody, request: Request) -> dict:
             repo=body.repo,
             base_ref=body.base_ref,
             tenant_id=resolve_tenant(request),  # #308
+            org_id=org_id,  # #968
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
@@ -218,7 +301,11 @@ async def ingest_text(body: IngestTextBody, request: Request) -> dict:
 
 
 @router.post("/from-issue", dependencies=[Depends(require_plan_access("member"))])
-async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
+async def ingest_from_issue(
+    body: FromIssueBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> dict:
     """Turn an upstream issue into a plan session (RFC-0011 hard tier, #874).
 
     The door AIFactory's intake poller routes ``factory:hard`` issues through: an
@@ -230,6 +317,7 @@ async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
     # The issue body IS the plan text. No title fallback: a bare title carries no
     # acceptance criteria, so it cannot parse either way — better a 400 naming
     # that than a session built from a one-line plan nobody can verify against.
+    org_id = await _ingest_org(request, body.repo, db)
     try:
         session = SERVICE.ingest_text(
             body.body or "",
@@ -239,6 +327,7 @@ async def ingest_from_issue(body: FromIssueBody, request: Request) -> dict:
             autonomy_tier=body.autonomy_tier,
             origin_issue_number=body.issue_number,
             tenant_id=resolve_tenant(request),  # #308
+            org_id=org_id,  # #968
         )
     except ValueError as exc:  # SpecSourceError subclasses ValueError
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
@@ -258,8 +347,10 @@ async def ingest_upload(
     template: str = Form(""),
     repo: str | None = Form(None),
     base_ref: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     data = await file.read()
+    org_id = await _ingest_org(request, repo, db)
     try:
         session = SERVICE.ingest_bytes(
             data,
@@ -270,6 +361,7 @@ async def ingest_upload(
             repo=repo,
             base_ref=base_ref,
             tenant_id=resolve_tenant(request),  # #308
+            org_id=org_id,  # #968
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
@@ -282,7 +374,11 @@ async def ingest_upload(
 
 
 @router.get("/{session_id}")
-async def get_session(session_id: str, request: Request) -> dict:
+async def get_session(
+    session_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> dict:
     try:
         session = SERVICE.get(session_id)
     except PlanServiceError as exc:
@@ -291,11 +387,18 @@ async def get_session(session_id: str, request: Request) -> dict:
     # missing one (404, not 403 — don't leak existence). Flag off => unchanged.
     if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
         raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
+    user = _user(request)
+    await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
     return _session_dict(session)
 
 
 @router.get("/{session_id}/audit-pack")
-async def audit_pack(session_id: str, format: str = "json"):
+async def audit_pack(
+    session_id: str,
+    request: Request,
+    format: str = "json",
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
     """Export the EU AI Act audit pack for a session (#122).
 
     ``format=json`` (default) returns the structured pack; ``format=markdown``
@@ -308,6 +411,8 @@ async def audit_pack(session_id: str, format: str = "json"):
         session = SERVICE.get(session_id)
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc
+    user = _user(request)
+    await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
     pack = build_audit_pack(session)
     if format == "markdown":
         return PlainTextResponse(render_markdown(pack), media_type="text/markdown")

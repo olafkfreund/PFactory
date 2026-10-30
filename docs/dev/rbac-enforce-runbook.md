@@ -53,6 +53,10 @@ project has no `org_id`, or whose repo matches no project, are hidden from every
 key, even in shadow mode. A key minted before the projects have an org therefore sees
 no plan sessions.
 
+**Before enforce, every project needs an `org_id`, for humans as well as keys.** Under
+enforce, a plan session whose project has no `org_id` (or whose repo matches no
+project) is hidden from every non-service caller, people included (#968).
+
 ## Order of operations
 
 Do these in order. Do not flip the flag until steps 1 to 4 are clean.
