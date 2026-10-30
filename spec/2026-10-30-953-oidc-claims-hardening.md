@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 953
 intent: intent/2026-10-30-953-oidc-claims-hardening.md
 ---
