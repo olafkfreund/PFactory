@@ -40,6 +40,13 @@ Two more things about these keys:
 **Not affected:** callers that use the legacy admin token (`APP_API_TOKEN`). They
 stay the service principal (`is_service`) and bypass the per-org checks.
 
+**Also not affected: the MCP JSON-RPC endpoint (`/mcp`, `routes/mcp_rpc.py`).** Its only
+credential is the shared `PFACTORY_MCP_SECRET`, held by the factory services, not by an
+org. It is a service principal by design and reads any plan session, by id or by
+emitted issue number, with or without enforce (#977). Per-org identity for it is
+deferred to S6 (olafkfreund/Factory#312). The stdio MCP proxies (`/api/mcp-stdio/`) are
+different: they authenticate an `acw_` key and follow the per-org plan-session rule.
+
 > On a database built by the alembic baseline, `api_keys.user_id` and
 > `api_keys.org_id` are `NOT NULL`, so step 1 should return zero. Run it anyway: a
 > database created before the baseline, or restored from an older dump, can still
