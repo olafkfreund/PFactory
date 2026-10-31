@@ -80,3 +80,5 @@ class PlanSessionRow(Base):
     )
     # Bumped on every write; ``upsert`` is a compare-and-set on it (#758).
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # #968: lazy org stamp, write-once, outside payload/version.
+    org_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

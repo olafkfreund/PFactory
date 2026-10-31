@@ -18,7 +18,7 @@ import os
 import re
 import socket
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -105,6 +105,8 @@ class PlanSession(BaseModel):
     # "default" so single-tenant behaviour (and old persisted sessions) are
     # unchanged.
     tenant_id: str = "default"
+    # #968: the session's org, stamped at intake from its project; None = derive at read time.
+    org_id: str | None = None
     # RFC-0010: the target repo this plan changes, captured at ingest so the
     # reconnaissance stage (Phase 2) can read it during process(). Today `repo`
     # was only known at emit; threading it here lets planning be code-aware.
@@ -420,6 +422,18 @@ class SessionStore(Protocol):
 
     def release_emit_lease(self, session_id: str, owner: str) -> None: ...
 
+    def stamp_org(self, session_id: str, org_id: str) -> str | None:
+        """Write-once org stamp outside payload/version (#968); returns stored org or None."""
+        ...
+
+    def org_stamp(self, session_id: str) -> str | None:
+        """One session's persisted lazy org stamp, or None (#968)."""
+        ...
+
+    def org_stamps(self) -> dict[str, str]:
+        """Every persisted lazy ``session_id -> org_id`` stamp (#968)."""
+        ...
+
     def next_seq(self) -> int: ...
 
     def session_ids(self) -> set[str]: ...
@@ -638,6 +652,8 @@ class PlanService:
         # both see "no epic yet" and both create one. Per-process is enough:
         # replicaCount is pinned to 1.
         self._emit_locks: dict[str, threading.Lock] = {}
+        # shortcut: does not survive a restart, single-process dev only (#968).
+        self._org_stamps: dict[str, str] = {}
         # Monotonic sequence counter (RFC-0016 #217). Was derived as
         # ``len(_sessions)+1`` at each call — a TOCTOU race under concurrent
         # ingests (two readers see the same length → identical seq → identical
@@ -892,6 +908,7 @@ class PlanService:
         autonomy_tier: str | None = None,
         origin_issue_number: int | None = None,
         tenant_id: str = "default",
+        org_id: str | None = None,
     ) -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title, seq=self._next_seq())
         # RFC-0011: carry the label-driven difficulty tier from intake so process()
@@ -899,6 +916,7 @@ class PlanService:
         plan = _carry_tier(plan, autonomy_tier)
         session = self._store(plan)
         session.tenant_id = tenant_id or "default"  # #308: stamp at intake
+        session.org_id = org_id or None  # #968: stamp at intake
         session.selected_category = category
         session.selected_template = template
         session.repo = repo or None  # RFC-0010: target repo for reconnaissance
@@ -926,6 +944,7 @@ class PlanService:
         base_ref: str | None = None,
         autonomy_tier: str | None = None,
         tenant_id: str = "default",
+        org_id: str | None = None,
     ) -> PlanSession:
         plan = ingest_bytes(
             data,
@@ -937,6 +956,7 @@ class PlanService:
         plan = _carry_tier(plan, autonomy_tier)  # RFC-0011 (#182)
         session = self._store(plan)
         session.tenant_id = tenant_id or "default"  # #308: stamp at intake
+        session.org_id = org_id or None  # #968: stamp at intake
         session.original_filename = filename  # preserve for honouring the doc (#D)
         session.selected_category = category
         session.selected_template = template
@@ -964,7 +984,11 @@ class PlanService:
     # ── query ──────────────────────────────────────────────────────────
 
     def list_sessions(
-        self, *, tenant_id: str | None = None, include_discarded: bool = False
+        self,
+        *,
+        tenant_id: str | None = None,
+        include_discarded: bool = False,
+        keep: Callable[[PlanSession], bool] | None = None,
     ) -> list[dict]:
         """Session summaries; ``tenant_id`` filters to one tenant (#308).
 
@@ -972,7 +996,8 @@ class PlanService:
         ``discarded`` sessions are hidden by default (#798) — they are
         abandoned probes, not work anyone needs to see on the board — unless
         ``include_discarded`` asks for them. ``rejected`` is unaffected: that
-        is a plan someone may still fix.
+        is a plan someone may still fix. ``keep`` filters sessions before
+        summarizing (#968).
         """
         sessions = self._all_sessions()
         return [
@@ -980,7 +1005,63 @@ class PlanService:
             for s in sessions
             if (tenant_id is None or s.tenant_id == tenant_id)
             and (include_discarded or s.status != "discarded")
+            and (keep is None or keep(s))
         ]
+
+    def org_stamps(self) -> dict[str, str]:
+        """Persisted lazy ``session_id -> org_id`` stamps (#968)."""
+        store = self._session_store
+        if store is None:
+            return dict(self._org_stamps)
+        try:
+            return store.org_stamps()
+        except Exception as exc:  # noqa: BLE001 — degrade to uncached resolution
+            logger.warning("shared plan-session org_stamps read failed: %s", exc)
+            return {}
+
+    def _org_stamp(self, session_id: str) -> str | None:
+        """One persisted lazy stamp, looked up by id (#968: the cockpit polls reads)."""
+        store = self._session_store
+        if store is None:
+            return self._org_stamps.get(session_id)
+        try:
+            return store.org_stamp(session_id)
+        except Exception as exc:  # noqa: BLE001 — degrade to resolving again
+            logger.warning("shared plan-session org_stamp read failed: %s", exc)
+            return None
+
+    def session_org(
+        self,
+        session: PlanSession,
+        resolve: Callable[[PlanSession], str | None],
+        stamps: dict[str, str] | None = None,
+    ) -> str | None:
+        """A session's owning org (#968).
+
+        Precedence: (1) ``session.org_id`` stamped into the payload at intake;
+        (2) the write-once lazy stamp in ``plan_sessions.org_id`` (or the
+        in-memory fallback dict when there is no shared store); (3) ``resolve``
+        evaluated once and persisted as (2) when non-empty. Stored outside the
+        JSON payload and ``version`` so a read-time stamp never invalidates an
+        in-flight ``process()`` holding an earlier copy of the session.
+        """
+        if session.org_id:
+            return session.org_id
+        sid = session.session_id
+        stamped = self._org_stamp(sid) if stamps is None else stamps.get(sid)
+        if stamped:
+            return stamped
+        org = resolve(session)
+        if not org:
+            return None
+        store = self._session_store
+        if store is None:
+            return self._org_stamps.setdefault(sid, org)
+        try:
+            return store.stamp_org(sid, org) or org
+        except Exception as exc:  # noqa: BLE001 — a DB hiccup must not fail the read
+            logger.warning("shared plan-session stamp_org failed for %s: %s", sid, exc)
+            return org
 
     def _all_sessions(self) -> list[PlanSession]:
         """Every session: from the shared store when set, else the local dict."""
