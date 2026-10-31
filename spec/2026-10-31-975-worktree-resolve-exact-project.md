@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 975
 intent: intent/2026-10-31-975-worktree-resolve-exact-project.md
 ---
