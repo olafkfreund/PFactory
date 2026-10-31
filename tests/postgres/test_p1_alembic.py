@@ -1,10 +1,14 @@
 """P1.3 / P1.4 — Alembic baseline migration + idempotent upgrade + autoApply modes."""
 
+import asyncio
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.postgres.helpers import (
     WEB_SERVER_ROOT,
@@ -54,7 +58,9 @@ def test_alembic_upgrade_idempotent(test_postgres_url: str) -> None:
         f"second upgrade was not idempotent: {second.stderr[-1000:]}"
 
 
-def _init_db_subprocess(test_postgres_url: str, auto_apply: bool) -> subprocess.CompletedProcess:
+def _init_db_subprocess(
+    test_postgres_url: str, auto_apply: bool, barrier_dir: Path | None = None
+) -> subprocess.CompletedProcess:
     """Invoke server.database.engine.init_db() in a fresh subprocess.
 
     Subprocess isolation keeps each test's module state clean (DATABASE_URL
@@ -62,13 +68,21 @@ def _init_db_subprocess(test_postgres_url: str, auto_apply: bool) -> subprocess.
     """
     import sys
 
-    code = (
-        "import asyncio, sys, os; "
-        "sys.path.insert(0, 'apps/web-server'); "
-        "from server.database.engine import init_db; "
-        "asyncio.run(init_db()); "
-        "print('init_db OK')"
-    )
+    # File barrier: after the slow imports, each process waits until every
+    # peer is ready, so concurrent boots really overlap inside init_db().
+    code = """
+import asyncio, os, pathlib, sys, time
+sys.path.insert(0, 'apps/web-server')
+from server.database.engine import init_db
+barrier = os.environ.get('INIT_DB_BARRIER')
+if barrier:
+    pathlib.Path(barrier, str(os.getpid())).touch()
+    deadline = time.monotonic() + 30
+    while len(list(pathlib.Path(barrier).iterdir())) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+asyncio.run(init_db())
+print('init_db OK')
+"""
     env = os.environ.copy()
     env.update({
         "DATABASE_URL": test_postgres_url,
@@ -78,6 +92,8 @@ def _init_db_subprocess(test_postgres_url: str, auto_apply: bool) -> subprocess.
         "APP_DISABLE_AUTH": "true",
         "GRAPHITI_ENABLED": "false",
     })
+    if barrier_dir is not None:
+        env.update({"INIT_DB_BARRIER": str(barrier_dir)})
     repo_root = Path(__file__).resolve().parents[2]
     return subprocess.run(
         [sys.executable, "-c", code],
@@ -125,6 +141,43 @@ def test_app_boot_with_autoapply_true_runs_migrations(test_postgres_url: str) ->
         f"--- stderr ---\n{result.stderr[-2000:]}"
     )
     assert "init_db OK" in result.stdout, "init_db did not complete cleanly"
+
+
+@pytest.mark.postgres
+@pytest.mark.slow
+def test_concurrent_init_db_applies_migrations_once(
+    test_postgres_url: str, tmp_path: Path
+) -> None:
+    """Two app boots migrate a fresh Postgres schema safely."""
+    _drop_schema(test_postgres_url)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        runs = [
+            executor.submit(_init_db_subprocess, test_postgres_url, True, tmp_path)
+            for _ in range(2)
+        ]
+        results = [run.result() for run in runs]
+
+    for result in results:
+        assert result.returncode == 0, (
+            f"init_db exit {result.returncode}\n--- stdout ---\n{result.stdout}\n"
+            f"--- stderr ---\n{result.stderr[-2000:]}"
+        )
+
+    async def _revisions() -> list[str]:
+        engine = create_async_engine(test_postgres_url)
+        try:
+            async with engine.connect() as conn:
+                revisions = await conn.execute(text("SELECT version_num FROM alembic_version"))
+                return list(revisions.scalars())
+        finally:
+            await engine.dispose()
+
+    from alembic.config import Config  # noqa: PLC0415
+    from alembic.script import ScriptDirectory  # noqa: PLC0415
+
+    cfg = Config(str(WEB_SERVER_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(WEB_SERVER_ROOT / "server" / "database" / "alembic"))
+    assert asyncio.run(_revisions()) == [ScriptDirectory.from_config(cfg).get_current_head()]
 
 
 @pytest.mark.postgres

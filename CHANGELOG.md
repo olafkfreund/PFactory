@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## 0.6.42 — boot migration lock, worktree resolve by project id, plan-session write org scope, uv CVE floor (2026-10-31)
+
+- **Behaviour change: boot migrations take a Postgres advisory lock (#982,
+  closes #981).** On Postgres, `init_db()` runs `alembic upgrade head` while
+  holding a session `pg_advisory_lock` on a fixed key, on its own NullPool
+  engine, after `SET lock_timeout = '300s'`. Pods that boot together wait
+  for each other and apply each revision once (before, two pods could race
+  and one failed boot with a duplicate `alembic_version`). A pod that cannot
+  get the lock within 5 minutes fails boot loudly and restarts. SQLite and
+  `MIGRATIONS_AUTO_APPLY=false` are unchanged.
+- **Behaviour change: worktree `resolve-uncommitted` and `resolve-git-merge`
+  need `project_id:spec_id` (#984, closes #975).** A bare spec id gets 400,
+  and the project is looked up by exact id. The web UI already sends
+  `project_id:spec_id`, so its resolve buttons should work again.
+  `GET .../worktree/merge-preview`, `/status` and `/diff` now need
+  `viewer`, in shadow mode behind `APP_RBAC_ENFORCE_TASK_ROUTES` like the
+  other task routes.
+- **Behaviour change: plan-session writes scoped to the session's org
+  (#985, closes #977).** Every plan-session write route (process,
+  suggestions/apply, re-gate, approve, access/approve, waive, reject,
+  discard, `DELETE /{id}`, emit, emit-contract) and the MCP `plan_process`
+  and `plan_approve` proxies return 404 for another org's session, and
+  change nothing. Always enforced for org-scoped `acw_` keys; human callers
+  are in shadow mode behind `APP_RBAC_ENFORCE_TASK_ROUTES`. The
+  `PFACTORY_MCP_SECRET` RPC path stays a service principal (documented).
+- **Security: `uv>=0.13.6-r1` floor in the image (#983)**, past
+  CVE-2026-111943 (HIGH) in the Wolfi base, which failed the Trivy P0 gate.
+- No new env vars. No new migration.
+
 ## 0.6.41 — plan session org scope, merge preview by project id, joserfc CVE floor (2026-10-30)
 
 - **Plan session reads scoped to the caller's org (#976, closes #968).**

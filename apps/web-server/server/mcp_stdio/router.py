@@ -614,8 +614,11 @@ async def proxy_plan_process(
     key: _PlanWrite,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
-    await PlanAccessChecker("member").check(_principal(key), request.url.path, db)
-    result = await plan_process(session_id, request)
+    principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, request.url.path, db)
+    # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
+    request.state.user = principal
+    result = await plan_process(session_id, request, db=db)
     await _audit_mcp_write(key, ACTION_MCP_PLAN_PROCESS, "plan_session", session_id, request)
     return result
 
@@ -627,9 +630,12 @@ async def proxy_plan_approve(
     key: _PlanWrite,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
-    await PlanAccessChecker("member").check(_principal(key), request.url.path, db)
+    principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, request.url.path, db)
+    # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
+    request.state.user = principal
     body = await _read_json_body(request)
-    result = await plan_approve(session_id, ApproveBody(**body))
+    result = await plan_approve(session_id, ApproveBody(**body), request, db=db)
     await _audit_mcp_write(
         key,
         ACTION_MCP_PLAN_APPROVE,
