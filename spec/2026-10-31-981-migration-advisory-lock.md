@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 981
 intent: intent/2026-10-31-981-migration-advisory-lock.md
 ---
