@@ -68,6 +68,11 @@ Approved decisions (from the spec):
   call handlers directly (`test_access_approve_route.py`, `test_emit_resumable.py`,
   `test_plan_process_updates_route.py`, `test_plan_routes_conflict.py`,
   `test_plan_write_routes_tenant_guard.py`); they now pass the extra arguments.
+- Step 3 (codex): the human-under-enforce case calls the handlers directly,
+  because the route's existing `require_plan_access("member")` dependency answers
+  403 first for a non-member under enforce; the direct call checks this guard's
+  404 translation.
+- Step 2 (codex): no existing test needed an edit.
 
 ## Tests
 
