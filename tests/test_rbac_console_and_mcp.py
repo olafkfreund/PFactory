@@ -532,3 +532,38 @@ def test_merge_preview_needs_exact_project(tmp_path, monkeypatch):
         "success": False,
         "error": "No worktree found for this task",
     }
+
+
+@pytest.mark.parametrize(
+    ("fn", "found_result"),
+    [
+        (
+            "resolve_uncommitted_conflicts",
+            {"success": False, "error": "No worktree found for this task"},
+        ),
+        (
+            "resolve_git_merge_conflicts",
+            {
+                "success": True,
+                "data": {"resolved": [], "failed": [], "message": "No conflicted files found"},
+            },
+        ),
+    ],
+)
+def test_resolve_writes_need_exact_project(tmp_path, monkeypatch, fn, found_result):
+    """#975: conflict-resolve writes require an exact project id."""
+    tasks = importlib.import_module("server.routes.tasks")
+    handler = getattr(tasks, fn)
+    proj = tmp_path / "p1"
+    (proj / ".pfactory" / "specs" / "s1").mkdir(parents=True)
+    (tmp_path / "projects.json").write_text(json.dumps({"p1": {"path": str(proj)}}))
+    monkeypatch.setattr(tasks, "get_data_dir", lambda: tmp_path)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(handler("s1"))
+    assert exc.value.status_code == 400
+    assert asyncio.run(handler("nope:s1")) == {
+        "success": False,
+        "error": "Task nope:s1 not found",
+    }
+    assert asyncio.run(handler("p1:s1")) == found_result

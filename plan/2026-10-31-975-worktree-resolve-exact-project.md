@@ -42,6 +42,9 @@ Callers: the web UI sends `task.id` (`project_id:spec_id`,
       mirroring `test_merge_preview_needs_exact_project`: bare `s1` → HTTPException 400;
       `nope:s1` → `{"success": False, "error": "Task nope:s1 not found"}`;
       `p1:s1` with no worktree dir → `{"success": False, "error": "No worktree found for this task"}`.
+      Deviation: `resolve_git_merge_conflicts` has no worktree check (it falls back
+      to the main project), so its `p1:s1` result is
+      `{"success": True, "data": {"resolved": [], "failed": [], "message": "No conflicted files found"}}`.
    b. `tests/test_task_route_rbac.py`: add to `TASK_ROUTES["tasks"]["viewer"]` the three
       GET paths; in `test_every_listed_route_carries_the_dependency` treat them as
       `("GET",)` like `agent-console/sse`; bump `n` 49 → 52.

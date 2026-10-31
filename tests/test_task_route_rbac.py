@@ -69,10 +69,10 @@ def env(tmp_path, monkeypatch):  # noqa: PLR0915 - one fixture builds every rout
     def enforce(on: bool):
         settings.RBAC_ENFORCE_TASK_ROUTES = on
 
-    def make(*, guarded=True, kind="task", broken_db=False):
+    def make(*, guarded=True, kind="task", broken_db=False, path=None, role="member"):
         app = FastAPI()
         guards = {
-            "task": (pa.require_task_access, "/tasks/{task_id}/start"),
+            "task": (pa.require_task_access, path or "/tasks/{task_id}/start"),
             "plan": (pa.require_plan_access, "/plan/{sid}/approve"),
             "camel": (pa.require_camel_project_access, "/x/{projectId}/y"),
             "body": (pa.require_body_project_access, "/body"),
@@ -80,7 +80,8 @@ def env(tmp_path, monkeypatch):  # noqa: PLR0915 - one fixture builds every rout
             "direct": (None, "/direct"),
         }
         factory, path = guards[kind]
-        deps = [Depends(factory("member"))] if guarded and factory else []
+        min_role = role if kind == "task" else "member"
+        deps = [Depends(factory(min_role))] if guarded and factory else []
         if kind == "direct":
 
             async def _direct(request: Request, db=Depends(pa.get_db)):  # noqa: B008
@@ -326,6 +327,9 @@ TASK_ROUTES = {
             "/{task_id}/logs/watch",
             "/{task_id}/logs/unwatch",
             "/{task_id}/agent-console/sse",
+            "/{task_id}/worktree/merge-preview",
+            "/{task_id}/worktree/status",
+            "/{task_id}/worktree/diff",
         ],
     },
 }
@@ -389,7 +393,12 @@ def test_every_listed_route_carries_the_dependency():
                 methods = ("PUT", "PATCH", "DELETE") if path == "/{task_id}" else ("POST",)
                 if path == "/{task_id}/status":
                     methods = ("PATCH",)
-                elif path == "/{task_id}/agent-console/sse":
+                elif path in (
+                    "/{task_id}/agent-console/sse",
+                    "/{task_id}/worktree/merge-preview",
+                    "/{task_id}/worktree/status",
+                    "/{task_id}/worktree/diff",
+                ):
                     methods = ("GET",)
                 for m in methods:
                     assert _guards(module, m, path) == [("TaskAccessChecker", role)], (m, path)
@@ -413,4 +422,26 @@ def test_every_listed_route_carries_the_dependency():
     for path in SPEC_ROUTES:
         assert _guards("pfactory_tasks", "POST", path) == [("SpecAccessChecker", "member")], path
         n += 1
-    assert n == 49
+    assert n == 52
+
+
+@pytest.mark.parametrize(
+    ("path", "role"),
+    [
+        ("/tasks/{task_id}/worktree/resolve-uncommitted", "member"),
+        ("/tasks/{task_id}/worktree/resolve-git-merge", "member"),
+        ("/tasks/{task_id}/worktree/merge-preview", "viewer"),
+        ("/tasks/{task_id}/worktree/status", "viewer"),
+        ("/tasks/{task_id}/worktree/diff", "viewer"),
+    ],
+)
+def test_worktree_routes_log_would_deny_in_shadow(env, caplog, path, role):
+    make, enforce, audits = env
+    enforce(False)
+    client, route = make(path=path, role=role)
+    with caplog.at_level("WARNING"):
+        r = _post(client, route, user="member-a", **{"X-Key-Org": "B"})
+    assert r.status_code == 200
+    assert "rbac.would_deny" in caplog.text
+    assert len(audits) == 1
+    assert audits[0]["details"]["shadow"] is True
