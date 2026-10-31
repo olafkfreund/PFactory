@@ -2277,11 +2277,6 @@ async def get_worktree_merge_preview(task_id: str):
     if not spec_dir.exists():
         return {"success": False, "error": f"Task {task_id} not found"}
 
-    task_info = None
-    impl_plan = spec_dir / "test_plan.json"
-    if impl_plan.exists():
-        task_info = json.loads(impl_plan.read_text())
-
     # Find the worktree
     worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id
 
