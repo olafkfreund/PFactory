@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 2003  # olafkfreund/AIFactory#2003
 author: olafkfreund
 ---
