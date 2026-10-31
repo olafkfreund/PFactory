@@ -173,6 +173,9 @@ class _ToolError(Exception):
 
 def _resolve_session(args: dict[str, Any]):
     """Look up a PlanSession by session_id (preferred) or emitted issue number."""
+    # By design a service principal (#977): PFACTORY_MCP_SECRET is held by the
+    # factory services, not an org, so any session is readable here. Per-org
+    # identity for this endpoint is deferred to S6 (olafkfreund/Factory#312).
     from plan.service import SERVICE, PlanServiceError
 
     session_id = args.get("session_id")
