@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 975
 spec: spec/2026-10-31-975-worktree-resolve-exact-project.md
 coders:   # the user asked for agy as a team member this wave
