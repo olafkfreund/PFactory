@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 977
 intent: intent/2026-10-31-977-plan-session-write-org-scope.md
 ---
