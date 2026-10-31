@@ -45,6 +45,10 @@ The `MIGRATIONS_AUTO_APPLY=false` path is unchanged.
 - A hung migration blocks other booting pods on the lock; they wait instead
   of racing. Kubernetes probes surface it, as they would for a hung upgrade
   today.
+- Cancel during boot: if `init_db()` is cancelled while the upgrade runs in
+  `asyncio.to_thread`, `finally` releases the lock while the thread keeps
+  migrating, so another pod could start the same upgrade. Accepted in the lead
+  review of PR #982.
 - Holds one extra pool connection for the duration of the upgrade at boot only.
 
 ## Verification

@@ -65,3 +65,19 @@ Revert the PR; boot migrations go back to unlocked. No schema or data change.
 - Step 2a: the head revision is read from a local alembic `Config` built from
   `WEB_SERVER_ROOT`, not from `server.database.engine`, so the test module does
   not import the app engine at collection.
+
+Lead review of PR #982 (code in the same commit):
+
+- Step 1: the lock moved into `_upgrade_head_with_pg_lock()` on its own
+  `NullPool` engine, disposed after use. The first version took the lock
+  connection from the app pool, and CI's nested Postgres suite then failed
+  `test_main_app_correlation_id_middleware_wired` with "Future attached to a
+  different loop".
+- Step 1 (lead decision): `SET lock_timeout = '300s'` on the lock connection
+  before `pg_advisory_lock`, so a pod that cannot get the lock within 5 minutes
+  fails boot and the kubelet restarts it.
+- Step 2a: the two `init_db()` subprocesses wait at a file barrier after their
+  imports, so they really overlap. Without the fix the test fails 5/5 locally
+  (`UniqueViolationError` on `alembic_version`); with it, it passes 5/5.
+- Step 2b: added `test_postgres_upgrade_runs_inside_lock_with_timeout`, which
+  checks the statement order SET lock_timeout, lock, upgrade, unlock, dispose.

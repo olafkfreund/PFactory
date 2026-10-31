@@ -7,6 +7,7 @@ the driver from the URL scheme, and the SQLite-specific WAL pragma
 listener is only registered when the SQLite dialect is in use.
 """
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from server.db_pool import pool_kwargs
 
@@ -134,6 +136,29 @@ def _alembic_upgrade_head_sync() -> None:
     command.upgrade(_alembic_config(), "head")
 
 
+async def _upgrade_head_with_pg_lock() -> None:
+    """Run the upgrade while holding a Postgres session advisory lock (#981).
+
+    The lock lives on its own NullPool engine so its connection is never
+    handed back to the app pool, which may be used from another event loop.
+    """
+    lock_engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
+    try:
+        async with lock_engine.connect() as conn:
+            await conn.execution_options(isolation_level="AUTOCOMMIT")
+            # A pod that can't get the lock in 5 min fails boot loudly and restarts.
+            await conn.execute(text("SET lock_timeout = '300s'"))
+            await conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _MIGRATION_LOCK_KEY})
+            try:
+                await asyncio.to_thread(_alembic_upgrade_head_sync)
+            finally:
+                await conn.execute(
+                    text("SELECT pg_advisory_unlock(:k)"), {"k": _MIGRATION_LOCK_KEY}
+                )
+    finally:
+        await lock_engine.dispose()
+
+
 def _verify_schema_at_head_sync(sync_conn) -> None:
     """Raise RuntimeError if the DB schema isn't at the current head revision.
 
@@ -193,15 +218,7 @@ async def init_db() -> None:
         import asyncio
 
         if engine.dialect.name == "postgresql":
-            async with engine.connect() as conn:
-                await conn.execution_options(isolation_level="AUTOCOMMIT")
-                await conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _MIGRATION_LOCK_KEY})
-                try:
-                    await asyncio.to_thread(_alembic_upgrade_head_sync)
-                finally:
-                    await conn.execute(
-                        text("SELECT pg_advisory_unlock(:k)"), {"k": _MIGRATION_LOCK_KEY}
-                    )
+            await _upgrade_head_with_pg_lock()
         else:
             await asyncio.to_thread(_alembic_upgrade_head_sync)
     else:
