@@ -2246,7 +2246,10 @@ class ConflictResolveOptions(BaseModel):
     strategy: str | None = None
 
 
-@router.get("/{task_id}/worktree/merge-preview")
+@router.get(
+    "/{task_id}/worktree/merge-preview",
+    dependencies=[Depends(require_task_access("viewer"))],
+)
 async def get_worktree_merge_preview(task_id: str):
     """
     Preview what will happen when merging the worktree.
@@ -2831,11 +2834,12 @@ async def resolve_uncommitted_conflicts(task_id: str):
 
     logger.info("Resolving uncommitted conflicts for task %s", sanitize_log(task_id))
 
-    # #335 sanitize the caller-supplied task id before it is joined onto a root
-    try:
-        task_id = safe_spec_component(task_id, field="task_id")
-    except ValueError:
-        return {"success": False, "error": "invalid task id"}
+    if ":" not in task_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Task ID must include project ID (format: project_id:spec_id)",
+        )
+    project_id, spec_id = split_task_id(task_id)
 
     # Find the task's project
     projects_data_dir = get_data_dir()
@@ -2846,28 +2850,14 @@ async def resolve_uncommitted_conflicts(task_id: str):
 
     projects_data = json.loads(projects_file.read_text())
 
-    # Find the task across all projects
-    project_path = None
-    worktree_path = None
-
-    if isinstance(projects_data, dict):
-        projects = list(projects_data.values())
-    else:
-        projects = projects_data
-
-    for project in projects:
-        if isinstance(project, str):
-            project_path = Path(project)
-        else:
-            project_path = Path(project.get("path", ""))
-
-        spec_dir = project_path / ".pfactory" / "specs" / task_id
-
-        if spec_dir.exists():
-            worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / task_id
-            break
-    else:
+    project_path = _exact_project_path(projects_data, project_id)
+    if not project_path:
         return {"success": False, "error": f"Task {task_id} not found"}
+    spec_dir = project_path / ".pfactory" / "specs" / spec_id
+    if not spec_dir.exists():
+        return {"success": False, "error": f"Task {task_id} not found"}
+
+    worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id
 
     if not worktree_path or not worktree_path.exists():
         return {"success": False, "error": "No worktree found for this task"}
@@ -3093,11 +3083,12 @@ async def resolve_git_merge_conflicts(task_id: str):
 
     logger.info("Resolving git merge conflicts for task %s", sanitize_log(task_id))
 
-    # #335 sanitize the caller-supplied task id before it is joined onto a root
-    try:
-        task_id = safe_spec_component(task_id, field="task_id")
-    except ValueError:
-        return {"success": False, "error": "invalid task id"}
+    if ":" not in task_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Task ID must include project ID (format: project_id:spec_id)",
+        )
+    project_id, spec_id = split_task_id(task_id)
 
     # Find the task's project
     projects_data_dir = get_data_dir()
@@ -3108,28 +3099,14 @@ async def resolve_git_merge_conflicts(task_id: str):
 
     projects_data = json.loads(projects_file.read_text())
 
-    # Find the task across all projects
-    project_path = None
-    worktree_path = None
-
-    if isinstance(projects_data, dict):
-        projects = list(projects_data.values())
-    else:
-        projects = projects_data
-
-    for project in projects:
-        if isinstance(project, str):
-            project_path = Path(project)
-        else:
-            project_path = Path(project.get("path", ""))
-
-        spec_dir = project_path / ".pfactory" / "specs" / task_id
-
-        if spec_dir.exists():
-            worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / task_id
-            break
-    else:
+    project_path = _exact_project_path(projects_data, project_id)
+    if not project_path:
         return {"success": False, "error": f"Task {task_id} not found"}
+    spec_dir = project_path / ".pfactory" / "specs" / spec_id
+    if not spec_dir.exists():
+        return {"success": False, "error": f"Task {task_id} not found"}
+
+    worktree_path = project_path / ".pfactory" / "worktrees" / "tasks" / spec_id
 
     # Determine which path to work with (main project or worktree)
     # Check both locations for merge in progress
@@ -3916,7 +3893,10 @@ def _exact_project_path(projects_data: Any, project_id: str) -> Path | None:
     return Path(project["path"]) if isinstance(project, dict) and project.get("path") else None
 
 
-@router.get("/{task_id}/worktree/status")
+@router.get(
+    "/{task_id}/worktree/status",
+    dependencies=[Depends(require_task_access("viewer"))],
+)
 async def get_worktree_status(task_id: str):
     """
     Get the status of a task's worktree.
@@ -4024,7 +4004,10 @@ async def get_worktree_status(task_id: str):
     }
 
 
-@router.get("/{task_id}/worktree/diff")
+@router.get(
+    "/{task_id}/worktree/diff",
+    dependencies=[Depends(require_task_access("viewer"))],
+)
 async def get_worktree_diff(task_id: str):
     """
     Get the diff details for a task's worktree.
