@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 2003  # olafkfreund/AIFactory#2003
 spec: spec/2026-10-31-2003-chart-alembic-job.md
 ---
