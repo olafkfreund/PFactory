@@ -103,6 +103,8 @@ if engine.dialect.name == "sqlite":
 
 
 _ALEMBIC_INI_PATH = Path(__file__).resolve().parents[2] / "alembic.ini"
+# Stable key serializes PFactory migrations across server processes.
+_MIGRATION_LOCK_KEY = 0x50464143544F5259
 
 
 def _alembic_config():
@@ -190,7 +192,18 @@ async def init_db() -> None:
         # don't block the asyncio loop on the DDL transactions.
         import asyncio
 
-        await asyncio.to_thread(_alembic_upgrade_head_sync)
+        if engine.dialect.name == "postgresql":
+            async with engine.connect() as conn:
+                await conn.execution_options(isolation_level="AUTOCOMMIT")
+                await conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _MIGRATION_LOCK_KEY})
+                try:
+                    await asyncio.to_thread(_alembic_upgrade_head_sync)
+                finally:
+                    await conn.execute(
+                        text("SELECT pg_advisory_unlock(:k)"), {"k": _MIGRATION_LOCK_KEY}
+                    )
+        else:
+            await asyncio.to_thread(_alembic_upgrade_head_sync)
     else:
         logger.info(
             "MIGRATIONS_AUTO_APPLY=false — verifying schema is at head "

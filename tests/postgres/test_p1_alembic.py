@@ -1,10 +1,14 @@
 """P1.3 / P1.4 — Alembic baseline migration + idempotent upgrade + autoApply modes."""
 
+import asyncio
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.postgres.helpers import (
     WEB_SERVER_ROOT,
@@ -125,6 +129,41 @@ def test_app_boot_with_autoapply_true_runs_migrations(test_postgres_url: str) ->
         f"--- stderr ---\n{result.stderr[-2000:]}"
     )
     assert "init_db OK" in result.stdout, "init_db did not complete cleanly"
+
+
+@pytest.mark.postgres
+@pytest.mark.slow
+def test_concurrent_init_db_applies_migrations_once(test_postgres_url: str) -> None:
+    """Two app boots migrate a fresh Postgres schema safely."""
+    _drop_schema(test_postgres_url)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        runs = [
+            executor.submit(_init_db_subprocess, test_postgres_url, True)
+            for _ in range(2)
+        ]
+        results = [run.result() for run in runs]
+
+    for result in results:
+        assert result.returncode == 0, (
+            f"init_db exit {result.returncode}\n--- stdout ---\n{result.stdout}\n"
+            f"--- stderr ---\n{result.stderr[-2000:]}"
+        )
+
+    async def _revisions() -> list[str]:
+        engine = create_async_engine(test_postgres_url)
+        try:
+            async with engine.connect() as conn:
+                revisions = await conn.execute(text("SELECT version_num FROM alembic_version"))
+                return list(revisions.scalars())
+        finally:
+            await engine.dispose()
+
+    from alembic.config import Config  # noqa: PLC0415
+    from alembic.script import ScriptDirectory  # noqa: PLC0415
+
+    cfg = Config(str(WEB_SERVER_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(WEB_SERVER_ROOT / "server" / "database" / "alembic"))
+    assert asyncio.run(_revisions()) == [ScriptDirectory.from_config(cfg).get_current_head()]
 
 
 @pytest.mark.postgres

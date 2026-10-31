@@ -57,3 +57,11 @@ Approved decisions (from the spec):
 ## Rollback
 
 Revert the PR; boot migrations go back to unlocked. No schema or data change.
+
+## Deviations
+
+- Step 1: `await conn.execution_options(isolation_level="AUTOCOMMIT")` without
+  reassigning `conn`; SQLAlchemy sets it on the same connection and returns it.
+- Step 2a: the head revision is read from a local alembic `Config` built from
+  `WEB_SERVER_ROOT`, not from `server.database.engine`, so the test module does
+  not import the app engine at collection.
