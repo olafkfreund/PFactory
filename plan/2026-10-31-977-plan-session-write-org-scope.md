@@ -62,6 +62,13 @@ Approved decisions (from the spec):
    a paragraph in `docs/dev/rbac-enforce-runbook.md` under "Not affected".
    → verify by reading the diff.
 
+## Deviations
+
+- Step 1 (codex): the new `request`/`db` parameters break five existing tests that
+  call handlers directly (`test_access_approve_route.py`, `test_emit_resumable.py`,
+  `test_plan_process_updates_route.py`, `test_plan_routes_conflict.py`,
+  `test_plan_write_routes_tenant_guard.py`); they now pass the extra arguments.
+
 ## Tests
 
 `ruff check` + `ruff format --check` on touched files, `python scripts/ratchet_lint.py`,

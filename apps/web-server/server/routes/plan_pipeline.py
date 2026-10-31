@@ -432,33 +432,36 @@ class PlanUpdateBody(_StrictBody):
     criteria: list[dict[str, str]] | None = None
 
 
-def _guard_tenant(session_id: str, request: Request) -> None:
-    """404 unless *session_id* belongs to the caller's tenant (#308).
+async def _guard_session(session_id: str, request: Request, db: AsyncSession) -> None:
+    """404 unless the caller may write *session_id*: tenant (#308), then org (#977).
 
-    Extracted because the two MUTATING routes below forgot it: a cross-tenant
-    caller could rewrite and re-process another tenant's plan by session id.
-    Read routes had the check inline; the write routes shipped without it.
-
-    404, never 403 — matching ``get_session``, so a wrong tenant cannot use the
-    status code to learn that a session id exists.
+    404, never 403, matching ``get_session``: a status code must not reveal that
+    a session id exists. Runs before the write, so a denial changes nothing.
     """
-    if not multi_tenant_enabled():
-        return
     try:
         session = cast(PlanService, SERVICE).get(session_id)
     except PlanServiceError:
         return  # the route's own handler reports the missing session
-    if session.tenant_id != resolve_tenant(request):
+    if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
         raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
+    user = _user(request)
+    await authorize_plan_session(
+        user, session_id, lambda: _session_org(session, user), db, minimum_role="member"
+    )
 
 
 @router.post("/{session_id}/process", dependencies=[Depends(require_plan_access("member"))])
-async def process(session_id: str, request: Request, updates: PlanUpdateBody | None = None) -> dict:
+async def process(
+    session_id: str,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    updates: PlanUpdateBody | None = None,
+) -> dict:
     # RFC-0016 (#217): offload the blocking pipeline (recon clone, decompose,
     # gates) off the event loop into a worker thread, under an admission cap, so
     # /api/health and other sessions keep being served while this runs. Behaviour
     # and return are unchanged — we still await the offloaded call.
-    _guard_tenant(session_id, request)
+    await _guard_session(session_id, request, db)
     try:
         # Edit-then-rerun is ONE call so the two cannot separate: a plan is never
         # left edited-but-unreviewed, and the review returned always describes
@@ -512,10 +515,13 @@ class ApplySuggestionsBody(_StrictBody):
     "/{session_id}/suggestions/apply", dependencies=[Depends(require_plan_access("member"))]
 )
 async def apply_suggestions(
-    session_id: str, body: ApplySuggestionsBody, request: Request
+    session_id: str,
+    body: ApplySuggestionsBody,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
     """Apply accepted suggestions and (by default) re-run the pipeline (#701)."""
-    _guard_tenant(session_id, request)
+    await _guard_session(session_id, request, db)
     try:
         service = cast(PlanService, SERVICE)
         _, applied = service.apply_suggestions(
@@ -536,7 +542,9 @@ async def apply_suggestions(
 
 
 @router.post("/{session_id}/re-gate", dependencies=[Depends(require_plan_access("member"))])
-async def re_gate(session_id: str) -> dict[str, Any]:
+async def re_gate(
+    session_id: str, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, Any]:
     """Recompute the readiness verdicts alone, without re-running planning (#450).
 
     A stored verdict is frozen at compute time, so a fixed check leaves the
@@ -546,6 +554,7 @@ async def re_gate(session_id: str) -> dict[str, Any]:
     that never existed. ``approve``/``emit`` refresh on their own; this is for
     inspecting or clearing a stale verdict on its own.
     """
+    await _guard_session(session_id, request, db)
     try:
         return _session_dict(SERVICE.re_gate(session_id))
     except StaleSessionError as exc:  # another replica changed the session (#758)
@@ -555,7 +564,13 @@ async def re_gate(session_id: str) -> dict[str, Any]:
 
 
 @router.post("/{session_id}/approve", dependencies=[Depends(require_plan_access("member"))])
-async def approve(session_id: str, body: ApproveBody) -> dict:
+async def approve(
+    session_id: str,
+    body: ApproveBody,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    await _guard_session(session_id, request, db)
     try:
         return _session_dict(
             SERVICE.approve(session_id, approver=body.approver, feedback=body.feedback)
@@ -569,7 +584,12 @@ async def approve(session_id: str, body: ApproveBody) -> dict:
 
 
 @router.post("/{session_id}/access/approve", dependencies=[Depends(require_plan_access("member"))])
-async def approve_access(session_id: str, body: ApproveAccessBody) -> dict:
+async def approve_access(
+    session_id: str,
+    body: ApproveAccessBody,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
     """Record a human-verified access approval for one resource (RFC-0007 #86).
 
     Run emit-contract (dry-run) first to discover the ``access`` requirements; this
@@ -577,6 +597,7 @@ async def approve_access(session_id: str, body: ApproveAccessBody) -> dict:
     class D / un-automatable), stores the approval for the next emit, and appends an
     RFC-0001a audit record. Returns the curation outcome ``{ok, resource, ...}``.
     """
+    await _guard_session(session_id, request, db)
     try:
         return SERVICE.approve_access(
             session_id,
@@ -592,12 +613,18 @@ async def approve_access(session_id: str, body: ApproveAccessBody) -> dict:
 
 
 @router.post("/{session_id}/waive", dependencies=[Depends(require_plan_access("member"))])
-async def waive(session_id: str, body: WaiveBody) -> dict:
+async def waive(
+    session_id: str,
+    body: WaiveBody,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
     """Record a human waiver of hard readiness failures (#77).
 
     The serialized session carries the updated ``review.readiness`` so the portal
     can reflect that the waived check no longer blocks emission.
     """
+    await _guard_session(session_id, request, db)
     try:
         return _session_dict(
             SERVICE.waive(
@@ -614,7 +641,13 @@ async def waive(session_id: str, body: WaiveBody) -> dict:
 
 
 @router.post("/{session_id}/reject", dependencies=[Depends(require_plan_access("member"))])
-async def reject(session_id: str, body: RejectBody) -> dict:
+async def reject(
+    session_id: str,
+    body: RejectBody,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    await _guard_session(session_id, request, db)
     try:
         return _session_dict(
             SERVICE.reject(session_id, approver=body.approver, feedback=body.feedback)
@@ -626,7 +659,12 @@ async def reject(session_id: str, body: RejectBody) -> dict:
 
 
 @router.post("/{session_id}/discard", dependencies=[Depends(require_plan_access("member"))])
-async def discard(session_id: str, body: DiscardBody) -> dict:
+async def discard(
+    session_id: str,
+    body: DiscardBody,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
     """Abandon a session outright (#360) — "this should not exist".
 
     Distinct from ``/reject``, which means "this plan is wrong, fix it" and
@@ -635,6 +673,7 @@ async def discard(session_id: str, body: DiscardBody) -> dict:
     previously had no exit at all and left the cockpit's Active list
     accumulating cards no action could clear.
     """
+    await _guard_session(session_id, request, db)
     try:
         return _session_dict(SERVICE.discard(session_id, actor=body.actor, reason=body.reason))
     except StaleSessionError as exc:  # another replica changed the session (#758)
@@ -662,6 +701,7 @@ async def delete_session(
     real GitHub epics (see ``DELETABLE_STATUSES``). 404 for an unknown id or
     another tenant's session, matching every other read/write here.
     """
+    await _guard_session(session_id, request, db)
     tenant = resolve_tenant(request) if multi_tenant_enabled() else None
     try:
         # Annotated: SERVICE is untyped here, so an unannotated result makes the
@@ -748,6 +788,7 @@ async def emit(
     this one read it. Both are safe to retry once the other writer finishes.
     Other failures, such as an unprocessed plan, stay 400 (#758).
     """
+    await _guard_session(session_id, request, db)
     docs_connections = await _load_docs_connections(request, db)
     # #961: release the main-pool connection before the minutes-long emit thread.
     await db.close()
@@ -772,7 +813,12 @@ async def emit(
 
 
 @router.post("/{session_id}/emit-contract", dependencies=[Depends(require_plan_access("member"))])
-async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
+async def emit_contract(
+    session_id: str,
+    body: EmitContractBody,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
     """Emit the RFC-0002 signed Task Contract v2 to AIFactory (#65).
 
     Dry-run by default (returns the assembled+signed contract under
@@ -782,6 +828,7 @@ async def emit_contract(session_id: str, body: EmitContractBody) -> dict:
     or changed the session since this one read it; other failures stay 400
     (#758).
     """
+    await _guard_session(session_id, request, db)
     try:
         http = None if body.dry_run else _UrllibHttp()
         return _session_dict(

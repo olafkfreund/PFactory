@@ -36,7 +36,7 @@ def test_route_delegates_to_service(monkeypatch):
 
     monkeypatch.setattr(pp.SERVICE, "approve_access", fake_approve)
     body = pp.ApproveAccessBody(resource="web", approved_by="olaf", scope="staging")
-    out = asyncio.run(pp.approve_access("s1", body))
+    out = asyncio.run(pp.approve_access("s1", body, None, None))
 
     assert out == {"ok": True, "resource": "web", "state": "curated"}
     assert seen == {
@@ -54,5 +54,5 @@ def test_route_maps_service_error_to_400(monkeypatch):
     monkeypatch.setattr(pp.SERVICE, "approve_access", boom)
     body = pp.ApproveAccessBody(resource="x", approved_by="o", scope="s")
     with pytest.raises(HTTPException) as ei:
-        asyncio.run(pp.approve_access("s1", body))
+        asyncio.run(pp.approve_access("s1", body, None, None))
     assert ei.value.status_code == 400

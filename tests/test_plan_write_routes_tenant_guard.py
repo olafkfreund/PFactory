@@ -96,6 +96,7 @@ def test_another_tenant_cannot_rewrite_a_plan_via_process(service, owned):
             pp.process(
                 owned.session_id,
                 _Request("intruder"),
+                None,
                 updates=pp.PlanUpdateBody(title="OWNED"),
             )
         )
@@ -113,6 +114,7 @@ def test_another_tenant_cannot_apply_suggestions(service, owned):
                 owned.session_id,
                 pp.ApplySuggestionsBody(accepted=[pp.AcceptedSuggestion(id="S1")]),
                 _Request("intruder"),
+                None,
             )
         )
 
@@ -126,6 +128,7 @@ def test_the_owning_tenant_is_unaffected(service, owned):
             owned.session_id,
             pp.ApplySuggestionsBody(accepted=[pp.AcceptedSuggestion(id="S1")], reprocess=False),
             _Request("acme"),
+            None,
         )
     )
 
@@ -150,6 +153,7 @@ def test_single_tenant_mode_is_unchanged(service, owned, monkeypatch):
             owned.session_id,
             pp.ApplySuggestionsBody(accepted=[pp.AcceptedSuggestion(id="S1")], reprocess=False),
             _Request("anyone-at-all"),
+            None,
         )
     )
 

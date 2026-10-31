@@ -235,5 +235,5 @@ def test_emit_route_does_not_block_the_event_loop(slow_service):
 
 def test_emit_contract_route_does_not_block_the_event_loop(slow_service):
     body = pp.EmitContractBody(dry_run=True)
-    ticks = asyncio.run(_ticks_while(pp.emit_contract(slow_service, body)))
+    ticks = asyncio.run(_ticks_while(pp.emit_contract(slow_service, body, _Request(), None)))
     assert ticks > 20

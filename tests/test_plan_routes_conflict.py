@@ -56,11 +56,15 @@ def _call(route: str):
     sid = "PLAN-1"
     calls = {
         "emit": lambda: pp.emit(sid, pp.EmitBody(repo="o/r", dry_run=False), None, _Session()),
-        "emit_contract": lambda: pp.emit_contract(sid, pp.EmitContractBody(dry_run=False)),
-        "approve": lambda: pp.approve(sid, pp.ApproveBody(approver="a")),
-        "discard": lambda: pp.discard(sid, pp.DiscardBody(actor="a", reason="r")),
-        "reject": lambda: pp.reject(sid, pp.RejectBody(approver="a", feedback="f")),
-        "process": lambda: pp.process(sid, _Request()),
+        "emit_contract": lambda: pp.emit_contract(
+            sid, pp.EmitContractBody(dry_run=False), _Request(), None
+        ),
+        "approve": lambda: pp.approve(sid, pp.ApproveBody(approver="a"), _Request(), None),
+        "discard": lambda: pp.discard(sid, pp.DiscardBody(actor="a", reason="r"), _Request(), None),
+        "reject": lambda: pp.reject(
+            sid, pp.RejectBody(approver="a", feedback="f"), _Request(), None
+        ),
+        "process": lambda: pp.process(sid, _Request(), None),
     }
     return asyncio.run(calls[route]())
 
@@ -91,6 +95,11 @@ def test_emit_releases_db_before_service_runs(monkeypatch):
 
     monkeypatch.setattr(pp, "SERVICE", _Service())
     monkeypatch.setattr(pp, "_session_dict", lambda session: session)
+
+    async def no_guard(*_args):
+        pass
+
+    monkeypatch.setattr(pp, "_guard_session", no_guard)
 
     result = asyncio.run(pp.emit("PLAN-1", pp.EmitBody(repo="o/r"), None, db))
     assert result == {"ok": True}
