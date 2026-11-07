@@ -17,6 +17,7 @@ from .graphiti_helpers import (
     run_async,
     save_to_graphiti_async,
 )
+from .novelty import drop_repeats, repeat_key
 from .paths import get_session_insights_dir
 
 logger = logging.getLogger(__name__)
@@ -57,18 +58,60 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
     insights_dir = get_session_insights_dir(spec_dir)
     session_file = insights_dir / f"session_{session_num:03d}.json"
 
+    fields = ("what_worked", "recommendations_for_next_session")
+    # The *_found/*_encountered keys come from QA; the *_discovered and
+    # recommendations keys from analysis/insight_extractor.py (coder path).
+    discovery_fields = (
+        "patterns_found",
+        "gotchas_encountered",
+        "patterns_discovered",
+        "gotchas_discovered",
+        "recommendations",
+    )
+    seen: dict[str, set[str]] = {f: set() for f in (*fields, *discovery_fields)}
+    for prior_file in insights_dir.glob("session_*.json"):
+        if prior_file == session_file:
+            continue
+        try:
+            prior = json.loads(prior_file.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(prior, dict):
+            continue
+        discoveries = prior.get("discoveries")
+        if not isinstance(discoveries, dict):
+            discoveries = {}
+        for source, names in ((prior, fields), (discoveries, discovery_fields)):
+            for field in names:
+                values = source.get(field, [])
+                if isinstance(values, list):
+                    seen[field].update(k for item in values if (k := repeat_key(item)) is not None)
+
+    discoveries = insights.get(
+        "discoveries",
+        {"files_understood": {}, "patterns_found": [], "gotchas_encountered": []},
+    )
+    if isinstance(discoveries, dict):
+        discoveries = {
+            k: drop_repeats(v, seen[k], f"discoveries.{k}") if k in seen else v
+            for k, v in discoveries.items()
+        }
+
     # Build complete insight structure
     session_data = {
         "session_number": session_num,
         "timestamp": datetime.now(UTC).isoformat(),
         "subtasks_completed": insights.get("subtasks_completed", []),
-        "discoveries": insights.get(
-            "discoveries",
-            {"files_understood": {}, "patterns_found": [], "gotchas_encountered": []},
+        "discoveries": discoveries,
+        "what_worked": drop_repeats(
+            insights.get("what_worked", []), seen["what_worked"], "what_worked"
         ),
-        "what_worked": insights.get("what_worked", []),
         "what_failed": insights.get("what_failed", []),
-        "recommendations_for_next_session": insights.get("recommendations_for_next_session", []),
+        "recommendations_for_next_session": drop_repeats(
+            insights.get("recommendations_for_next_session", []),
+            seen["recommendations_for_next_session"],
+            "recommendations_for_next_session",
+        ),
     }
 
     # Write to file (always use file-based storage)

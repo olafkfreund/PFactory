@@ -285,7 +285,7 @@ async def save_session_memory(
             "patterns_found": [],
             "gotchas_encountered": [],
         },
-        "what_worked": [f"Implemented subtask: {subtask_id}"] if success else [],
+        "what_worked": [],
         "what_failed": [] if success else [f"Failed to complete subtask: {subtask_id}"],
         "recommendations_for_next_session": [],
     }
