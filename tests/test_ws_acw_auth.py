@@ -105,8 +105,9 @@ async def test_owned_api_key_matches_rest_principal(monkeypatch):
     "rows",
     [
         [None],
-        [_key(expires_at=datetime.now(UTC) - timedelta(days=1))],
-        [_key(scopes="mcp:read"), "member"],
+        # Full rows: only the check under test may reject (else row exhaustion would).
+        [_key(expires_at=datetime.now(UTC) - timedelta(days=1)), "member", _user()],
+        [_key(scopes="mcp:read"), "member", _user()],
         [RuntimeError("database unavailable")],
     ],
     ids=["unknown", "expired", "missing-api-scope", "validator-raises"],
