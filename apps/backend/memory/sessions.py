@@ -17,6 +17,7 @@ from .graphiti_helpers import (
     run_async,
     save_to_graphiti_async,
 )
+from .novelty import drop_repeats
 from .paths import get_session_insights_dir
 
 logger = logging.getLogger(__name__)
@@ -57,18 +58,55 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
     insights_dir = get_session_insights_dir(spec_dir)
     session_file = insights_dir / f"session_{session_num:03d}.json"
 
+    fields = ("what_worked", "recommendations_for_next_session")
+    discovery_fields = ("patterns_found", "gotchas_encountered")
+    seen: dict[str, set[str]] = {f: set() for f in (*fields, *discovery_fields)}
+    for prior_file in insights_dir.glob("session_*.json"):
+        if prior_file == session_file:
+            continue
+        try:
+            prior = json.loads(prior_file.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(prior, dict):
+            continue
+        discoveries = prior.get("discoveries")
+        if not isinstance(discoveries, dict):
+            discoveries = {}
+        for source, names in ((prior, fields), (discoveries, discovery_fields)):
+            for field in names:
+                values = source.get(field, [])
+                if isinstance(values, list):
+                    seen[field].update(
+                        item.strip() for item in values if isinstance(item, str) and item.strip()
+                    )
+
+    discoveries = dict(
+        insights.get(
+            "discoveries",
+            {"files_understood": {}, "patterns_found": [], "gotchas_encountered": []},
+        )
+    )
+    for field in discovery_fields:
+        discoveries[field] = drop_repeats(
+            discoveries.get(field, []), seen[field], f"discoveries.{field}"
+        )
+
     # Build complete insight structure
     session_data = {
         "session_number": session_num,
         "timestamp": datetime.now(UTC).isoformat(),
         "subtasks_completed": insights.get("subtasks_completed", []),
-        "discoveries": insights.get(
-            "discoveries",
-            {"files_understood": {}, "patterns_found": [], "gotchas_encountered": []},
+        "discoveries": discoveries,
+        "what_worked": drop_repeats(
+            insights.get("what_worked", []), seen["what_worked"], "what_worked"
         ),
-        "what_worked": insights.get("what_worked", []),
         "what_failed": insights.get("what_failed", []),
-        "recommendations_for_next_session": insights.get("recommendations_for_next_session", []),
+        "recommendations_for_next_session": drop_repeats(
+            insights.get("recommendations_for_next_session", []),
+            seen["recommendations_for_next_session"],
+            "recommendations_for_next_session",
+        ),
     }
 
     # Write to file (always use file-based storage)

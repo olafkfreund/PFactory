@@ -7,10 +7,13 @@ gotchas, and patterns.
 """
 
 import json
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from memory.novelty import drop_repeats
 
 try:
     from claude_agent_sdk import tool
@@ -19,6 +22,9 @@ try:
 except ImportError:
     SDK_TOOLS_AVAILABLE = False
     tool = None
+
+# The gotchas window shown by get_session_context.
+GOTCHA_CONTEXT_CHARS = 1000
 
 
 def create_memory_tools(
@@ -120,12 +126,22 @@ def create_memory_tools(
         try:
             timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
 
-            entry = f"\n## [{timestamp}]\n{gotcha}"
+            body = gotcha
             if context:
-                entry += f"\n\n_Context: {context}_"
-            entry += "\n"
+                body += f"\n\n_Context: {context}_"
 
-            with open(gotchas_file, "a") as f:
+            seen: set[str] = set()
+            if gotchas_file.exists():
+                tail = gotchas_file.read_text()[-GOTCHA_CONTEXT_CHARS:]
+                seen = {
+                    segment.strip() for segment in re.split(r"(?m)^## \[[^\]\n]+\]\r?\n", tail)[1:]
+                }
+            if not drop_repeats([body], seen, "gotchas.md"):
+                return {"content": [{"type": "text", "text": f"Gotcha already recorded: {gotcha}"}]}
+
+            entry = f"\n## [{timestamp}]\n{body}\n"
+
+            with gotchas_file.open("a") as f:
                 if not gotchas_file.exists() or gotchas_file.stat().st_size == 0:
                     f.write("# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n")
                 f.write(entry)
@@ -184,8 +200,12 @@ def create_memory_tools(
                 content = gotchas_file.read_text()
                 if content.strip():
                     result_parts.append("\n## Gotchas")
-                    # Take last 1000 chars to avoid too much context
-                    result_parts.append(content[-1000:] if len(content) > 1000 else content)
+                    # Take the gotchas window to avoid too much context
+                    result_parts.append(
+                        content[-GOTCHA_CONTEXT_CHARS:]
+                        if len(content) > GOTCHA_CONTEXT_CHARS
+                        else content
+                    )
             except Exception:
                 pass
 
