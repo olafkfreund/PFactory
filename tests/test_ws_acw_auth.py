@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -88,7 +87,7 @@ def auth_on(monkeypatch):
 async def test_owned_api_key_matches_rest_principal(monkeypatch):
     key = _key()
     _stub_key_db(monkeypatch, [key, "member", _user()])
-    rest_principal = await auth._try_authenticate_api_key("acw_owned")
+    rest_principal = await auth._try_authenticate_personal_key("acw_owned")
     assert await auth.authenticate_websocket(_ws("acw_owned")) == rest_principal
     assert rest_principal == {
         "id": "user-1",
@@ -155,7 +154,7 @@ def _stub_memberships(monkeypatch, rows):
                 raise rows
             return _Result(rows)
 
-    monkeypatch.setattr(engine, "async_session_factory", lambda: _MembershipSession())
+    monkeypatch.setattr(engine, "async_session_factory", _MembershipSession)
     return queried
 
 
@@ -200,8 +199,7 @@ async def test_bound_key_receives_only_its_org(monkeypatch):
         assert '"type": "right-org"' in ws.send_text.await_args.args[0]
     finally:
         task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -215,5 +213,4 @@ async def test_membership_query_failure_receives_no_org_events(monkeypatch):
         ws.send_text.assert_not_awaited()
     finally:
         task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        await asyncio.gather(task, return_exceptions=True)
