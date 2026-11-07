@@ -100,7 +100,7 @@ def test_naive_utc_expiry_and_last_used_on_postgres(
         raw = resp.json()["raw_key"]
 
         monkeypatch.setattr(engine_mod, "get_db", _get_db)
-        principal = asyncio.run(auth_mod._try_authenticate_api_key(raw))
+        principal = asyncio.run(auth_mod._try_authenticate_personal_key(raw))
         assert principal is not None
         # The last_used write is best-effort and swallowed on failure: read it back.
         assert asyncio.run(_row()).last_used_at is not None
