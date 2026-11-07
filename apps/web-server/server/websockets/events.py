@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,7 +20,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from factory_common.logsafe import sanitize_log
 
-from ..auth import WebSocketAuthError, authenticate_websocket
+from ..auth import WebSocketAuthError, _ws_acw_principal, _ws_extract_token, authenticate_websocket
+from ..config import get_settings
+from ..services.project_paths import load_projects
 from . import relay
 
 logger = logging.getLogger(__name__)
@@ -39,6 +42,7 @@ class ConnectedClient:
     websocket: WebSocket
     user_id: str | None = None
     org_ids: set[str] = field(default_factory=set)
+    key_org_id: str | None = None
 
 
 # Active WebSocket connections — keyed by WebSocket object for fast lookup
@@ -47,6 +51,10 @@ _clients: dict[WebSocket, ConnectedClient] = {}
 # Legacy set kept for backward compatibility with code that still
 # references ``active_connections`` directly.
 active_connections: set[WebSocket] = set()
+SERVICE_ONLY_ORG = ""
+_ORG_CACHE_SECONDS = 30.0
+_KEY_RECHECK_SECONDS = 300.0
+_org_cache: dict[str, tuple[float, str | None]] = {}
 
 # How long a single client's send may take before it's treated as gone
 # (#804 finding 5). Without this, one wedged client (a browser that stopped
@@ -71,6 +79,7 @@ def _register_client(ws: WebSocket, user_info: dict | None) -> ConnectedClient:
     client = ConnectedClient(
         websocket=ws,
         user_id=user_info["id"] if user_info else None,
+        key_org_id=(user_info or {}).get("org_id"),
     )
     _clients[ws] = client
     active_connections.add(ws)
@@ -384,6 +393,8 @@ async def events_websocket(websocket: WebSocket):
                     select(OrgMember.org_id).where(OrgMember.user_id == user_info["id"])
                 )
                 client.org_ids = {row[0] for row in result.all()}
+                if user_info.get("org_id"):
+                    client.org_ids &= {user_info["org_id"]}
         except Exception:
             logger.debug("Could not load org memberships for WS client", exc_info=True)
 
