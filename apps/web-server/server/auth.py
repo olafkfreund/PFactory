@@ -189,6 +189,14 @@ async def _try_authenticate_api_key(token: str) -> dict | None:
     return None
 
 
+async def _ws_acw_principal(token: str) -> dict | None:
+    # Same validator as REST; it requires an active owner, so no ownerless key reaches WS.
+    try:
+        return await _try_authenticate_api_key(token)
+    except Exception:  # noqa: BLE001 — validator failures deny WS auth
+        return None
+
+
 def _try_decode_jwt(token: str) -> dict | None:
     """Attempt to decode a JWT access token.
 
@@ -480,6 +488,11 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
     # Fall back to legacy token — no user info available
     if _is_legacy_api_token(token):
         return None
+
+    if token.startswith(API_KEY_PREFIX):
+        api_user = await _ws_acw_principal(token)
+        if api_user is not None:
+            return api_user
 
     await websocket.close(code=4001, reason="Unauthorized")
     raise WebSocketAuthError("Invalid token")
