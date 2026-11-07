@@ -16,7 +16,6 @@ if str(_WEB_SERVER) not in sys.path:
     sys.path.insert(0, str(_WEB_SERVER))
 
 from server import auth  # noqa: E402
-from server.database import engine  # noqa: E402
 from server.websockets import events, relay  # noqa: E402
 
 
@@ -63,7 +62,11 @@ def _stub_key_db(monkeypatch, rows):
     async def get_db():
         yield _Session(rows)
 
-    monkeypatch.setattr(engine, "get_db", get_db)
+    # Resolved at run time, like tests/test_api_key_auth.py: other tests swap
+    # server.database.engine in sys.modules, so an import-time handle goes stale.
+    import server.database.engine as engine_mod  # noqa: PLC0415
+
+    monkeypatch.setattr(engine_mod, "get_db", get_db)
 
 
 def _ws(token):
@@ -154,7 +157,9 @@ def _stub_memberships(monkeypatch, rows):
                 raise rows
             return _Result(rows)
 
-    monkeypatch.setattr(engine, "async_session_factory", _MembershipSession)
+    import server.database.engine as engine_mod  # noqa: PLC0415
+
+    monkeypatch.setattr(engine_mod, "async_session_factory", _MembershipSession)
     return queried
 
 
