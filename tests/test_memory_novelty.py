@@ -13,12 +13,14 @@ from memory.novelty import drop_repeats
 from memory.paths import get_session_insights_dir
 from memory.sessions import save_session_insights
 
-GATED = [
-    "what_worked",
-    "recommendations_for_next_session",
+DISCOVERY = (
     "patterns_found",
     "gotchas_encountered",
-]
+    "patterns_discovered",
+    "gotchas_discovered",
+    "recommendations",
+)
+GATED = ["what_worked", "recommendations_for_next_session", *DISCOVERY]
 
 
 def _insights(field=None, items=(), **extra):
@@ -33,7 +35,7 @@ def _insights(field=None, items=(), **extra):
         "what_failed": [],
         "recommendations_for_next_session": [],
     }
-    if field in ("patterns_found", "gotchas_encountered"):
+    if field in DISCOVERY:
         data["discoveries"][field] = list(items)
     elif field:
         data[field] = list(items)
@@ -42,7 +44,7 @@ def _insights(field=None, items=(), **extra):
 
 
 def _get(saved, field):
-    if field in ("patterns_found", "gotchas_encountered"):
+    if field in DISCOVERY:
         return saved["discoveries"][field]
     return saved[field]
 
@@ -138,7 +140,7 @@ def test_missing_discovery_keys(tmp_path):
     save_session_insights(tmp_path, 2, _insights(discoveries={"patterns_found": ["p"]}))
     saved = _load(tmp_path, 2)
     assert saved["discoveries"]["patterns_found"] == ["p"]
-    assert saved["discoveries"]["gotchas_encountered"] == []
+    assert "gotchas_encountered" not in saved["discoveries"]  # stored as given
 
 
 def test_corrupt_prior_file_skipped(tmp_path):
@@ -256,3 +258,28 @@ def test_save_session_memory_markers(tmp_path, monkeypatch, success):
         assert saved["what_failed"] == []
     else:
         assert saved["what_failed"] == ["Failed to complete subtask: subtask-1"]
+
+
+# --- extractor-shaped discoveries and non-list values -------------------
+
+
+def test_extractor_dict_entry_repeat_dropped(tmp_path):
+    first = {"gotcha": "g", "trigger": "t", "solution": "s", "severity": "low"}
+    reordered = {"severity": "low", "solution": "s", "trigger": "t", "gotcha": "g"}
+    other = {**first, "severity": "high"}
+    save_session_insights(tmp_path, 1, {"discoveries": {"gotchas_discovered": [first]}})
+    save_session_insights(tmp_path, 2, {"discoveries": {"gotchas_discovered": [reordered, other]}})
+    assert _load(tmp_path, 2)["discoveries"]["gotchas_discovered"] == [other]
+
+
+def test_extractor_discoveries_keep_their_keys(tmp_path):
+    extracted = {"file_insights": [{"path": "a.py"}], "recommendations": ["r"]}
+    save_session_insights(tmp_path, 1, {"discoveries": extracted})
+    assert _load(tmp_path, 1)["discoveries"] == extracted
+
+
+def test_non_list_values_stored_as_given(tmp_path):
+    save_session_insights(tmp_path, 1, {"what_worked": "run tests", "discoveries": None})
+    saved = _load(tmp_path, 1)
+    assert saved["what_worked"] == "run tests"
+    assert saved["discoveries"] is None

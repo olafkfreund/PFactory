@@ -131,6 +131,25 @@ AIFactory; the PFactory and TFactory PRs carry copies and link here.
    make `drop_repeats` `return list(candidates)` → drop tests red; restore the
    marker in `memory_manager` → its test red; revert both.
 
+## Deviations during implementation
+
+- **Extractor-shaped discoveries are gated too (final Opus review).** On the
+  main coder path `agents/session.py` passes `analysis/insight_extractor.py`'s
+  output as `discoveries`, whose keys are `patterns_discovered`,
+  `gotchas_discovered` (lists of dicts) and `recommendations` (strings), not
+  `patterns_found`/`gotchas_encountered`. Gating only the planned keys left the
+  busiest path ungated, against the intent's outcome. Those three keys are now
+  gated the same way (same key across sessions, in-list repeats). A dict entry
+  is compared by canonical JSON (`json.dumps(sort_keys=True)`), so key order
+  does not matter and any differing value keeps it. `memory/novelty.py` gains
+  `repeat_key()` for this.
+- **Values are stored as given when they are not lists/dicts.** A gated field
+  holding a string or `None`, or a non-dict `discoveries`, is passed through
+  unchanged (it used to be iterated or raise). `discoveries` keeps exactly the
+  caller's keys; missing keys are no longer filled in.
+- **PFactory/TFactory test files** are the AIFactory tests run through each
+  repo's own ruff (`--fix` and `format`), not byte-identical copies.
+
 ## Tests
 
 - `apps/backend/.venv/bin/python -m pytest tests/test_memory_novelty.py -q` → all pass, each repo.

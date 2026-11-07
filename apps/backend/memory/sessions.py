@@ -17,7 +17,7 @@ from .graphiti_helpers import (
     run_async,
     save_to_graphiti_async,
 )
-from .novelty import drop_repeats
+from .novelty import drop_repeats, repeat_key
 from .paths import get_session_insights_dir
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,15 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
     session_file = insights_dir / f"session_{session_num:03d}.json"
 
     fields = ("what_worked", "recommendations_for_next_session")
-    discovery_fields = ("patterns_found", "gotchas_encountered")
+    # The *_found/*_encountered keys come from QA; the *_discovered and
+    # recommendations keys from analysis/insight_extractor.py (coder path).
+    discovery_fields = (
+        "patterns_found",
+        "gotchas_encountered",
+        "patterns_discovered",
+        "gotchas_discovered",
+        "recommendations",
+    )
     seen: dict[str, set[str]] = {f: set() for f in (*fields, *discovery_fields)}
     for prior_file in insights_dir.glob("session_*.json"):
         if prior_file == session_file:
@@ -77,20 +85,17 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
             for field in names:
                 values = source.get(field, [])
                 if isinstance(values, list):
-                    seen[field].update(
-                        item.strip() for item in values if isinstance(item, str) and item.strip()
-                    )
+                    seen[field].update(k for item in values if (k := repeat_key(item)) is not None)
 
-    discoveries = dict(
-        insights.get(
-            "discoveries",
-            {"files_understood": {}, "patterns_found": [], "gotchas_encountered": []},
-        )
+    discoveries = insights.get(
+        "discoveries",
+        {"files_understood": {}, "patterns_found": [], "gotchas_encountered": []},
     )
-    for field in discovery_fields:
-        discoveries[field] = drop_repeats(
-            discoveries.get(field, []), seen[field], f"discoveries.{field}"
-        )
+    if isinstance(discoveries, dict):
+        discoveries = {
+            k: drop_repeats(v, seen[k], f"discoveries.{k}") if k in seen else v
+            for k, v in discoveries.items()
+        }
 
     # Build complete insight structure
     session_data = {
