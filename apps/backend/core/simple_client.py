@@ -23,9 +23,11 @@ Example usage:
 
 from pathlib import Path
 
-from agents.tools_pkg import get_agent_config, get_default_thinking_level
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+
+from agents.tools_pkg import get_agent_config, get_default_thinking_level
 from core.auth import get_sdk_env_vars, require_auth_token
+from core.child_env import get_agent_env_blanks
 from core.model_config import DEFAULT_UTILITY_MODEL
 from phase_config import get_thinking_budget
 
@@ -98,7 +100,7 @@ def create_simple_client(
             allowed_tools=allowed_tools,
             max_turns=max_turns,
             cwd=str(cwd.resolve()) if cwd else None,
-            env=sdk_env,
+            env={**get_agent_env_blanks(), **sdk_env},
             max_thinking_tokens=max_thinking_tokens,
             permission_mode="bypassPermissions",  # Bypass prompts for headless execution
         )

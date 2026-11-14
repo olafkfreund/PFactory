@@ -137,3 +137,9 @@ Revert the squash commit. The helper is additive; no data or schema changes.
   pattern, and excluding the whole keep set also dropped `NO_PROXY`. An
   opted-in token name still reaches the Claude CLI (blanks) but not a child
   we spawn, unless the site names it in `keep`.
+- Step 5: the `docker compose` calls in `services/orchestrator.py` keep
+  `DOCKER_HOST` (an address, not a credential) so a remote docker daemon
+  still works; the project's startup command keeps nothing.
+- Step 6: the codex site is tested through `_build_subprocess_env()`, where
+  its env is built. The `DATABASE_URL` sentinel is a sqlite URL, because the
+  web-server modules refuse to import with an unparsable one.
