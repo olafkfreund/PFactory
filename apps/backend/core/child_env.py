@@ -91,6 +91,9 @@ _AGENT_ENV_ALLOW = re.compile(
 # an opted-in MCP token). A child we spawn gets one only by naming it in ``keep``.
 _CREDENTIAL_NAME = re.compile(r"(_KEY|_TOKEN)$", re.I)
 _logged_dropped_env_names: set[str] = set()
+# shortcut: a shorter value ("true", "1") is not treated as a secret copy by
+# without_host_secrets; raise it if a real secret can be that short.
+_MIN_SECRET_LEN = 8
 
 
 def is_denied_env_key(name: str) -> bool:
@@ -101,7 +104,10 @@ def is_denied_env_key(name: str) -> bool:
 def is_agent_env_allowed(name: str) -> bool:
     """Runtime names, plus the operator's PFACTORY_AGENT_ENV_EXTRA; never a denied one."""
     extra = {item.strip() for item in os.environ.get("PFACTORY_AGENT_ENV_EXTRA", "").split(",")}
-    return not is_denied_env_key(name) and (bool(_AGENT_ENV_ALLOW.fullmatch(name)) or name in extra)
+    # A pattern match that looks like a credential (NIX_GITHUB_TOKEN) is not
+    # allowed; an operator's explicit opt-in is.
+    by_pattern = bool(_AGENT_ENV_ALLOW.fullmatch(name)) and not _CREDENTIAL_NAME.search(name)
+    return not is_denied_env_key(name) and (by_pattern or name in extra)
 
 
 def _log_dropped(names: Iterable[str]) -> None:
@@ -145,5 +151,9 @@ def child_env(keep: Iterable[str] = (), extra: Mapping[str, str] | None = None) 
 
 def without_host_secrets(env: Mapping[str, str]) -> dict[str, str]:
     """Drop entries whose value is a denied host variable's value (a renamed copy)."""
-    secrets = {value for name, value in os.environ.items() if value and is_denied_env_key(name)}
+    secrets = {
+        value
+        for name, value in os.environ.items()
+        if len(value) >= _MIN_SECRET_LEN and is_denied_env_key(name)
+    }
     return {name: value for name, value in env.items() if value not in secrets}

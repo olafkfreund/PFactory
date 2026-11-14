@@ -89,3 +89,26 @@ def test_child_env_keeps_no_proxy_and_drops_credential_shaped_names(monkeypatch)
     assert "sentinel-claude" not in env.values()
     assert "sentinel-mcp" not in env.values()
     assert get_agent_env_blanks().get("MCP_FOO_TOKEN") is None
+
+
+def test_review_round_2(monkeypatch):
+    from core.child_env import without_host_secrets
+
+    monkeypatch.setenv("NIX_GITHUB_TOKEN", "sentinel-nix-token")
+    monkeypatch.setenv("CLAUDE_CODE_FOO_KEY", "sentinel-foo-key")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sentinel-claude")
+    monkeypatch.setenv("USE_SECRET_STORE", "true")
+    blanks = get_agent_env_blanks()
+    assert blanks["NIX_GITHUB_TOKEN"] == "" and blanks["CLAUDE_CODE_FOO_KEY"] == ""
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in blanks
+    assert without_host_secrets({"FLAG": "true"}) == {"FLAG": "true"}
+
+
+def test_github_probe_prefers_the_dedicated_token(monkeypatch):
+    from core import mcp_credentials
+
+    monkeypatch.setattr(mcp_credentials, "_load_operator_config", lambda: {})
+    monkeypatch.setenv("GITHUB_TOKEN", "sentinel-pod-token")
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "sentinel-mcp-token")
+    status = mcp_credentials._probe_github()
+    assert status.env_vars == {"GITHUB_PERSONAL_ACCESS_TOKEN": "sentinel-mcp-token"}

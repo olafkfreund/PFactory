@@ -304,3 +304,23 @@ def test_insights_provider_env(tmp_path, monkeypatch, module, cls, claude, kept)
     assert_clean(captured["env"], claude=claude)
     if kept:
         assert captured["env"][kept[0]] == kept[1]
+
+
+def test_orchestrator_compose_keeps_docker_connection(monkeypatch, tmp_path):
+    from services.orchestrator import ServiceOrchestrator
+
+    monkeypatch.setenv("DOCKER_HOST", "tcp://docker:2376")
+    monkeypatch.setenv("DOCKER_TLS_VERIFY", "1")
+    seen: list = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append((cmd, kwargs["env"]))
+        return MagicMock(returncode=1, stderr="")
+
+    with patch("subprocess.run", fake_run):
+        assert ServiceOrchestrator(tmp_path)._get_docker_compose_cmd() is None
+    assert [cmd[0] for cmd, _ in seen] == ["docker", "docker-compose"]
+    for _, env in seen:
+        assert_clean(env, claude=False)
+        assert env["DOCKER_HOST"] == "tcp://docker:2376"
+        assert env["DOCKER_TLS_VERIFY"] == "1"
