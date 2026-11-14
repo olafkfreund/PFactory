@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,13 +12,18 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 from server import auth
-from server.database import engine
 from server.routes import project_authz
 from server.services import notification_service as notification_module
 from server.services.notification_service import NotificationService
 from server.services.task_log_writer import TaskLogWriter
 from server.services.task_models import TaskPhase
 from server.websockets import _dispatch, events, relay
+
+
+def _engine():
+    # Resolved at run time: other tests swap server.database.engine in sys.modules,
+    # so an import-time handle goes stale (as in tests/test_ws_acw_auth.py).
+    return importlib.import_module("server.database.engine")
 
 
 @pytest.fixture
@@ -48,7 +54,7 @@ def socket_app(monkeypatch):
             uid = next(iter(stmt.compile().params.values()))
             return SimpleNamespace(all=lambda: memberships[uid])
 
-    monkeypatch.setattr(engine, "async_session_factory", Session)
+    monkeypatch.setattr(_engine(), "async_session_factory", Session)
     monkeypatch.setattr(events, "authenticate_websocket", authenticate)
     monkeypatch.setattr(events, "get_settings", lambda: setting)
     monkeypatch.setattr(project_authz, "get_settings", lambda: setting)
@@ -358,7 +364,7 @@ def test_key_socket_ignores_shadow_mode_and_follows_membership(socket_app, monke
         _emit(client, "own-org", {"projectId": "p-a"})
         assert key.receive_json()["type"] == "own-org"
         # The membership lookup now fails: the next re-check empties the socket's orgs.
-        monkeypatch.setattr(engine, "async_session_factory", _no_database)
+        monkeypatch.setattr(_engine(), "async_session_factory", _no_database)
         key.send_text("wake the receive loop")
         socket = next(iter(events._clients.values()))
         _wait_for_no_orgs(client, socket)
