@@ -21,7 +21,7 @@ Follow the path `org_id` already takes (#968): resolved in the route, passed to 
 - `user` not a dict: both null.
 - `originator`: `user["id"]` when it is a non-empty `str`, the principal is not `is_service`, the id is not `"default"`, and `authored_elsewhere` is false. Otherwise null. Never the email.
 - `agent_identity`: `f"agent:pfactory/{api_key_id}"` when `user["api_key_id"]` is a non-empty `str`. Otherwise null. Independent of `originator`.
-- A value containing a non-printable character (`not value.isprintable()`) is dropped to null: the signature is rendered into documents and CLI output.
+- Values are read with `.get()` (a JWT principal has no `api_key_id`). A value that is blank after `strip()` or contains a non-printable character (`not value.isprintable()`) is null: the signature is written to `.run.json` and printed by the governance CLI.
 
 **4. Three call sites** in the same file pass `**_attribution(_user(request))` to the service:
 
@@ -53,7 +53,7 @@ The MCP proxy routes (`mcp_stdio/router.py`) set `request.state.user` and call t
 ## Verification
 
 - Unit tests for `_attribution`: JWT user gives the id and no agent; `acw_` key user gives both; service principal and `"default"` give null originator; `authored_elsewhere=True` gives null originator and keeps the agent; non-dict, non-string id, empty string and a value with a line break give null; the email is never returned.
-- Route tests (`fastapi.testclient`, the pattern in `tests/test_plan_from_issue_route.py`): `ingest-text` with a keyed principal stores both on the session; `from-issue` with the same principal stores `agent_identity` and a null `originator`.
-- `tests/test_plan_docs_run_signature.py`: a session with both set emits both; the existing all-null case still passes.
-- `PlanSession.model_validate` on a payload without the fields gives null for both.
+- Route tests call the handlers directly, the pattern in `tests/test_plan_from_issue_route.py` (`asyncio.run`, a stub request), with `state.user` added to the stub. No `TestClient`: the auth middleware opens its own database session, which dependency overrides do not reach. Cases: `ingest_text` with a keyed principal stores both on the session; `ingest_upload` with the same principal stores both (covers `ingest_bytes`); `ingest_from_issue` stores `agent_identity` and a null `originator`.
+- Round trip: a session ingested with both keywords set, dumped with `model_dump_json` and reloaded with `PlanSession.model_validate_json`, keeps both. A payload without the fields reloads with both null.
+- `tests/test_plan_docs_run_signature.py`: a session ingested with both keywords emits both in the signature; the existing all-null case still passes.
 - `ruff` and `scripts/ratchet_lint.py` clean for touched files; `tests/test_governance_cli.py`, `tests/test_plan_session_org_scope.py`, `tests/test_mcp_stdio_proxy.py` pass unchanged.
