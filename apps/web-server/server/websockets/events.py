@@ -473,7 +473,8 @@ async def events_websocket(websocket: WebSocket):
         return
 
     client = _register_client(websocket, user_info)
-    key_token = _ws_extract_token(websocket)
+    # Only a key principal carries api_key_id; org-less keys are re-checked too.
+    key_token = _ws_extract_token(websocket) if (user_info or {}).get("api_key_id") else None
     if not key_token or not key_token.startswith("acw_"):
         key_token = None
     last_key_check = time.monotonic()
