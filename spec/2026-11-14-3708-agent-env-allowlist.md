@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: olafkfreund/Factory#3708
 intent: intent/2026-11-14-3708-agent-env-allowlist.md
 ---
