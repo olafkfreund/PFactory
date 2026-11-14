@@ -504,9 +504,9 @@ class InsightsService:
         cmd = [claude_bin, "--print", "--model", model_value, summarization_prompt]
 
         # Scrub ANTHROPIC_API_KEY (OAuth-only policy — see core/auth.py).
-        from ..utils.subprocess_env import make_subprocess_env
+        from ..utils import subprocess_env
 
-        env = make_subprocess_env()
+        env = subprocess_env.child_env(keep=subprocess_env.CLAUDE_KEEP)
         env["PYTHONUNBUFFERED"] = "1"
         env.pop("CLAUDECODE", None)
 

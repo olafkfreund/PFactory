@@ -28,6 +28,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.child_env import child_env
+
+# How the docker client finds its daemon: addresses and paths, not credentials.
+_DOCKER_KEEP = ("DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_CONTEXT")
+
 # =============================================================================
 # DATA CLASSES
 # =============================================================================
@@ -178,7 +183,7 @@ class ServiceOrchestrator:
                     try:
                         port_mapping = str(ports[0])
                         if ":" in port_mapping:
-                            port = int(port_mapping.split(":")[0])
+                            port = int(port_mapping.split(":", maxsplit=1)[0])
                     except (ValueError, IndexError):
                         # Skip malformed port mappings (e.g., environment variables)
                         port = None
@@ -304,6 +309,7 @@ class ServiceOrchestrator:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env=child_env(keep=_DOCKER_KEEP),
             )
 
             if proc.returncode != 0:
@@ -340,6 +346,7 @@ class ServiceOrchestrator:
                         cwd=self.project_dir / service.path if service.path else self.project_dir,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
+                        env=child_env(),
                     )
                     self._processes[service.name] = proc
                     result.services_started.append(service.name)
@@ -373,6 +380,7 @@ class ServiceOrchestrator:
                     cwd=self.project_dir,
                     capture_output=True,
                     timeout=60,
+                    env=child_env(keep=_DOCKER_KEEP),
                 )
         except Exception:
             pass
@@ -398,6 +406,7 @@ class ServiceOrchestrator:
                 ["docker", "compose", "version"],
                 capture_output=True,
                 timeout=5,
+                env=child_env(keep=_DOCKER_KEEP),
             )
             if proc.returncode == 0:
                 return ["docker", "compose", "-f", str(self._compose_file)]
@@ -410,6 +419,7 @@ class ServiceOrchestrator:
                 ["docker-compose", "version"],
                 capture_output=True,
                 timeout=5,
+                env=child_env(keep=_DOCKER_KEEP),
             )
             if proc.returncode == 0:
                 return ["docker-compose", "-f", str(self._compose_file)]

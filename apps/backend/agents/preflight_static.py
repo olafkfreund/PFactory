@@ -46,6 +46,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from core.child_env import child_env
+
 logger = logging.getLogger(__name__)
 
 
@@ -212,7 +214,7 @@ def check_import(
     else:
         script = _INTROSPECT_SCRIPT_FROM.format(module=imp.module, name=imp.name)
 
-    env = os.environ.copy()
+    env = child_env()
     if project_dir is not None:
         existing = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{project_dir}{os.pathsep}{existing}" if existing else str(project_dir)

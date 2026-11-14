@@ -42,6 +42,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from typing import Any
 
+from core.child_env import child_env
 from providers import BaseLLMProvider
 from providers._gemini_cli import get_gemini_binary
 from providers.auth_policy import scrub_api_keys
@@ -167,7 +168,7 @@ class GeminiAgenticProvider(BaseLLMProvider):
         # Subscription-only policy (default ON): strip GEMINI/GOOGLE API keys from
         # the subprocess env so the CLI uses the operator's Antigravity/Gemini
         # login, never metered API billing. Opt out: PFACTORY_ALLOW_API_KEYS=1.
-        env = scrub_api_keys(dict(os.environ), "gemini")
+        env = scrub_api_keys(child_env(keep=("GEMINI_API_KEY", "GOOGLE_API_KEY")), "gemini")
 
         proc: asyncio.subprocess.Process | None = None
         try:
