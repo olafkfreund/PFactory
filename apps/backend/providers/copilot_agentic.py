@@ -37,6 +37,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from typing import Any
 
+from core.child_env import child_env
 from providers import BaseLLMProvider
 from providers.types import AssistantMessage, TextBlock
 
@@ -162,6 +163,7 @@ class CopilotAgenticProvider(BaseLLMProvider):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(self._working_dir) if self._working_dir else None,
+            env=child_env(keep=("COPILOT_GITHUB_TOKEN",)),
         )
         try:
             stdout_b, stderr_b = await asyncio.wait_for(
