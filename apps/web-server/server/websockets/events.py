@@ -384,6 +384,8 @@ async def events_websocket(websocket: WebSocket):
                     select(OrgMember.org_id).where(OrgMember.user_id == user_info["id"])
                 )
                 client.org_ids = {row[0] for row in result.all()}
+                if user_info.get("org_id"):
+                    client.org_ids &= {user_info["org_id"]}
         except Exception:
             logger.debug("Could not load org memberships for WS client", exc_info=True)
 
