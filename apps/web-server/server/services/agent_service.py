@@ -1120,14 +1120,15 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             / spec_id
         )
         worktree_spec_dir.mkdir(parents=True, exist_ok=True)
-        log_writer = TaskLogWriter(worktree_spec_dir, task_id=task_id)
+        _log_pid = task_id.split(":", 1)[0] if ":" in task_id else None
+        log_writer = TaskLogWriter(worktree_spec_dir, task_id=task_id, project_id=_log_pid)
         if task_log_store.enabled():
             spawn(task_log_store.prune())
 
         # Also write to main spec dir for immediate visibility
         main_spec_dir = project_path / ".pfactory" / "specs" / spec_id
         main_spec_dir.mkdir(parents=True, exist_ok=True)
-        main_log_writer = TaskLogWriter(main_spec_dir)
+        main_log_writer = TaskLogWriter(main_spec_dir, project_id=_log_pid)
 
         # Store log writers for cleanup
         self._task_log_writers[task_id] = (log_writer, main_log_writer)

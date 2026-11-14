@@ -402,6 +402,14 @@ async def _deliver_local_to_org(
     await asyncio.gather(*(_evict_client(ws) for ws in disconnected), return_exceptions=True)
 
 
+async def emit_org_less(principal: object, event_type: str, payload: dict[str, Any]) -> None:
+    """Send an org-less event to the human who started it, else to service clients."""
+    if isinstance(principal, dict) and principal.get("id") and not principal.get("is_service"):
+        await send_to_user(str(principal["id"]), event_type, payload)
+    else:
+        await send_to_org(SERVICE_ONLY_ORG, event_type, payload)
+
+
 async def send_to_org(org_id: str, event_type: str, payload: dict):
     """Send an event only to members of a specific organization.
 
@@ -631,7 +639,7 @@ async def emit_profile_switch(task_id: str, switch_data: dict):
     await broadcast_event("task:profile-switch", {"taskId": task_id, **switch_data})
 
 
-async def emit_task_logs_stream(spec_id: str, chunk: dict):
+async def emit_task_logs_stream(spec_id: str, chunk: dict, project_id: str | None = None):
     """Emit a task log chunk for real-time streaming to open task detail modals.
 
     This event streams individual log entries as they're added to task_logs.json,
@@ -659,7 +667,10 @@ async def emit_task_logs_stream(spec_id: str, chunk: dict):
         sanitize_log(chunk_type),
         sanitize_log(content_preview),
     )
-    await broadcast_event("task-logs:stream", {"specId": spec_id, "chunk": chunk})
+    payload: dict[str, Any] = {"specId": spec_id, "chunk": chunk}
+    if project_id:
+        payload["projectId"] = project_id
+    await broadcast_event("task-logs:stream", payload)
 
 
 async def emit_subtask_update(

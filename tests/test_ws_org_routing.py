@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -14,6 +15,8 @@ from server.database import engine
 from server.routes import project_authz
 from server.services import notification_service as notification_module
 from server.services.notification_service import NotificationService
+from server.services.task_log_writer import TaskLogWriter
+from server.services.task_models import TaskPhase
 from server.websockets import _dispatch, events, relay
 
 
@@ -279,3 +282,46 @@ def test_key_revocation_closes_socket(socket_app, monkeypatch, failure):
         with pytest.raises(Exception) as exc:
             ws.receive_text()
         assert getattr(exc.value, "code", None) == 4001
+
+
+def test_task_log_writer_stream_carries_project_id(socket_app, tmp_path):
+    app, _ = socket_app
+    writer = TaskLogWriter(tmp_path, project_id="p-a")
+
+    async def add_and_flush():
+        writer.add_entry("001-x", TaskPhase.CODING, "text", "hi")
+        await asyncio.sleep(0.2)
+
+    with TestClient(app) as client, _connect(client, "jwt-a") as a, _connect(client, "jwt-b") as b:
+        client.portal.call(add_and_flush)
+        received = a.receive_json()
+        assert received["type"] == "task-logs:stream"
+        assert received["payload"]["projectId"] == "p-a"
+        _emit(client, "sentinel", {"projectId": "p-b"})
+        assert b.receive_json()["type"] == "sentinel"
+
+
+@pytest.mark.parametrize("event", ["cli-account-auth", "github:auth-complete"])
+def test_org_less_login_events_follow_the_starting_principal(socket_app, event):
+    app, _ = socket_app
+    with (
+        TestClient(app) as client,
+        _connect(client, "jwt-owner") as owner,
+        _connect(client, "jwt-b") as other,
+        _connect(client, "acw_a") as key,
+        _connect(client, "shared") as service,
+    ):
+        client.portal.call(events.emit_org_less, {"id": "owner"}, event, {"ok": True})
+        assert owner.receive_json()["type"] == event
+        client.portal.call(
+            events.emit_org_less, {"id": "default", "is_service": True}, event, {"n": 2}
+        )
+        assert service.receive_json()["payload"] == {"n": 2}
+        client.portal.call(events.emit_org_less, None, event, {"n": 3})
+        assert service.receive_json()["payload"] == {"n": 3}
+        # Sentinels prove nothing else was queued ahead of them.
+        client.portal.call(events.send_to_org, "B", "sentinel", {})
+        assert other.receive_json()["type"] == "sentinel"
+        client.portal.call(events.send_to_org, "A", "sentinel", {})
+        assert key.receive_json()["type"] == "sentinel"
+        assert owner.receive_json()["type"] == "sentinel"
