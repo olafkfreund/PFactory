@@ -294,7 +294,9 @@ def _may_receive(client: ConnectedClient, org: str | None, shadow: bool = False)
     if not shadow or _jwt_strict():
         return strict_ok
     if not strict_ok:
-        logger.debug("ws would drop %s for user %s", org, client.user_id)
+        logger.debug(
+            "ws would drop %s for user %s", sanitize_log(org), sanitize_log(client.user_id)
+        )
     return True
 
 
@@ -383,7 +385,7 @@ async def _deliver_local_to_org(
 ) -> None:
     """Send an event to members of an org connected to THIS pod.
 
-    Falls back to broadcast for legacy (non-JWT) connections so they
+    Service (non-JWT) connections receive every org's events so they
     aren't excluded. Sends CONCURRENTLY — see `_deliver_local_broadcast` for
     why.
     """
@@ -436,8 +438,31 @@ def update_client_orgs(user_id: str, org_ids: set[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
+async def _load_org_ids(client: ConnectedClient, user_info: dict[str, Any] | None) -> None:
+    """Load the user's org memberships for routing; a failed lookup leaves none."""
+    if not (user_info and user_info.get("id")):
+        return
+    try:
+        from sqlalchemy import select
+
+        from ..database import OrgMember
+        from ..database.engine import async_session_factory
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(OrgMember.org_id).where(OrgMember.user_id == user_info["id"])
+            )
+            org_ids = {row[0] for row in result.all()}
+            if user_info.get("org_id"):
+                org_ids &= {user_info["org_id"]}
+            client.org_ids = org_ids
+    except Exception:
+        client.org_ids = set()
+        logger.debug("Could not load org memberships for WS client", exc_info=True)
+
+
 @router.websocket("/ws/events")
-async def events_websocket(websocket: WebSocket):  # noqa: PLR0912 - socket lifecycle
+async def events_websocket(websocket: WebSocket):
     """WebSocket endpoint for global events."""
     await websocket.accept()
 
@@ -453,23 +478,7 @@ async def events_websocket(websocket: WebSocket):  # noqa: PLR0912 - socket life
         key_token = None
     last_key_check = time.monotonic()
 
-    # If authenticated user, load their org memberships for routing
-    if user_info and user_info.get("id"):
-        try:
-            from sqlalchemy import select
-
-            from ..database import OrgMember
-            from ..database.engine import async_session_factory
-
-            async with async_session_factory() as session:
-                result = await session.execute(
-                    select(OrgMember.org_id).where(OrgMember.user_id == user_info["id"])
-                )
-                client.org_ids = {row[0] for row in result.all()}
-                if user_info.get("org_id"):
-                    client.org_ids &= {user_info["org_id"]}
-        except Exception:
-            logger.debug("Could not load org memberships for WS client", exc_info=True)
+    await _load_org_ids(client, user_info)
 
     try:
         # Keep connection alive and listen for pings
@@ -480,6 +489,8 @@ async def events_websocket(websocket: WebSocket):  # noqa: PLR0912 - socket life
                         await websocket.close(code=4001)
                         break
                     last_key_check = time.monotonic()
+                    # A key socket also follows its owner's current membership.
+                    await _load_org_ids(client, user_info)
                 data = await asyncio.wait_for(
                     websocket.receive_text(), timeout=_RECEIVE_POLL_INTERVAL
                 )
