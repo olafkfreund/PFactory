@@ -128,3 +128,12 @@ branch time; find the code by the quoted text if they moved.
 ## Rollback
 
 Revert the squash commit. The helper is additive; no data or schema changes.
+
+## Deviations
+
+- Step 1: `child_env` also drops allowed names that end in `_KEY` or `_TOKEN`
+  (AIFactory's `_CREDENTIAL_NAME` rule) instead of excluding `CLAUDE_KEEP`
+  by name. `CLAUDE_CODE_OAUTH_TOKEN` matches the `CLAUDE_CODE_*` allow
+  pattern, and excluding the whole keep set also dropped `NO_PROXY`. An
+  opted-in token name still reaches the Claude CLI (blanks) but not a child
+  we spawn, unless the site names it in `keep`.
