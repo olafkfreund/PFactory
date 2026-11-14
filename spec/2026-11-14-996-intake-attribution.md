@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 996
 intent: intent/2026-11-14-996-intake-attribution.md
 ---
