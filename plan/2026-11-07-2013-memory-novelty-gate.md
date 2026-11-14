@@ -149,6 +149,16 @@ AIFactory; the PFactory and TFactory PRs carry copies and link here.
   caller's keys; missing keys are no longer filled in.
 - **PFactory/TFactory test files** are the AIFactory tests run through each
   repo's own ruff (`--fix` and `format`), not byte-identical copies.
+- **Fable final review, 2026-11-14 (two fixes).** The `gotchas.md` split now
+  matches only the `## [YYYY-MM-DD HH:MM]` header `record_gotcha` writes, so a
+  gotcha that contains its own `## [..]` line is one entry. A `discoveries`
+  key is gated only if it is one of the five discovery fields, so a key named
+  like a top-level field (`what_worked`) no longer shares that field's set.
+  Known and not changed here: session numbers restart per run and QA reuses
+  them (AIFactory `agents/coder.py`, `qa/reviewer.py`, `qa/fixer.py`), so an
+  overwritten `session_NNN.json` can remove the only stored copy of an item a
+  later session dropped as a repeat; and the gate does not run when Graphiti
+  is the primary store (`memory_manager.py` returns before the file save).
 
 ## Tests
 

@@ -283,3 +283,18 @@ def test_non_list_values_stored_as_given(tmp_path):
     saved = _load(tmp_path, 1)
     assert saved["what_worked"] == "run tests"
     assert saved["discoveries"] is None
+
+
+def test_discoveries_key_named_like_top_level_field_not_gated(tmp_path):
+    data = _insights("what_worked", ["x"])
+    data["discoveries"]["what_worked"] = ["x"]
+    save_session_insights(tmp_path, 1, data)
+    saved = _load(tmp_path, 1)
+    assert saved["what_worked"] == ["x"]
+    assert saved["discoveries"]["what_worked"] == ["x"]
+
+
+def test_gotcha_with_non_timestamp_header_line_not_split(tmp_path, record_gotcha):
+    record_gotcha("See:\n## [config]\nfoo")
+    assert record_gotcha("foo").startswith("Recorded gotcha")
+    assert record_gotcha("See:\n## [config]\nfoo").startswith("Gotcha already recorded")
