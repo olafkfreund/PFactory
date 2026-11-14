@@ -155,6 +155,12 @@ def test_user_events_require_matching_org_for_key(socket_app):
             events.send_to_user, "owner", "notification:new", {"data": {"org_id": "A"}}
         )
         assert key.receive_json()["payload"]["data"]["org_id"] == "A"
+        # Membership gone (failed lookup or removal): the key socket gets nothing.
+        events.update_client_orgs("owner", set())
+        client.portal.call(events.send_to_user, "owner", "dropped", {"org_id": "A"})
+        events.update_client_orgs("owner", {"A"})
+        client.portal.call(events.send_to_user, "owner", "sentinel", {"org_id": "A"})
+        assert key.receive_json()["type"] == "sentinel"
 
 
 def test_notify_org_overrides_untrusted_data(socket_app, monkeypatch):
@@ -219,7 +225,7 @@ def test_flag_tracks_rest_dependency_on_open_socket(socket_app, monkeypatch):
         execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None)),
     )
     request = Request({"type": "http"})
-    request.state.user = {"id": "owner"}
+    request.state.user = {"id": "a-only"}
     checker = project_authz.ProjectAccessChecker()
     with TestClient(app) as client, _connect(client, "jwt-a") as ws:
         setting.RBAC_ENFORCE_TASK_ROUTES = False
@@ -260,11 +266,12 @@ def test_event_org_cache_expiry_and_reassignment(monkeypatch):
     assert events._event_org({"projectId": "p"}) == "B"
 
 
+@pytest.mark.parametrize("org", ["A", None])
 @pytest.mark.parametrize("failure", [False, True])
-def test_key_revocation_closes_socket(socket_app, monkeypatch, failure):
+def test_key_revocation_closes_socket(socket_app, monkeypatch, failure, org):
     app, _ = socket_app
     monkeypatch.setattr(events, "_KEY_RECHECK_SECONDS", 0)
-    principal = {"id": "owner", "org_id": "A", "api_key_id": "key"}
+    principal = {"id": "owner", "api_key_id": "key"} | ({"org_id": org} if org else {})
     if failure:
         monkeypatch.setattr(
             auth,
