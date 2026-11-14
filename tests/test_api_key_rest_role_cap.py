@@ -79,7 +79,7 @@ def env(tmp_path, monkeypatch):
 def _auth():
     from server import auth as auth_mod  # noqa: PLC0415
 
-    return asyncio.run(auth_mod._try_authenticate_api_key(RAW))
+    return asyncio.run(auth_mod._try_authenticate_personal_key(RAW))
 
 
 @pytest.mark.usefixtures("env")

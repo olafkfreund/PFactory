@@ -208,7 +208,7 @@ class NotificationService:
         list[Notification]
             The list of created notifications (one per member).
         """
-        merged_data = {"org_id": org_id, **(data or {})}
+        merged_data = {**(data or {}), "org_id": org_id}
         member_user_ids: list[str] = []
 
         try:
