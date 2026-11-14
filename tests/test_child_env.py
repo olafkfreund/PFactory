@@ -91,7 +91,7 @@ def test_child_env_keeps_no_proxy_and_drops_credential_shaped_names(monkeypatch)
     assert get_agent_env_blanks().get("MCP_FOO_TOKEN") is None
 
 
-def test_review_round_2(monkeypatch):
+def test_blanks_cover_credential_names_and_short_values_are_not_secrets(monkeypatch):
     from core.child_env import without_host_secrets
 
     monkeypatch.setenv("NIX_GITHUB_TOKEN", "sentinel-nix-token")

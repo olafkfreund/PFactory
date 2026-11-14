@@ -151,3 +151,9 @@ Revert the squash commit. The helper is additive; no data or schema changes.
   existed. `get_agent_env_blanks` also blanks credential-shaped names the
   allow pattern admits (`NIX_GITHUB_TOKEN`), and `without_host_secrets`
   ignores values shorter than 8 characters.
+- The pre-commit hook's ruff autofix made a few behaviour-neutral edits in
+  touched files (import order, `asyncio.TimeoutError` to `TimeoutError`,
+  `split(":", maxsplit=1)`). They are not part of any step.
+- Not done here, added to Factory#3709: a catalog MCP server whose
+  credential was just dropped (pod `GITHUB_TOKEN`, Azure secret, in-cluster
+  Kubernetes, AWS role) is still started and its calls fail.

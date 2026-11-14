@@ -39,6 +39,8 @@ def seeded_env(monkeypatch):
     for name in ("OPENAI_API_KEY", "CODEX_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("PFACTORY_ALLOW_API_KEYS", raising=False)
+    monkeypatch.delenv("PFACTORY_AGENT_ENV_EXTRA", raising=False)
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
 
 
 def assert_clean(env, *, claude: bool) -> None:
@@ -205,7 +207,7 @@ def test_orchestrator_children_env(tmp_path):
     envs: list = []
 
     def fake_run(cmd, **kwargs):
-        envs.append(kwargs["env"])
+        envs.append(kwargs.get("env"))
         return MagicMock(returncode=1 if "up" in cmd else 0, stderr="")
 
     orch = ServiceOrchestrator(tmp_path)
@@ -217,13 +219,13 @@ def test_orchestrator_children_env(tmp_path):
     orch._services = [ServiceConfig(name="svc", type="local", startup_command="true")]
 
     def fake_popen(cmd, **kwargs):
-        envs.append(kwargs["env"])
+        envs.append(kwargs.get("env"))
         return MagicMock()
 
     with patch("subprocess.Popen", fake_popen):
         orch._start_local_services(1)
 
-    assert len(envs) >= 4
+    assert len(envs) == 5  # two version probes, up, down, the startup command
     for env in envs:
         assert_clean(env, claude=False)
 
