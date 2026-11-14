@@ -43,7 +43,9 @@ async def _dispatch_to_user(data: dict[str, Any]) -> None:
 
 
 async def _dispatch_to_org(data: dict[str, Any]) -> None:
-    await events._deliver_local_to_org(data["org_id"], data["event_type"], data["payload"])
+    await events._deliver_local_to_org(
+        data["org_id"], data["event_type"], data["payload"], bool(data.get("shadow"))
+    )
 
 
 async def _dispatch_task_log(data: dict[str, Any]) -> None:
