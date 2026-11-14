@@ -23,7 +23,9 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
-from core.child_env import CLAUDE_KEEP, child_env  # noqa: E402,F401  (re-exported)
+from core.child_env import CLAUDE_KEEP, child_env  # noqa: E402
+
+__all__ = ["CLAUDE_KEEP", "child_env", "make_subprocess_env"]
 
 # Env vars we explicitly strip from subprocess environments to prevent
 # silent direct-API billing. Keep this list narrow — anything not in here
