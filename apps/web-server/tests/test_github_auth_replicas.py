@@ -10,6 +10,7 @@ import asyncio
 import shutil
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -38,9 +39,12 @@ def spawns(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, ...]]:
     return calls
 
 
+_REQUEST: Any = SimpleNamespace(state=SimpleNamespace(user=None))
+
+
 def _start() -> Any:
     try:
-        return asyncio.run(github_routes.start_github_auth())  # type: ignore[no-untyped-call]
+        return asyncio.run(github_routes.start_github_auth(_REQUEST))  # type: ignore[no-untyped-call]
     except _SpawnedError:
         return None
 

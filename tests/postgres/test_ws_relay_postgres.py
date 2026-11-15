@@ -164,8 +164,8 @@ def test_two_relays_one_database_deliver_only_to_the_other(test_postgres_url: st
 
 
 class _FakeWebSocket:
-    """A fake locally-connected client, registered directly in
-    `events.active_connections` — the real local-delivery data structure,
+    """A fake locally-connected client, registered through
+    `events._register_client` — the real local-delivery data structure,
     not a stand-in for it."""
 
     def __init__(self) -> None:
@@ -180,7 +180,9 @@ def _e2e_listener_worker(url: str, ready: mp.synchronize.Event, results: mp.Queu
     os.environ["DATABASE_URL"] = url
 
     ws = _FakeWebSocket()
-    events.active_connections.add(ws)
+    # A service client (no principal): delivery now reads `_clients`, not the
+    # legacy `active_connections` set alone (Factory#3679).
+    events._register_client(ws, None)
 
     async def _run() -> None:
         await relay.start_listener(_dispatch.dispatch)  # THE production dispatch table

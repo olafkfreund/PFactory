@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path as FilePath
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -796,7 +796,7 @@ def _replica_count() -> int:
         return 1
 
 
-async def _monitor_gh_auth(proc: asyncio.subprocess.Process):
+async def _monitor_gh_auth(proc: asyncio.subprocess.Process, principal: object = None):
     """Monitor gh auth login process in background and broadcast result."""
     global _gh_auth_status, _gh_auth_proc
     import logging
@@ -838,15 +838,15 @@ async def _monitor_gh_auth(proc: asyncio.subprocess.Process):
 
     # Broadcast completion via WebSocket
     try:
-        from ..websockets.events import broadcast_event
+        from ..websockets.events import emit_org_less
 
-        await broadcast_event("github:auth-complete", _gh_auth_status)
+        await emit_org_less(principal, "github:auth-complete", _gh_auth_status)
     except Exception:
         pass
 
 
 @router.post("/auth/start")
-async def start_github_auth():
+async def start_github_auth(request: Request):
     """Start GitHub CLI authentication flow using device code.
 
     Returns the device code and URL immediately so the user can complete
@@ -939,7 +939,7 @@ async def start_github_auth():
             }
 
         # Start background monitor for process completion
-        spawn(_monitor_gh_auth(proc))
+        spawn(_monitor_gh_auth(proc, getattr(request.state, "user", None)))
 
         return {
             "success": True,

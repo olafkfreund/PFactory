@@ -178,6 +178,9 @@ def invalidate_project_cache(project_dir: Path | None = None) -> None:
                 logger.debug(f"Invalidated project index cache for {project_dir}")
 
 
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk.types import HookMatcher
+
 from agents.tools_pkg import (
     AI_FACTORY_TOOLS,
     CONTEXT7_TOOLS,
@@ -188,9 +191,11 @@ from agents.tools_pkg import (
     get_required_mcp_servers,
     is_tools_available,
 )
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
-from claude_agent_sdk.types import HookMatcher
 from core.auth import get_sdk_env_vars, require_auth_token
+from core.child_env import (  # noqa: E402 - late like the imports around it
+    get_agent_env_blanks,
+    without_host_secrets,
+)
 from prompts_pkg.project_context import (
     detect_infra_markers,
     detect_project_capabilities,
@@ -830,7 +835,14 @@ def create_client(
                 if entry.credential_provider
                 else None
             )
-            mcp_servers[entry.id] = entry.build_server_config(creds, read_only=True)
+            server_config = entry.build_server_config(creds, read_only=True)
+            if isinstance(server_config.get("env"), dict):
+                safe_env = without_host_secrets(server_config["env"])
+                if safe_env:
+                    server_config["env"] = safe_env
+                else:
+                    del server_config["env"]
+            mcp_servers[entry.id] = server_config
     except ImportError as exc:
         print(f"   - MCP catalog unavailable ({exc}); catalog servers skipped")
 
@@ -915,7 +927,7 @@ def create_client(
         "max_turns": 1000,
         "cwd": str(project_dir.resolve()),
         "settings": str(settings_file.resolve()),
-        "env": sdk_env,  # Pass ANTHROPIC_BASE_URL etc. to subprocess
+        "env": {**get_agent_env_blanks(), **sdk_env},  # Pass ANTHROPIC_BASE_URL etc. to subprocess
         "permission_mode": "bypassPermissions",  # Bypass all permission prompts for headless execution
         "max_buffer_size": 10
         * 1024
@@ -983,10 +995,9 @@ def create_client(
     # session shows up in the user's claude.ai/code session list and the
     # mobile app, so they can drive the same conversation from anywhere.
     #
-    # Caller is responsible for env scrubbing (CLAUDE_CODE_OAUTH_TOKEN,
-    # ANTHROPIC_AUTH_TOKEN) so the subprocess falls back to the
-    # full-scope ~/.claude/.credentials.json. See agent_service.py for
-    # that scrubbing — it must happen at subprocess spawn time, not here.
+    # The SDK env blanks host variables outside the allowlist (core/child_env.py).
+    # Scrubbing CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_AUTH_TOKEN so the CLI falls
+    # back to ~/.claude/.credentials.json is still the caller's job (agent_service.py).
     if remote_control_session:
         existing_extra = dict(options_kwargs.get("extra_args") or {})
         existing_extra["remote-control"] = remote_control_session

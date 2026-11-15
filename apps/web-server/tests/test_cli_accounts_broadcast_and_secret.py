@@ -108,10 +108,10 @@ async def test_broadcast_does_not_leave_the_server_loop_behind() -> None:
     server_loop = asyncio.get_running_loop()
     seen: list[tuple[asyncio.AbstractEventLoop, str, dict[str, object]]] = []
 
-    async def _capture(event_type: str, payload: dict[str, object]) -> None:
+    async def _capture(_org_id: str, event_type: str, payload: dict[str, object]) -> None:
         seen.append((asyncio.get_running_loop(), event_type, payload))
 
-    with patch("server.websockets.events.broadcast_event", _capture):
+    with patch("server.websockets.events.send_to_org", _capture):
         await asyncio.wait_for(
             asyncio.to_thread(ca._broadcast_cli_auth_event, "codex", False, server_loop),
             timeout=10,
@@ -129,7 +129,7 @@ def test_pollers_take_the_server_loop() -> None:
     """
     for poller in (ca._poll_codex_token, ca._poll_gemini_token):
         params = list(inspect.signature(poller).parameters)
-        assert params == ["mtime_before", "loop"], (
+        assert params[:2] == ["mtime_before", "loop"], (
             f"{poller.__name__} must receive the server's event loop"
         )
 
