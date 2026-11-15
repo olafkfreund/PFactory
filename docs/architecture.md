@@ -10,9 +10,9 @@ nav_order: 7
 PFactory is the **feasibility & governance gate** between an AI plan and execution.
 It takes a plan — including the output of spec-authoring tools (GitHub Spec-Kit,
 AWS Kiro, BMAD-METHOD) — grounds it in your **live cloud**, proves it is
-*buildable and affordable* before any code (cost · IAM access · quotas), gates it on
-architecture / security / best-practice / feasibility lenses, takes one human
-approval, and emits governed, execution-ready GitHub issues. Each of the eight
+*buildable and affordable* before any code (cost · IAM access · quotas), reviews it with
+six mandatory lenses (architecture, security, compliance, best-practice, feasibility, completeness) plus an adversarial red-team lens, takes one human
+approval, and emits governed, execution-ready GitHub issues. Each of the ten
 stages is a self-contained unit with a clear input and output, so the plan can be
 inspected, reviewed, and audited at every step.
 
@@ -31,7 +31,7 @@ Human-approval → Emit`
 | 5 | **Decompose** | Turn the plan into an epic + child issues with dependencies (`EpicPlan`). A per-project **constitution** (if declared) is injected here and hard-checked against the result. (RFC-0015.) |
 | 6 | **Synthesize** | For software: generate a Testing Strategy and a CI/CD pipeline definition, each as a doc plus a dedicated child issue. |
 | 7 | **Deployment derivation** | Derive a `deployment` block on the Task Contract from the recon inventory — how and where the work is expected to run — so the contract a builder and tester receive targets the right environment. (RFC-0013; the live deploy-then-verify loop runs as a dry-run lane in the wider program.) |
-| 8 | **Feasibility + Review-gates** | **Feasibility:** price the proposed resource shape through the real cloud pricing APIs (AWS Price List · Azure Retail · GCP Catalog, static fallback), run `iam:SimulatePrincipalPolicy` for the actions the plan implies (grant/deny per action), and roll up a calibrated effort band — *before any code exists*. **Gates:** architecture / security / best-practice / feasibility lenses plus an adversarial **Red Team** lens that attacks the spec for missing failure modes, unstated assumptions, and criteria a broken build could satisfy — a hybrid of deterministic policy-as-code (Checkov · OPA · cloud-native policy via MCP) and LLM reviewers, scored against a threshold. An over-budget or access-denied plan routes to a human — it never silently blocks. (Red Team: RFC-0015.) |
+| 8 | **Feasibility + Review-gates** | **Feasibility:** price the proposed resource shape through the real cloud pricing APIs (AWS Price List · Azure Retail · GCP Catalog, static fallback), run `iam:SimulatePrincipalPolicy` for the actions the plan implies (grant/deny per action), and roll up a calibrated effort band — *before any code exists*. **Gates:** the six mandatory lenses (architecture, security, compliance, best-practice, feasibility, completeness) plus an adversarial **Red Team** lens (enabled by default in the extension registry, seven lenses in all). The Red Team lens attacks the spec for missing failure modes, unstated assumptions, and criteria a broken build could satisfy. The lenses are a hybrid of deterministic policy-as-code (Checkov · OPA · cloud-native policy via MCP) and LLM reviewers, scored against a threshold; a **hard readiness gate** then runs on top of the lens score. An over-budget or access-denied plan routes to a human — it never silently blocks. (Red Team: RFC-0015.) |
 | 9 | **Human-approval** | A single human approval gate. Gates must pass first; any edit to the plan invalidates the approval (content-hash check). |
 | 10 | **Emit** | Create the GitHub epic + child issues (the durable source of truth) and hand off to AIFactory — by writing a `requirements.json`, triggering its API, or via a labelled issue. PFactory can also emit spec-kit-compatible spec / plan / tasks Markdown (RFC-0015). A completion event is emitted on every terminal session, gated on evidence (see below). |
 
@@ -82,7 +82,7 @@ Human-approval → Emit`
 `chore`), and `depends_on` — a list of sibling keys forming the dependency graph.
 This makes the plan a directed acyclic graph (validated for dangling deps,
 self-deps, and cycles before emission) that is **public on the session API**.
-[CFactory](https://github.com/olafkfreund/CFactory) consumes it to render the plan
+[CFactory](https://cfactory.freundcloud.com/) consumes it to render the plan
 stage of its live execution diagram as a dependency graph, without any
 PFactory-side change for the diagram — the data was already exposed.
 
@@ -117,9 +117,9 @@ PFactory sits **downstream** of spec-authoring tools (GitHub Spec-Kit, AWS Kiro,
 BMAD-METHOD) — it *consumes* their spec rather than competing with them; they stop
 at text, PFactory grounds and governs it — and **upstream** of any execution agent.
 Within the suite it **plans & governs**,
-[AIFactory](https://github.com/olafkfreund/AIFactory) **executes** the emitted
-issues, and TFactory **tests** the result — `plan → build → test`, governed end to
-end. The emitted GitHub issues are agent-agnostic: AIFactory, the Copilot coding
+[AIFactory](https://aifactory.freundcloud.com/) **executes** the emitted
+issues, and [TFactory](https://tfactory.freundcloud.com/) **tests** the result — `plan → build → test`, governed end to
+end, with [CFactory](https://cfactory.freundcloud.com/) watching all four. The emitted GitHub issues are agent-agnostic: AIFactory, the Copilot coding
 agent, Devin, or a human can pick them up.
 
 The full design spec lives in
