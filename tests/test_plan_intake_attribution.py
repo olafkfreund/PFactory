@@ -57,6 +57,8 @@ def test_jwt_user_uses_id_never_email() -> None:
     result = pp._attribution({"id": "u-1", "email": "a@b.c", "role": "user"})
     assert result == {"originator": "u-1", "agent_identity": None}
     assert "a@b.c" not in str(result)
+    # No id: null, not the email (AIFactory falls back to it; PFactory must not).
+    assert pp._attribution({"email": "a@b.c", "role": "user"})["originator"] is None
 
 
 def test_key_user_has_both() -> None:
