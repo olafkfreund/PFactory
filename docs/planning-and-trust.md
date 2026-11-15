@@ -87,8 +87,7 @@ the same `flake.nix` — see the hub guide "Reproducible test environments".
 Before a contract is emitted, the plan passes through two orthogonal layers
 (`plan/review/gates.py`):
 
-1. A **scored multi-lens review** (architecture, security, feasibility, testing, cicd;
-   code lenses apply only to software plans) plus a **deterministic rules engine** and
+1. A **scored multi-lens review** (feasibility, architecture, security, compliance, best-practices, completeness, plus red-team; seven lenses in all) plus a **deterministic rules engine** and
    external policy (OPA / Checkov) for secrets, public exposure, missing resource
    limits, rollback, and feasibility (cost/effort/access).
 2. A **hard readiness/completeness report** (`plan/review/readiness/checks.py`) that is

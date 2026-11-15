@@ -92,7 +92,7 @@ audit-trailed gate a requirement, not a nicety.
 
 PFactory is most valuable as the first node of the **PARR line** — Plan, Author,
 Run, Review — where each stage is a separate, governed product and a single
-**correlation key** (the GitHub issue number) threads the whole story:
+**correlation key** (repo-scoped, `<repo>#<n>`) threads the whole story:
 
 ```
 PFactory  -->  AIFactory  -->  TFactory  -->  CFactory

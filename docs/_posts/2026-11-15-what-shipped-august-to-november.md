@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "What shipped in PFactory, August to November 2026"
-subtitle: "Several replicas on a shared store, org-scoped access control (mostly in shadow mode), a seventh review lens, audit evidence, and a round of security fixes. Some of it is off by default, and the post says which."
+subtitle: "Several replicas on a shared store, org-scoped access control (mostly in shadow mode), seven review lenses running today, audit evidence, and a round of security fixes. Some of it is off by default, and the post says which."
 date: 2026-11-15 09:00:00 +0000
 author: DataSeek Team
 ---
@@ -11,7 +11,7 @@ PFactory has had [26 releases](https://github.com/olafkfreund/PFactory/releases)
 from [v0.6.17](https://github.com/olafkfreund/PFactory/releases/tag/v0.6.17)
 (2026-09-03) to [v0.6.42](https://github.com/olafkfreund/PFactory/releases/tag/v0.6.42)
 (2026-10-31). Nothing was tagged between 10 August and 2 September, and nothing
-has been tagged since 31 October. Some items in
+has been tagged since 31 October (see the [release list](https://github.com/olafkfreund/PFactory/releases)). Some items in
 [v0.6.19](https://github.com/olafkfreund/PFactory/releases/tag/v0.6.19) were
 merged earlier than the tag date, because the notes call them previously
 unversioned on `main`.
@@ -91,11 +91,14 @@ separate step.
 
 Six lenses always run: feasibility, architecture, security, compliance,
 best-practices and completeness. A seventh, red-team, is added when the
-extension registry enables it, and it is enabled by default. The compliance
+extension registry enables it, and it is enabled by default. The red-team lens
+is not new in this window: it shipped in June
+([RFC-0015](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0015-spec-driven-interop-and-validated-gap-features.md),
+[#216](https://github.com/olafkfreund/PFactory/issues/216)). The compliance
 lens is marked mandatory in the registry and cannot be switched off there
 ([v0.6.20](https://github.com/olafkfreund/PFactory/releases/tag/v0.6.20),
 [#682](https://github.com/olafkfreund/PFactory/issues/682)). Earlier copy on this
-site and in the README said four.
+site and in the README said four, which was out of date.
 
 Other review changes:
 

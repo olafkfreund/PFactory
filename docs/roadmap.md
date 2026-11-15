@@ -50,7 +50,7 @@ The write-up is in
   ([v0.6.38](https://github.com/olafkfreund/PFactory/releases/tag/v0.6.38),
   [v0.6.41](https://github.com/olafkfreund/PFactory/releases/tag/v0.6.41),
   [v0.6.42](https://github.com/olafkfreund/PFactory/releases/tag/v0.6.42)).
-- **Plan review** — seven review lenses, and a plan whose worked example
+- **Plan review** — seven review lenses run today (red-team shipped in June), and a plan whose worked example
   contradicts its own invariant is blocked
   ([v0.6.19](https://github.com/olafkfreund/PFactory/releases/tag/v0.6.19),
   [#402](https://github.com/olafkfreund/PFactory/issues/402)).
