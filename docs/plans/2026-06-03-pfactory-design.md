@@ -30,7 +30,7 @@ dedicated planning-and-governance layer *in front of* the execution agents that
 (a) enriches plans with live org context, (b) runs architecture/security/
 best-practice/feasibility gates, and (c) emits governed, execution-ready issues.
 That is PFactory's position: **the trust & context layer before AIFactory.** Full
-analysis in [`../market-positioning.md`](../market-positioning.md).
+analysis in [`../market-positioning.md`](/market-positioning/).
 
 ## Architecture — planning pipeline
 
