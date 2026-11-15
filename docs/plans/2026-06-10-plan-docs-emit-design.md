@@ -39,7 +39,7 @@ targets + the registry) is generic; once shipped here, TFactory emits its
 
 ## 2. Why (the key insight)
 
-The Backstage instance (`p510`) runs `builder/generator/publisher: 'local'`: it
+The Backstage instance (on the operator host) runs `builder/generator/publisher: 'local'`: it
 runs `mkdocs build` from the repo checkout on first Docs-tab view (cached
 `ttlMinutes: 1440`). Therefore **repo Markdown + an imported catalog entity =
 live Backstage docs.** "Emit to repo" and "emit to Backstage" are the *same*
@@ -195,7 +195,7 @@ rest** via `crypto.encrypted_string.EncryptedString`.
   `routes/llm_endpoints.py`.
 - **Frontend** `components/settings/sections/DocsTargetsSettings.tsx` — a new
   Settings section ("Documentation Targets") with two sub-forms:
-  - **Backstage:** base URL (e.g. `https://p510…/backstage`), API token, a
+  - **Backstage:** base URL (e.g. `<backstage-url>`), API token, a
     **Test** button (`GET {base}/api/catalog/entities?limit=1`), enable-by-default.
   - **Confluence:** base URL, API token, space key, **Test** button
     (`GET {base}/wiki/rest/api/space/{space}`), enable-by-default.
@@ -232,7 +232,7 @@ Two surfaces, one key (`correlation_key`):
 | `PFACTORY_DOCS_EMIT` | off | master switch for the docs emit stage |
 | `PFACTORY_DOCS_GIT_WRITE` | off | actually commit the repo docs (else dry-run diff) |
 | `PFACTORY_DOCS_BACKSTAGE` | off | run the Backstage refresh/sync target |
-| `BACKSTAGE_BASE_URL` | — | e.g. `https://p510.tail833f7.ts.net/backstage` |
+| `BACKSTAGE_BASE_URL` | — | e.g. `<backstage-url>` |
 | `PFACTORY_DOCS_CONFLUENCE` | off | run the Confluence target |
 | `CONFLUENCE_BASE_URL` / `CONFLUENCE_API_TOKEN` / `CONFLUENCE_SPACE` | — | Confluence target |
 | `PFACTORY_DOCS_DIR` | `techdocs/plans` | doc output dir (override for tests) |

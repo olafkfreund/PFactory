@@ -11,7 +11,7 @@ nav_order: 1
     Hand PFactory a project plan — uploaded as docx / pdf / markdown, or via the
     MCP control plane, the CLI, or a GitHub issue. PFactory enriches it with your
     <strong>live</strong> org and cloud context, decomposes it, runs
-    architecture / security / best-practice / feasibility gates, and emits
+    a set of review lenses and a hard readiness gate, and emits
     governed <strong>GitHub epics + child issues</strong> that AIFactory executes.
   </p>
   <p>
@@ -33,7 +33,7 @@ nav_order: 1
 
 {% include pipeline-diagram.html %}
 
-> **Part of the [Factory family](https://factory.freundcloud.com/)** — a governed, verified, observable autonomous software factory. **PFactory** plans · [AIFactory](https://aifactory.freundcloud.com/) builds · [TFactory](https://tfactory.freundcloud.com/) verifies · [CFactory](https://github.com/olafkfreund/CFactory) watches over all four. → **[Why Factory](https://factory.freundcloud.com/why/)**
+> **Part of the [Factory family](https://factory.freundcloud.com/)** — a governed, verified, observable autonomous software factory. **PFactory** plans · [AIFactory](https://aifactory.freundcloud.com/) builds · [TFactory](https://tfactory.freundcloud.com/) verifies · [CFactory](https://cfactory.freundcloud.com/) watches over all four. → **[Why Factory](https://factory.freundcloud.com/why/)**
 
 ## See it in action
 
@@ -46,13 +46,12 @@ nav_order: 1
 </video>
 
 <p style="opacity:0.8;margin-top:0.75rem;">
-  <em>Ingest a plan → process → review across architecture · security · compliance · best-practice · feasibility · completeness lenses →
-  red-team / adversarial pass → board → approve →
+  <em>Ingest a plan → process → review across seven lenses (architecture · security · compliance · best-practice · feasibility · completeness · red-team) → board → approve →
   <strong>emit tagged GitHub epics + issues</strong>. Captured from the live portal.</em>
 </p>
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0.75rem;margin-top:1.25rem;">
-{% assign shots = "20-board:Plans on the board,21-board-list:Plans in the list view,22-plan-needs-attention:A plan flagged needs-attention,23-plan-done:A verified, governed plan,29-index-memory:Code-aware project index,27-mcp:MCP servers per agent" | split: "," %}
+{% assign shots = "20-board:Plans on the board,21-board-list:Plans in the list view,22-plan-needs-attention:A plan flagged needs-attention,23-plan-done:A verified and governed plan,29-index-memory:Code-aware project index,27-mcp:MCP servers per agent" | split: "," %}
 {% for s in shots %}{% assign p = s | split: ":" %}
   <a href="{{ '/static/img/screenshots/' | append: p[0] | append: '.png' | relative_url }}" title="{{ p[1] }}">
     <img src="{{ '/static/img/screenshots/' | append: p[0] | append: '.png' | relative_url }}" alt="{{ p[1] }}"
@@ -95,7 +94,7 @@ AI velocity **with** human-grade governance, grounded in your real infrastructur
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 240ms">
     <h3>Govern, then hand off</h3>
-    <p>Mandatory <strong>architecture / security / compliance / best-practice / feasibility / completeness</strong> lenses, a <strong>hard readiness gate</strong> (hash-bound waivers) honouring your SpecKit <strong>constitution</strong>, and one human approval — then emit a <strong>signed Task Contract</strong> + governed issues for AIFactory.</p>
+    <p>Mandatory <strong>architecture / security / compliance / best-practice / feasibility / completeness</strong> lenses plus an adversarial <strong>red-team</strong> lens (seven in all), a <strong>hard readiness gate</strong> (hash-bound waivers) honouring your SpecKit <strong>constitution</strong>, and one human approval — then emit a <strong>signed Task Contract</strong> + governed issues for AIFactory.</p>
   </li>
 </ul>
 
@@ -125,8 +124,8 @@ status to whatever agent builds from the plan. All opt-in, all additive.
 
 <div class="reveal" markdown="1">
 
-PFactory is the third factory in the suite — **plan → build → test**, governed
-end to end:
+PFactory is the planning stage of the suite — **plan → build → test**, watched
+by CFactory and governed end to end:
 
 </div>
 
@@ -137,8 +136,9 @@ end to end:
 | Factory | Role |
 |---|---|
 | **PFactory** | **Plans &amp; governs** — ingest, enrich, decompose, review, emit issues |
-| [AIFactory](https://github.com/olafkfreund/AIFactory) | **Executes** — spec → plan → code → QA on the emitted issues |
-| TFactory | **Tests** — generates &amp; runs tests on the built code |
+| [AIFactory](https://aifactory.freundcloud.com/) | **Executes** — spec → plan → code → QA on the emitted issues |
+| [TFactory](https://tfactory.freundcloud.com/) | **Tests** — generates &amp; runs tests on the built code |
+| [CFactory](https://cfactory.freundcloud.com/) | **Watches** — the cockpit over all four |
 
 </div>
 
@@ -147,11 +147,11 @@ end to end:
 <ul class="feature-row">
   <li class="feature-row__card reveal" style="--reveal-delay: 0ms">
     <h3><a href="{{ '/architecture/' | relative_url }}">Architecture</a></h3>
-    <p>The eight-stage planning pipeline and how it transforms inputs into governed issues.</p>
+    <p>The planning pipeline and how it transforms inputs into governed issues.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 70ms">
     <h3><a href="{{ '/roadmap/' | relative_url }}">Roadmap</a></h3>
-    <p>Phases P0–P8, the epic, and the 26 child issues that build PFactory.</p>
+    <p>Phases P0–P8, what shipped from August to November 2026, and what is next.</p>
   </li>
   <li class="feature-row__card reveal" style="--reveal-delay: 140ms">
     <h3><a href="{{ '/market-positioning/' | relative_url }}">Positioning</a></h3>
@@ -167,5 +167,5 @@ end to end:
 
 - **Epic + sub-issues** → [github.com/olafkfreund/PFactory/issues](https://github.com/olafkfreund/PFactory/issues)
 - **Source** → [github.com/olafkfreund/PFactory](https://github.com/olafkfreund/PFactory)
-- **Executes the plans** → [github.com/olafkfreund/AIFactory](https://github.com/olafkfreund/AIFactory)
+- **Executes the plans** → [AIFactory](https://aifactory.freundcloud.com/)
 - **License** → [MIT OR GPL-3.0](https://github.com/olafkfreund/PFactory/blob/main/LICENSE)

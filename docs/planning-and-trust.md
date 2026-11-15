@@ -56,8 +56,8 @@ What is deterministic vs model-driven (stated plainly):
 - Lane selection, framework choice, the environment manifest, the access block, and the
   RFC-0013 deployment block are deterministic derivations from the plan and the recon
   RepoMap (`plan/emit/*`, `plan/recon/*`).
-- The review gate runs the architecture / security / best-practice / feasibility lenses
-  plus an adversarial **Red Team** lens (RFC-0015) that attacks the spec rather than
+- The review gate runs seven lenses (architecture, security, compliance,
+  best-practice, feasibility, completeness, plus an adversarial **Red Team** lens) (RFC-0015) that attacks the spec rather than
   confirming it; its findings surface alongside the others before the single human
   approval, not after the build. A per-project **constitution**, if declared, is injected
   into decomposition and hard-checked against the emitted plan.
