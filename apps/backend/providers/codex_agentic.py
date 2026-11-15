@@ -30,13 +30,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 import shutil
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from typing import Any
 
+from core.child_env import child_env
 from providers import BaseLLMProvider
 from providers.auth_policy import scrub_api_keys
 from providers.types import AssistantMessage, TextBlock
@@ -178,7 +178,7 @@ class CodexAgenticProvider(BaseLLMProvider):
         operator's ChatGPT login, never metered API billing. Opt out with
         ``PFACTORY_ALLOW_API_KEYS=1``.
         """
-        env = scrub_api_keys(dict(os.environ), "codex")
+        env = scrub_api_keys(child_env(keep=("OPENAI_API_KEY", "CODEX_API_KEY")), "codex")
         api_key = env.get("OPENAI_API_KEY", "").strip()
         if not api_key:
             return env

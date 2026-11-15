@@ -31,6 +31,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from core.child_env import child_env
 from providers.types import ToolResultBlock
 from security.tool_input_validator import validate_tool_input
 
@@ -341,6 +342,7 @@ class ToolExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._working_dir),
+                env=child_env(),
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=float(timeout))
         except TimeoutError:
@@ -442,6 +444,7 @@ class ToolExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._working_dir),
+                env=child_env(),
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
         except TimeoutError:

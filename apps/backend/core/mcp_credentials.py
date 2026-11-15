@@ -109,15 +109,11 @@ def _file_exists(path_str: str | None) -> bool:
 
 def _probe_github() -> CredentialStatus:
     op = _load_operator_config().get("github") or {}
-    token_env = op.get("tokenEnv") or "GITHUB_TOKEN"
-    token = _resolve_env(token_env)
-    if token:
-        return CredentialStatus(
-            available=True,
-            source=f"env:{token_env}",
-            env_vars={"GITHUB_PERSONAL_ACCESS_TOKEN": token},
-        )
-    for fallback in ("GITHUB_PERSONAL_ACCESS_TOKEN", "GH_TOKEN"):
+    # The dedicated MCP token comes before the pod's GITHUB_TOKEN: the agent env
+    # drops a copy of the control-plane token (core/child_env.py, #3708).
+    names = ("GITHUB_PERSONAL_ACCESS_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+    token_env = op.get("tokenEnv")
+    for fallback in (token_env, *names) if token_env else names:
         token = _resolve_env(fallback)
         if token:
             return CredentialStatus(

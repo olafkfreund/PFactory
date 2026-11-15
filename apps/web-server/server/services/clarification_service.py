@@ -8,7 +8,6 @@ Uses the same `claude --print` pattern as InsightsService.generate_task_from_cha
 import asyncio
 import json
 import logging
-import os
 import re
 import shutil
 from pathlib import Path
@@ -163,9 +162,9 @@ async def generate_clarification_questions(
     cmd = [claude_bin, "--print", "--model", "haiku", prompt]
 
     # Scrub ANTHROPIC_API_KEY (OAuth-only policy — see core/auth.py).
-    from ..utils.subprocess_env import make_subprocess_env
+    from ..utils import subprocess_env
 
-    env = make_subprocess_env()
+    env = subprocess_env.child_env(keep=subprocess_env.CLAUDE_KEEP)
     env["PYTHONUNBUFFERED"] = "1"
     env.pop("CLAUDECODE", None)
 
@@ -215,7 +214,7 @@ async def generate_clarification_questions(
 
         return safe_default
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("[ClarificationService] Timed out (60s)")
         return safe_default
     except Exception as e:
