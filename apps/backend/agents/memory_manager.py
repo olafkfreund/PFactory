@@ -374,9 +374,8 @@ async def save_session_memory(
             logger.warning(f"Graphiti save failed: {e}, falling back to file-based")
             if is_debug_enabled():
                 debug_error("memory", "Graphiti save failed", error=str(e))
-    else:
-        if is_debug_enabled():
-            debug("memory", "Graphiti not enabled, skipping to FALLBACK")
+    elif is_debug_enabled():
+        debug("memory", "Graphiti not enabled, skipping to FALLBACK")
 
     # FALLBACK: File-based memory (when Graphiti is disabled or fails)
     if is_debug_enabled():

@@ -1549,7 +1549,11 @@ async def test_broadcast_event_delivers_locally_before_publishing(monkeypatch) -
     async def fake_publish(_kind: str, _data: dict) -> None:
         order.append("publish")
 
-    monkeypatch.setattr(events, "_deliver_local_broadcast", fake_deliver)
+    monkeypatch.setattr(
+        events,
+        "_deliver_local_to_org",
+        lambda _org, event_type, payload, shadow=False: fake_deliver(event_type, payload),
+    )
     monkeypatch.setattr(relay, "publish", fake_publish)
 
     await events.broadcast_event("task:test", {"x": 1})
