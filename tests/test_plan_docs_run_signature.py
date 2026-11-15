@@ -379,3 +379,13 @@ def test_the_git_write_target_commits_the_signature_too(processed):
     registry = json.loads(written["techdocs/plans/registry.json"])
     row = next(r for r in registry["plans"].values() if r["plan_id"] == bundle.plan_id)
     assert f"techdocs/plans/{row['signature_file']}" in written
+
+
+def test_signature_carries_intake_attribution(service):
+    session = service.ingest_text(
+        _PLAN, title="Refund API", originator="u-1", agent_identity="agent:pfactory/k-1"
+    )
+    sig = render_plan_docs(service.process(session.session_id)).run_signature
+
+    assert sig["originator"] == "u-1"
+    assert sig["agent_identity"] == "agent:pfactory/k-1"

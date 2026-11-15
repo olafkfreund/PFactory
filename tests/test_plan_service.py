@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -14,7 +15,7 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
-from plan.service import PlanService, PlanServiceError  # noqa: E402
+from plan.service import PlanService, PlanServiceError, PlanSession  # noqa: E402
 
 _SOFTWARE_PLAN = """# Refund API
 Add a REST API endpoint to the payments microservice with auth and a Kubernetes
@@ -233,3 +234,27 @@ def test_an_unusable_store_is_resolved_once_not_per_service(monkeypatch):
 
     assert len(built) == 1, "the store was rebuilt per call"
     assert built[0].closed is True, "the unusable store was not closed"
+
+
+def test_ingest_bytes_stamps_originator_and_agent_identity():
+    session = PlanService(persist=False).ingest_bytes(
+        _SOFTWARE_PLAN.encode(),
+        filename="plan.md",
+        originator="u-1",
+        agent_identity="agent:pfactory/k-1",
+    )
+    assert session.originator == "u-1"
+    assert session.agent_identity == "agent:pfactory/k-1"
+
+
+def test_attribution_round_trips_and_old_payloads_load_as_none():
+    session = PlanService(persist=False).ingest_text(
+        _SOFTWARE_PLAN, originator="u-1", agent_identity="agent:pfactory/k-1"
+    )
+    reloaded = PlanSession.model_validate_json(session.model_dump_json())
+    assert (reloaded.originator, reloaded.agent_identity) == ("u-1", "agent:pfactory/k-1")
+
+    payload = json.loads(session.model_dump_json())
+    del payload["originator"], payload["agent_identity"]
+    old = PlanSession.model_validate(payload)
+    assert old.originator is None and old.agent_identity is None
