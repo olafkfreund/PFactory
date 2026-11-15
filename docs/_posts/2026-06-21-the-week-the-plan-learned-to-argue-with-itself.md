@@ -20,7 +20,7 @@ The review gates have always read a spec the way a reviewer would — architectu
 security, best-practice, feasibility. The trouble with a friendly reviewer is that
 it reads the spec the way the author meant it. An attacker does not.
 
-[RFC-0015](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0015-speckit-informed-planning.md)
+[RFC-0015](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0015-spec-driven-interop-and-validated-gap-features.md)
 landed an **adversarial "Red Team" spec-review lens** (PFactory #216) that does the
 opposite of confirming the plan. It looks for the missing failure mode, the
 unstated assumption, the acceptance criterion that is satisfiable by a broken
@@ -73,7 +73,7 @@ Picking the model per phase used to be a capability decision: hard phases got th
 strong model, simple phases got the fast one. This week added **cost** to that
 decision.
 
-[RFC-0014](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0014-cost-aware-model-routing.md)
+[RFC-0014](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0014-cost-aware-model-and-runtime-routing.md)
 shipped **cost-aware model routing with effort-free scoring** (#208–#211). Each
 phase is routed to a model chosen on a score that weighs capability against price,
 rather than a hardcoded per-complexity default. The Settings dialog's agent
@@ -85,7 +85,7 @@ the routing is the new default when you do not.
 Everything above is moot if PFactory can only plan one project at a time. This
 week laid the durable foundation for concurrency.
 
-[RFC-0016](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0016-concurrency-and-scaling.md)
+[RFC-0016](https://github.com/olafkfreund/Factory/blob/main/docs/rfc/0016-horizontal-concurrent-execution.md)
 moved PFactory off single-instance assumptions:
 
 - **Durable Postgres job-state with multi-replica admission (#217).** Plan job

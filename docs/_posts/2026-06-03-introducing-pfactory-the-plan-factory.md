@@ -17,7 +17,7 @@ the year is the opposite: **the gap between what agents can generate and what te
 can confidently verify.** The bottleneck isn't typing code anymore — it's trust.
 
 **PFactory is the missing front of the chain.** It's the third factory in the
-suite: [AIFactory](https://github.com/olafkfreund/AIFactory) executes tasks,
+suite: [AIFactory](https://aifactory.freundcloud.com/) executes tasks,
 TFactory tests them, and **PFactory plans them** — as a deliberate, reviewable,
 *governed* step before any agent writes a line.
 

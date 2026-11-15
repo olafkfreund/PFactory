@@ -56,8 +56,8 @@ What is deterministic vs model-driven (stated plainly):
 - Lane selection, framework choice, the environment manifest, the access block, and the
   RFC-0013 deployment block are deterministic derivations from the plan and the recon
   RepoMap (`plan/emit/*`, `plan/recon/*`).
-- The review gate runs the architecture / security / best-practice / feasibility lenses
-  plus an adversarial **Red Team** lens (RFC-0015) that attacks the spec rather than
+- The review gate runs seven lenses (architecture, security, compliance,
+  best-practice, feasibility, completeness, plus an adversarial **Red Team** lens) (RFC-0015) that attacks the spec rather than
   confirming it; its findings surface alongside the others before the single human
   approval, not after the build. A per-project **constitution**, if declared, is injected
   into decomposition and hard-checked against the emitted plan.
@@ -87,8 +87,7 @@ the same `flake.nix` — see the hub guide "Reproducible test environments".
 Before a contract is emitted, the plan passes through two orthogonal layers
 (`plan/review/gates.py`):
 
-1. A **scored multi-lens review** (architecture, security, feasibility, testing, cicd;
-   code lenses apply only to software plans) plus a **deterministic rules engine** and
+1. A **scored multi-lens review** (feasibility, architecture, security, compliance, best-practices, completeness, plus red-team; seven lenses in all) plus a **deterministic rules engine** and
    external policy (OPA / Checkov) for secrets, public exposure, missing resource
    limits, rollback, and feasibility (cost/effort/access).
 2. A **hard readiness/completeness report** (`plan/review/readiness/checks.py`) that is

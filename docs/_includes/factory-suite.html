@@ -1,11 +1,11 @@
-<!-- Factory-suite flow: PFactory → AIFactory → TFactory, with animated
+<!-- Factory-suite flow: PFactory → AIFactory → TFactory → CFactory, with animated
      activity rings, flowing connectors, and task "packages" handed down the
      line. CSS-only motion (see .fsuite in pfactory.css); honours
      prefers-reduced-motion. Gruvbox palette via the --fc per-node accent. -->
-<section class="fsuite reveal" aria-label="The Factory suite: plan, build, test">
+<section class="fsuite reveal" aria-label="The Factory suite: plan, build, test, watch">
   <header class="fsuite__header">
-    <h2 class="fsuite__title">One task, three factories</h2>
-    <span class="fsuite__caption">plan&nbsp;→&nbsp;build&nbsp;→&nbsp;test</span>
+    <h2 class="fsuite__title">One task, four factories</h2>
+    <span class="fsuite__caption">plan&nbsp;→&nbsp;build&nbsp;→&nbsp;test&nbsp;→&nbsp;watch</span>
   </header>
 
   <div class="fsuite__flow" role="list">
@@ -97,6 +97,35 @@
       <p class="fsuite__name">TFactory</p>
       <p class="fsuite__role">Verifies with tests</p>
       <span class="fsuite__chip">test</span>
+    </article>
+
+    <!-- connector: TFactory → CFactory -->
+    <div class="fsuite__link" aria-hidden="true">
+      <span class="fsuite__line"></span>
+      <span class="fsuite__pkg fsuite__pkg--1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 8.2 12 3 3 8.2l9 5.2 9-5.2z"/><path d="M3 8.2v7.6l9 5.2 9-5.2V8.2"/><path d="M12 13.4v8"/>
+        </svg>
+      </span>
+    </div>
+
+    <!-- ── CFactory · Watch ────────────────────────────────────────── -->
+    <article class="fsuite__node" role="listitem" style="--fc:#d3869b">
+      <div class="fsuite__ring">
+        <svg class="fsuite__ring-svg" viewBox="0 0 96 96" aria-hidden="true">
+          <circle class="fsuite__ring-track" cx="48" cy="48" r="42"/>
+          <circle class="fsuite__ring-arc" cx="48" cy="48" r="42"/>
+        </svg>
+        <span class="fsuite__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/>
+            <circle cx="12" cy="12" r="2.8"/>
+          </svg>
+        </span>
+      </div>
+      <p class="fsuite__name">CFactory</p>
+      <p class="fsuite__role">Watches over all four</p>
+      <span class="fsuite__chip">watch</span>
     </article>
 
   </div>

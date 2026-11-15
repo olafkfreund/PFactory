@@ -23,7 +23,7 @@ documented, be verifiable. It is only fair that the gate hold itself to it.
 
 ### Counting the cost — RFC-0001 token usage
 
-[CFactory](https://github.com/olafkfreund/CFactory), the cockpit watching over the
+[CFactory](https://cfactory.freundcloud.com/), the cockpit watching over the
 Factory family, has a **Tokens & cost** page that attributes LLM spend per service.
 Until now PFactory showed up there as *"not instrumented yet."* No longer.
 
