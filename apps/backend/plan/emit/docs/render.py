@@ -163,8 +163,8 @@ def _run_signature(
         "controls_basis": "gates-engaged" if controls is not None else None,
         "control_catalog_version": control_catalog.get("version") if control_catalog else None,
         "change_id": None,
-        "originator": None,
-        "agent_identity": None,
+        "originator": session.originator,
+        "agent_identity": session.agent_identity,
         "model_route": None,
         # Zero tokens means the deterministic path ran — NOT that nothing ran.
         "tokens": session.usage.model_dump() if session.usage else {},

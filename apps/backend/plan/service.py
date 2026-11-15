@@ -107,6 +107,9 @@ class PlanSession(BaseModel):
     tenant_id: str = "default"
     # #968: the session's org, stamped at intake from its project; None = derive at read time.
     org_id: str | None = None
+    # Factory#1960: who started the session, stamped at intake; None = unknown.
+    originator: str | None = None
+    agent_identity: str | None = None
     # RFC-0010: the target repo this plan changes, captured at ingest so the
     # reconnaissance stage (Phase 2) can read it during process(). Today `repo`
     # was only known at emit; threading it here lets planning be code-aware.
@@ -909,6 +912,8 @@ class PlanService:
         origin_issue_number: int | None = None,
         tenant_id: str = "default",
         org_id: str | None = None,
+        originator: str | None = None,
+        agent_identity: str | None = None,
     ) -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title, seq=self._next_seq())
         # RFC-0011: carry the label-driven difficulty tier from intake so process()
@@ -917,6 +922,8 @@ class PlanService:
         session = self._store(plan)
         session.tenant_id = tenant_id or "default"  # #308: stamp at intake
         session.org_id = org_id or None  # #968: stamp at intake
+        session.originator = originator or None
+        session.agent_identity = agent_identity or None
         session.selected_category = category
         session.selected_template = template
         session.repo = repo or None  # RFC-0010: target repo for reconnaissance
@@ -945,6 +952,8 @@ class PlanService:
         autonomy_tier: str | None = None,
         tenant_id: str = "default",
         org_id: str | None = None,
+        originator: str | None = None,
+        agent_identity: str | None = None,
     ) -> PlanSession:
         plan = ingest_bytes(
             data,
@@ -957,6 +966,8 @@ class PlanService:
         session = self._store(plan)
         session.tenant_id = tenant_id or "default"  # #308: stamp at intake
         session.org_id = org_id or None  # #968: stamp at intake
+        session.originator = originator or None
+        session.agent_identity = agent_identity or None
         session.original_filename = filename  # preserve for honouring the doc (#D)
         session.selected_category = category
         session.selected_template = template
