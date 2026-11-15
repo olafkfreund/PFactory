@@ -285,11 +285,12 @@ def _may_receive(client: ConnectedClient, org: str | None, shadow: bool = False)
 
     Explicit ``send_to_org`` sends stay members-only in every mode, as before.
     """
-    if client.user_id is None:
-        return True
+    # Key rule first: an org-bound key with no owner must not pass as a service client.
     if client.key_org_id is not None:
         # Also needs live membership: a failed lookup or a removed owner gets nothing.
         return org is not None and org == client.key_org_id and org in client.org_ids
+    if client.user_id is None:
+        return True
     strict_ok = org is not None and org in client.org_ids
     if not shadow or _jwt_strict():
         return strict_ok

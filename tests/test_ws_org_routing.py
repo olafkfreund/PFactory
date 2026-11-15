@@ -82,6 +82,9 @@ def test_project_events_reach_only_their_org(socket_app):
         assert b.receive_json()["payload"]["status"] == "done"
         _emit(client, "task:status", {"taskId": "p-a:001", "status": "ready"})
         assert a.receive_json()["payload"]["status"] == "ready"
+        # A sentinel proves A's event was not queued for B ahead of it.
+        client.portal.call(events.send_to_org, "B", "sentinel", {})
+        assert b.receive_json()["type"] == "sentinel"
 
 
 def test_service_and_bound_key(socket_app):
@@ -388,3 +391,75 @@ def test_broadcast_relays_shadow_flag_and_dispatch_honours_it(socket_app):
         lenient = {"org_id": "B", "event_type": "lenient", "payload": {}, "shadow": True}
         client.portal.call(_dispatch.dispatch, "ws:org", lenient)
         assert ws.receive_json()["type"] == "lenient"
+
+
+def test_legacy_broadcast_reaches_jwt_sockets_only_in_shadow_mode(socket_app):
+    app, setting = socket_app
+    setting.RBAC_ENFORCE_TASK_ROUTES = False
+    with (
+        TestClient(app) as client,
+        _connect(client, "acw_a") as key,
+        _connect(client, "jwt-a") as jwt,
+    ):
+        client.portal.call(_dispatch.dispatch, "ws:broadcast", {"event_type": "old", "payload": {}})
+        assert jwt.receive_json()["type"] == "old"
+        setting.RBAC_ENFORCE_TASK_ROUTES = True
+        client.portal.call(_dispatch.dispatch, "ws:broadcast", {"event_type": "old", "payload": {}})
+        # Neither the strict JWT socket nor the key socket (in either mode) got one.
+        client.portal.call(events.send_to_org, "A", "sentinel", {})
+        assert jwt.receive_json()["type"] == "sentinel"
+        assert key.receive_json()["type"] == "sentinel"
+
+
+def test_login_emitters_route_by_starting_principal(socket_app, monkeypatch):
+    from server.routes import cli_accounts, github
+
+    app, _ = socket_app
+    monkeypatch.setattr(github, "_gh_auth_status", {})
+    monkeypatch.setattr(github, "_gh_auth_proc", None)
+
+    async def run_cli(principal):
+        await asyncio.to_thread(
+            cli_accounts._broadcast_cli_auth_event,
+            "codex",
+            True,
+            asyncio.get_running_loop(),
+            principal,
+        )
+
+    class FailedProc:
+        returncode = 1
+
+        async def wait(self):
+            return 1
+
+    service_principal = {"id": "default", "is_service": True}
+    with (
+        TestClient(app) as client,
+        _connect(client, "jwt-owner") as owner,
+        _connect(client, "jwt-b") as other,
+        _connect(client, "acw_a") as key,
+        _connect(client, "shared") as service,
+    ):
+        client.portal.call(run_cli, {"id": "owner"})
+        assert owner.receive_json()["type"] == "cli-account-auth"
+        client.portal.call(github._monitor_gh_auth, FailedProc(), {"id": "owner"})
+        assert owner.receive_json()["type"] == "github:auth-complete"
+        client.portal.call(run_cli, service_principal)
+        assert service.receive_json()["type"] == "cli-account-auth"
+        client.portal.call(github._monitor_gh_auth, FailedProc(), service_principal)
+        assert service.receive_json()["type"] == "github:auth-complete"
+        # Sentinels prove nothing else was queued ahead of them.
+        client.portal.call(events.send_to_org, "B", "sentinel", {})
+        assert other.receive_json()["type"] == "sentinel"
+        client.portal.call(events.send_to_org, "A", "sentinel", {})
+        assert key.receive_json()["type"] == "sentinel"
+        assert owner.receive_json()["type"] == "sentinel"
+        client.portal.call(events.send_to_org, events.SERVICE_ONLY_ORG, "sentinel", {})
+        assert service.receive_json()["type"] == "sentinel"
+
+
+def test_org_bound_key_without_owner_is_not_a_service_client():
+    client = events.ConnectedClient(websocket=None, user_id=None, key_org_id="A")  # type: ignore[arg-type]
+    assert not events._may_receive(client, "B")
+    assert not events._may_receive(client, None, shadow=True)
