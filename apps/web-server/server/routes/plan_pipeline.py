@@ -198,6 +198,30 @@ def _user(request: Request) -> dict[str, Any] | None:
     return getattr(getattr(request, "state", None), "user", None)
 
 
+def _attribution(user: object, *, authored_elsewhere: bool = False) -> dict[str, str | None]:
+    """Extract known intake identities without guessing from email or issue authorship."""
+    if not isinstance(user, dict):
+        return {"originator": None, "agent_identity": None}
+    user_id = user.get("id")
+    key_id = user.get("api_key_id")
+    originator = (
+        user_id
+        if isinstance(user_id, str)
+        and user_id.strip()
+        and user_id.isprintable()
+        and user_id != "default"
+        and not user.get("is_service")
+        and not authored_elsewhere
+        else None
+    )
+    agent_identity = (
+        f"agent:pfactory/{key_id}"
+        if isinstance(key_id, str) and key_id.strip() and key_id.isprintable()
+        else None
+    )
+    return {"originator": originator, "agent_identity": agent_identity}
+
+
 def _projects_for(user: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     try:
         projects = project_paths.load_projects()
@@ -288,6 +312,7 @@ async def ingest_text(
             base_ref=body.base_ref,
             tenant_id=resolve_tenant(request),  # #308
             org_id=org_id,  # #968
+            **_attribution(_user(request)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
@@ -328,6 +353,7 @@ async def ingest_from_issue(
             origin_issue_number=body.issue_number,
             tenant_id=resolve_tenant(request),  # #308
             org_id=org_id,  # #968
+            **_attribution(_user(request), authored_elsewhere=True),
         )
     except ValueError as exc:  # SpecSourceError subclasses ValueError
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
@@ -362,6 +388,7 @@ async def ingest_upload(
             base_ref=base_ref,
             tenant_id=resolve_tenant(request),  # #308
             org_id=org_id,  # #968
+            **_attribution(_user(request)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
