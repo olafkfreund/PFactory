@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 996
 spec: spec/2026-11-14-996-intake-attribution.md
 coders:
