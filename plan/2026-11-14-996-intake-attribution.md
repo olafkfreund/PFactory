@@ -33,7 +33,7 @@ PFactory#996, part of olafkfreund/Factory#1960. Base branch `dev`.
    - `apps/backend/plan/service.py:898-931` (`ingest_text`) and `:933-966` (`ingest_bytes`): add keyword-only `originator: str | None = None, agent_identity: str | None = None` after `org_id`; stamp `session.originator = originator or None` and `session.agent_identity = agent_identity or None` right after the `session.org_id = ...` line (919, 959), before `self._save(session)`.
    - `apps/backend/plan/emit/docs/render.py:166-167`: `"originator": session.originator,` and `"agent_identity": session.agent_identity,`.
    - Tests: in `tests/test_plan_docs_run_signature.py` add a test that ingests through `service.ingest_text(..., originator="u-1", agent_identity="agent:pfactory/k-1")`, processes, and asserts both in `render_plan_docs(...).run_signature`; leave `test_governance_fields_are_honest_when_absent` as is. In `tests/test_plan_service.py` add: `ingest_bytes` with both keywords stamps both; a session with both set survives `PlanSession.model_validate_json(session.model_dump_json())`; a dumped payload with the two keys removed reloads with both `None`.
-   → verify: `cd apps/backend && .venv/bin/python -m pytest ../../tests/test_plan_docs_run_signature.py ../../tests/test_plan_service.py ../../tests/test_governance_cli.py -q` (use the main checkout's venv, `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/python`, as the pre-commit hook does; run from the worktree root if that is how the repo's `pytest.ini` is set up).
+   → verify, from the worktree root: `apps/backend/.venv/bin/pytest tests/test_plan_docs_run_signature.py tests/test_plan_service.py tests/test_governance_cli.py -q`. The venv is the worktree's own (`apps/backend/.venv`, built as CI builds it: `uv venv`, the three requirements files, `ruff==0.15.17`, `mypy==1.20.1`, the type stubs). Do not use the main checkout's venv: it is stale (mcp 1.28, the branch needs >=2.0), and the pre-commit hook prefers the worktree's venv when one exists.
    Traps: `summary()` deliberately omits `org_id`; do not add the new fields to it. Do not bump `SIGNATURE_SCHEMA`. Do not edit the governance fixtures under `tests/fixtures/governance/`.
 
 2. **Attribution helper and the three ingest routes** (codex).
@@ -46,7 +46,12 @@ PFactory#996, part of olafkfreund/Factory#1960. Base branch `dev`.
    → verify: `pytest tests/test_plan_intake_attribution.py tests/test_plan_from_issue_route.py tests/test_plan_session_org_scope.py tests/test_mcp_stdio_proxy.py -q`.
    Traps: no `TestClient` (the auth middleware opens its own DB session; dependency overrides do not reach it). With a keyed `state.user`, `_ingest_org` calls `authorize_plan_ingest`, which may reach the DB: in the route tests monkeypatch `pp._ingest_org` to an async function returning `None`. `ingest_upload` takes an `UploadFile` and `Form` defaults: pass every form argument explicitly (`title=None, category="", template="", repo=None, base_ref=None, db=None`) and a stub file object with an async `read()` and a `filename`. `request.state.user` is absent on the existing header-only stub; `_user` already tolerates that, keep it so.
 
-3. **Checks, review, PR** (lead). `ruff check` and `ruff format --check` on touched files; `python scripts/ratchet_lint.py` for touched files; the test commands above plus `tests/test_ingest_channels.py tests/test_tenant_scoping.py`. Codex and agy read the diff against this plan; a fresh Fable agent does the final review. Open the PR to `dev`.
+3. **Checks, review, PR** (lead).
+   - `apps/backend/.venv/bin/ruff check` and `ruff format --check` (config `ruff.toml`) on touched files.
+   - The ratchet as CI runs it, with the venv's `bin` first on `PATH`: `apps/backend/.venv/bin/python scripts/ratchet_lint.py --base origin/dev --package apps/backend --package apps/web-server --package scripts`.
+   - The test commands above plus `tests/test_ingest_channels.py tests/test_tenant_scoping.py`.
+   - The postgres suite, which skips without a database and which CI runs: start a throwaway `postgres:16` container (user, password and database `pfactory_test`, a free local port), then `TEST_POSTGRES_URL=postgresql+asyncpg://pfactory_test:pfactory_test@localhost:<port>/pfactory_test apps/backend/.venv/bin/pytest tests/postgres/ -m postgres -q`; remove the container afterwards. Expected: no skips for a missing database, no failures.
+   - Codex and agy read the diff against this plan; a fresh Fable agent does the final review (at most 2 rounds). Open the PR to `dev`.
 
 ## Tests
 
