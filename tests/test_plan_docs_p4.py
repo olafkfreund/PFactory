@@ -114,9 +114,7 @@ def test_connections_builds_configured_targets_available():
 def test_emit_docs_connections_path_always_writes_repo(tmp_path, monkeypatch):
     """With Settings connections, the repo doc is written plus the selected sink."""
     # hermetic: no real DNS/HTTP for the backstage sync (#999)
-    monkeypatch.setattr(
-        "plan.emit.docs.targets.backstage._default_http", lambda method, url: 200
-    )
+    monkeypatch.setattr("plan.emit.docs.targets.backstage._default_http", lambda *_: 200)
     s = _session()
     conns = [
         {"kind": "backstage", "base_url": "https://bs", "enabled_by_default": True},
