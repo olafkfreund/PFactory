@@ -122,6 +122,8 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
 
   // Reset scroll state and reload logs when switching to logs tab
   useEffect(() => {
+    // A late response for a previous task/project must not overwrite the current one.
+    let cancelled = false;
     if (activeTab === 'logs') {
       setIsUserScrolledUp(false);
 
@@ -132,6 +134,7 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
         setIsLoadingLogs(true);
         try {
           const result = await window.API.getTaskLogs(selectedProject.id, task.specId);
+          if (cancelled) return;
           if (result.success && result.data) {
             setPhaseLogs(result.data);
             // Auto-expand active phase
@@ -145,14 +148,17 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
             }
           }
         } catch (err) {
-          console.error('Failed to reload task logs:', err);
+          if (!cancelled) console.error('Failed to reload task logs:', err);
         } finally {
-          setIsLoadingLogs(false);
+          if (!cancelled) setIsLoadingLogs(false);
         }
       };
 
       reloadLogs();
     }
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab, selectedProject, task.specId]);
 
   // Load worktree status - extracted as callback for manual refresh after conflict resolution
@@ -191,11 +197,16 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
   useEffect(() => {
     if (!selectedProject) return;
 
+    let cancelled = false;
+    // Drop the previous task's logs so they never show under this one.
+    setPhaseLogs(null);
+
     const loadLogs = async () => {
       setIsLoadingLogs(true);
       console.log('[useTaskDetail] Loading logs for:', { projectId: selectedProject.id, specId: task.specId, taskId: task.id });
       try {
         const result = await window.API.getTaskLogs(selectedProject.id, task.specId);
+        if (cancelled) return;
         console.log('[useTaskDetail] getTaskLogs result:', result);
         if (result.success && result.data) {
           console.log('[useTaskDetail] Setting phaseLogs:', result.data);
@@ -213,9 +224,9 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
           console.error('[useTaskDetail] No data in result or success=false:', result);
         }
       } catch (err) {
-        console.error('Failed to load task logs:', err);
+        if (!cancelled) console.error('Failed to load task logs:', err);
       } finally {
-        setIsLoadingLogs(false);
+        if (!cancelled) setIsLoadingLogs(false);
       }
     };
 
@@ -226,7 +237,7 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
 
     // Listen for log changes
     const unsubscribe = window.API.onTaskLogsChanged((specId, logs) => {
-      if (specId === task.specId) {
+      if (!cancelled && specId === task.specId) {
         setPhaseLogs(logs);
         // Auto-expand newly active phase (check phases exists first)
         if (logs?.phases) {
@@ -245,6 +256,7 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
     });
 
     return () => {
+      cancelled = true;
       unsubscribe();
       window.API.unwatchTaskLogs(selectedProject.id, task.specId);
     };
