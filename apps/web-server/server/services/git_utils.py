@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from server.error_ref import error_message
 from server.services.project_paths import load_projects
@@ -66,7 +67,9 @@ def assert_safe_git_ref(value: object, field: str = "ref") -> str:
 _DRIVER_SUBCOMMANDS = {"merge", "rebase", "stash", "diff", "show", "merge-tree"}
 
 
-def git_run(cmd: list[str], *, check: bool = False, **kwargs) -> subprocess.CompletedProcess:
+def git_run(
+    cmd: list[str], *, check: bool = False, **kwargs: Any
+) -> subprocess.CompletedProcess[str]:
     """``subprocess.run`` for a ``git`` argv with the sandboxed env and exec pins.
 
     Worktrees share the main repo's config and hooks, so an agent can plant a
