@@ -7,6 +7,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 _WS = Path(__file__).resolve().parents[1]
 if str(_WS) not in sys.path:
     sys.path.insert(0, str(_WS))
@@ -26,12 +28,12 @@ _EVIL = {
 }
 
 
-def test_dangerous_keys_never_reach_env(tmp_path, caplog):
+def test_dangerous_keys_never_reach_env(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     f = tmp_path / ".env"
     f.write_text(
         "\n".join(f"{k}={v}" for k, v in _EVIL.items()) + '\nUSE_CLAUDE_MD="true"\nOTHER=x\n'
     )
-    env: dict = {}
+    env: dict[str, str] = {}
     with caplog.at_level(logging.WARNING):
         load_project_env_file(f, env)
     assert env == {"USE_CLAUDE_MD": "true"}  # quotes stripped, rest ignored
@@ -40,7 +42,7 @@ def test_dangerous_keys_never_reach_env(tmp_path, caplog):
     assert "/evil" not in caplog.text
 
 
-def test_existing_env_not_overwritten(tmp_path):
+def test_existing_env_not_overwritten(tmp_path: Path) -> None:
     f = tmp_path / ".env"
     f.write_text("USE_CLAUDE_MD=false\n")
     env = {"USE_CLAUDE_MD": "true"}
@@ -48,13 +50,13 @@ def test_existing_env_not_overwritten(tmp_path):
     assert env == {"USE_CLAUDE_MD": "true"}
 
 
-def test_missing_file_is_noop(tmp_path):
-    env: dict = {}
+def test_missing_file_is_noop(tmp_path: Path) -> None:
+    env: dict[str, str] = {}
     load_project_env_file(tmp_path / "nope", env)
     assert env == {}
 
 
-def test_every_settings_route_key_is_allowed():
+def test_every_settings_route_key_is_allowed() -> None:
     src = (_WS / "server" / "routes" / "context.py").read_text()
     written = set(re.findall(r'key == "([A-Z][A-Z0-9_]+)"', src))
     written |= set(re.findall(r'"[a-zA-Z]+": "([A-Z][A-Z0-9_]+)"', src))
@@ -62,16 +64,16 @@ def test_every_settings_route_key_is_allowed():
     assert not {k for k in written if not is_project_env_key(k)}
 
 
-def test_runners_use_allowlist_for_project_env():
+def test_runners_use_allowlist_for_project_env() -> None:
     for name in ("agent_service.py", "pr_review_service.py"):
         src = (_SERVICES / name).read_text()
         assert "load_project_env_file(" in src
         assert not re.search(r'_load_env_file\([^)]*factory"\s*/\s*"\.env"', src)
 
 
-def test_graphiti_azure_settings_load(tmp_path):
+def test_graphiti_azure_settings_load(tmp_path: Path) -> None:
     f = tmp_path / ".env"
     f.write_text("AZURE_OPENAI_BASE_URL=https://x\nAZURE_OPENAI_API_KEY=k\n")
-    env: dict = {}
+    env: dict[str, str] = {}
     load_project_env_file(f, env)
     assert set(env) == {"AZURE_OPENAI_BASE_URL", "AZURE_OPENAI_API_KEY"}

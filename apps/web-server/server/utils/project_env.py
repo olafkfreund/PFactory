@@ -86,7 +86,7 @@ def is_project_env_key(key: str) -> bool:
     )
 
 
-def load_project_env_file(env_file: Path, env: dict) -> None:
+def load_project_env_file(env_file: Path, env: dict[str, str]) -> None:
     """Load allowlisted ``KEY=VALUE`` pairs from a project .env without overwriting.
 
     Other keys are ignored and logged by name, never by value.
