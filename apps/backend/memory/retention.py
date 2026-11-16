@@ -13,6 +13,13 @@ logger = logging.getLogger(__name__)
 
 CAPS = {"build": 20, "planning": 5, "verification": 8, "insights": 5, "docs": 0}
 DEFAULT_SESSION_TYPE = "planning"
+# Agent types that map to a cap; unlisted ones keep the env/default type.
+AGENT_SESSION_TYPES = {
+    "coder": "build",
+    "qa_reviewer": "verification",
+    "qa_fixer": "verification",
+    "insights": "insights",
+}
 DEMOTE_DAYS = 30
 EXPIRE_DAYS = 90
 HEADING = re.compile(r"(?m)^## \[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\r?\n")

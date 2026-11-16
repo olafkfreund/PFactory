@@ -16,6 +16,8 @@ except ImportError:
     SDK_TOOLS_AVAILABLE = False
     create_sdk_mcp_server = None
 
+from memory.retention import AGENT_SESSION_TYPES
+
 from .tools import (
     create_memory_tools,
     create_progress_tools,
@@ -29,7 +31,9 @@ from .tools import (
 PathOrFactory = Path | Callable[[], Path]
 
 
-def create_all_tools(spec_dir: PathOrFactory, project_dir: PathOrFactory) -> list:
+def create_all_tools(
+    spec_dir: PathOrFactory, project_dir: PathOrFactory, agent_type: str | None = None
+) -> list:
     """
     Create all custom tools with the given spec and project directories.
 
@@ -50,7 +54,9 @@ def create_all_tools(spec_dir: PathOrFactory, project_dir: PathOrFactory) -> lis
     # without touching the in-process call site in core/client.py.
     all_tools.extend(create_subtask_tools(spec_dir, project_dir))
     all_tools.extend(create_progress_tools(spec_dir, project_dir))
-    all_tools.extend(create_memory_tools(spec_dir, project_dir))
+    all_tools.extend(
+        create_memory_tools(spec_dir, project_dir, AGENT_SESSION_TYPES.get(agent_type or ""))
+    )
     all_tools.extend(create_qa_tools(spec_dir, project_dir))
 
     return all_tools
@@ -59,6 +65,7 @@ def create_all_tools(spec_dir: PathOrFactory, project_dir: PathOrFactory) -> lis
 def create_magestic_ai_mcp_server(
     spec_dir: PathOrFactory,
     project_dir: PathOrFactory,
+    agent_type: str | None = None,
 ):
     """
     Create an MCP server with pfactory custom tools.
@@ -73,7 +80,7 @@ def create_magestic_ai_mcp_server(
     if not SDK_TOOLS_AVAILABLE:
         return None
 
-    tools = create_all_tools(spec_dir, project_dir)
+    tools = create_all_tools(spec_dir, project_dir, agent_type)
 
     # In-process server name "pfactory" matches AI_FACTORY_TOOLS constants
     # in models.py (mcp__pfactory__update_subtask_status etc.) that the

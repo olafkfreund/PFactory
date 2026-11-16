@@ -316,3 +316,23 @@ def test_ws_revoked_key_closes_4001(sockets, monkeypatch, outcome):
         with pytest.raises(WebSocketDisconnect) as exc:
             ws.receive_json()
     assert exc.value.code == 4001
+
+
+def test_terminal_shell_does_not_inherit_control_plane_secrets(monkeypatch):
+    from server.utils.subprocess_env import RUNNER_STRIP
+
+    seen = {}
+
+    class FakePty:
+        @staticmethod
+        def spawn(argv, **kw):
+            seen.update(kw["env"])
+            return object()
+
+    monkeypatch.setattr("server.pty.session.PtyProcessUnicode", FakePty)
+    for name in RUNNER_STRIP:
+        monkeypatch.setenv(name, "secret")
+    monkeypatch.setenv("KEEP_ME", "1")
+    PTYSession(env={"CLAUDE_CODE_OAUTH_TOKEN": "t"}).start()
+    assert not RUNNER_STRIP & set(seen)
+    assert seen["KEEP_ME"] == "1" and seen["CLAUDE_CODE_OAUTH_TOKEN"] == "t"

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.7.1 — review fixes for terminal env, tenant check, memory caps, project env, run guard (2026-11-16)
+
+### Bug Fixes
+
+- **Terminal PTY env no longer carries stripped secrets (#1022, #1016).**
+- **`/api/contract-events` resolves the tenant from ingress `X-Tenant-Id`;** a body tenant that differs now gets 403 before any state changes (#1022, #1015).
+- **Per-agent memory caps are wired:** coder to the build cap (20), QA to verification (#1022, #1012).
+- **A repo `.env` can no longer set an endpoint key** (`GIT_BASE_URL`, `OPENAI_COMPATIBLE_BASE_URL`, ...) when the host already holds the paired credential (#1022, #1004).
+- **Run guard no longer halts falsely (#1023, TFactory#1525).** The same-tool halt counts per tool and input signature, so eight different failing Bash calls no longer stop a session; an identical repeated call is still halted at 8. The token ceiling now bounds one run, not the task lifetime.
+
 ## 0.7.0 — agent sandbox and env hardening, WebSocket org confinement, memory gates, plan feedback loop (2026-11-16)
 
 ### Security

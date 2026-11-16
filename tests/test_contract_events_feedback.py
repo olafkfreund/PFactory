@@ -74,3 +74,24 @@ def test_tenant_comes_from_the_body_when_multi_tenant(monkeypatch):
         },
     )
     assert [k["tenant_id"] for k in seen] == ["acme", None]
+
+
+def test_body_cannot_name_another_tenant_than_the_ingress_header(monkeypatch):
+    seen = []
+    monkeypatch.setattr(SERVICE, "record_downstream", lambda _p, **kw: seen.append(kw) or True)
+    monkeypatch.setenv("PFACTORY_MULTI_TENANT", "1")
+    body = {"correlation_key": "fb-5", "service": "aifactory", "status": "failed"}
+    c = _client()
+    r = c.post(
+        "/api/contract-events",
+        json={**body, "tenant_id": "A"},
+        headers={"X-Tenant-Id": "B"},
+    )
+    assert r.status_code == 403 and not seen
+    assert contract_events.REGISTRY.get("fb-5") is None
+    ok = c.post(
+        "/api/contract-events",
+        json={**body, "tenant_id": "B"},
+        headers={"X-Tenant-Id": "B"},
+    )
+    assert ok.status_code == 200 and seen[0]["tenant_id"] == "B"

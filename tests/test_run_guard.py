@@ -43,10 +43,22 @@ def test_repeated_failure_blocks_then_tool_failure_halts(monkeypatch):
         _run(guard.post(err))
     assert _run(guard.pre(_call()))["decision"] == "block"
     assert g.guard_halt(_Holder(guard)) is None  # one call blocked, session not halted
-    for i in range(3):  # different args: same tool keeps failing -> halt
-        _run(guard.post({**_call(args={"f": str(i)}), "tool_response": {"is_error": True}}))
+    for _ in range(1):  # blocked repeats count: the 8th attempt halts the session
+        assert _run(guard.pre(_call()))["decision"] == "block"
+        assert g.guard_halt(_Holder(guard)) is None
+    assert _run(guard.pre(_call()))["decision"] == "block"
     assert g.guard_halt(_Holder(guard)).startswith("same_tool_failure")
-    assert _run(guard.pre(_call(args={"f": "new"})))["decision"] == "block"
+
+
+def test_distinct_failing_calls_never_halt(monkeypatch):
+    """Failing test runs with different commands are normal iteration (#1525)."""
+    monkeypatch.delenv(P + "ACT_GUARDRAIL", raising=False)
+    guard = g.Guard()
+    for i in range(20):
+        c = _call("Bash", {"command": f"pytest t{i}.py"})
+        assert _run(guard.pre(c)) == {}
+        _run(guard.post({**c, "tool_response": {"is_error": True}}))
+    assert g.guard_halt(_Holder(guard)) is None
 
 
 class _Holder:
@@ -64,8 +76,11 @@ def test_failure_hook_counts_failed_calls(monkeypatch):
         _run(guard.failure({**_call(), "error": "boom"}))
     assert _run(guard.pre(_call()))["decision"] == "block"
     _run(guard.failure({**_call(), "error": "x", "is_interrupt": True}))  # not counted
-    for i in range(8):
+    for i in range(8):  # different args: no halt
         _run(guard.failure({**_call(args={"f": str(i)}), "error": "x"}))
+    assert g.guard_halt(_Holder(guard)) is None
+    for _ in range(3):  # the blocked repeats of the identical call halt it
+        _run(guard.pre(_call()))
     assert g.guard_halt(_Holder(guard)).startswith("same_tool_failure")
 
 
@@ -168,3 +183,29 @@ async def test_guardrail_halt_interrupts_and_returns_typed_error(tmp_path, monke
     assert (status, info["type"]) == ("error", "guardrail_halt")
     assert reason.startswith("same_tool_failure") and client.interrupted == 1
     assert client.yielded == 3  # drained to the end, not abandoned after interrupt
+
+
+def test_ceiling_is_per_process_run_not_lifetime(monkeypatch):
+    """A plan over the ceiling in an earlier run can be re-processed (#1525)."""
+    from plan import service as svc_mod
+    from plan.usage import PlanUsage
+
+    monkeypatch.setenv(P + "RUN_TOKEN_CEILING", "100")
+    svc = svc_mod.PlanService()
+    s = svc.ingest_text(
+        "# Plan\n\n## Acceptance Criteria\n- It works\n", title="t", category="software"
+    )
+    s = svc.get(s.session_id)
+    s.usage.input_tokens = 500  # spent by an earlier run
+    svc._save(s)
+    svc.process(s.session_id)  # prior usage no longer counts
+
+    real = svc_mod.decompose
+
+    def spend(*a, usage_sink=None, **kw):
+        usage_sink.append(PlanUsage(input_tokens=150))
+        return real(*a, usage_sink=usage_sink, **kw)
+
+    monkeypatch.setattr(svc_mod, "decompose", spend)
+    with pytest.raises(g.TokenCeilingError):  # this run alone crosses it
+        svc.process(s.session_id)

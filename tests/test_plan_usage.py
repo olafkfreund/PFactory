@@ -196,11 +196,12 @@ def test_token_ceiling_fails_the_run_with_a_typed_halt(monkeypatch):
     assert event["status"] == "failed"
     assert event["halt_reason"].startswith("token_ceiling: run used 409 tokens")
 
-    # An over-budget session never makes another paid call.
+    # The ceiling is per run (#1525): a re-run starts fresh, is bounded on its
+    # own spend, and the persisted usage stays cumulative.
     llm = _UsageLLM(_EPIC_JSON)
-    with pytest.raises(TokenCeilingError):
+    with pytest.raises(TokenCeilingError, match="run used 409 tokens"):
         svc.process(session.session_id, llm=llm)
-    assert llm.last_usage is None
+    assert svc.get(session.session_id).usage.total_tokens == 818
 
 
 def test_token_ceiling_zero_disables(monkeypatch):

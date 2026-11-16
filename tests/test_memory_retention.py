@@ -197,3 +197,32 @@ def test_gotcha_cap_is_per_spec_dir(tmp_path, monkeypatch):
         for i in range(5):
             text = asyncio.run(tool({"gotcha": f"g{i}"}))["content"][0]["text"]
             assert text.startswith("Recorded gotcha")
+
+
+def test_agent_type_selects_the_cap(tmp_path, monkeypatch):
+    monkeypatch.delenv("MEMORY_SESSION_TYPE", raising=False)
+    monkeypatch.setattr(memory_tools, "tool", lambda *_args, **_kw: lambda f: f)
+    monkeypatch.setattr(memory_tools, "SDK_TOOLS_AVAILABLE", True)
+    build = retention.AGENT_SESSION_TYPES["coder"]
+    tool = next(
+        t
+        for t in memory_tools.create_memory_tools(tmp_path, tmp_path, build)
+        if t.__name__ == "record_gotcha"
+    )
+    for i in range(6):
+        out = asyncio.run(tool({"gotcha": f"g{i}"}))["content"][0]["text"]
+        assert out.startswith("Recorded gotcha")
+
+
+def test_coder_session_memory_is_saved_with_the_build_cap(tmp_path, monkeypatch):
+    from agents import memory_manager
+
+    seen = {}
+    monkeypatch.setattr(memory_manager, "is_graphiti_enabled", lambda: False)
+    monkeypatch.setattr(
+        memory_manager, "save_file_based_memory", lambda *a: seen.setdefault("a", a)
+    )
+    asyncio.run(
+        memory_manager.save_session_memory(tmp_path, tmp_path, "s1", 1, True, ["s1"], None, "build")
+    )
+    assert seen["a"][3] == "build"
