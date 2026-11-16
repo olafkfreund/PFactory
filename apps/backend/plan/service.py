@@ -188,11 +188,17 @@ class PlanSession(BaseModel):
     # of one session in the same process (a long process() and a human's
     # approve) must not be able to overwrite each other either.
     _store_version: int | None = PrivateAttr(default=None)
+    # ``usage`` is cumulative across re-runs (cost reporting); the ceiling bounds
+    # one ``process()`` run, so it counts from the total seen when that run began.
+    _run_base_tokens: int = PrivateAttr(default=0)
+
+    def run_tokens(self) -> int:
+        return self.usage.total_tokens - self._run_base_tokens
 
     def record_usage(self, usage: PlanUsage | None) -> None:
         """Fold an LLM call's usage into the run total (no-op for ``None``)."""
         self.usage.add(usage)
-        check_ceiling(self.usage.total_tokens)  # #1008: over budget -> stop the run
+        check_ceiling(self.run_tokens())  # #1008: over budget -> stop the run
 
     def board_state(self) -> BoardColumn:
         return board_state(self.status, self.review)
@@ -1321,6 +1327,7 @@ class PlanService:
 
             external_runner = provider_runner
         session = self.get(session_id)
+        session._run_base_tokens = session.usage.total_tokens  # ceiling is per run
         # Transient sub-states so a background-run session animates on the board:
         # in-progress while we detect/enrich/decompose/synthesize, AI-review while
         # the gates run. (Synchronous callers just see the final "processed".)
@@ -1693,7 +1700,7 @@ class PlanService:
         self, session: PlanSession, plan: NormalizedPlan, descriptor: object, *, llm=None
     ) -> EpicPlan:
         """Decompose into an epic, record LLM usage, inject implicit requirements."""
-        check_ceiling(session.usage.total_tokens)  # no paid call for an over-budget session
+        check_ceiling(session.run_tokens())  # no paid call for an over-budget session
         usage_sink: list[PlanUsage] = []
         epic = decompose(
             plan,

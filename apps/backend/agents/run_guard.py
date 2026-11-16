@@ -86,16 +86,20 @@ class Controller:
     no_progress: int = field(default_factory=lambda: _env_int("GUARDRAIL_NOPROGRESS", 5))
     halt_reason: str | None = None
     _sigs: dict[str, _Sig] = field(default_factory=dict)
-    _tool_fail: dict[str, int] = field(default_factory=dict)
 
     def before_call(self, tool: str, tool_input: Any) -> str | None:
         """A reason to refuse this call, else None."""
         if self.halt_reason:
             return self.halt_reason
-        if self._tool_fail.get(tool, 0) >= self.tool_fail_halt:
-            return self._halt(f"same_tool_failure: {tool} failed {self._tool_fail[tool]}x")
         st = self._sigs.get(f"{tool}:{_hash(tool_input)}")
         if st and st.fail_streak >= self.repeat_fail:
+            # A blocked call never runs, so count it as another failure of this
+            # exact call: a model that keeps retrying it is halted, not just refused.
+            st.fail_streak += 1
+            if st.fail_streak >= self.tool_fail_halt:
+                return self._halt(
+                    f"same_tool_failure: {tool} failed {st.fail_streak}x with identical input"
+                )
             return f"This identical {tool} call failed {st.fail_streak}x; try a different approach."
         if tool in _IDEMPOTENT_TOOLS and st and st.same_result >= self.no_progress:
             return f"{tool} returned the same result {st.same_result}x; re-reading is not progress."
@@ -105,16 +109,14 @@ class Controller:
         st = self._sigs.setdefault(f"{tool}:{_hash(tool_input)}", _Sig())
         if ok:
             st.fail_streak = 0
-            self._tool_fail[tool] = 0
             if tool in _IDEMPOTENT_TOOLS:
                 rh = _hash(result)
                 st.same_result = st.same_result + 1 if rh == st.last_result else 1
                 st.last_result = rh
             return
         st.fail_streak += 1
-        self._tool_fail[tool] = self._tool_fail.get(tool, 0) + 1
-        if self._tool_fail[tool] >= self.tool_fail_halt:
-            self._halt(f"same_tool_failure: {tool} failed {self._tool_fail[tool]}x")
+        if st.fail_streak >= self.tool_fail_halt:
+            self._halt(f"same_tool_failure: {tool} failed {st.fail_streak}x with identical input")
 
     def _halt(self, reason: str) -> str:
         self.halt_reason = reason
