@@ -56,7 +56,6 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
         }
     """
     insights_dir = get_session_insights_dir(spec_dir)
-    session_file = insights_dir / f"session_{session_num:03d}.json"
 
     fields = ("what_worked", "recommendations_for_next_session")
     # The *_found/*_encountered keys come from QA; the *_discovered and
@@ -70,8 +69,6 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
     )
     seen: dict[str, set[str]] = {f: set() for f in (*fields, *discovery_fields)}
     for prior_file in insights_dir.glob("session_*.json"):
-        if prior_file == session_file:
-            continue
         try:
             prior = json.loads(prior_file.read_text())
         except (OSError, json.JSONDecodeError):
@@ -114,9 +111,21 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
         ),
     }
 
-    # Write to file (always use file-based storage)
-    with open(session_file, "w") as f:
-        json.dump(session_data, f, indent=2)
+    # Write to file (always use file-based storage). Exclusive create: the
+    # coder, QA reviewer and fixer share this directory and their counters
+    # collide, and an overwrite could drop the only stored copy of an item the
+    # novelty gate removed from a later file.
+    while True:
+        session_file = insights_dir / f"session_{session_num:03d}.json"
+        try:
+            f = open(session_file, "x")  # noqa: SIM115
+        except FileExistsError:
+            session_num += 1
+            continue
+        session_data["session_number"] = session_num
+        with f:
+            json.dump(session_data, f, indent=2)
+        break
 
     # Also save to Graphiti if enabled (non-blocking, errors logged but not raised)
     if is_graphiti_memory_enabled():

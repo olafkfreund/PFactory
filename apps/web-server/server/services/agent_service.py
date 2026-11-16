@@ -19,6 +19,7 @@ from typing import Any
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
 from server.services.git_utils import safe_spec_component
+from server.utils.project_env import load_project_env_file
 from server.websockets import relay
 
 from ..config import get_settings
@@ -688,20 +689,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         # Load project .pfactory/.env for project-level settings (USE_CLAUDE_MD, etc.)
         project_env_file = project_path / ".pfactory" / ".env"
-        if project_env_file.exists():
-            try:
-                with open(project_env_file) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            key, value = line.split("=", 1)
-                            key = key.strip()
-                            value = value.strip()
-                            if key not in env:
-                                env[key] = value
-                logger.info("[AgentService] Loaded project .env for spec creation")
-            except Exception as e:
-                logger.warning("[AgentService] Failed to load project .env: %s", sanitize_log(e))
+        load_project_env_file(project_env_file, env)
 
         # Get OAuth token with profile tracking
         token, profile_id, profile_name = self._resolve_claude_token()
@@ -941,20 +929,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         # Load project .pfactory/.env for project-level settings (USE_CLAUDE_MD, etc.)
         project_env_file = project_path / ".pfactory" / ".env"
-        if project_env_file.exists():
-            try:
-                with open(project_env_file) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            key, value = line.split("=", 1)
-                            key = key.strip()
-                            value = value.strip()
-                            if key not in env:
-                                env[key] = value
-                logger.info("[AgentService] Loaded project .env for task execution")
-            except Exception as e:
-                logger.warning("[AgentService] Failed to load project .env: %s", sanitize_log(e))
+        load_project_env_file(project_env_file, env)
 
         # Get OAuth token with profile tracking
         token, profile_id, profile_name = self._resolve_claude_token()
