@@ -43,3 +43,4 @@ Revert the PR. `PlanSession.model_config` is `{}`, so older code ignores the sto
 - After `_save`, a shared store is re-read; a write that did not land raises `StaleSessionError` (so the route retries, then 503), because `_save` swallows store errors.
 - A replayed event (same dedupe key) is skipped entirely, so cost and coverage never go back to older values.
 - The planner text says "unknown (not reported)" for coverage and "not reported" for spend instead of zero.
+- Round 2: with multi-tenancy on, the route takes the tenant from the event body (`tenant_id`, which AIFactory sends) before the `X-Tenant-Id` header; with it off there is no tenant filter. A missing estimate reads "not available", not zero. Known limit, not fixed: with only the legacy JSON disk mirror (no shared store) a failed disk write is still swallowed by `_save`.

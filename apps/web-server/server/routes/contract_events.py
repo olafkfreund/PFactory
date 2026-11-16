@@ -21,12 +21,19 @@ if str(_BACKEND_DIR) not in sys.path:
 from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
 from plan.service import SERVICE, StaleSessionError  # noqa: E402
-from server.tenancy import resolve_tenant  # noqa: E402
+from server.tenancy import multi_tenant_enabled, resolve_tenant  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 
 # Process-lifetime registry of reconciled downstream state, keyed by correlation.
 REGISTRY = ContractSyncRegistry()
+
+
+def _tenant(payload: dict, request: Request) -> str | None:
+    """Emitters (AIFactory) name the tenant in the body, not a header; off = no filter."""
+    if not multi_tenant_enabled():
+        return None
+    return str(payload.get("tenant_id") or "").strip() or resolve_tenant(request)
 
 
 @router.post("")
@@ -40,7 +47,7 @@ async def ingest_event(payload: dict, request: Request) -> dict:
     # reaches the planner. The session may have moved on: reload and refold.
     for _ in range(3):
         try:
-            SERVICE.record_downstream(payload, tenant_id=resolve_tenant(request))
+            SERVICE.record_downstream(payload, tenant_id=_tenant(payload, request))
             break
         except StaleSessionError:
             continue

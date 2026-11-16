@@ -378,3 +378,10 @@ def test_outcome_history_keeps_unknown_unknown(tmp_path):
     svc.record_downstream(_evt("aifactory", "failed", "1"))  # no usage, no verification
     text = svc.outcome_history(_keyed(svc, "9"))
     assert "did not verify: unknown" in text and "$0.00" not in text
+
+
+def test_outcome_history_shows_a_missing_estimate_as_not_available(tmp_path):
+    svc = PlanService(store_dir=tmp_path)
+    _keyed(svc, "1")
+    svc.record_downstream(_evt("aifactory", "failed", "1", usage={"cost_usd": 2.0}))
+    assert "estimated monthly cloud cost not available" in svc.outcome_history(_keyed(svc, "9"))

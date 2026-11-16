@@ -47,3 +47,29 @@ def test_persistent_stale_session_is_503_so_the_emitter_retries(monkeypatch):
         json={"correlation_key": "fb-2", "service": "aifactory", "status": "failed"},
     )
     assert r.status_code == 503
+
+
+def test_tenant_comes_from_the_body_when_multi_tenant(monkeypatch):
+    seen = []
+    monkeypatch.setattr(SERVICE, "record_downstream", lambda p, **kw: seen.append(kw) or True)
+    monkeypatch.setenv("PFACTORY_MULTI_TENANT", "1")
+    _client().post(
+        "/api/contract-events",
+        json={
+            "correlation_key": "fb-3",
+            "service": "aifactory",
+            "status": "failed",
+            "tenant_id": "acme",
+        },
+    )
+    monkeypatch.delenv("PFACTORY_MULTI_TENANT")
+    _client().post(
+        "/api/contract-events",
+        json={
+            "correlation_key": "fb-4",
+            "service": "aifactory",
+            "status": "failed",
+            "tenant_id": "acme",
+        },
+    )
+    assert [k["tenant_id"] for k in seen] == ["acme", None]

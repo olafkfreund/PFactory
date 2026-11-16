@@ -1682,8 +1682,9 @@ class PlanService:
         ]
         if any(est) or act:
             spend = f"${sum(act):,.2f}" if act else "not reported"
+            estimate = f"${sum(e or 0 for e in est):,.2f}" if any(est) else "not available"
             lines.append(
-                f"- cost: estimated monthly cloud cost ${sum(e or 0 for e in est):,.2f}; "
+                f"- cost: estimated monthly cloud cost {estimate}; "
                 f"actual build+verify token spend {spend} (different quantities)"
             )
         return "\n".join(lines)
