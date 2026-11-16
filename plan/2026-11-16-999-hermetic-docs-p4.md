@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 999
 spec: spec/2026-11-16-999-hermetic-docs-p4.md
 coders:
