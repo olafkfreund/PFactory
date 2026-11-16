@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeSDKClient
+
 from core.error_utils import (
     is_authentication_error,
     is_rate_limit_error,
@@ -200,6 +201,7 @@ async def post_session_processing(
                 success=True,
                 subtasks_completed=[subtask_id],
                 discoveries=extracted_insights,
+                session_type="build",
             )
             if save_success:
                 if storage_type == "graphiti":
@@ -262,6 +264,7 @@ async def post_session_processing(
                 success=False,
                 subtasks_completed=[],
                 discoveries=extracted_insights,
+                session_type="build",
             )
         except Exception as e:
             logger.debug(f"Failed to save incomplete session memory: {e}")
@@ -306,6 +309,7 @@ async def post_session_processing(
                 success=False,
                 subtasks_completed=[],
                 discoveries=extracted_insights,
+                session_type="build",
             )
         except Exception as e:
             logger.debug(f"Failed to save failed session memory: {e}")

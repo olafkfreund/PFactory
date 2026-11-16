@@ -16,7 +16,7 @@ Carries every decision of the approved spec (header-authoritative tenant with 40
 
 1. `apps/web-server/server/pty/session.py:~58`: replace `os.environ.copy()` with a filter on `RUNNER_STRIP`; import from `..utils.subprocess_env` → `pytest tests/test_terminal_ownership.py`
    Traps: keep ANTHROPIC_API_KEY (user shell).
-2. `apps/web-server/server/routes/contract_events.py:_tenant`: header authoritative, 403 on mismatch, body only when no header → `pytest tests/test_contract_events_feedback.py`
+2. `apps/web-server/server/routes/contract_events.py:_tenant`: header authoritative, 403 on mismatch, body only when no header; resolved before `REGISTRY.apply` so a refused call changes nothing (deviation found by codex review) → `pytest tests/test_contract_events_feedback.py`
    Traps: the existing body-tenant test sends no header.
 3. `apps/backend/memory/retention.py`, `agents/tools_pkg/registry.py`, `agents/tools_pkg/tools/memory.py`, `core/client.py:816`, `agents/memory_manager.py`, `agents/session.py`: wire agent type and "build" to the caps → `pytest tests/test_memory_retention.py`
 4. `apps/web-server/server/utils/project_env.py`: `_ENDPOINT_CREDENTIALS`, host-key snapshot, ignore paired endpoint → `pytest apps/web-server/tests/test_project_env_allowlist.py`

@@ -22,7 +22,7 @@ if str(_BACKEND_DIR) not in sys.path:
 from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
 from plan.service import SERVICE, PlanService, StaleSessionError  # noqa: E402
-from server.tenancy import multi_tenant_enabled, resolve_tenant  # noqa: E402
+from server.tenancy import TENANT_HEADER, multi_tenant_enabled, resolve_tenant  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 
@@ -31,15 +31,24 @@ REGISTRY = ContractSyncRegistry()
 
 
 def _tenant(payload: dict[str, Any], request: Request) -> str | None:
-    """Emitters (AIFactory) name the tenant in the body, not a header; off = no filter."""
+    """Tenant scope; off = no filter.
+
+    The ingress-stamped X-Tenant-Id is authoritative: a body naming another tenant is
+    refused. Only a header-less (internal emitter) call may name the tenant in the body.
+    """
     if not multi_tenant_enabled():
         return None
-    return str(payload.get("tenant_id") or "").strip() or str(resolve_tenant(request))
+    body = str(payload.get("tenant_id") or "").strip()
+    header = (request.headers.get(TENANT_HEADER) or "").strip()
+    if header and body and body != header:
+        raise HTTPException(status_code=403, detail="tenant_id does not match the caller's tenant")
+    return header or body or str(resolve_tenant(request))
 
 
 @router.post("")
 async def ingest_event(payload: dict[str, Any], request: Request) -> dict:
     """Reconcile one inbound completion event; returns the updated state."""
+    tenant = _tenant(payload, request)  # refuse before any state changes
     try:
         state = REGISTRY.apply(payload)
     except SyncError as exc:
@@ -48,9 +57,7 @@ async def ingest_event(payload: dict[str, Any], request: Request) -> dict:
     # reaches the planner. The session may have moved on: reload and refold.
     for _ in range(3):
         try:
-            cast(PlanService, SERVICE).record_downstream(
-                payload, tenant_id=_tenant(payload, request)
-            )
+            cast(PlanService, SERVICE).record_downstream(payload, tenant_id=tenant)
             break
         except StaleSessionError:
             continue

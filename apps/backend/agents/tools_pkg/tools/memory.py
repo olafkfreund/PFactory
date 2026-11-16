@@ -31,6 +31,7 @@ GOTCHA_CONTEXT_CHARS = 1000
 def create_memory_tools(
     spec_dir: Path | Callable[[], Path],
     project_dir: Path | Callable[[], Path],
+    memory_session_type: str | None = None,
 ) -> list:
     """
     Create session memory tools.
@@ -151,7 +152,7 @@ def create_memory_tools(
                 confirm(memory_dir, rejected)
                 return {"content": [{"type": "text", "text": f"Gotcha already recorded: {gotcha}"}]}
 
-            if gotchas_written.get(memory_dir, 0) >= CAPS[session_type()]:
+            if gotchas_written.get(memory_dir, 0) >= CAPS[session_type(memory_session_type)]:
                 return {
                     "content": [
                         {
