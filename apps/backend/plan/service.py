@@ -232,7 +232,7 @@ class PlanSession(BaseModel):
             ],
         }
 
-    def _downstream_summary(self) -> dict | None:
+    def _downstream_summary(self) -> dict[str, Any] | None:
         d = self.downstream
         if d is None:
             return None
@@ -1617,7 +1617,7 @@ class PlanService:
             }
         return {"verdict": "pass", "reason": ""}
 
-    def record_downstream(self, payload: dict, *, tenant_id: str | None = None) -> bool:
+    def record_downstream(self, payload: dict[str, Any], *, tenant_id: str | None = None) -> bool:
         """Fold a completion event into its plan session's feedback record (#998).
 
         True when stored. Zero, several or unverifiable matches store nothing:

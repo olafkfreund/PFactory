@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -29,7 +30,7 @@ router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 REGISTRY = ContractSyncRegistry()
 
 
-def _tenant(payload: dict, request: Request) -> str | None:
+def _tenant(payload: dict[str, Any], request: Request) -> str | None:
     """Emitters (AIFactory) name the tenant in the body, not a header; off = no filter."""
     if not multi_tenant_enabled():
         return None

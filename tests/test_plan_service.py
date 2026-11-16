@@ -282,6 +282,7 @@ def _evt(service, status, key, **extra):
 def _keyed(svc, key, repo="o/r", tenant="default"):
     s = svc.ingest_text(_SOFTWARE_PLAN, title="Refund API")
     s.correlation_key, s.repo, s.tenant_id = key, repo, tenant
+    svc._save(s)  # a shared store lists from its own rows, not the cache
     return s
 
 
