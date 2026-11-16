@@ -153,7 +153,9 @@ def test_hub_pin_lives_in_the_one_pin_file() -> None:
 # (apps/backend/plan/emit/contracts/task-contract.schema.json) and says so --
 # "Same convention as factory-github-drift.yml". So PFactory has TWO
 # file-granular pins, not one; noted on Factory#514.
-_PIN_EXEMPT = {"factory-github-drift.yml", "ci.yml"}
+# agent-sandbox-drift.yml (Factory#3709) is the same case: a package mirror with
+# its own pin in apps/backend/agent_sandbox/.hub-sha and the workflow's HUB_SHA.
+_PIN_EXEMPT = {"factory-github-drift.yml", "ci.yml", "agent-sandbox-drift.yml"}
 
 
 def test_the_standards_gate_does_not_hardcode_a_hub_sha() -> None:

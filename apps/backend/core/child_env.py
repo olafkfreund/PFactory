@@ -1,19 +1,18 @@
 """Allowlisted environment for agent and repository-code children.
 
-Port of AIFactory's rules (core/auth.py, core/child_env.py; #1680, #1757) with
-the same names, so the copies can become one package (Factory#3709).
+The rules live in the shared ``agent_sandbox`` package (Factory#3709); this
+module keeps PFactory's data as a Policy and the public names callers import.
 """
 
 from __future__ import annotations
 
-import logging
 import os
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 
+import agent_sandbox
+from agent_sandbox import Policy
 from core.auth import SDK_ENV_VARS
-
-logger = logging.getLogger(__name__)
 
 CLAUDE_KEEP = {
     "CLAUDE_CODE_OAUTH_TOKEN",
@@ -22,99 +21,80 @@ CLAUDE_KEEP = {
     *SDK_ENV_VARS,
 }
 
-_AGENT_ENV_DENY_EXACT = {
-    "API_TOKEN",
-    "APP_API_TOKEN",
-    "JWT_SECRET",
-    "APP_JWT_SECRET",
-    "DATABASE_URL",
-    "APP_DATABASE_URL",
-    "AIFACTORY_TOKEN",
-    "AIFACTORY_MARKER_NONCE",
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "GROQ_API_KEY",
-    "TOGETHER_API_KEY",
-    "OPENROUTER_API_KEY",
-    "VOYAGE_API_KEY",
-    "MISTRAL_API_KEY",
-    "DEEPSEEK_API_KEY",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SESSION_TOKEN",
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    "AZURE_CLIENT_SECRET",
-    "VAULT_TOKEN",
-    "LINEAR_API_KEY",
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "APP_CFACTORY_READ_KEY",
-    "CONTEXT7_KEY",
-    "RAPIDAPI_KEY",
-    "LANGCHAIN_API_KEY",
-    "OPENAI_COMPATIBLE_API_KEY",
-    "S3_ACCESS_KEY",
-    "S3_SECRET_KEY",
-    "OLLAMA_API_KEY",
-    "AIFACTORY_TRUSTED_CONTRACT",
-    "NIX_CONFIG",
-    "NIX_ACCESS_TOKENS",
-    "PFACTORY_MCP_KEY",
-    "PFACTORY_API_TOKEN_FILE",
-    "PFACTORY_AIFACTORY_API_TOKEN",
-    "PFACTORY_BACKSTAGE_TOKEN",
-    "PFACTORY_CONFLUENCE_TOKEN",
-    "PFACTORY_CONTRACT_SIGNING_KEY",
-    "PFACTORY_GITBOOK_TOKEN",
-    "PFACTORY_MCP_SECRET",
-    "PFACTORY_NOTION_TOKEN",
-    "PFACTORY_RECON_TOKEN",
-}
-_AGENT_ENV_DENY_PATTERN = re.compile(
-    r"SECRET|PASSWORD|PRIVATE_KEY|CREDENTIAL|(?:^|_)KMS|PASSPHRASE|TRUSTED_PLAN_KEY|SIGNING_KEY",
-    re.I,
+GITHUB_KEEP: tuple[str, ...] = ("GITHUB_TOKEN", "GH_TOKEN")
+
+_PREFIX = "PFACTORY"
+
+POLICY = Policy(
+    extra_env=f"{_PREFIX}_AGENT_ENV_EXTRA",
+    deny_exact=frozenset(
+        {
+            "API_TOKEN",
+            "APP_API_TOKEN",
+            "JWT_SECRET",
+            "APP_JWT_SECRET",
+            "DATABASE_URL",
+            "APP_DATABASE_URL",
+            "AIFACTORY_TOKEN",
+            "AIFACTORY_MARKER_NONCE",
+            "APP_CFACTORY_READ_KEY",
+            "S3_SECRET_KEY",
+            "AIFACTORY_TRUSTED_CONTRACT",
+            "NIX_CONFIG",
+            "NIX_ACCESS_TOKENS",
+            *(
+                f"{_PREFIX}_{name}"
+                for name in (
+                    "MCP_KEY",
+                    "API_TOKEN_FILE",
+                    "AIFACTORY_API_TOKEN",
+                    "BACKSTAGE_TOKEN",
+                    "CONFLUENCE_TOKEN",
+                    "CONTRACT_SIGNING_KEY",
+                    "GITBOOK_TOKEN",
+                    "MCP_SECRET",
+                    "NOTION_TOKEN",
+                    "RECON_TOKEN",
+                )
+            ),
+        }
+    ),
+    deny_pattern=re.compile(
+        r"SECRET|PASSWORD|PRIVATE_KEY|CREDENTIAL|(?:^|_)KMS|PASSPHRASE|TRUSTED_PLAN_KEY|SIGNING_KEY",
+        re.I,
+    ),
+    allow_pattern=re.compile(
+        r"PATH|LANG|LANGUAGE|TZ|TERM|COLORTERM|TMPDIR|USER|LOGNAME|SHELL|CI"
+        r"|PYTHONUNBUFFERED|PYTHONIOENCODING|TRACEPARENT"
+        r"|SSL_CERT_FILE|SSL_CERT_DIR|NODE_EXTRA_CA_CERTS|REQUESTS_CA_BUNDLE"
+        r"|GIT_(?:AUTHOR|COMMITTER)_(?:NAME|EMAIL)"
+        r"|GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|GIT_PAGER"
+        r"|OPENAI_BASE_URL|GOOGLE_CLOUD_PROJECT|GOOGLE_CLOUD_LOCATION|GOOGLE_GENAI_USE_VERTEXAI"
+        r"|LC_\w+|CLAUDE_CODE_\w+|NIX_\w+|(?i:(?:HTTPS?|NO|ALL)_PROXY)"
+        r"|PLAYWRIGHT_BROWSERS_PATH|PLAYWRIGHT_SKIP_\w+|FONTCONFIG_FILE"
+        r"|HOME|XDG_\w+_HOME|CODEX_HOME"
+    ),
+    keep=frozenset(CLAUDE_KEEP),
+    credential_blocks_allow=True,
 )
-_AGENT_ENV_ALLOW = re.compile(
-    r"PATH|LANG|LANGUAGE|TZ|TERM|COLORTERM|TMPDIR|USER|LOGNAME|SHELL|CI"
-    r"|PYTHONUNBUFFERED|PYTHONIOENCODING|TRACEPARENT"
-    r"|SSL_CERT_FILE|SSL_CERT_DIR|NODE_EXTRA_CA_CERTS|REQUESTS_CA_BUNDLE"
-    r"|GIT_(?:AUTHOR|COMMITTER)_(?:NAME|EMAIL)"
-    r"|GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|GIT_PAGER"
-    r"|OPENAI_BASE_URL|GOOGLE_CLOUD_PROJECT|GOOGLE_CLOUD_LOCATION|GOOGLE_GENAI_USE_VERTEXAI"
-    r"|LC_\w+|CLAUDE_CODE_\w+|NIX_\w+|(?i:(?:HTTPS?|NO|ALL)_PROXY)"
-    r"|PLAYWRIGHT_BROWSERS_PATH|PLAYWRIGHT_SKIP_\w+|FONTCONFIG_FILE"
-    r"|HOME|XDG_\w+_HOME|CODEX_HOME"
-)
+
 # Credential-shaped names the allow pattern lets through (CLAUDE_CODE_OAUTH_TOKEN,
 # an opted-in MCP token). A child we spawn gets one only by naming it in ``keep``.
-_CREDENTIAL_NAME = re.compile(r"(_KEY|_TOKEN)$", re.I)
-_logged_dropped_env_names: set[str] = set()
-# shortcut: a shorter value ("true", "1") is not treated as a secret copy by
-# without_host_secrets; raise it if a real secret can be that short.
-_MIN_SECRET_LEN = 8
+_CREDENTIAL_NAME = agent_sandbox.CREDENTIAL_NAME
+
+pin_git_config = agent_sandbox.pin_git_config
 
 
 def is_denied_env_key(name: str) -> bool:
     """True when ``name`` is a control-plane secret no child may see."""
-    return name.upper() in _AGENT_ENV_DENY_EXACT or bool(_AGENT_ENV_DENY_PATTERN.search(name))
+    denied: bool = agent_sandbox.is_denied_env_key(POLICY, name)
+    return denied
 
 
 def is_agent_env_allowed(name: str) -> bool:
     """Runtime names, plus the operator's PFACTORY_AGENT_ENV_EXTRA; never a denied one."""
-    extra = {item.strip() for item in os.environ.get("PFACTORY_AGENT_ENV_EXTRA", "").split(",")}
-    # A pattern match that looks like a credential (NIX_GITHUB_TOKEN) is not
-    # allowed; an operator's explicit opt-in is.
-    by_pattern = bool(_AGENT_ENV_ALLOW.fullmatch(name)) and not _CREDENTIAL_NAME.search(name)
-    return not is_denied_env_key(name) and (by_pattern or name in extra)
-
-
-def _log_dropped(names: Iterable[str]) -> None:
-    new = {name for name in names if not is_denied_env_key(name)} - _logged_dropped_env_names
-    if new:
-        _logged_dropped_env_names.update(new)
-        logger.info("agent env allowlist dropped (names only): %s", sorted(new))
+    allowed: bool = agent_sandbox.is_agent_env_allowed(POLICY, name)
+    return allowed
 
 
 def get_agent_env_blanks() -> dict[str, str]:
@@ -123,12 +103,7 @@ def get_agent_env_blanks() -> dict[str, str]:
     The SDK builds the CLI env as ``{**os.environ, **options.env}``, so a
     variable can only be neutralised by an empty override.
     """
-    blanks = {
-        name: ""
-        for name in os.environ
-        if name not in CLAUDE_KEEP and not is_agent_env_allowed(name)
-    }
-    _log_dropped(blanks)
+    blanks: dict[str, str] = agent_sandbox.get_agent_env_blanks(POLICY)
     return blanks
 
 
@@ -137,23 +112,33 @@ def child_env(keep: Iterable[str] = (), extra: Mapping[str, str] | None = None) 
 
     Carries no credential unless the caller names it in ``keep``.
     """
-    env = {
-        name: value
-        for name, value in os.environ.items()
-        if is_agent_env_allowed(name) and not _CREDENTIAL_NAME.search(name)
-    }
-    _log_dropped(name for name in os.environ if name not in env)
-    env.update({name: os.environ[name] for name in keep if name in os.environ})
-    if extra:
-        env.update(extra)
+    env: dict[str, str] = agent_sandbox.child_env(POLICY, keep, extra, agent=True, pin_git=False)
     return env
+
+
+def git_env(keep: Iterable[str] = (), extra: Mapping[str, str] | None = None) -> dict[str, str]:
+    """``child_env`` plus the git exec-bearing config pins, for every git child."""
+    env: dict[str, str] = agent_sandbox.child_env(POLICY, keep, extra, agent=True, pin_git=True)
+    return env
+
+
+def merge_driver_pins(
+    cwd: str | os.PathLike[str],
+    run: Callable[[list[str]], tuple[int, str]] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Empty ``-c`` pins for merge drivers and content filters (fails closed).
+
+    Raises RuntimeError when git cannot list the config. No metadata baseline
+    here (Factory#3720).
+    """
+    pins: list[str] = agent_sandbox.merge_driver_pins(
+        cwd, run, env if env is not None else git_env()
+    )
+    return pins
 
 
 def without_host_secrets(env: Mapping[str, str]) -> dict[str, str]:
     """Drop entries whose value is a denied host variable's value (a renamed copy)."""
-    secrets = {
-        value
-        for name, value in os.environ.items()
-        if len(value) >= _MIN_SECRET_LEN and is_denied_env_key(name)
-    }
-    return {name: value for name, value in env.items() if value not in secrets}
+    out: dict[str, str] = agent_sandbox.without_host_secrets(POLICY, env)
+    return out

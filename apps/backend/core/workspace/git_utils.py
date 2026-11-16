@@ -10,6 +10,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from core.child_env import git_env, merge_driver_pins
+
 # Constants for merge limits
 MAX_FILE_LINES_FOR_AI = 5000  # Skip AI for files larger than this
 MAX_PARALLEL_AI_MERGES = 5  # Limit concurrent AI merge operations
@@ -117,6 +119,8 @@ def detect_file_renames(
             [
                 "git",
                 "log",
+                "--no-ext-diff",
+                "--no-textconv",
                 "--name-status",
                 "-M",
                 "--diff-filter=R",
@@ -126,6 +130,7 @@ def detect_file_renames(
             cwd=project_dir,
             capture_output=True,
             text=True,
+            env=git_env(),
         )
 
         if result.returncode == 0:
@@ -181,6 +186,7 @@ def get_merge_base(project_dir: Path, ref1: str, ref2: str) -> str | None:
             cwd=project_dir,
             capture_output=True,
             text=True,
+            env=git_env(),
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -196,6 +202,7 @@ def has_uncommitted_changes(project_dir: Path) -> bool:
         cwd=project_dir,
         capture_output=True,
         text=True,
+        env=git_env(),
     )
     return bool(result.stdout.strip())
 
@@ -207,6 +214,7 @@ def get_current_branch(project_dir: Path) -> str:
         cwd=project_dir,
         capture_output=True,
         text=True,
+        env=git_env(),
     )
     return result.stdout.strip()
 
@@ -238,10 +246,11 @@ def get_existing_build_worktree(project_dir: Path, spec_name: str) -> Path | Non
 def get_file_content_from_ref(project_dir: Path, ref: str, file_path: str) -> str | None:
     """Get file content from a git ref (branch, commit, etc.)."""
     result = subprocess.run(
-        ["git", "show", f"{ref}:{file_path}"],
+        ["git", "show", "--no-ext-diff", "--no-textconv", f"{ref}:{file_path}"],
         cwd=project_dir,
         capture_output=True,
         text=True,
+        env=git_env(),
     )
     if result.returncode == 0:
         return result.stdout
@@ -267,10 +276,19 @@ def get_changed_files_from_branch(
         List of (file_path, status) tuples
     """
     result = subprocess.run(
-        ["git", "diff", "--name-status", f"{base_branch}...{spec_branch}"],
+        [
+            "git",
+            *merge_driver_pins(project_dir),
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--name-status",
+            f"{base_branch}...{spec_branch}",
+        ],
         cwd=project_dir,
         capture_output=True,
         text=True,
+        env=git_env(),
     )
 
     files = []
@@ -482,10 +500,19 @@ def create_conflict_file_with_git(
             # git merge-file <current> <base> <other>
             # Exit codes: 0 = clean merge, 1 = conflicts, >1 = error
             result = subprocess.run(
-                ["git", "merge-file", "-p", main_path, base_path, wt_path],
+                [
+                    "git",
+                    *merge_driver_pins(project_dir),
+                    "merge-file",
+                    "-p",
+                    main_path,
+                    base_path,
+                    wt_path,
+                ],
                 cwd=project_dir,
                 capture_output=True,
                 text=True,
+                env=git_env(),
             )
 
             # Read the merged content

@@ -18,6 +18,17 @@ if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from client_errors import InputRejectedError  # noqa: E402  (after sys.path insert)
+from core.child_env import GITHUB_KEEP, git_env  # noqa: E402  (after sys.path insert)
+
+# Remote git needs the gh token and, for ssh origins, the agent socket.
+_REMOTE_PINS = [
+    "-c",
+    "core.gitProxy=",
+    "-c",
+    "remote.origin.uploadpack=git-upload-pack",
+    "-c",
+    "remote.origin.receivepack=git-receive-pack",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +68,18 @@ def run_git_command(args: list[str], cwd: str | Path) -> dict:
     narrowness the implementation never had (PFactory#468).
     """
     try:
+        # Runs in the user's own project: git_env pins hooks, pager and helpers;
+        # no merge-driver enumeration here. Fetch/pull/push also pin remote programs.
+        pins = _REMOTE_PINS if args and args[0] in {"fetch", "pull", "push"} else []
+        cmd = ["git", *pins, *args]
         result = subprocess.run(
-            ["git"] + args, check=False, capture_output=True, text=True, cwd=cwd, timeout=30
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=30,
+            env=git_env(keep=(*GITHUB_KEEP, "SSH_AUTH_SOCK")),
         )
         if result.returncode != 0:
             return {"success": False, "error": result.stderr.strip()}
