@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from . import retention
 from .graphiti_helpers import (
     is_graphiti_memory_enabled,
     run_async,
@@ -23,7 +24,31 @@ from .paths import get_session_insights_dir
 logger = logging.getLogger(__name__)
 
 
-def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, Any]) -> None:
+def _apply_cap(budget: int, groups: Any) -> list[str]:
+    """Spend one shared budget across the gated lists; return kept item keys."""
+    kept: list[str] = []
+    for source, names in groups:
+        if not isinstance(source, dict):
+            continue
+        for name in names:
+            values = source.get(name)
+            if not isinstance(values, list):
+                continue
+            accepted = values[: max(budget, 0)]
+            source[name] = accepted
+            budget -= len(accepted)
+            if len(values) > len(accepted):
+                logger.info("memory cap: dropped %d items in %s", len(values) - len(accepted), name)
+            kept.extend(k for item in accepted if (k := repeat_key(item)) is not None)
+    return kept
+
+
+def save_session_insights(
+    spec_dir: Path,
+    session_num: int,
+    insights: dict[str, Any],
+    session_type: str | None = None,
+) -> None:
     """
     Save insights from a completed session.
 
@@ -56,7 +81,6 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
         }
     """
     insights_dir = get_session_insights_dir(spec_dir)
-    session_file = insights_dir / f"session_{session_num:03d}.json"
 
     fields = ("what_worked", "recommendations_for_next_session")
     # The *_found/*_encountered keys come from QA; the *_discovered and
@@ -69,9 +93,8 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
         "recommendations",
     )
     seen: dict[str, set[str]] = {f: set() for f in (*fields, *discovery_fields)}
+    rejected: list[str] = []
     for prior_file in insights_dir.glob("session_*.json"):
-        if prior_file == session_file:
-            continue
         try:
             prior = json.loads(prior_file.read_text())
         except (OSError, json.JSONDecodeError):
@@ -93,7 +116,9 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
     )
     if isinstance(discoveries, dict):
         discoveries = {
-            k: drop_repeats(v, seen[k], f"discoveries.{k}") if k in discovery_fields else v
+            k: drop_repeats(v, seen[k], f"discoveries.{k}", rejected)
+            if k in discovery_fields
+            else v
             for k, v in discoveries.items()
         }
 
@@ -104,19 +129,42 @@ def save_session_insights(spec_dir: Path, session_num: int, insights: dict[str, 
         "subtasks_completed": insights.get("subtasks_completed", []),
         "discoveries": discoveries,
         "what_worked": drop_repeats(
-            insights.get("what_worked", []), seen["what_worked"], "what_worked"
+            insights.get("what_worked", []),
+            seen["what_worked"],
+            "what_worked",
+            rejected,
         ),
         "what_failed": insights.get("what_failed", []),
         "recommendations_for_next_session": drop_repeats(
             insights.get("recommendations_for_next_session", []),
             seen["recommendations_for_next_session"],
             "recommendations_for_next_session",
+            rejected,
         ),
     }
 
-    # Write to file (always use file-based storage)
-    with open(session_file, "w") as f:
-        json.dump(session_data, f, indent=2)
+    kept = _apply_cap(
+        retention.CAPS[retention.session_type(session_type)],
+        ((discoveries, discovery_fields), (session_data, fields)),
+    )
+
+    # Write to file (always use file-based storage). Exclusive create: the
+    # coder, QA reviewer and fixer share this directory and their counters
+    # collide, and an overwrite could drop the only stored copy of an item the
+    # novelty gate removed from a later file.
+    while True:
+        session_file = insights_dir / f"session_{session_num:03d}.json"
+        try:
+            f = open(session_file, "x")  # noqa: SIM115
+        except FileExistsError:
+            session_num += 1
+            continue
+        session_data["session_number"] = session_num
+        with f:
+            json.dump(session_data, f, indent=2)
+        break
+
+    retention.confirm(spec_dir / "memory", kept + rejected)
 
     # Also save to Graphiti if enabled (non-blocking, errors logged but not raised)
     if is_graphiti_memory_enabled():

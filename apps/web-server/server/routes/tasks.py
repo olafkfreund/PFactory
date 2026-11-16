@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
 from server.services import run_leases, task_log_store
-from server.services.git_utils import safe_spec_component
+from server.services.git_utils import git_run, safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
 from ..services.git_utils import run_git_command
@@ -2327,7 +2327,7 @@ async def get_worktree_merge_preview(task_id: str):
     conflicting_files = []
     try:
         # Use --write-tree explicitly for git 2.38+ behavior
-        result = subprocess.run(
+        result = git_run(
             ["git", "merge-tree", "--write-tree", base_branch, worktree_branch],
             cwd=project_path,
             capture_output=True,
@@ -2371,7 +2371,7 @@ async def get_worktree_merge_preview(task_id: str):
     # Filter out gitignored files from conflict list (e.g. build artifacts)
     if conflicting_files:
         try:
-            result = subprocess.run(
+            result = git_run(
                 ["git", "check-ignore"] + conflicting_files,
                 cwd=project_path,
                 capture_output=True,
@@ -2443,7 +2443,7 @@ async def get_worktree_merge_preview(task_id: str):
                 # none match, so we need stdout regardless of exit code — kept raw.
                 if uncommitted_conflicting_files:
                     try:
-                        ignored_result = subprocess.run(
+                        ignored_result = git_run(
                             ["git", "check-ignore"] + uncommitted_conflicting_files,
                             cwd=project_path,
                             capture_output=True,
@@ -2622,7 +2622,7 @@ async def resolve_worktree_conflicts(task_id: str, options: ConflictResolveOptio
             sanitize_log(worktree_branch),
             sanitize_log(task_id),
         )
-        merge_result = subprocess.run(
+        merge_result = git_run(
             ["git", "merge", worktree_branch, "--no-commit", "--no-ff"],
             cwd=project_path,
             capture_output=True,
@@ -2885,7 +2885,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
     # Get task branch files (returncode intentionally ignored — kept raw so an
     # empty/failed diff still yields the same set semantics as before)
     try:
-        result = subprocess.run(
+        result = git_run(
             ["git", "diff", "--name-only", f"{base_branch}...{spec_branch}"],
             cwd=project_path,
             capture_output=True,
@@ -2906,7 +2906,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
     stash_created = False
     try:
         # First try with --include-untracked to catch new files
-        result = subprocess.run(
+        result = git_run(
             ["git", "stash", "push", "--include-untracked", "-m", stash_message],
             cwd=project_path,
             capture_output=True,
@@ -2917,7 +2917,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
             logger.info("Stashed changes: %s", sanitize_log(result.stdout.strip()))
         elif result.returncode != 0:
             # Fallback: try without --include-untracked (for older git or if no untracked)
-            result = subprocess.run(
+            result = git_run(
                 ["git", "stash", "push", "-m", stash_message],
                 cwd=project_path,
                 capture_output=True,
@@ -2949,7 +2949,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
                 # Get base version (from base branch)
                 base_content = ""
                 try:
-                    result = subprocess.run(
+                    result = git_run(
                         ["git", "show", f"{base_branch}:{file_path}"],
                         cwd=project_path,
                         capture_output=True,
@@ -2965,7 +2965,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
                 local_content = ""
                 try:
                     if stash_created:
-                        result = subprocess.run(
+                        result = git_run(
                             ["git", "show", f"stash@{{0}}:{file_path}"],
                             cwd=project_path,
                             capture_output=True,
@@ -2984,7 +2984,7 @@ async def resolve_uncommitted_conflicts(task_id: str):
                 # Get task branch version
                 task_content = ""
                 try:
-                    result = subprocess.run(
+                    result = git_run(
                         ["git", "show", f"{spec_branch}:{file_path}"],
                         cwd=project_path,
                         capture_output=True,
@@ -3382,7 +3382,7 @@ async def abort_worktree_merge(task_id: str):
             # Check if worktree is in a merge state
             merge_head = worktree_path / ".git" / "MERGE_HEAD"
             if merge_head.exists() or (worktree_path / "MERGE_HEAD").exists():
-                result = subprocess.run(
+                result = git_run(
                     ["git", "merge", "--abort"],
                     cwd=worktree_path,
                     capture_output=True,
@@ -3412,7 +3412,7 @@ async def abort_worktree_merge(task_id: str):
                 git_dir / "MERGE_HEAD" if git_dir.is_dir() else project_path / ".git" / "MERGE_HEAD"
             )
             if merge_head.exists():
-                result = subprocess.run(
+                result = git_run(
                     ["git", "merge", "--abort"],
                     cwd=project_path,
                     capture_output=True,
@@ -3527,7 +3527,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     # Stash any uncommitted changes before rebasing
     stashed = False
     try:
-        stash_result = subprocess.run(
+        stash_result = git_run(
             ["git", "stash", "push", "-m", "pfactory-pre-rebase"],
             cwd=worktree_path,
             capture_output=True,
@@ -3542,7 +3542,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     # Rebase onto latest base branch to minimize conflicts (best-effort)
     rebase_failed = False
     try:
-        result = subprocess.run(
+        result = git_run(
             ["git", "rebase", f"origin/{base_branch}"],
             cwd=worktree_path,
             capture_output=True,
@@ -3551,7 +3551,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
         )
         if result.returncode != 0:
             # Abort the failed rebase to leave worktree clean
-            subprocess.run(
+            git_run(
                 ["git", "rebase", "--abort"],
                 cwd=worktree_path,
                 capture_output=True,
@@ -3560,7 +3560,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
             )
             rebase_failed = True
     except subprocess.TimeoutExpired:
-        subprocess.run(
+        git_run(
             ["git", "rebase", "--abort"],
             cwd=worktree_path,
             capture_output=True,
@@ -3573,7 +3573,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
 
     # Restore stashed changes
     if stashed:
-        subprocess.run(
+        git_run(
             ["git", "stash", "pop"], cwd=worktree_path, capture_output=True, text=True, timeout=10
         )
 
@@ -3583,9 +3583,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     if not rebase_failed:
         push_cmd = ["git", "push", "--force-with-lease", "-u", "origin", worktree_branch]
     try:
-        result = subprocess.run(
-            push_cmd, cwd=worktree_path, capture_output=True, text=True, timeout=60
-        )
+        result = git_run(push_cmd, cwd=worktree_path, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
             return {"success": False, "error": f"Failed to push branch: {result.stderr.strip()}"}
     except subprocess.TimeoutExpired:
@@ -3688,7 +3686,7 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
     if options.targetRepo:
         # Cross-fork PR: need owner:branch format for --head
         try:
-            origin_url_result = subprocess.run(
+            origin_url_result = git_run(
                 ["git", "remote", "get-url", "origin"],
                 cwd=str(worktree_path),
                 capture_output=True,
@@ -3831,9 +3829,7 @@ async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
         if options.noCommit:
             merge_cmd.append("--no-commit")
 
-        result = subprocess.run(
-            merge_cmd, cwd=project_path, capture_output=True, text=True, check=True
-        )
+        result = git_run(merge_cmd, cwd=project_path, capture_output=True, text=True, check=True)
 
         # Clean up worktree after successful merge
         worktree_deleted = False
@@ -4153,7 +4149,7 @@ async def get_worktree_diff(task_id: str):
     # Get actual diff content for each file
     for f in files:
         try:
-            result = subprocess.run(
+            result = git_run(
                 ["git", "diff", f"{base_branch}...{worktree_branch}", "--", f["path"]],
                 cwd=project_path,
                 capture_output=True,

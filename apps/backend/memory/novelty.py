@@ -12,11 +12,17 @@ def repeat_key(item: Any) -> str | None:
     if isinstance(item, str):
         return item.strip() or None
     if isinstance(item, dict):
-        return json.dumps(item, sort_keys=True, default=str)
+        # Round trip first: stringifies keys as storage does, so mixed-type keys sort.
+        try:
+            return json.dumps(json.loads(json.dumps(item, default=str)), sort_keys=True)
+        except (TypeError, ValueError):
+            return None
     return None
 
 
-def drop_repeats(candidates: Any, seen: set[str], label: str) -> Any:
+def drop_repeats(
+    candidates: Any, seen: set[str], label: str, rejected: list[str] | None = None
+) -> Any:
     """Return a new list without repeats of seen or earlier items; add kept keys.
 
     A value that is not a list is returned unchanged, as it was stored before.
@@ -30,6 +36,8 @@ def drop_repeats(candidates: Any, seen: set[str], label: str) -> Any:
         if key is not None:
             if key in seen:
                 logger.info("memory novelty gate: rejected %r in %s", item, label)
+                if rejected is not None:
+                    rejected.append(key)
                 continue
             seen.add(key)
         kept.append(item)

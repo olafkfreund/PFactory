@@ -80,8 +80,9 @@ export function useCardLogs(specId: string, enabled: boolean): UseCardLogsResult
     });
 
     // ── WebSocket stream (high-frequency per-entry chunks) ────────────────────
-    const unsubStream = window.API.onTaskLogsStream((incomingSpecId, chunk: TaskLogStreamChunk) => {
-      if (cancelled || incomingSpecId !== specId) return;
+    const unsubStream = window.API.onTaskLogsStream((incomingSpecId, chunk: TaskLogStreamChunk, incomingProjectId) => {
+      // specId alone collides across projects (#3704); an event without projectId is ignored.
+      if (cancelled || incomingSpecId !== specId || incomingProjectId !== projectId) return;
 
       const phase = (chunk.phase ?? 'coding') as TaskLogPhase;
       const entry: TaskLogEntry = {

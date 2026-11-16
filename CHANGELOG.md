@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+## 0.7.1 — review fixes for terminal env, tenant check, memory caps, project env, run guard (2026-11-16)
+
+### Bug Fixes
+
+- **Terminal PTY env no longer carries stripped secrets (#1022, #1016).**
+- **`/api/contract-events` resolves the tenant from ingress `X-Tenant-Id`;** a body tenant that differs now gets 403 before any state changes (#1022, #1015).
+- **Per-agent memory caps are wired:** coder to the build cap (20), QA to verification (#1022, #1012).
+- **A repo `.env` can no longer set an endpoint key** (`GIT_BASE_URL`, `OPENAI_COMPATIBLE_BASE_URL`, ...) when the host already holds the paired credential (#1022, #1004).
+- **Run guard no longer halts falsely (#1023, TFactory#1525).** The same-tool halt counts per tool and input signature, so eight different failing Bash calls no longer stop a session; an identical repeated call is still halted at 8. The token ceiling now bounds one run, not the task lifetime.
+
+## 0.7.0 — agent sandbox and env hardening, WebSocket org confinement, memory gates, plan feedback loop (2026-11-16)
+
+### Security
+
+- **Behaviour change: agent children get an allowlisted environment (#997,
+  Factory#3708).** Agent children no longer inherit the control plane's
+  env (`APP_API_TOKEN`, `APP_JWT_SECRET`, database URL, S3 keys,
+  `GITHUB_TOKEN`). A non-secret variable an agent step needs can be
+  restored with `PFACTORY_AGENT_ENV_EXTRA=NAME1,NAME2`. The catalog GitHub
+  MCP server no longer gets a copy of the pod `GITHUB_TOKEN`.
+- **Runner env and project `.env` hardening (#1017, #1004, #1009,
+  Factory#3737, #3710, #3709).** Control-plane-only secrets are stripped
+  from the runner env, only a named allowlist of project `.env` keys is
+  loaded, the shared `agent_sandbox` package is adopted with pinned git
+  calls, and the non-dumpable server is re-vendored.
+- **Behaviour change: WebSockets are org-confined (#994, #1010, #1007,
+  Factory#3679, #3724, #3703).** `/ws/events`, `/ws/logs`, `/ws/progress`
+  and per-task sockets check the caller's org memberships.
+- **Behaviour change: PTY terminal sessions are bound to their owner and
+  project (#1016, Factory#3740).**
+- Scoped `acw_` keys are accepted on WebSocket (#991, Factory#312).
+- Floor `libexpat1` at 2.10.0-r0 to clear HIGH CVEs (#993).
+
+### New Features
+
+- Plan completion feeds build and test outcomes back into planning (#1015,
+  closes #998).
+- Originator and agent identity are recorded at intake and emitted in the
+  run signature and plan completion event (#1000, #1011).
+- Agent anti-loop guardrail, a run token ceiling and configurable max turns
+  (#1013, closes #1008).
+- Memory: RFC-0021 Phase 1 exact-repeat gate on writers (#992) and Phase 2
+  per-session-type caps, `last_confirmed_at` and demotion (#1012).
+- Helm chart: alembic hook Job for `migrations.autoApply=false` (#987).
+
+### Bug Fixes
+
+- Memory writers never overwrite session files; novelty gate edge cases
+  hardened (#1006).
+
+### Maintenance
+
+- Bump baked agent-CLI pins: claude-code 2.1.319, gemini-cli 0.67.0,
+  codex 0.167.0 (#989); GitHub Actions group bump (#995); re-vendor
+  `artifact_store` `get_bytes(max_bytes=)` (#1005).
+- Hermetic `test_plan_docs_p4` (#1014); PFactory site refresh (#1001).
+
 ## 0.6.42 — boot migration lock, worktree resolve by project id, plan-session write org scope, uv CVE floor (2026-10-31)
 
 - **Behaviour change: boot migrations take a Postgres advisory lock (#982,

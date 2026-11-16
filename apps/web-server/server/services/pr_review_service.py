@@ -25,6 +25,8 @@ from pathlib import Path
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
 from server.error_ref import error_reference
+from server.utils.project_env import load_project_env_file
+from server.utils.subprocess_env import RUNNER_STRIP
 
 from ..config import get_settings
 from ..websockets.events import broadcast_event
@@ -84,7 +86,7 @@ def _load_env_file(env_file: Path, env: dict) -> None:
                     k, v = line.split("=", 1)
                     k = k.strip()
                     v = v.strip().strip('"').strip("'")
-                    if k not in env:
+                    if k not in env and k.upper() not in RUNNER_STRIP:
                         env[k] = v
     except Exception as e:
         logger.warning("Failed to load env file %s: %s", sanitize_log(env_file), sanitize_log(e))
@@ -289,7 +291,7 @@ class PRReviewService:
         _load_env_file(backend_path / ".env", env)
 
         # Load project-level .pfactory/.env for project settings
-        _load_env_file(project_path / ".pfactory" / ".env", env)
+        load_project_env_file(project_path / ".pfactory" / ".env", env)
 
         # Initialize execution log writer
         logs_dir = project_path / ".pfactory" / "github" / "pr"

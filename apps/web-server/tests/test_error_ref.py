@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -51,6 +52,7 @@ from server.services import git_utils, pr_data_service  # noqa: E402
 # internal host, a port, and an absolute server path.
 LEAKY_HOST = "pfactory-db.internal.svc.cluster.local"
 LEAKY_PORT = "5432"
+SERVICE_REQUEST = SimpleNamespace(state=SimpleNamespace(user={"id": "default", "is_service": True}))
 LEAKY_PATH = "/home/projects/MagesticAI/workspaces/acme/.git/config"
 BOOM_MSG = f"[Errno 2] connect to {LEAKY_HOST}:{LEAKY_PORT} failed reading {LEAKY_PATH}"
 
@@ -193,7 +195,9 @@ def test_remove_terminal_worktree_body_leaks_nothing(
 
     monkeypatch.setattr(terminal, "TerminalWorktreeService", boom)
     result = asyncio.run(
-        terminal.remove_terminal_worktree("wt", project="/srv/ws/acme", deleteBranch=False)
+        terminal.remove_terminal_worktree(
+            "wt", SERVICE_REQUEST, project="/srv/ws/acme", deleteBranch=False
+        )
     )
     assert result["success"] is False
     ref = assert_no_leak(result["error"])

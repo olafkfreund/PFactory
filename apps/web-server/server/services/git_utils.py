@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from server.error_ref import error_message
 from server.services.project_paths import load_projects
@@ -18,6 +19,21 @@ if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from client_errors import InputRejectedError  # noqa: E402  (after sys.path insert)
+from core.child_env import (  # noqa: E402  (after sys.path insert)
+    GITHUB_KEEP,
+    git_env,
+    merge_driver_pins,
+)
+
+# Remote git needs the gh token and, for ssh origins, the agent socket.
+_REMOTE_PINS = [
+    "-c",
+    "core.gitProxy=",
+    "-c",
+    "remote.origin.uploadpack=git-upload-pack",
+    "-c",
+    "remote.origin.receivepack=git-receive-pack",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +63,34 @@ def assert_safe_git_ref(value: object, field: str = "ref") -> str:
     return text
 
 
+# Subcommands that can run a merge driver, content filter or textconv from repo config.
+_DRIVER_SUBCOMMANDS = {"merge", "rebase", "stash", "diff", "show", "merge-tree"}
+
+
+def git_run(
+    cmd: list[str], *, check: bool = False, **kwargs: Any
+) -> subprocess.CompletedProcess[str]:
+    """``subprocess.run`` for a ``git`` argv with the sandboxed env and exec pins.
+
+    Worktrees share the main repo's config and hooks, so an agent can plant a
+    hook, merge driver or filter; a bare ``subprocess.run`` would run it with
+    the server's secrets in the environment (PFactory#1009). Raises
+    ``RuntimeError`` (fail closed) when merge-driver config cannot be listed.
+    """
+    sub = cmd[1] if len(cmd) > 1 else ""
+    pins: list[str] = list(_REMOTE_PINS) if sub in {"fetch", "pull", "push"} else []
+    if sub in _DRIVER_SUBCOMMANDS:
+        pins = merge_driver_pins(kwargs.get("cwd") or ".")
+    # diff.external / textconv are not covered by merge_driver_pins.
+    noext = ["--no-ext-diff", "--no-textconv"] if sub in {"diff", "show"} else []
+    return subprocess.run(  # noqa: S603 - argv list, no shell
+        ["git", *pins, sub, *noext, *cmd[2:]],  # noqa: S607
+        env=git_env(keep=(*GITHUB_KEEP, "SSH_AUTH_SOCK")),
+        check=check,
+        **kwargs,
+    )
+
+
 def run_git_command(args: list[str], cwd: str | Path) -> dict:
     """Run a git command and return result.
 
@@ -57,8 +101,18 @@ def run_git_command(args: list[str], cwd: str | Path) -> dict:
     narrowness the implementation never had (PFactory#468).
     """
     try:
+        # Runs in the user's own project: git_env pins hooks, pager and helpers;
+        # no merge-driver enumeration here. Fetch/pull/push also pin remote programs.
+        pins = _REMOTE_PINS if args and args[0] in {"fetch", "pull", "push"} else []
+        cmd = ["git", *pins, *args]
         result = subprocess.run(
-            ["git"] + args, check=False, capture_output=True, text=True, cwd=cwd, timeout=30
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=30,
+            env=git_env(keep=(*GITHUB_KEEP, "SSH_AUTH_SOCK")),
         )
         if result.returncode != 0:
             return {"success": False, "error": result.stderr.strip()}

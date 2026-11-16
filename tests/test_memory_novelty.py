@@ -220,8 +220,8 @@ def test_gotcha_different_context_appended(tmp_path, record_gotcha):
 
 def test_gotcha_repeat_outside_window_appended(tmp_path, record_gotcha):
     record_gotcha("old")
-    for i in range(30):
-        record_gotcha(f"filler {i} " + "z" * 50)
+    for i in range(3):
+        record_gotcha(f"filler {i} " + "z" * 400)
     assert len(_gotchas(tmp_path)) > memory_tools.GOTCHA_CONTEXT_CHARS
     assert record_gotcha("old").startswith("Recorded gotcha")
     assert _gotchas(tmp_path).count("\nold\n") == 2
@@ -298,3 +298,38 @@ def test_gotcha_with_non_timestamp_header_line_not_split(tmp_path, record_gotcha
     record_gotcha("See:\n## [config]\nfoo")
     assert record_gotcha("foo").startswith("Recorded gotcha")
     assert record_gotcha("See:\n## [config]\nfoo").startswith("Gotcha already recorded")
+
+
+# --- #2022 / #2035 --------------------------------------------------------
+
+
+def test_session_collision_keeps_both_files(tmp_path):
+    save_session_insights(tmp_path, 1, _insights("what_worked", ["a"]))
+    save_session_insights(tmp_path, 1, _insights("what_worked", ["b"]))
+    assert _load(tmp_path, 1)["what_worked"] == ["a"]
+    second = _load(tmp_path, 2)
+    assert second["what_worked"] == ["b"] and second["session_number"] == 2
+
+
+def test_mixed_type_dict_keys_do_not_raise_and_repeat_after_reload(tmp_path):
+    entry = {1: "a", "b": 2}
+    save_session_insights(tmp_path, 1, _insights("patterns_found", [entry]))
+    save_session_insights(tmp_path, 2, _insights("patterns_found", [entry]))
+    assert _load(tmp_path, 2)["discoveries"]["patterns_found"] == []
+
+
+def test_circular_dict_is_not_gated():
+    d: dict = {}
+    d["self"] = d
+    assert drop_repeats([d, d], set(), "t") == [d, d]
+
+
+def test_gotcha_with_embedded_header_is_one_entry(record_gotcha):
+    record_gotcha("log shows:\n## [2026-01-01 00:00]\nbar")
+    assert record_gotcha("bar").startswith("Recorded gotcha")
+
+
+def test_gotcha_escape_is_injective(record_gotcha):
+    record_gotcha("x\n## [2026-01-01 00:00]\ny")
+    assert record_gotcha("x\n\\## [2026-01-01 00:00]\ny").startswith("Recorded gotcha")
+    assert record_gotcha("x\n## [2026-01-01 00:00]\ny").startswith("Gotcha already")

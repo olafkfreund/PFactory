@@ -105,6 +105,16 @@ class ContractSyncState(BaseModel):
     outcome: Outcome = "in_progress"
     needs_handback: bool = False
     history: list[dict[str, str]] = Field(default_factory=list)
+    # Feedback for the planner (#998). Missing data is unknown, never zero.
+    handback_count: int = 0
+    handbacks: list[dict[str, str]] = Field(default_factory=list)  # last 10
+    unverified_criteria: list[str] | None = None  # None = TFactory sent no coverage
+    cost_usd_by_service: dict[str, float] = Field(default_factory=dict)
+    seen: list[str] = Field(default_factory=list)  # last 50 event dedupe keys
+
+    @property
+    def actual_cost_usd(self) -> float | None:
+        return sum(self.cost_usd_by_service.values()) if self.cost_usd_by_service else None
 
     def recompute(self) -> ContractSyncState:
         ai = (
@@ -130,8 +140,53 @@ class ContractSyncState(BaseModel):
         return self
 
 
+_REASON_MAX = 200
+
+
+def _clean_reason(text: str) -> str:
+    return "".join(c for c in text if c.isprintable())[:_REASON_MAX].strip()
+
+
+def _fold_feedback(state: ContractSyncState, event: CompletionEvent) -> None:
+    """Record failure reason, unverified criteria and cost; idempotent per event."""
+    raw = event.raw
+    key = str(raw.get("id") or f"{event.service}|{event.status}|{event.updated_at}")
+    if key in state.seen:
+        return  # replay: must not overwrite newer cost/coverage with older values
+    state.seen = [*state.seen, key][-50:]
+    usage = raw.get("usage")
+    cost = usage.get("cost_usd") if isinstance(usage, dict) else None
+    if isinstance(cost, int | float) and not isinstance(cost, bool):
+        state.cost_usd_by_service[event.service] = float(cost)  # cumulative: replace
+    verification = raw.get("verification")
+    rows = verification.get("traceability") if isinstance(verification, dict) else None
+    if event.service == "tfactory" and isinstance(rows, list):
+        state.unverified_criteria = [
+            str(r.get("ac_id"))
+            for r in rows
+            if isinstance(r, dict) and r.get("ac_id") and r.get("status") != "passed"
+        ]
+    failed = (
+        classify_outcome(event.service, event.status) == "failure"
+        or str(raw.get("outcome", "")).lower() == "failure"
+    )
+    if failed:
+        state.handback_count += 1
+        reason = _clean_reason(str(raw.get("halt_reason") or event.status))
+        state.handbacks = [
+            *state.handbacks,
+            {
+                "service": event.service,
+                "status": event.status,
+                "reason": reason,
+                "at": event.updated_at,
+            },
+        ][-10:]
+
+
 def reconcile(state: ContractSyncState, event: CompletionEvent) -> ContractSyncState:
     """Fold one event into a state by service, then recompute the outcome."""
+    _fold_feedback(state, event)
     if event.service == "aifactory":
         state.aifactory_status = event.status
     elif event.service == "tfactory":
@@ -141,6 +196,11 @@ def reconcile(state: ContractSyncState, event: CompletionEvent) -> ContractSyncS
         {"service": event.service, "status": event.status, "updated_at": event.updated_at}
     )
     return state.recompute()
+
+
+def fold_event(state: ContractSyncState, payload: Any) -> ContractSyncState:
+    """Parse a raw event and fold it into a caller-owned state (per-session use)."""
+    return reconcile(state, parse_completion_event(payload))
 
 
 class ContractSyncRegistry:

@@ -71,6 +71,22 @@ def test_event_carries_the_rfc_envelope_fields():
     assert event["correlation"]["session_id"] == session.session_id
 
 
+def test_event_carries_originator_and_agent_identity_or_null():
+    """Factory#1960: both keys are always present, null when never recorded."""
+    svc = PlanService()
+    bare = svc.ingest_text(_PLAN, title="Refund flow")
+    event = build_completion_event(bare)
+    assert (event["originator"], event["agent_identity"]) == (None, None)
+    who = svc.ingest_text(
+        _PLAN, title="Refund flow", originator="u-1", agent_identity="agent:pfactory/k-1"
+    )
+    event = build_completion_event(who)
+    assert (event["originator"], event["agent_identity"]) == (
+        "u-1",
+        "agent:pfactory/k-1",
+    )
+
+
 def test_terminal_statuses_are_emitted_rejected_and_discarded():
     """``discarded`` joined the set in #360 — a session abandoned outright.
 
@@ -405,3 +421,16 @@ def test_emit_usage_snapshot_noop_without_usage(monkeypatch):
 
     assert completion.emit_usage_snapshot(session) is None
     assert posted == []
+
+
+@pytest.mark.parametrize("final", ["discarded", "rejected"])
+def test_token_ceiling_error_does_not_rewrite_a_terminal_status(final):
+    """A stale TokenCeilingError must not turn a discarded/rejected event into "failed"."""
+    session = PlanService().ingest_text(_PLAN, title="Refund flow")
+    session.process_error = "TokenCeilingError"
+    session.status = "failed"
+    assert build_completion_event(session)["status"] == "failed"
+    session.status = final
+    event = build_completion_event(session)
+    assert event["status"] == final
+    assert event["status"] in TERMINAL_STATUSES

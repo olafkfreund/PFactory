@@ -241,6 +241,7 @@ async def save_session_memory(
     success: bool,
     subtasks_completed: list[str],
     discoveries: dict | None = None,
+    session_type: str | None = None,
 ) -> tuple[bool, str]:
     """
     Save session insights to memory.
@@ -391,7 +392,7 @@ async def save_session_memory(
                 session_file=f"session_{session_num:03d}.json",
             )
 
-        save_file_based_memory(spec_dir, session_num, insights)
+        save_file_based_memory(spec_dir, session_num, insights, session_type)
         logger.info(f"Session {session_num} insights saved to file-based memory (fallback)")
 
         if is_debug_enabled():

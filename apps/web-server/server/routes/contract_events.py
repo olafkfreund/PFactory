@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -20,6 +21,8 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
+from plan.service import SERVICE, PlanService, StaleSessionError  # noqa: E402
+from server.tenancy import TENANT_HEADER, multi_tenant_enabled, resolve_tenant  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 
@@ -27,13 +30,39 @@ router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 REGISTRY = ContractSyncRegistry()
 
 
+def _tenant(payload: dict[str, Any], request: Request) -> str | None:
+    """Tenant scope; off = no filter.
+
+    The ingress-stamped X-Tenant-Id is authoritative: a body naming another tenant is
+    refused. Only a header-less (internal emitter) call may name the tenant in the body.
+    """
+    if not multi_tenant_enabled():
+        return None
+    body = str(payload.get("tenant_id") or "").strip()
+    header = (request.headers.get(TENANT_HEADER) or "").strip()
+    if header and body and body != header:
+        raise HTTPException(status_code=403, detail="tenant_id does not match the caller's tenant")
+    return header or body or str(resolve_tenant(request))
+
+
 @router.post("")
-async def ingest_event(payload: dict) -> dict:
+async def ingest_event(payload: dict[str, Any], request: Request) -> dict:
     """Reconcile one inbound completion event; returns the updated state."""
+    tenant = _tenant(payload, request)  # refuse before any state changes
     try:
         state = REGISTRY.apply(payload)
     except SyncError as exc:
         raise HTTPException(status_code=422, detail=client_error(exc)) from exc
+    # #998: keep the feedback on the plan session so it survives a restart and
+    # reaches the planner. The session may have moved on: reload and refold.
+    for _ in range(3):
+        try:
+            cast(PlanService, SERVICE).record_downstream(payload, tenant_id=tenant)
+            break
+        except StaleSessionError:
+            continue
+    else:
+        raise HTTPException(status_code=503, detail="plan session busy, retry")
     return state.model_dump()
 
 

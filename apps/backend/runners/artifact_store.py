@@ -52,7 +52,7 @@ import tarfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import cast
+from typing import Any, cast
 
 # apis/concurrency-conventions.md §2 — one artifacts bucket per environment.
 DEFAULT_BUCKET = "factory-artifacts"
@@ -253,15 +253,36 @@ class ArtifactStore:
         )
         return f"s3://{self.config.bucket}/{key}"
 
-    def get_bytes(self, key: str) -> bytes:
+    def get_bytes(self, key: str, max_bytes: int | None = None) -> bytes:
         """Fetch one object's bytes by explicit key. The complement to
         ``put_bytes`` for the workspace unpacker (which may key off a URI env var,
-        not a reconstructed ``ArtifactRef``)."""
+        not a reconstructed ``ArtifactRef``).
+
+        With ``max_bytes`` set, at most ``max_bytes + 1`` bytes are read (an
+        oversize object is never loaded whole) and ``ValueError`` is raised if the
+        object is larger than ``max_bytes``; exactly ``max_bytes`` is allowed."""
+        if max_bytes is not None and max_bytes < 0:
+            raise ValueError(f"max_bytes must be >= 0, got {max_bytes}")
         obj = self._client().get_object(  # type: ignore[attr-defined]
             Bucket=self.config.bucket, Key=key
         )
-        # boto3's client is untyped, so .read() is Any; coerce to satisfy strict.
-        return cast(bytes, obj["Body"].read())
+        if max_bytes is None:
+            # boto3's client is untyped, so .read() is Any; coerce to satisfy strict.
+            return cast(bytes, obj["Body"].read())
+        body = obj["Body"]
+        try:
+            data = bytes(body.read(max_bytes + 1))
+        finally:
+            # An overflow leaves the stream unread; release the connection.
+            if hasattr(body, "close"):
+                body.close()
+        if len(data) > max_bytes:
+            raise ValueError(f"object {key!r} exceeds max_bytes={max_bytes}")
+        size = obj.get("ContentLength")
+        # A capped read skips botocore's own length check.
+        if size is not None and len(data) != size:
+            raise OSError(f"short read of {key}")
+        return data
 
 
 def parse_uri(uri: str) -> tuple[str, str]:
@@ -540,6 +561,7 @@ def _selftest() -> None:
     _require(store.config.bucket == DEFAULT_BUCKET, "store builds without S3")
 
     _selftest_workspace()
+    _selftest_get_bytes_cap()
 
     sys.stdout.write(
         "artifact_store self-test: PASS — key layout, uri, null/int corr, nested path, "
@@ -563,8 +585,9 @@ class _FakeS3:
         self.objects[(Bucket, Key)] = Body
         self.calls.append({"Bucket": Bucket, "Key": Key, **extra})
 
-    def get_object(self, *, Bucket: str, Key: str) -> dict[str, io.BytesIO]:  # noqa: N803 — boto3 kwarg names
-        return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803 — boto3 kwarg names
+        data = self.objects[(Bucket, Key)]
+        return {"Body": io.BytesIO(data), "ContentLength": len(data)}
 
 
 def _fake_store() -> ArtifactStore:
@@ -584,6 +607,42 @@ def _evil_archive(name: str) -> bytes:
         info.size = len(payload)
         tar.addfile(info, io.BytesIO(payload))
     return buf.getvalue()
+
+
+def _selftest_get_bytes_cap() -> None:
+    """get_bytes(max_bytes=): under, exactly at, and over the cap (Factory#3715)."""
+    store = _fake_store()
+    store.put_bytes("k", b"abcd")
+    _require(store.get_bytes("k") == b"abcd", "uncapped read")
+    _require(store.get_bytes("k", max_bytes=10) == b"abcd", "under cap")
+    _require(store.get_bytes("k", max_bytes=4) == b"abcd", "exactly at cap")
+    for bad in (3, -1):  # over the cap, and a negative cap (read(-1) would read all)
+        try:
+            store.get_bytes("k", max_bytes=bad)
+        except ValueError:
+            pass
+        else:
+            _require(False, f"max_bytes={bad} must raise ValueError")
+    # The read is bounded to max_bytes + 1 and a short read is an error.
+    asked: list[int] = []
+
+    class _Body:
+        def read(self, n: int) -> bytes:
+            asked.append(n)
+            return b"ab"
+
+    class _ShortS3:
+        def get_object(self, **_: object) -> dict[str, Any]:
+            return {"Body": _Body(), "ContentLength": 9}
+
+    store._s3 = _ShortS3()
+    try:
+        store.get_bytes("k", max_bytes=100)
+    except OSError:
+        pass
+    else:
+        _require(False, "short read must raise OSError")
+    _require(asked == [101], f"read bounded to max_bytes + 1: {asked}")
 
 
 def _selftest_workspace() -> None:

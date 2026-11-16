@@ -15,6 +15,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from core.child_env import git_env
+
 
 def find_worktree(project_dir: Path, task_id: str) -> Path | None:
     """
@@ -58,11 +60,12 @@ def get_file_from_branch(project_dir: Path, file_path: str, branch: str) -> str 
     """
     try:
         result = subprocess.run(
-            ["git", "show", f"{branch}:{file_path}"],
+            ["git", "show", "--no-ext-diff", "--no-textconv", f"{branch}:{file_path}"],
             cwd=project_dir,
             capture_output=True,
             text=True,
             check=True,
+            env=git_env(),
         )
         return result.stdout
     except subprocess.CalledProcessError:

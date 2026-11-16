@@ -48,6 +48,8 @@ class _RecordingRunner:
         self._scripted = list(scripted or [])
 
     def __call__(self, argv, *, cwd, stdin=None):
+        if argv[:4] == ["git", "config", "-z", "--includes"]:  # merge-driver probe
+            return _FakeProc(returncode=0)
         self.calls.append((list(argv), cwd, stdin))
         if self._scripted:
             return self._scripted.pop(0)
@@ -106,15 +108,29 @@ def test_dry_run_produces_all_argvs(tmp_path: Path) -> None:
     # 5 stages: verify, checkout, add, commit, rev-parse HEAD
     assert len(argvs) == 5
     assert argvs[0] == (
-        "git", "-C", str(repo), "rev-parse", "--verify", "auto-claude/feat",
+        "git",
+        "-C",
+        str(repo),
+        "rev-parse",
+        "--verify",
+        "auto-claude/feat",
     )
     assert argvs[1] == ("git", "-C", str(repo), "checkout", "auto-claude/feat")
     assert argvs[2] == (
-        "git", "-C", str(repo), "add", "--",
-        "tests/test_a.py", "tests/test_b.py",
+        "git",
+        "-C",
+        str(repo),
+        "add",
+        "--",
+        "tests/test_a.py",
+        "tests/test_b.py",
     )
     assert argvs[3] == (
-        "git", "-C", str(repo), "commit", "-m",
+        "git",
+        "-C",
+        str(repo),
+        "commit",
+        "-m",
         "pfactory: add 2 generated tests",
     )
     assert argvs[4] == ("git", "-C", str(repo), "rev-parse", "HEAD")
@@ -137,7 +153,8 @@ def test_dry_run_does_not_write_files(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     req = GitWriteRequest(
-        repo_dir=repo, branch="b",
+        repo_dir=repo,
+        branch="b",
         files=(("tests/x.py", "should not exist"),),
     )
     write_tests_to_branch(req, dry_run=True)
@@ -147,7 +164,10 @@ def test_dry_run_does_not_write_files(tmp_path: Path) -> None:
 def test_empty_file_list_no_add_commit() -> None:
     """Empty file list → only verify + checkout, no add/commit/rev-parse."""
     req = GitWriteRequest(
-        repo_dir=Path("/r"), branch="b", files=(), commit_msg="x",
+        repo_dir=Path("/r"),
+        branch="b",
+        files=(),
+        commit_msg="x",
     )
     result = write_tests_to_branch(req, dry_run=True)
     assert result.ok is True
@@ -159,7 +179,8 @@ def test_empty_file_list_no_add_commit() -> None:
 def test_dry_run_validates_paths_eagerly(tmp_path: Path) -> None:
     """Path validation runs even in dry-run — catches issues early."""
     req = GitWriteRequest(
-        repo_dir=tmp_path, branch="b",
+        repo_dir=tmp_path,
+        branch="b",
         files=(("../bad.py", "x"),),
     )
     result = write_tests_to_branch(req, dry_run=True)
@@ -184,7 +205,8 @@ def test_default_commit_message_used(tmp_path: Path) -> None:
 
 def test_author_override_appends_author_flag(tmp_path: Path) -> None:
     req = GitWriteRequest(
-        repo_dir=tmp_path / "repo", branch="b",
+        repo_dir=tmp_path / "repo",
+        branch="b",
         files=(("tests/x.py", "x"),),
         commit_msg="msg",
         author_name="PFactory Bot",
@@ -200,10 +222,11 @@ def test_author_override_appends_author_flag(tmp_path: Path) -> None:
 def test_author_partial_does_not_add_flag(tmp_path: Path) -> None:
     """Only one of name/email → don't emit a half-formed --author."""
     req = GitWriteRequest(
-        repo_dir=tmp_path / "repo", branch="b",
+        repo_dir=tmp_path / "repo",
+        branch="b",
         files=(("tests/x.py", "x"),),
         commit_msg="msg",
-        author_name="PFactory Bot",   # no email
+        author_name="PFactory Bot",  # no email
     )
     result = write_tests_to_branch(req, dry_run=True)
     commit_argv = result.argv_log[3]
@@ -218,15 +241,18 @@ def test_real_run_success_writes_files_and_captures_sha(
 ) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    runner = _RecordingRunner(scripted=[
-        _FakeProc(returncode=0),  # verify
-        _FakeProc(returncode=0),  # checkout
-        _FakeProc(returncode=0),  # add
-        _FakeProc(returncode=0),  # commit
-        _FakeProc(returncode=0, stdout="abc123def\n"),  # rev-parse HEAD
-    ])
+    runner = _RecordingRunner(
+        scripted=[
+            _FakeProc(returncode=0),  # verify
+            _FakeProc(returncode=0),  # checkout
+            _FakeProc(returncode=0),  # add
+            _FakeProc(returncode=0),  # commit
+            _FakeProc(returncode=0, stdout="abc123def\n"),  # rev-parse HEAD
+        ]
+    )
     req = GitWriteRequest(
-        repo_dir=repo, branch="b",
+        repo_dir=repo,
+        branch="b",
         files=(("tests/x.py", "def test_x(): pass\n"),),
         commit_msg="msg",
     )
@@ -245,7 +271,9 @@ def test_real_run_missing_repo(tmp_path: Path) -> None:
     runner = _RecordingRunner()
     req = GitWriteRequest(
         repo_dir=tmp_path / "missing",  # doesn't exist
-        branch="b", files=(("tests/x.py", "x"),), commit_msg="m",
+        branch="b",
+        files=(("tests/x.py", "x"),),
+        commit_msg="m",
     )
     result = write_tests_to_branch(req, dry_run=False, runner_fn=runner)
     assert result.ok is False
@@ -257,12 +285,16 @@ def test_real_run_missing_repo(tmp_path: Path) -> None:
 def test_real_run_branch_verify_fails(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    runner = _RecordingRunner(scripted=[
-        _FakeProc(returncode=1, stderr="fatal: unknown revision"),
-    ])
+    runner = _RecordingRunner(
+        scripted=[
+            _FakeProc(returncode=1, stderr="fatal: unknown revision"),
+        ]
+    )
     req = GitWriteRequest(
-        repo_dir=repo, branch="nope",
-        files=(("tests/x.py", "x"),), commit_msg="m",
+        repo_dir=repo,
+        branch="nope",
+        files=(("tests/x.py", "x"),),
+        commit_msg="m",
     )
     result = write_tests_to_branch(req, dry_run=False, runner_fn=runner)
     assert result.ok is False
@@ -274,13 +306,17 @@ def test_real_run_branch_verify_fails(tmp_path: Path) -> None:
 def test_real_run_checkout_fails(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    runner = _RecordingRunner(scripted=[
-        _FakeProc(returncode=0),  # verify OK
-        _FakeProc(returncode=1, stderr="error: pathspec did not match"),
-    ])
+    runner = _RecordingRunner(
+        scripted=[
+            _FakeProc(returncode=0),  # verify OK
+            _FakeProc(returncode=1, stderr="error: pathspec did not match"),
+        ]
+    )
     req = GitWriteRequest(
-        repo_dir=repo, branch="b",
-        files=(("tests/x.py", "x"),), commit_msg="m",
+        repo_dir=repo,
+        branch="b",
+        files=(("tests/x.py", "x"),),
+        commit_msg="m",
     )
     result = write_tests_to_branch(req, dry_run=False, runner_fn=runner)
     assert result.ok is False
@@ -293,14 +329,18 @@ def test_real_run_checkout_fails(tmp_path: Path) -> None:
 def test_real_run_add_fails(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    runner = _RecordingRunner(scripted=[
-        _FakeProc(returncode=0),  # verify
-        _FakeProc(returncode=0),  # checkout
-        _FakeProc(returncode=1, stderr="fatal: pathspec"),
-    ])
+    runner = _RecordingRunner(
+        scripted=[
+            _FakeProc(returncode=0),  # verify
+            _FakeProc(returncode=0),  # checkout
+            _FakeProc(returncode=1, stderr="fatal: pathspec"),
+        ]
+    )
     req = GitWriteRequest(
-        repo_dir=repo, branch="b",
-        files=(("tests/x.py", "x"),), commit_msg="m",
+        repo_dir=repo,
+        branch="b",
+        files=(("tests/x.py", "x"),),
+        commit_msg="m",
     )
     result = write_tests_to_branch(req, dry_run=False, runner_fn=runner)
     assert result.ok is False
@@ -310,15 +350,19 @@ def test_real_run_add_fails(tmp_path: Path) -> None:
 def test_real_run_commit_fails(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    runner = _RecordingRunner(scripted=[
-        _FakeProc(returncode=0),  # verify
-        _FakeProc(returncode=0),  # checkout
-        _FakeProc(returncode=0),  # add
-        _FakeProc(returncode=1, stderr="nothing to commit"),
-    ])
+    runner = _RecordingRunner(
+        scripted=[
+            _FakeProc(returncode=0),  # verify
+            _FakeProc(returncode=0),  # checkout
+            _FakeProc(returncode=0),  # add
+            _FakeProc(returncode=1, stderr="nothing to commit"),
+        ]
+    )
     req = GitWriteRequest(
-        repo_dir=repo, branch="b",
-        files=(("tests/x.py", "x"),), commit_msg="m",
+        repo_dir=repo,
+        branch="b",
+        files=(("tests/x.py", "x"),),
+        commit_msg="m",
     )
     result = write_tests_to_branch(req, dry_run=False, runner_fn=runner)
     assert result.ok is False
@@ -332,16 +376,20 @@ def test_real_run_rev_parse_failure_does_not_fail_overall(
     don't fail the result — just leave commit_sha empty."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    runner = _RecordingRunner(scripted=[
-        _FakeProc(returncode=0),  # verify
-        _FakeProc(returncode=0),  # checkout
-        _FakeProc(returncode=0),  # add
-        _FakeProc(returncode=0),  # commit
-        _FakeProc(returncode=1, stderr="git in a weird state"),  # rev-parse
-    ])
+    runner = _RecordingRunner(
+        scripted=[
+            _FakeProc(returncode=0),  # verify
+            _FakeProc(returncode=0),  # checkout
+            _FakeProc(returncode=0),  # add
+            _FakeProc(returncode=0),  # commit
+            _FakeProc(returncode=1, stderr="git in a weird state"),  # rev-parse
+        ]
+    )
     req = GitWriteRequest(
-        repo_dir=repo, branch="b",
-        files=(("tests/x.py", "x"),), commit_msg="m",
+        repo_dir=repo,
+        branch="b",
+        files=(("tests/x.py", "x"),),
+        commit_msg="m",
     )
     result = write_tests_to_branch(req, dry_run=False, runner_fn=runner)
     assert result.ok is True
@@ -354,9 +402,50 @@ def test_real_run_creates_nested_directories(tmp_path: Path) -> None:
     repo.mkdir()
     runner = _RecordingRunner(scripted=[_FakeProc(returncode=0)] * 5)
     req = GitWriteRequest(
-        repo_dir=repo, branch="b",
-        files=(("a/b/c/test_deep.py", "deep"),), commit_msg="m",
+        repo_dir=repo,
+        branch="b",
+        files=(("a/b/c/test_deep.py", "deep"),),
+        commit_msg="m",
     )
     result = write_tests_to_branch(req, dry_run=False, runner_fn=runner)
     assert result.ok is True
     assert (repo / "a" / "b" / "c" / "test_deep.py").read_text() == "deep"
+
+
+def test_real_commit_disables_signing_and_carries_pins(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    runner = _RecordingRunner()
+    req = GitWriteRequest(repo, "b", (("tests/x.py", "x"),), "msg")
+    assert write_tests_to_branch(req, dry_run=False, runner_fn=runner).ok
+    argv = next(a for a, _, _ in runner.calls if "commit" in a)
+    assert argv[3:5] == ["-c", "commit.gpgSign=false"]
+
+
+def test_config_probe_failure_prevents_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def runner(argv, *, cwd, stdin=None):
+        return _FakeProc(returncode=1, stderr="config failed")
+
+    req = GitWriteRequest(repo, "b", (("tests/x.py", "x"),), "msg")
+    result = write_tests_to_branch(req, dry_run=False, runner_fn=runner)
+    assert result.ok is False
+    assert not (repo / "tests" / "x.py").exists()
+
+
+def test_default_runner_env_keeps_github_token_and_pins(tmp_path, monkeypatch) -> None:
+    from tools import git_writer
+
+    monkeypatch.setenv("GH_TOKEN", "sentinel-token")
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    git_writer._default_runner_fn(["git", "status"], cwd=tmp_path)
+    assert seen["env"]["GH_TOKEN"] == "sentinel-token"
+    assert seen["env"]["GIT_CONFIG_KEY_0"] == "core.hooksPath"
