@@ -130,6 +130,10 @@ def create_memory_tools(
             if context:
                 body += f"\n\n_Context: {context}_"
 
+            # Escape header-looking lines (injective: backslashes shift by one)
+            # so the split below cannot cut inside an entry.
+            body = re.sub(r"(?m)^(\\*## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\])", r"\\\1", body)
+
             seen: set[str] = set()
             if gotchas_file.exists():
                 tail = gotchas_file.read_text()[-GOTCHA_CONTEXT_CHARS:]
