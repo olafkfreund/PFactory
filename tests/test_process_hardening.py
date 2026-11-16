@@ -31,3 +31,18 @@ def test_require_non_dumpable_fails_closed(monkeypatch):
     monkeypatch.setattr(ph, "make_non_dumpable", lambda: False)
     with pytest.raises(SystemExit):
         ph.require_non_dumpable()
+
+
+def test_server_lifespan_hardens_before_anything_else(monkeypatch):
+    # Every serving process runs the lifespan, a reload worker included (Factory#3737).
+    import asyncio  # noqa: PLC0415
+
+    monkeypatch.syspath_prepend(str(Path(__file__).parent.parent / "apps" / "web-server"))
+    from server.main import app, lifespan  # noqa: PLC0415
+
+    def refuse() -> None:
+        raise SystemExit("hardening ran")
+
+    monkeypatch.setattr(ph, "require_non_dumpable", refuse)
+    with pytest.raises(SystemExit, match="hardening ran"):
+        asyncio.run(lifespan(app).__aenter__())

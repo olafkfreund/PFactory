@@ -56,3 +56,13 @@ def test_anthropic_key_strip_and_opt_in_are_unchanged():
 @pytest.mark.usefixtures("env")
 def test_extra_wins_even_for_a_stripped_name():
     assert make_subprocess_env({"JWT_SECRET": "x"})["JWT_SECRET"] == "x"  # noqa: S105
+
+
+def test_env_file_cannot_restore_a_stripped_name(tmp_path):
+    from server.services.pr_review_service import _load_env_file  # noqa: PLC0415
+
+    f = tmp_path / ".env"
+    f.write_text("JWT_SECRET=from-file\nGRAPHITI_ENABLED=true\n")
+    env: dict[str, str] = {}
+    _load_env_file(f, env)
+    assert env == {"GRAPHITI_ENABLED": "true"}
