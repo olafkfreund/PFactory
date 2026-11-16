@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -21,7 +21,7 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
-from plan.service import SERVICE, StaleSessionError  # type: ignore[import-not-found]  # noqa: E402
+from plan.service import SERVICE, PlanService, StaleSessionError  # noqa: E402
 from server.tenancy import multi_tenant_enabled, resolve_tenant  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
@@ -48,7 +48,9 @@ async def ingest_event(payload: dict[str, Any], request: Request) -> dict:
     # reaches the planner. The session may have moved on: reload and refold.
     for _ in range(3):
         try:
-            SERVICE.record_downstream(payload, tenant_id=_tenant(payload, request))
+            cast(PlanService, SERVICE).record_downstream(
+                payload, tenant_id=_tenant(payload, request)
+            )
             break
         except StaleSessionError:
             continue
