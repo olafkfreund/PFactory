@@ -178,7 +178,7 @@ def test_executor_grep_env(tmp_path):
     try:
         asyncio.run(run())
     except RuntimeError:
-        pass
+        captured.setdefault("raised", True)  # the stubbed subprocess may abort the run
     assert_clean(captured["env"], claude=False)
 
 
@@ -300,7 +300,9 @@ def test_insights_provider_env(tmp_path, monkeypatch, module, cls, claude, kept)
             try:
                 await provider_cls().send_message(tmp_path, "p", "hi", None, None, None)
             except Exception:
-                pass
+                captured["raised"] = (
+                    True  # the provider aborts after spawn; env is already captured
+                )
 
     asyncio.run(run())
     assert_clean(captured["env"], claude=claude)

@@ -78,10 +78,6 @@ POLICY = Policy(
     credential_blocks_allow=True,
 )
 
-# Credential-shaped names the allow pattern lets through (CLAUDE_CODE_OAUTH_TOKEN,
-# an opted-in MCP token). A child we spawn gets one only by naming it in ``keep``.
-_CREDENTIAL_NAME = agent_sandbox.CREDENTIAL_NAME
-
 pin_git_config = agent_sandbox.pin_git_config
 
 
