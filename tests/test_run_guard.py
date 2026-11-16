@@ -52,6 +52,20 @@ def test_repeated_failure_blocks_then_tool_failure_halts(tmp_path, monkeypatch):
     assert g.guard_halt(tmp_path) is None
 
 
+def test_failure_hook_counts_failed_calls(tmp_path, monkeypatch):
+    """The SDK sends a failed tool call to PostToolUseFailure (payload has `error`)."""
+    monkeypatch.delenv(P + "ACT_GUARDRAIL", raising=False)
+    g.register_session("/w", tmp_path)
+    fail = {**_fail(), "error": "boom"}
+    for _ in range(5):
+        asyncio.run(g.guardrail_failure_hook(fail))
+    assert asyncio.run(g.guardrail_pretool_hook(_fail()))["decision"] == "block"
+    asyncio.run(g.guardrail_failure_hook({**fail, "is_interrupt": True}))  # not counted
+    for i in range(8):
+        asyncio.run(g.guardrail_failure_hook({**_fail(args={"f": str(i)}), "error": "x"}))
+    assert g.guard_halt(tmp_path).startswith("same_tool_failure")
+
+
 def test_guardrail_off_never_blocks(tmp_path, monkeypatch):
     monkeypatch.setenv(P + "ACT_GUARDRAIL", "off")
     g.register_session("/w", tmp_path)
@@ -104,6 +118,7 @@ class _Msg:
 class _Client:
     def __init__(self, messages, on_message=None) -> None:
         self.interrupted = 0
+        self.yielded = 0
         self._messages = messages
         self._on = on_message
 
@@ -117,6 +132,7 @@ class _Client:
         for i, m in enumerate(self._messages):
             if self._on:
                 self._on(i)
+            self.yielded += 1
             yield m
 
 
@@ -134,3 +150,4 @@ async def test_guardrail_halt_interrupts_and_returns_typed_error(tmp_path, monke
     status, reason, info = await run_agent_session(client, "x", tmp_path, False, LogPhase.CODING)
     assert (status, info["type"]) == ("error", "guardrail_halt")
     assert reason.startswith("same_tool_failure") and client.interrupted == 1
+    assert client.yielded == 3  # drained to the end, not abandoned after interrupt

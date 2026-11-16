@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.run_guard import (
+    guardrail_failure_hook,
     guardrail_posttool_hook,
     guardrail_pretool_hook,
     max_turns,
@@ -934,6 +935,7 @@ def create_client(
                 HookMatcher(hooks=[guardrail_pretool_hook]),  # type: ignore[list-item]
             ],
             "PostToolUse": [HookMatcher(hooks=[guardrail_posttool_hook])],  # type: ignore[list-item]
+            "PostToolUseFailure": [HookMatcher(hooks=[guardrail_failure_hook])],  # type: ignore[list-item]
         },
         "max_turns": max_turns(),
         "cwd": str(project_dir.resolve()),
