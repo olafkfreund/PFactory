@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -20,7 +21,7 @@ from server.services.task_models import TaskPhase
 from server.websockets import _dispatch, events, relay
 
 
-def _engine():
+def _engine() -> Any:
     # Resolved at run time: other tests swap server.database.engine in sys.modules,
     # so an import-time handle goes stale (as in tests/test_ws_acw_auth.py).
     return importlib.import_module("server.database.engine")
@@ -67,11 +68,11 @@ def socket_app(monkeypatch):
     events._org_cache.clear()
 
 
-def _connect(client, token):
+def _connect(client: Any, token: str) -> Any:
     return client.websocket_connect("/ws/events", headers={"authorization": f"Bearer {token}"})
 
 
-def _emit(client, event_type, payload):
+def _emit(client: Any, event_type: str, payload: Any) -> None:
     client.portal.call(events.broadcast_event, event_type, payload)
 
 
@@ -343,11 +344,11 @@ def test_org_less_login_events_follow_the_starting_principal(socket_app, event):
         assert owner.receive_json()["type"] == "sentinel"
 
 
-def _no_database():
+def _no_database() -> Any:
     raise RuntimeError("membership lookup unavailable")
 
 
-def _wait_for_no_orgs(client, socket):
+def _wait_for_no_orgs(client: Any, socket: Any) -> None:
     for _ in range(200):
         if not socket.org_ids:
             return
@@ -358,7 +359,9 @@ def _wait_for_no_orgs(client, socket):
 def test_key_socket_ignores_shadow_mode_and_follows_membership(socket_app, monkeypatch):
     app, setting = socket_app[:2]
     monkeypatch.setattr(events, "_KEY_RECHECK_SECONDS", 0)
-    monkeypatch.setattr(events, "_ws_acw_principal", AsyncMock(return_value={"id": "owner"}))
+    monkeypatch.setattr(
+        events, "_ws_acw_principal", AsyncMock(return_value={"id": "owner", "org_id": "A"})
+    )
     setting.RBAC_ENFORCE_TASK_ROUTES = False
     with TestClient(app) as client, _connect(client, "acw_a") as key:
         # Shadow mode never widens a key socket: B's event is skipped.
@@ -463,3 +466,166 @@ def test_org_bound_key_without_owner_is_not_a_service_client():
     client = events.ConnectedClient(websocket=None, user_id=None, key_org_id="A")  # type: ignore[arg-type]
     assert not events._may_receive(client, "B")
     assert not events._may_receive(client, None, shadow=True)
+
+
+def test_payload_org_falls_back_when_top_level_org_is_empty():
+    assert events._payload_org({"org_id": "", "data": {"org_id": "A"}}) == "A"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{"type": "access"}, {"sub": "", "type": "access"}])
+async def test_jwt_without_sub_closes_4001(monkeypatch, payload):
+    shared = "shared"
+    monkeypatch.setattr(
+        auth, "get_settings", lambda: SimpleNamespace(DISABLE_AUTH=False, API_TOKEN=shared)
+    )
+    monkeypatch.setattr(auth, "_try_decode_jwt", lambda _raw: payload)
+    ws = SimpleNamespace(
+        headers={"authorization": "Bearer no-sub"},
+        query_params={},
+        close=AsyncMock(),
+    )
+    with pytest.raises(auth.WebSocketAuthError):
+        await auth.authenticate_websocket(ws)
+    ws.close.assert_awaited_once_with(code=4001, reason="Unauthorized")
+
+
+def test_jwt_socket_stops_receiving_after_membership_removal_at_recheck(socket_app, monkeypatch):
+    app, _ = socket_app
+    with TestClient(app) as client, _connect(client, "jwt-a") as ws:
+        _emit(client, "before", {"projectId": "p-a"})
+        assert ws.receive_json()["type"] == "before"
+
+        monkeypatch.setattr(events, "_KEY_RECHECK_SECONDS", 0)
+        monkeypatch.setattr(_engine(), "async_session_factory", _no_database)
+        ws.send_text("ping")
+        assert ws.receive_text() == "pong"
+        socket = next(c for c in events._clients.values() if c.user_id == "a-only")
+        _wait_for_no_orgs(client, socket)
+
+        _emit(client, "after-removal", {"projectId": "p-a"})
+        client.portal.call(events.send_to_user, "a-only", "sentinel", {})
+        assert ws.receive_json()["type"] == "sentinel"
+
+
+def test_key_recheck_adopts_fresh_principal(socket_app, monkeypatch):
+    app, _ = socket_app
+    with TestClient(app) as client, _connect(client, "acw_a") as key:
+        _emit(client, "initial-a", {"projectId": "p-a"})
+        assert key.receive_json()["type"] == "initial-a"
+
+        monkeypatch.setattr(events, "_KEY_RECHECK_SECONDS", 0)
+        monkeypatch.setattr(
+            events,
+            "_ws_acw_principal",
+            AsyncMock(return_value={"id": "other", "org_id": "B", "api_key_id": "key"}),
+        )
+        key.send_text("ping")
+        assert key.receive_text() == "pong"
+
+        socket = next(iter(events._clients.values()))
+        for _ in range(200):
+            if socket.user_id == "other" and socket.key_org_id == "B" and socket.org_ids == {"B"}:
+                break
+            client.portal.call(asyncio.sleep, 0.01)
+        assert socket.user_id == "other"
+        assert socket.key_org_id == "B"
+        assert socket.org_ids == {"B"}
+
+        _emit(client, "dropped-a", {"projectId": "p-a"})
+        _emit(client, "rebound-b", {"projectId": "p-b"})
+        assert key.receive_json()["type"] == "rebound-b"
+
+
+def test_start_routes_pass_request_principal_to_emitters(socket_app, monkeypatch):
+    from server.background.tasks import spawn  # noqa: PLC0415
+    from server.pty import manager as pty_manager_mod  # noqa: PLC0415
+    from server.routes import cli_accounts, github  # noqa: PLC0415
+
+    app, _ = socket_app
+    monkeypatch.setattr(cli_accounts, "_detect_cli_version", lambda _cli: "1.0.0")
+    monkeypatch.setattr(
+        pty_manager_mod,
+        "get_pty_manager",
+        lambda: SimpleNamespace(create_session=lambda **_kw: "term-1", write=lambda *_a: None),
+    )
+
+    class ImmediateThread:
+        def __init__(self, target, args=(), daemon=None):  # noqa: ARG002
+            self._target = target
+            self._args = args
+
+        def start(self):
+            if self._target is cli_accounts._poll_codex_token:
+                _, _loop, principal = self._args
+                spawn(
+                    events.emit_org_less(
+                        principal, "cli-account-auth", {"cli": "codex", "success": True}
+                    )
+                )
+
+    monkeypatch.setattr(cli_accounts.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(github, "_replica_count", lambda: 1)
+    monkeypatch.setattr(github.shutil, "which", lambda _cmd: "/usr/bin/gh")
+
+    async def fake_subprocess(*_args, **_kwargs):
+        lines = iter(
+            [
+                b"First, copy your one-time code: ABCD-1234\n",
+                b"https://github.com/login/device\n",
+                b"",
+            ]
+        )
+
+        class Stream:
+            async def readline(self):
+                return next(lines, b"")
+
+        return SimpleNamespace(
+            stderr=Stream(),
+            stdout=None,
+            returncode=0,
+            kill=lambda: None,
+            wait=AsyncMock(return_value=0),
+        )
+
+    monkeypatch.setattr(github.asyncio, "create_subprocess_exec", fake_subprocess)
+
+    def make_request(principal: Any) -> Request:
+        req = Request({"type": "http"})
+        req.state.user = principal
+        return req
+
+    user_principal = {"id": "owner"}
+    service_principal = {"id": "default", "is_service": True}
+
+    with (
+        TestClient(app) as client,
+        _connect(client, "jwt-owner") as owner,
+        _connect(client, "jwt-b") as other,
+        _connect(client, "shared") as service,
+    ):
+        client.portal.call(cli_accounts.start_cli_login, "codex", make_request(user_principal))
+        assert owner.receive_json()["type"] == "cli-account-auth"
+
+        client.portal.call(
+            cli_accounts.start_cli_login_terminal, "codex", make_request(user_principal)
+        )
+        assert owner.receive_json()["type"] == "cli-account-auth"
+
+        client.portal.call(github.start_github_auth, make_request(user_principal))
+        assert owner.receive_json()["type"] == "github:auth-complete"
+
+        client.portal.call(cli_accounts.start_cli_login, "codex", make_request(service_principal))
+        assert service.receive_json()["type"] == "cli-account-auth"
+
+        client.portal.call(
+            cli_accounts.start_cli_login_terminal, "codex", make_request(service_principal)
+        )
+        assert service.receive_json()["type"] == "cli-account-auth"
+
+        client.portal.call(github.start_github_auth, make_request(service_principal))
+        assert service.receive_json()["type"] == "github:auth-complete"
+
+        client.portal.call(events.send_to_org, "B", "sentinel", {})
+        assert other.receive_json()["type"] == "sentinel"

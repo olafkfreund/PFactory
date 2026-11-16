@@ -475,9 +475,8 @@ async def events_websocket(websocket: WebSocket):
 
     client = _register_client(websocket, user_info)
     # Only a key principal carries api_key_id; org-less keys are re-checked too.
-    key_token = _ws_extract_token(websocket) if (user_info or {}).get("api_key_id") else None
-    if not key_token or not key_token.startswith("acw_"):
-        key_token = None
+    raw_token = _ws_extract_token(websocket) if (user_info or {}).get("api_key_id") else None
+    key_token = raw_token if raw_token and raw_token.startswith("acw_") else None
     last_key_check = time.monotonic()
 
     await _load_org_ids(client, user_info)
@@ -486,12 +485,17 @@ async def events_websocket(websocket: WebSocket):
         # Keep connection alive and listen for pings
         while True:
             try:
-                if key_token and time.monotonic() - last_key_check >= _KEY_RECHECK_SECONDS:
-                    if await _ws_acw_principal(key_token) is None:
-                        await websocket.close(code=4001)
-                        break
+                if client.user_id and time.monotonic() - last_key_check >= _KEY_RECHECK_SECONDS:
+                    if key_token:
+                        principal: dict[str, Any] | None = await _ws_acw_principal(key_token)
+                        if principal is None or not principal.get("id"):
+                            await websocket.close(code=4001)
+                            break
+                        user_info = principal
+                        org_id = principal.get("org_id")
+                        client.key_org_id = str(org_id) if org_id else None
+                        client.user_id = str(principal["id"])
                     last_key_check = time.monotonic()
-                    # A key socket also follows its owner's current membership.
                     await _load_org_ids(client, user_info)
                 data = await asyncio.wait_for(
                     websocket.receive_text(), timeout=_RECEIVE_POLL_INTERVAL

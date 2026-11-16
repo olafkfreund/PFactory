@@ -254,8 +254,9 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
   // This supplements file watching with instant WebSocket events from the backend
   useEffect(() => {
     // Subscribe to task-logs:stream events for real-time log updates
-    const unsubscribeLogStream = window.API.onTaskLogsStream((specId, chunk: TaskLogStreamChunk) => {
-      if (specId !== task.specId) return;
+    const unsubscribeLogStream = window.API.onTaskLogsStream((specId, chunk: TaskLogStreamChunk, projectId) => {
+      // specId alone collides across projects (#3704); an event without projectId is ignored.
+      if (specId !== task.specId || projectId !== selectedProject?.id) return;
 
       if (window.DEBUG) {
         console.log('[useTaskDetail] WebSocket log stream received:', specId, chunk.type);
@@ -394,7 +395,7 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
       unsubscribeLogStream();
       unsubscribeSubtaskUpdate();
     };
-  }, [task.specId, task.id]);
+  }, [task.specId, task.id, selectedProject?.id]);
 
   // Toggle phase expansion
   const togglePhase = useCallback((phase: TaskLogPhase) => {

@@ -25,6 +25,7 @@ from pathlib import Path
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
 from server.error_ref import error_reference
+from server.utils.project_env import load_project_env_file
 
 from ..config import get_settings
 from ..websockets.events import broadcast_event
@@ -289,7 +290,7 @@ class PRReviewService:
         _load_env_file(backend_path / ".env", env)
 
         # Load project-level .pfactory/.env for project settings
-        _load_env_file(project_path / ".pfactory" / ".env", env)
+        load_project_env_file(project_path / ".pfactory" / ".env", env)
 
         # Initialize execution log writer
         logs_dir = project_path / ".pfactory" / "github" / "pr"
