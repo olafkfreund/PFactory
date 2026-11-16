@@ -184,7 +184,7 @@ def test_token_ceiling_fails_the_run_with_a_typed_halt(monkeypatch):
     session = svc.ingest_text(_PLAN, title="Refund flow")
     sent: list = []
     monkeypatch.setattr(
-        "plan.service.emit_usage_snapshot", lambda s: sent.append(build_completion_event(s))
+        "plan.service.notify_completion", lambda s: sent.append(build_completion_event(s))
     )
     with pytest.raises(TokenCeilingError):
         svc.process(session.session_id, llm=_UsageLLM(_EPIC_JSON))

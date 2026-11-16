@@ -22,7 +22,7 @@ Decisions from the spec: route the remaining bare git calls through `git_run` wi
 2. `apps/frontend-web/src/components/task-detail/hooks/useTaskDetail.ts:190-245`: cancelled flag, clear `phaseLogs` and `expandedPhases` at effect start, guard sets; add a deferred-response vitest if the hook has a test harness → `npx tsc --noEmit` and vitest for the hook in `apps/frontend-web`.
 3. `tests/test_evaluator_integration.py`: mock reads the mutation verdict from the prompt block; assert the exact per-id mapping (3 killed, 3 no_mutation) in the happy test; add a `mutation_returncode=0` test (3 survived, 3 no_mutation); strengthen the mixed test → `pytest tests/test_evaluator_integration.py`.
 4. `apps/backend/plan/service.py:1703`: delete the dead check → `pytest tests/test_run_guard.py`.
-5. `apps/backend/plan/service.py:1374`: `notify_completion(session)` for TokenCeilingError; import already present. Add a test in `tests/test_run_guard.py` enabling `PFACTORY_COMPLETION_SENTINEL` + `_DIR` (tmp_path) and asserting `COMPLETED.json` has failed status and a token_ceiling halt_reason → `pytest tests/test_run_guard.py tests/test_plan_completion.py`.
+5. `apps/backend/plan/service.py:1374`: `notify_completion(session)` for TokenCeilingError; import already present. Update `tests/test_plan_usage.py::test_token_ceiling_fails_the_run_with_a_typed_halt` to patch `notify_completion` (deviation: it patched `emit_usage_snapshot`). Add a test in `tests/test_run_guard.py` enabling `PFACTORY_COMPLETION_SENTINEL` + `_DIR` (tmp_path) and asserting `COMPLETED.json` has failed status and a token_ceiling halt_reason → `pytest tests/test_run_guard.py tests/test_plan_completion.py`.
 
 ## Tests
 
