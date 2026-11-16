@@ -258,3 +258,84 @@ def test_attribution_round_trips_and_old_payloads_load_as_none():
     del payload["originator"], payload["agent_identity"]
     old = PlanSession.model_validate(payload)
     assert old.originator is None and old.agent_identity is None
+
+
+# ── downstream feedback (#998) ─────────────────────────────────────────────
+
+
+def _evt(service, status, key, **extra):
+    return {
+        "correlation_key": key,
+        "service": service,
+        "status": status,
+        "updated_at": "2026-11-16T00:00:00Z",
+        **extra,
+    }
+
+
+def _keyed(svc, key, repo="o/r", tenant="default"):
+    s = svc.ingest_text(_SOFTWARE_PLAN, title="Refund API")
+    s.correlation_key, s.repo, s.tenant_id = key, repo, tenant
+    return s
+
+
+def test_record_downstream_stores_on_the_one_matching_session(tmp_path):
+    svc = PlanService(store_dir=tmp_path)
+    s = _keyed(svc, "42")
+    assert svc.record_downstream(_evt("aifactory", "failed", "42", halt_reason="boom"))
+    assert svc.get(s.session_id).downstream.handbacks[0]["reason"] == "boom"
+    assert svc.get(s.session_id).summary()["downstream"]["handback_count"] == 1
+    assert svc.record_downstream(_evt("aifactory", "failed", "nope")) is False
+
+
+def test_record_downstream_ambiguous_key_or_wrong_session_stores_nothing(tmp_path):
+    svc = PlanService(store_dir=tmp_path)
+    a, b = _keyed(svc, "7"), _keyed(svc, "7")
+    assert svc.record_downstream(_evt("aifactory", "failed", "7")) is False
+    other = {"correlation": {"session_id": a.session_id}}
+    assert svc.record_downstream(_evt("aifactory", "failed", "8", **other)) is False
+    assert svc.record_downstream(_evt("aifactory", "failed", "7", **other)) is True
+    assert svc.get(b.session_id).downstream is None
+
+
+def test_downstream_survives_restart(tmp_path):
+    svc = PlanService(store_dir=tmp_path, persist=True)
+    s = _keyed(svc, "42")
+    assert svc.record_downstream(_evt("tfactory", "failed", "42"))
+    again = PlanService(store_dir=tmp_path, persist=True)
+    assert again.get(s.session_id).downstream.handback_count == 1
+
+
+def test_outcome_history_is_scoped_to_repo_and_tenant(tmp_path):
+    svc = PlanService(store_dir=tmp_path)
+    old = _keyed(svc, "1")
+    other_tenant = _keyed(svc, "2", tenant="t2")
+    other_repo = _keyed(svc, "3", repo="o/else")
+    for k in ("1", "2", "3"):
+        svc.record_downstream(
+            _evt("aifactory", "failed", k, halt_reason=f"why-{k}", usage={"cost_usd": 1.0})
+        )
+    new = _keyed(svc, "9")
+    text = svc.outcome_history(new)
+    assert "why-1" in text and "why-2" not in text and "why-3" not in text
+    assert "token spend $1.00" in text
+    assert svc.outcome_history(old) == ""  # only history is its own
+    new.repo = None
+    assert svc.outcome_history(new) == ""
+    assert other_tenant and other_repo
+
+
+def test_decompose_receives_history_in_the_llm_prompt(tmp_path):
+    svc = PlanService(store_dir=tmp_path)
+    _keyed(svc, "1")
+    svc.record_downstream(_evt("aifactory", "failed", "1", halt_reason="flaky migration"))
+    new = _keyed(svc, "9")
+    seen: list[str] = []
+
+    class _Llm:
+        def complete(self, prompt, *a, **k):
+            seen.append(prompt)
+            raise RuntimeError("stop")  # falls back to heuristic; prompt already captured
+
+    svc.process(new.session_id, llm=_Llm())
+    assert seen and "flaky migration" in seen[0]

@@ -20,6 +20,7 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
+from plan.service import SERVICE, StaleSessionError  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 
@@ -34,6 +35,16 @@ async def ingest_event(payload: dict) -> dict:
         state = REGISTRY.apply(payload)
     except SyncError as exc:
         raise HTTPException(status_code=422, detail=client_error(exc)) from exc
+    # #998: keep the feedback on the plan session so it survives a restart and
+    # reaches the planner. The session may have moved on: reload and refold.
+    for _ in range(3):
+        try:
+            SERVICE.record_downstream(payload)
+            break
+        except StaleSessionError:
+            continue
+    else:
+        raise HTTPException(status_code=503, detail="plan session busy, retry")
     return state.model_dump()
 
 
