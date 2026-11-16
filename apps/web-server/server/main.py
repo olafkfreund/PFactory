@@ -112,6 +112,11 @@ async def _start_ws_relay() -> ModuleType:
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: PLR0915 - startup and shutdown own the background tasks
     """Application lifespan handler for startup/shutdown."""
+    # Every serving process (also a uvicorn reload worker): same-uid agents must not read
+    # our secrets via /proc/<pid>/environ. Fails closed (Factory#3737).
+    from core.process_hardening import require_non_dumpable  # noqa: PLC0415
+
+    require_non_dumpable()
     settings = get_settings()
 
     # Startup

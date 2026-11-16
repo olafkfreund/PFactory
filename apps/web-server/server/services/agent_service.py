@@ -20,6 +20,7 @@ from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
 from server.services.git_utils import safe_spec_component
 from server.utils.project_env import load_project_env_file
+from server.utils.subprocess_env import RUNNER_STRIP
 from server.websockets import relay
 
 from ..config import get_settings
@@ -681,7 +682,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                             key = key.strip()
                             value = value.strip()
                             # Don't override existing env vars
-                            if key not in env:
+                            if key not in env and key.upper() not in RUNNER_STRIP:
                                 env[key] = value
                 logger.info("[AgentService] Loaded backend .env for spec creation")
             except Exception as e:
@@ -919,7 +920,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                             key = key.strip()
                             value = value.strip()
                             # Don't override existing env vars
-                            if key not in env:
+                            if key not in env and key.upper() not in RUNNER_STRIP:
                                 env[key] = value
                 logger.info(
                     "[AgentService] Loaded backend .env from %s", sanitize_log(backend_env_file)
