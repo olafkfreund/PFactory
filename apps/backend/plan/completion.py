@@ -151,6 +151,9 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
             "aifactory_task_id": session.aifactory_task_id,
         },
         "usage": usage.as_event_block(),
+        # Factory#1960: who asked, and which agent identity ran it (nullable).
+        "originator": session.originator,
+        "agent_identity": session.agent_identity,
     }
     if evidence is not None:
         event["evidence"] = evidence

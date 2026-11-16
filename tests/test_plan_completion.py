@@ -71,6 +71,22 @@ def test_event_carries_the_rfc_envelope_fields():
     assert event["correlation"]["session_id"] == session.session_id
 
 
+def test_event_carries_originator_and_agent_identity_or_null():
+    """Factory#1960: both keys are always present, null when never recorded."""
+    svc = PlanService()
+    bare = svc.ingest_text(_PLAN, title="Refund flow")
+    event = build_completion_event(bare)
+    assert (event["originator"], event["agent_identity"]) == (None, None)
+    who = svc.ingest_text(
+        _PLAN, title="Refund flow", originator="u-1", agent_identity="agent:pfactory/k-1"
+    )
+    event = build_completion_event(who)
+    assert (event["originator"], event["agent_identity"]) == (
+        "u-1",
+        "agent:pfactory/k-1",
+    )
+
+
 def test_terminal_statuses_are_emitted_rejected_and_discarded():
     """``discarded`` joined the set in #360 — a session abandoned outright.
 
