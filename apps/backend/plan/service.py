@@ -1371,7 +1371,7 @@ class PlanService:
             with suppress(StaleSessionError):
                 self._save(session)
             if isinstance(exc, TokenCeilingError):
-                emit_usage_snapshot(session)  # typed halt_reason reaches CFactory
+                notify_completion(session)  # terminal event + sentinel, typed halt_reason
             raise
         # Running-cost: planning + governance gates spent LLM tokens, but the
         # session is only ``processed`` (awaiting human approval), not terminal —
@@ -1700,7 +1700,8 @@ class PlanService:
         self, session: PlanSession, plan: NormalizedPlan, descriptor: object, *, llm=None
     ) -> EpicPlan:
         """Decompose into an epic, record LLM usage, inject implicit requirements."""
-        check_ceiling(session.run_tokens())  # no paid call for an over-budget session
+        # The per-run ceiling is enforced by record_usage() after each LLM call; the run's
+        # base was reset in process(), so a pre-check here would always see 0 tokens.
         usage_sink: list[PlanUsage] = []
         epic = decompose(
             plan,
