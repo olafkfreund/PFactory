@@ -67,3 +67,11 @@ def test_runners_use_allowlist_for_project_env():
         src = (_SERVICES / name).read_text()
         assert "load_project_env_file(" in src
         assert not re.search(r'_load_env_file\([^)]*factory"\s*/\s*"\.env"', src)
+
+
+def test_graphiti_azure_settings_load(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text("AZURE_OPENAI_BASE_URL=https://x\nAZURE_OPENAI_API_KEY=k\n")
+    env: dict = {}
+    load_project_env_file(f, env)
+    assert set(env) == {"AZURE_OPENAI_BASE_URL", "AZURE_OPENAI_API_KEY"}
