@@ -53,10 +53,12 @@ describe('useTaskDetail log loading', () => {
       initialProps: { t: task('A') },
     });
     await act(async () => {
-      pending.A({ success: true, data: { phases: {}, id: 'A' } });
+      pending.A({ success: true, data: { phases: { coding: { status: 'active' } }, id: 'A' } });
     });
     expect(result.current.phaseLogs).not.toBeNull();
+    expect(result.current.expandedPhases.size).toBe(1);
     rerender({ t: task('B') });
     expect(result.current.phaseLogs).toBeNull();
+    expect(result.current.expandedPhases.size).toBe(0);
   });
 });

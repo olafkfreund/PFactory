@@ -200,6 +200,7 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
     let cancelled = false;
     // Drop the previous task's logs so they never show under this one.
     setPhaseLogs(null);
+    setExpandedPhases(new Set());
 
     const loadLogs = async () => {
       setIsLoadingLogs(true);
