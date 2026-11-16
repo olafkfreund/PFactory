@@ -6,15 +6,46 @@ and PTY processes on the server.
 """
 
 import asyncio
+import contextlib
 import json
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from ..auth import verify_websocket_token
-from ..pty.manager import get_pty_manager
-from ..pty.session import create_pty_reader
+from server.auth import (
+    WebSocketAuthError,
+    _ws_acw_principal,
+    _ws_extract_token,
+    authenticate_websocket,
+)
+from server.pty.access import may_use
+from server.pty.manager import get_pty_manager
+from server.pty.session import PTYSession, create_pty_reader
 
 router = APIRouter()
+_RECHECK_SECONDS = 5.0
+
+
+async def _watch(
+    websocket: WebSocket,
+    session: PTYSession,
+    user: dict[str, Any] | None,
+    token: str | None,
+) -> None:
+    """Close the socket when the key is revoked or the project is lost (#3740)."""
+    while True:
+        await asyncio.sleep(_RECHECK_SECONDS)
+        if token and token.startswith("acw_") and user and user.get("api_key_id"):
+            try:
+                user = await _ws_acw_principal(token)
+            except Exception:  # noqa: BLE001 - a failing validator counts as revoked
+                user = None
+            if user is None:
+                await websocket.close(code=4001)
+                return
+        if not await may_use(user, session):
+            await websocket.close(code=4003)
+            return
 
 
 @router.websocket("/ws/terminal/{terminal_id}")
@@ -28,13 +59,21 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
     - Server sends {"type": "exit", "code": N} when terminal exits
     - Server sends {"type": "error", "message": "..."} on errors
     """
-    if not await verify_websocket_token(websocket):
+    try:
+        user = await authenticate_websocket(websocket)
+    except WebSocketAuthError:
+        return
+    except Exception:  # noqa: BLE001 - unreadable auth state fails closed
+        await websocket.close(code=4003)
         return
 
     await websocket.accept()
 
     manager = get_pty_manager()
     session = manager.get_session(terminal_id)
+    # user None: legacy token or auth disabled, unrestricted as on all-task sockets.
+    if session is not None and user is not None and not await may_use(user, session):
+        session = None  # another user's terminal reads as missing
 
     if session is None:
         await websocket.send_json(
@@ -75,6 +114,11 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
 
     # Start reader task
     reader_task = asyncio.create_task(create_pty_reader(session, send_output))
+    watch_task = (
+        asyncio.create_task(_watch(websocket, session, user, _ws_extract_token(websocket)))
+        if user is not None
+        else None
+    )
 
     try:
         while True:
@@ -141,10 +185,13 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
     finally:
         # Cancel reader task
         reader_task.cancel()
-        try:
+        if watch_task is not None:
+            watch_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
             await reader_task
-        except asyncio.CancelledError:
-            pass
+        if watch_task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await watch_task
 
         # Check if terminal exited
         if not session.is_alive():
