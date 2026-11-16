@@ -23,9 +23,10 @@ from server.background.tasks import spawn
 from server.error_ref import error_message
 from server.services import run_leases
 from server.services.git_base_url import safe_git_base_url  # #610
+from server.services.git_utils import git_run
 from server.services.project_paths import load_projects, resolve_project_path_or_error
 
-from ..services.git_utils import git_run, run_gh_command, safe_spec_component  # #335
+from ..services.git_utils import run_gh_command, safe_spec_component  # #335
 
 logger = logging.getLogger(__name__)
 
