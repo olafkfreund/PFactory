@@ -630,7 +630,7 @@ export interface API {
     callback: (specId: string, logs: TaskLogs) => void
   ) => () => void;
   onTaskLogsStream: (
-    callback: (specId: string, chunk: TaskLogStreamChunk) => void
+    callback: (specId: string, chunk: TaskLogStreamChunk, projectId?: string) => void
   ) => () => void;
 
   // File explorer operations
