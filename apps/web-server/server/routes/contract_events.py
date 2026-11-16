@@ -21,7 +21,7 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
-from plan.service import SERVICE, StaleSessionError  # noqa: E402
+from plan.service import SERVICE, StaleSessionError  # type: ignore[import-not-found]  # noqa: E402
 from server.tenancy import multi_tenant_enabled, resolve_tenant  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
