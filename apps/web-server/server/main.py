@@ -623,7 +623,17 @@ app.openapi = custom_openapi
 
 
 if __name__ == "__main__":
+    import sys
+
     import uvicorn
+
+    # First: same-uid agents must not read our secrets via /proc/<pid>/environ.
+    _backend = str(Path(__file__).resolve().parents[2] / "backend")
+    if _backend not in sys.path:
+        sys.path.insert(0, _backend)
+    from core.process_hardening import require_non_dumpable
+
+    require_non_dumpable()
 
     settings = get_settings()
 
