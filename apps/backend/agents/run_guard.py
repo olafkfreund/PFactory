@@ -1,3 +1,4 @@
+# ruff: noqa: ARG002  # tool_use_id/context are the SDK hook contract
 """Anti-loop guardrail and run limits for agent sessions (PFactory#1008).
 
 Port of AIFactory#2033. Three controls, all switchable from the environment:
@@ -9,8 +10,8 @@ Port of AIFactory#2033. Three controls, all switchable from the environment:
 The guardrail runs three policies keyed on a tool-call signature (tool + args
 hash): the same call failing repeatedly, any one tool failing repeatedly, and an
 idempotent read returning the same result repeatedly. A halt is per session and
-kept in memory: ``run_agent_session`` reads it with :func:`guard_halt`, stops the
-stream and returns a typed error. Hooks never raise into the agent.
+kept in memory on the client's :class:`Guard`: ``run_agent_session`` reads it with
+:func:`guard_halt`, stops the stream and returns a typed error. Hooks never raise.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -121,34 +121,6 @@ class Controller:
         return reason
 
 
-@dataclass
-class _Session:
-    spec_dir: Path
-    ctl: Controller
-
-
-_SESSIONS: dict[str, _Session] = {}
-
-
-def register_session(cwd: Path | str, spec_dir: Path | str) -> None:
-    """Bind a working directory to a fresh controller (one per client)."""
-    _SESSIONS[str(Path(cwd).resolve())] = _Session(Path(spec_dir), Controller())
-
-
-def guard_halt(spec_dir: Path | str) -> str | None:
-    """The halt reason of any live session on this spec dir, if one halted."""
-    for s in list(_SESSIONS.values()):
-        if s.spec_dir == Path(spec_dir) and s.ctl.halt_reason:
-            return s.ctl.halt_reason
-    return None
-
-
-def clear_halt(spec_dir: Path | str) -> None:
-    for s in list(_SESSIONS.values()):
-        if s.spec_dir == Path(spec_dir):
-            s.ctl.halt_reason = None
-
-
 def _ok(tool_response: Any) -> bool:
     if isinstance(tool_response, dict):
         return not (tool_response.get("is_error") or tool_response.get("isError"))
@@ -157,51 +129,70 @@ def _ok(tool_response: Any) -> bool:
     return True
 
 
-def _sess(input_data: dict[str, Any]) -> _Session | None:
-    cwd = input_data.get("cwd")
-    return _SESSIONS.get(str(Path(cwd).resolve())) if cwd else None
+class Guard:
+    """One client's controller and the SDK hooks bound to it.
 
+    Bound per client (not per working directory) so two clients on the same
+    project, e.g. the evaluator and the review lane, never share failure counts
+    or halts. ``create_client`` hangs it on the client; ``run_agent_session``
+    reads it back with :func:`guard_halt`. The hooks never raise into the agent.
+    """
 
-async def guardrail_pretool_hook(
-    input_data: dict[str, Any],
-    tool_use_id: str | None = None,  # noqa: ARG001 - SDK hook contract
-    context: Any = None,  # noqa: ARG001 - SDK hook contract
-) -> dict[str, Any]:
-    if not guardrail_enabled():
-        return {}
-    try:
-        s = _sess(input_data)
-        reason = None
-        if s:
-            reason = s.ctl.before_call(
+    def __init__(self) -> None:
+        self.ctl = Controller()
+
+    async def pre(
+        self, input_data: dict[str, Any], tool_use_id: str | None = None, context: Any = None
+    ) -> dict[str, Any]:
+        """PreToolUse: refuse a call the controller has ruled out."""
+        if not guardrail_enabled():
+            return {}
+        try:
+            reason = self.ctl.before_call(
                 input_data.get("tool_name", ""), input_data.get("tool_input")
             )
-        if reason:
-            return {"decision": "block", "reason": reason}
-    except Exception:  # noqa: BLE001 - never break the agent on a guard error
-        logger.debug("guardrail pretool hook failed", exc_info=True)
-    return {}
-
-
-async def guardrail_posttool_hook(
-    input_data: dict[str, Any],
-    tool_use_id: str | None = None,  # noqa: ARG001 - SDK hook contract
-    context: Any = None,  # noqa: ARG001 - SDK hook contract
-) -> dict[str, Any]:
-    if not guardrail_enabled():
+            if reason:
+                return {"decision": "block", "reason": reason}
+        except Exception:  # noqa: BLE001 - never break the agent on a guard error
+            logger.debug("guardrail pretool hook failed", exc_info=True)
         return {}
-    try:
-        s = _sess(input_data)
-        if s:
-            s.ctl.after_call(
+
+    async def post(
+        self, input_data: dict[str, Any], tool_use_id: str | None = None, context: Any = None
+    ) -> dict[str, Any]:
+        """PostToolUse: a call that returned (it may still carry an error result)."""
+        if not guardrail_enabled():
+            return {}
+        try:
+            self.ctl.after_call(
                 input_data.get("tool_name", ""),
                 input_data.get("tool_input"),
                 ok=_ok(input_data.get("tool_response")),
                 result=input_data.get("tool_response"),
             )
-    except Exception:  # noqa: BLE001
-        logger.debug("guardrail posttool hook failed", exc_info=True)
-    return {}
+        except Exception:  # noqa: BLE001
+            logger.debug("guardrail posttool hook failed", exc_info=True)
+        return {}
+
+    async def failure(
+        self, input_data: dict[str, Any], tool_use_id: str | None = None, context: Any = None
+    ) -> dict[str, Any]:
+        """PostToolUseFailure: the SDK sends a failed tool call here, not to PostToolUse."""
+        if not guardrail_enabled() or input_data.get("is_interrupt"):
+            return {}
+        try:
+            self.ctl.after_call(
+                input_data.get("tool_name", ""), input_data.get("tool_input"), ok=False
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("guardrail failure hook failed", exc_info=True)
+        return {}
+
+
+def guard_halt(client: Any) -> str | None:
+    """The halt reason of the client's guard, if its session halted."""
+    guard = getattr(client, "_run_guard", None)
+    return guard.ctl.halt_reason if isinstance(guard, Guard) else None
 
 
 class TokenCeilingError(RuntimeError):
@@ -213,22 +204,3 @@ def check_ceiling(total_tokens: int) -> None:
     ceiling = token_ceiling()
     if ceiling and total_tokens > ceiling:
         raise TokenCeilingError(f"token_ceiling: run used {total_tokens} tokens, ceiling {ceiling}")
-
-
-async def guardrail_failure_hook(
-    input_data: dict[str, Any],
-    tool_use_id: str | None = None,  # noqa: ARG001 - SDK hook contract
-    context: Any = None,  # noqa: ARG001 - SDK hook contract
-) -> dict[str, Any]:
-    """PostToolUseFailure: the SDK sends a failed tool call here, not to PostToolUse."""
-    if not guardrail_enabled() or input_data.get("is_interrupt"):
-        return {}
-    try:
-        s = _sess(input_data)
-        if s:
-            s.ctl.after_call(
-                input_data.get("tool_name", ""), input_data.get("tool_input"), ok=False
-            )
-    except Exception:  # noqa: BLE001
-        logger.debug("guardrail failure hook failed", exc_info=True)
-    return {}

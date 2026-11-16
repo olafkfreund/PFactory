@@ -40,7 +40,7 @@ from ui import (
 
 from .base import sanitize_error_message
 from .memory_manager import save_session_memory
-from .run_guard import clear_halt, guard_halt
+from .run_guard import guard_halt
 from .utils import (
     find_subtask_in_plan,
     get_commit_count,
@@ -356,7 +356,6 @@ async def run_agent_session(
     message_count = 0
     tool_count = 0
 
-    clear_halt(spec_dir)  # a halt belongs to one session
     try:
         # Send the query
         debug("session", "Sending query to Claude SDK...")
@@ -375,7 +374,7 @@ async def run_agent_session(
         async for msg in safe_receive_messages(client, caller="session"):
             msg_type = type(msg).__name__
             message_count += 1
-            if not _interrupted and guard_halt(spec_dir):
+            if not _interrupted and guard_halt(client):
                 # Anti-loop halt: interrupt once, then keep draining so the
                 # final ResultMessage (usage) is still seen.
                 _interrupted = True
@@ -581,7 +580,7 @@ async def run_agent_session(
 
         print("\n" + "-" * 70 + "\n")
 
-        halt = guard_halt(spec_dir)
+        halt = guard_halt(client)
         if halt:
             logger.warning("Agent halted by the anti-loop guardrail: %s", halt)
             return "error", halt, {"type": "guardrail_halt", "message": halt, "exception_type": ""}

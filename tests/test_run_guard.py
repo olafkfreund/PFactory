@@ -1,7 +1,6 @@
 """Anti-loop guardrail and run limits (PFactory#1008, port of AIFactory#2033)."""
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 
@@ -10,8 +9,12 @@ from agents import run_guard as g
 P = "PFACTORY_"
 
 
-def _fail(tool="Edit", args=None):
-    return {"cwd": "/w", "tool_name": tool, "tool_input": args or {"f": "a"}}
+def _call(tool="Edit", args=None):
+    return {"tool_name": tool, "tool_input": args or {"f": "a"}}
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 
 def test_guardrail_on_by_default_and_off_switch(monkeypatch):
@@ -31,63 +34,78 @@ def test_max_turns_env(monkeypatch):
     assert g.max_turns() == 1000
 
 
-def test_repeated_failure_blocks_then_tool_failure_halts(tmp_path, monkeypatch):
+def test_repeated_failure_blocks_then_tool_failure_halts(monkeypatch):
     monkeypatch.delenv(P + "ACT_GUARDRAIL", raising=False)
-    g.register_session("/w", tmp_path)
-    err = {**_fail(), "tool_response": {"is_error": True}}
+    guard = g.Guard()
+    err = {**_call(), "tool_response": {"is_error": True}}
     for _ in range(5):
-        assert asyncio.run(g.guardrail_pretool_hook(_fail())) == {}
-        asyncio.run(g.guardrail_posttool_hook(err))
-    assert asyncio.run(g.guardrail_pretool_hook(_fail()))["decision"] == "block"
-    assert g.guard_halt(tmp_path) is None  # one call blocked, session not halted
+        assert _run(guard.pre(_call())) == {}
+        _run(guard.post(err))
+    assert _run(guard.pre(_call()))["decision"] == "block"
+    assert g.guard_halt(_Holder(guard)) is None  # one call blocked, session not halted
     for i in range(3):  # different args: same tool keeps failing -> halt
-        asyncio.run(
-            g.guardrail_posttool_hook(
-                {**_fail(args={"f": str(i)}), "tool_response": {"is_error": True}}
-            )
-        )
-    assert g.guard_halt(tmp_path).startswith("same_tool_failure")
-    assert asyncio.run(g.guardrail_pretool_hook(_fail(args={"f": "new"})))["decision"] == "block"
-    g.clear_halt(tmp_path)
-    assert g.guard_halt(tmp_path) is None
+        _run(guard.post({**_call(args={"f": str(i)}), "tool_response": {"is_error": True}}))
+    assert g.guard_halt(_Holder(guard)).startswith("same_tool_failure")
+    assert _run(guard.pre(_call(args={"f": "new"})))["decision"] == "block"
 
 
-def test_failure_hook_counts_failed_calls(tmp_path, monkeypatch):
+class _Holder:
+    """Stands in for a client carrying its guard, as create_client sets it up."""
+
+    def __init__(self, guard):
+        self._run_guard = guard
+
+
+def test_failure_hook_counts_failed_calls(monkeypatch):
     """The SDK sends a failed tool call to PostToolUseFailure (payload has `error`)."""
     monkeypatch.delenv(P + "ACT_GUARDRAIL", raising=False)
-    g.register_session("/w", tmp_path)
-    fail = {**_fail(), "error": "boom"}
+    guard = g.Guard()
     for _ in range(5):
-        asyncio.run(g.guardrail_failure_hook(fail))
-    assert asyncio.run(g.guardrail_pretool_hook(_fail()))["decision"] == "block"
-    asyncio.run(g.guardrail_failure_hook({**fail, "is_interrupt": True}))  # not counted
+        _run(guard.failure({**_call(), "error": "boom"}))
+    assert _run(guard.pre(_call()))["decision"] == "block"
+    _run(guard.failure({**_call(), "error": "x", "is_interrupt": True}))  # not counted
     for i in range(8):
-        asyncio.run(g.guardrail_failure_hook({**_fail(args={"f": str(i)}), "error": "x"}))
-    assert g.guard_halt(tmp_path).startswith("same_tool_failure")
+        _run(guard.failure({**_call(args={"f": str(i)}), "error": "x"}))
+    assert g.guard_halt(_Holder(guard)).startswith("same_tool_failure")
 
 
-def test_guardrail_off_never_blocks(tmp_path, monkeypatch):
-    monkeypatch.setenv(P + "ACT_GUARDRAIL", "off")
-    g.register_session("/w", tmp_path)
-    for _ in range(20):
-        asyncio.run(g.guardrail_posttool_hook({**_fail(), "tool_response": {"is_error": True}}))
-    assert asyncio.run(g.guardrail_pretool_hook(_fail())) == {}
-    assert g.guard_halt(tmp_path) is None
-
-
-def test_idempotent_read_no_progress_blocks(tmp_path, monkeypatch):
+def test_guards_are_per_client(monkeypatch):
+    """Two clients on one project (evaluator + review lane) never share state."""
     monkeypatch.delenv(P + "ACT_GUARDRAIL", raising=False)
-    g.register_session("/w", tmp_path)
-    call = _fail("Read", {"file_path": "x"})
+    a, b = g.Guard(), g.Guard()
     for _ in range(5):
-        asyncio.run(g.guardrail_posttool_hook({**call, "tool_response": "same"}))
-    assert asyncio.run(g.guardrail_pretool_hook(call))["decision"] == "block"
+        _run(a.failure({**_call(), "error": "boom"}))
+    assert _run(a.pre(_call()))["decision"] == "block"
+    assert _run(b.pre(_call())) == {}
+
+
+def test_guardrail_off_never_blocks(monkeypatch):
+    monkeypatch.setenv(P + "ACT_GUARDRAIL", "off")
+    guard = g.Guard()
+    for _ in range(20):
+        _run(guard.post({**_call(), "tool_response": {"is_error": True}}))
+        _run(guard.failure({**_call(), "error": "x"}))
+    assert _run(guard.pre(_call())) == {}
+    assert g.guard_halt(_Holder(guard)) is None
+
+
+def test_idempotent_read_no_progress_blocks(monkeypatch):
+    monkeypatch.delenv(P + "ACT_GUARDRAIL", raising=False)
+    guard = g.Guard()
+    call = _call("Read", {"file_path": "x"})
+    for _ in range(5):
+        _run(guard.post({**call, "tool_response": "same"}))
+    assert _run(guard.pre(call))["decision"] == "block"
 
 
 def test_hook_error_never_raises(monkeypatch):
     monkeypatch.delenv(P + "ACT_GUARDRAIL", raising=False)
-    assert asyncio.run(g.guardrail_pretool_hook({"cwd": object()})) == {}
-    assert asyncio.run(g.guardrail_posttool_hook({"cwd": object()})) == {}
+    guard = g.Guard()
+    bad = {"tool_name": ["unhashable"], "tool_input": object()}
+    assert _run(guard.pre(bad)) == {}
+    assert _run(guard.post(bad)) == {}
+    assert _run(guard.failure(bad)) == {}
+    assert g.guard_halt(object()) is None
 
 
 def test_ceiling_env(monkeypatch):
@@ -117,6 +135,7 @@ class _Msg:
 
 class _Client:
     def __init__(self, messages, on_message=None) -> None:
+        self._run_guard = g.Guard()
         self.interrupted = 0
         self.yielded = 0
         self._messages = messages
@@ -140,11 +159,9 @@ async def test_guardrail_halt_interrupts_and_returns_typed_error(tmp_path, monke
     from agents.session import run_agent_session
     from task_logger import LogPhase
 
-    g.register_session("/w", tmp_path)
-
     def halt_on_second(i: int) -> None:
         if i == 1:
-            g._SESSIONS["/w"].ctl.halt_reason = "same_tool_failure: Edit failed 8x"
+            client._run_guard.ctl.halt_reason = "same_tool_failure: Edit failed 8x"
 
     client = _Client([_Msg(), _Msg(), _Msg()], halt_on_second)
     status, reason, info = await run_agent_session(client, "x", tmp_path, False, LogPhase.CODING)
