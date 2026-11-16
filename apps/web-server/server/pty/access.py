@@ -44,9 +44,12 @@ def project_id_for_path(path: str | None) -> str | None:
         return None
     best: tuple[int, str] | None = None
     for project_id, project in projects.items():
+        # A repo-only project stores "" (no clone); Path("") would be the CWD.
+        if not isinstance(project, dict) or not project.get("path"):
+            continue
         try:
             root = Path(project["path"]).resolve()
-        except (KeyError, TypeError, OSError, RuntimeError, ValueError):
+        except (OSError, RuntimeError, ValueError):
             continue
         if (target == root or root in target.parents) and (
             best is None or len(root.parts) > best[0]
@@ -57,9 +60,11 @@ def project_id_for_path(path: str | None) -> str | None:
 
 def path_in_project(path: str, project_id: str) -> bool:
     project = project_paths.load_projects().get(project_id)
+    if not isinstance(project, dict) or not project.get("path"):
+        return False
     try:
-        root = Path(project["path"]).resolve()  # type: ignore[index]
+        root = Path(project["path"]).resolve()
         target = Path(path).resolve()
-    except (KeyError, TypeError, OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         return False
     return target == root or root in target.parents

@@ -15,7 +15,7 @@ sys.path.insert(0, str(_ROOT / "apps" / "backend"))
 
 from server.services import git_utils, project_paths  # noqa: E402
 from server.pty import access  # noqa: E402
-from server.pty.manager import PTYManager  # noqa: E402
+from server.pty.manager import DuplicateSessionError, PTYManager  # noqa: E402
 from server.pty.session import PTYSession  # noqa: E402
 from server.routes import terminal  # noqa: E402
 from server.websockets import terminal as terminal_ws  # noqa: E402
@@ -79,6 +79,7 @@ def env(tmp_path, monkeypatch):
         client=TestClient(app),
         manager=manager,
         state=state,
+        projects=projects,
         root=tmp_path,
         monkeypatch=monkeypatch,
     )
@@ -133,13 +134,35 @@ def test_create_requires_an_authorized_project_that_contains_the_directory(env):
     assert _create(env, "alice", projectId="a").status_code == 403
 
 
-def test_duplicate_id_is_rejected_without_spawning(env, monkeypatch):
+def test_duplicate_id_never_spawns_and_only_the_owner_reconnects(env, monkeypatch):
     assert _create(env, "alice", id="t1", projectId="a").status_code == 201
+    first = env.manager.get_session("t1")
     started = []
     monkeypatch.setattr(PTYSession, "start", lambda self: started.append(self))
+    # the UI re-posts create on remount: the owner gets the live session back
+    again = _create(env, "alice", id="t1", projectId="a")
+    assert again.status_code == 201 and again.json()["id"] == "t1"
+    assert env.manager.get_session("t1") is first
+    # another user's id is a conflict, never a takeover
     assert _create(env, "bob", id="t1", projectId="b").status_code == 409
     assert started == []
     assert env.manager.get_session("t1").owner_id == "alice"
+    # the manager itself refuses a duplicate id before spawning
+    with pytest.raises(DuplicateSessionError):
+        env.manager.create_session(session_id="t1", owner_id="bob")
+    assert started == []
+    # a dead session of the owner is replaced by a fresh one
+    monkeypatch.setattr(PTYSession, "is_alive", lambda self: False)
+    assert _create(env, "alice", id="t1", projectId="a").status_code == 201
+    assert env.manager.get_session("t1") is not first
+    assert len(started) == 1
+
+
+def test_repo_only_project_path_is_not_the_cwd(env, monkeypatch):
+    env.projects["r"] = {"path": "", "org_id": "A"}
+    monkeypatch.chdir(env.root)
+    assert access.project_id_for_path(str(env.root)) is None
+    assert not access.path_in_project(str(env.root), "r")
 
 
 def test_close_only_closes_the_authorized_session(env):

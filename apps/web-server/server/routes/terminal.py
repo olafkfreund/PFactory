@@ -252,9 +252,17 @@ async def create_terminal(request: CreateTerminalRequest, http_request: Request)
             detail=f"Directory does not exist: {cwd}",
         )
 
+    # The UI re-posts create on every remount of a live terminal: hand the
+    # caller's own live session back instead of replacing or rejecting it.
+    user = _user(http_request)
+    existing = manager.get_session(request.id) if request.id else None
+    if existing is not None and await may_use(user, existing):
+        if existing.is_alive():
+            return TerminalInfo(**existing.to_dict())
+        manager.close_session(existing.id, expected=existing)
+
     # Bind the session (#3740). Non-service callers must land inside a
     # registered project they are authorized for.
-    user = _user(http_request)
     project_id = request.project_id or project_id_for_path(cwd)
     if not is_service_principal(user) and (
         not project_id
