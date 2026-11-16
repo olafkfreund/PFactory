@@ -138,7 +138,9 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
                 status = "failed"
                 halt_reason = "no_evidence: emit created no issues"
 
-    if getattr(session, "process_error", None) == "TokenCeilingError":
+    # Only a still-failed session: discard()/reject() leave process_error set, and
+    # the terminal status they send must not be rewritten to non-terminal "failed".
+    if status == "failed" and getattr(session, "process_error", None) == "TokenCeilingError":
         status = "failed"
         halt_reason = (
             f"token_ceiling: run used {usage.total_tokens} tokens, ceiling {token_ceiling()}"

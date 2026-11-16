@@ -421,3 +421,16 @@ def test_emit_usage_snapshot_noop_without_usage(monkeypatch):
 
     assert completion.emit_usage_snapshot(session) is None
     assert posted == []
+
+
+@pytest.mark.parametrize("final", ["discarded", "rejected"])
+def test_token_ceiling_error_does_not_rewrite_a_terminal_status(final):
+    """A stale TokenCeilingError must not turn a discarded/rejected event into "failed"."""
+    session = PlanService().ingest_text(_PLAN, title="Refund flow")
+    session.process_error = "TokenCeilingError"
+    session.status = "failed"
+    assert build_completion_event(session)["status"] == "failed"
+    session.status = final
+    event = build_completion_event(session)
+    assert event["status"] == final
+    assert event["status"] in TERMINAL_STATUSES
