@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 _BACKEND = Path(__file__).parent.parent / "apps" / "backend"
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
@@ -13,6 +15,9 @@ from core.child_env import (  # noqa: E402
     CLAUDE_KEEP,
     child_env,
     get_agent_env_blanks,
+    git_env,
+    is_agent_env_allowed,
+    is_denied_env_key,
     without_host_secrets,
 )
 
@@ -112,3 +117,39 @@ def test_github_probe_prefers_the_dedicated_token(monkeypatch):
     monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "sentinel-mcp-token")
     status = mcp_credentials._probe_github()
     assert status.env_vars == {"GITHUB_PERSONAL_ACCESS_TOKEN": "sentinel-mcp-token"}
+
+
+# Factory#3709: verdicts of the pre-shared-package code, held across the swap.
+_VERDICTS = {
+    "PATH": (False, True),
+    "HOME": (False, True),
+    "CLAUDE_CODE_OAUTH_TOKEN": (False, False),
+    "NIX_GITHUB_TOKEN": (False, False),
+    "JWT_SECRET": (True, False),
+    "PFACTORY_MCP_KEY": (True, False),
+    "GH_TOKEN": (True, False),
+    "FOO_MISC": (False, False),
+    "CFACTORY_READ_KEY": (True, False),
+    "CFACTORY_GITHUB_TOKEN": (True, False),
+    "GITLAB_TOKEN": (True, False),
+}
+
+
+@pytest.mark.parametrize(("name", "verdict"), sorted(_VERDICTS.items()))
+def test_verdict_table(monkeypatch, name, verdict):
+    monkeypatch.delenv("PFACTORY_AGENT_ENV_EXTRA", raising=False)
+    assert (is_denied_env_key(name), is_agent_env_allowed(name)) == verdict
+
+
+def test_new_deny_names_stay_denied_through_extra(monkeypatch):
+    monkeypatch.setenv("PFACTORY_AGENT_ENV_EXTRA", "GITLAB_TOKEN,CFACTORY_READ_KEY")
+    assert not is_agent_env_allowed("GITLAB_TOKEN")
+    assert not is_agent_env_allowed("CFACTORY_READ_KEY")
+
+
+def test_git_env_pins_and_child_env_does_not(monkeypatch):
+    monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
+    assert "GIT_CONFIG_COUNT" not in child_env()
+    env = git_env()
+    assert env["GIT_CONFIG_KEY_0"] == "core.hooksPath"
+    assert env["GIT_CONFIG_VALUE_0"] == "/dev/null"
