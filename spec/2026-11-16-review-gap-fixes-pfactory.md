@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1013, 1023, 1009
 intent: intent/2026-11-16-review-gap-fixes-pfactory.md
 ---
