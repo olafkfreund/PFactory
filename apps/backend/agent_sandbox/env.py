@@ -78,6 +78,7 @@ _USERINFO = re.compile(r"^((?:[A-Za-z][A-Za-z0-9+.-]*://)?)[^/]*@")
 _MIN_SECRET_LEN = 8
 
 _logged_dropped: set[str] = set()
+_logged_inherited: set[str] = set()
 
 
 def strip_proxy_userinfo(value: str) -> str | None:
@@ -131,6 +132,13 @@ def get_agent_env_blanks(policy: Policy) -> dict[str, str]:
         and not is_agent_env_allowed(policy, k)
     }
     _log_dropped(policy, blanks)
+    # Own dedup set: child_env(agent=True) fills _logged_dropped first (Factory#3735).
+    inherited = {k for k in os.environ if k.upper() in BLANK_BREAKS} - _logged_inherited
+    if inherited:
+        _logged_inherited.update(inherited)
+        logger.warning(
+            "agent env inherits host git redirections (names only): %s", sorted(inherited)
+        )
     for k, v in os.environ.items():
         # Allowed proxy names only: a denied or unapproved one is already blank.
         if _PROXY_NAME.fullmatch(k) and k not in blanks and is_agent_env_allowed(policy, k):
