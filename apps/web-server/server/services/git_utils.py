@@ -84,7 +84,7 @@ def git_run(
     # diff.external / textconv are not covered by merge_driver_pins.
     noext = ["--no-ext-diff", "--no-textconv"] if sub in {"diff", "show"} else []
     return subprocess.run(  # noqa: S603 - argv list, no shell
-        [cmd[0], *pins, sub, *noext, *cmd[2:]],
+        ["git", *pins, sub, *noext, *cmd[2:]],
         env=git_env(keep=(*GITHUB_KEEP, "SSH_AUTH_SOCK")),
         check=check,
         **kwargs,
