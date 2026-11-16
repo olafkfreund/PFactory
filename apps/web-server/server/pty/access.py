@@ -5,7 +5,8 @@ A session is bound to its creating user and project. The service principal
 to own the session and still hold its project. Every check fails closed.
 """
 
-from pathlib import Path
+import os
+from pathlib import Path, PurePath
 from typing import Any
 
 from server.database import engine
@@ -31,6 +32,22 @@ async def may_use(user: dict[str, Any] | None, session: Any) -> bool:
     return user["id"] == session.owner_id and await project_ok(user, session.project_id)
 
 
+def _roots(project: object) -> list[PurePath]:
+    """Normalised and resolved forms of a registered project's path, from trusted data."""
+    # A repo-only project stores "" (no clone); Path("") would be the CWD.
+    if not isinstance(project, dict) or not project.get("path"):
+        return []
+    raw = str(project["path"])
+    try:
+        return [PurePath(os.path.normpath(raw)), Path(raw).resolve()]
+    except (OSError, RuntimeError, ValueError):
+        return [PurePath(os.path.normpath(raw))]
+
+
+def _inside(target: PurePath, root: PurePath) -> bool:
+    return target == root or root in target.parents
+
+
 def project_id_for_path(path: str | None) -> str | None:
     """Registered project id for a project id or a path inside a project."""
     if not path:
@@ -38,33 +55,22 @@ def project_id_for_path(path: str | None) -> str | None:
     projects = project_paths.load_projects()
     if path in projects:
         return path
-    try:
-        target = Path(path).resolve()
-    except (OSError, RuntimeError, ValueError):
+    if not PurePath(path).is_absolute():
         return None
+    # Pure path arithmetic: the caller's string never reaches a filesystem call.
+    target = PurePath(os.path.normpath(path))
     best: tuple[int, str] | None = None
     for project_id, project in projects.items():
-        # A repo-only project stores "" (no clone); Path("") would be the CWD.
-        if not isinstance(project, dict) or not project.get("path"):
-            continue
-        try:
-            root = Path(project["path"]).resolve()
-        except (OSError, RuntimeError, ValueError):
-            continue
-        if (target == root or root in target.parents) and (
-            best is None or len(root.parts) > best[0]
-        ):
-            best = (len(root.parts), project_id)
+        for root in _roots(project):
+            if _inside(target, root) and (best is None or len(root.parts) > best[0]):
+                best = (len(root.parts), project_id)
     return best[1] if best else None
 
 
 def path_in_project(path: str, project_id: str) -> bool:
-    project = project_paths.load_projects().get(project_id)
-    if not isinstance(project, dict) or not project.get("path"):
+    if not PurePath(path).is_absolute():
         return False
-    try:
-        root = Path(project["path"]).resolve()
-        target = Path(path).resolve()
-    except (OSError, RuntimeError, ValueError):
-        return False
-    return target == root or root in target.parents
+    target = PurePath(os.path.normpath(path))
+    return any(
+        _inside(target, root) for root in _roots(project_paths.load_projects().get(project_id))
+    )

@@ -187,10 +187,8 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
         reader_task.cancel()
         if watch_task is not None:
             watch_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await reader_task
-        except asyncio.CancelledError:
-            pass
         if watch_task is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await watch_task
