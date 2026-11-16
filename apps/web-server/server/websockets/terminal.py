@@ -6,7 +6,6 @@ and PTY processes on the server.
 """
 
 import asyncio
-import contextlib
 import json
 from typing import Any
 
@@ -187,11 +186,9 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
         reader_task.cancel()
         if watch_task is not None:
             watch_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await reader_task
+        await asyncio.gather(reader_task, return_exceptions=True)
         if watch_task is not None:
-            with contextlib.suppress(asyncio.CancelledError):
-                await watch_task
+            await asyncio.gather(watch_task, return_exceptions=True)
 
         # Check if terminal exited
         if not session.is_alive():

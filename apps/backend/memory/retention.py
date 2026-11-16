@@ -35,7 +35,7 @@ def windows() -> tuple[int, int]:
         if 0 < demote < expire:
             return demote, expire
     except ValueError:
-        pass
+        logger.debug("ignoring non-integer MEMORY_DEMOTE_DAYS/MEMORY_EXPIRE_DAYS")
     return DEMOTE_DAYS, EXPIRE_DAYS
 
 
@@ -106,7 +106,7 @@ def gotchas_context(memory_dir: Path, text: str, limit: int, now: datetime | Non
                     datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC),
                 )
         except ValueError:
-            pass
+            logger.debug("unparseable last_confirmed_at, using stored timestamps")
         age = now - last
         if age >= timedelta(days=expire_days):
             expired = True

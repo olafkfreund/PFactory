@@ -337,7 +337,7 @@ def test_final_event_queued_during_refresh(
 
             emission = asyncio.create_task(emit_during_lookup())
             await asyncio.sleep(0)
-            await emission
+            await asyncio.gather(emission)
         return await original_readable(access, task_ids)
 
     monkeypatch.setattr(task_access.AllTaskSocketAccess, "readable", readable)
