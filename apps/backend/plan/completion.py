@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+from agents.run_guard import token_ceiling
+
 if TYPE_CHECKING:
     from plan.service import PlanSession
 
@@ -135,6 +137,12 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
             if epic is None:
                 status = "failed"
                 halt_reason = "no_evidence: emit created no issues"
+
+    if getattr(session, "process_error", None) == "TokenCeilingError":
+        status = "failed"
+        halt_reason = (
+            f"token_ceiling: run used {usage.total_tokens} tokens, ceiling {token_ceiling()}"
+        )
 
     event = {
         # The persisted key first: a session keeps one key for life, so its event

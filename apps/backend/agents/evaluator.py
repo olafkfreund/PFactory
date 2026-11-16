@@ -641,6 +641,17 @@ async def run_evaluator(
             )
             return False
 
+        # A guardrail halt stops the judge: verdicts written before the stop are not
+        # a result (#1008), the run is evaluator_failed like any session error.
+        if isinstance(_err, dict) and _err.get("type") == "guardrail_halt":
+            _write_status_patch(
+                spec_dir,
+                status="evaluator_failed",
+                phase="evaluator_session_error",
+                evaluator_error=str(_err.get("message", ""))[:500],
+            )
+            return False
+
         # 5. Validate the verdicts.json the agent wrote.
         verdicts_path = spec_dir / "findings" / "verdicts.json"
         ok, err, count = _validate_verdicts(verdicts_path)

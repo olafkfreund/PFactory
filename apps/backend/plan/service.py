@@ -27,6 +27,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, PrivateAttr
 
+from agents.run_guard import TokenCeilingError, check_ceiling
 from plan.annotate import AnnotationResult, annotate_plan
 from plan.completion import (
     correlation_key_for,
@@ -186,6 +187,7 @@ class PlanSession(BaseModel):
     def record_usage(self, usage: PlanUsage | None) -> None:
         """Fold an LLM call's usage into the run total (no-op for ``None``)."""
         self.usage.add(usage)
+        check_ceiling(self.usage.total_tokens)  # #1008: over budget -> stop the run
 
     def board_state(self) -> BoardColumn:
         return board_state(self.status, self.review)
@@ -1342,6 +1344,8 @@ class PlanService:
             session.process_error = type(exc).__name__
             with suppress(StaleSessionError):
                 self._save(session)
+            if isinstance(exc, TokenCeilingError):
+                emit_usage_snapshot(session)  # typed halt_reason reaches CFactory
             raise
         # Running-cost: planning + governance gates spent LLM tokens, but the
         # session is only ``processed`` (awaiting human approval), not terminal —
@@ -1598,6 +1602,7 @@ class PlanService:
         self, session: PlanSession, plan: NormalizedPlan, descriptor: object, *, llm=None
     ) -> EpicPlan:
         """Decompose into an epic, record LLM usage, inject implicit requirements."""
+        check_ceiling(session.usage.total_tokens)  # no paid call for an over-budget session
         usage_sink: list[PlanUsage] = []
         epic = decompose(plan, descriptor=descriptor, llm=llm, usage_sink=usage_sink)
         for u in usage_sink:
