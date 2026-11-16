@@ -29,17 +29,21 @@ def _client() -> TestClient:
 
 def test_event_is_recorded_on_the_session(monkeypatch):
     calls = []
-    monkeypatch.setattr(SERVICE, "record_downstream", lambda p: calls.append(p) or True)
-    r = _client().post("/api/contract-events", json={
-        "correlation_key": "fb-1", "service": "aifactory", "status": "failed"})
+    monkeypatch.setattr(SERVICE, "record_downstream", lambda p, **_: calls.append(p) or True)
+    r = _client().post(
+        "/api/contract-events",
+        json={"correlation_key": "fb-1", "service": "aifactory", "status": "failed"},
+    )
     assert r.status_code == 200 and calls[0]["correlation_key"] == "fb-1"
 
 
 def test_persistent_stale_session_is_503_so_the_emitter_retries(monkeypatch):
-    def stale(_):
+    def stale(_, **__):
         raise StaleSessionError("moved on")
 
     monkeypatch.setattr(SERVICE, "record_downstream", stale)
-    r = _client().post("/api/contract-events", json={
-        "correlation_key": "fb-2", "service": "aifactory", "status": "failed"})
+    r = _client().post(
+        "/api/contract-events",
+        json={"correlation_key": "fb-2", "service": "aifactory", "status": "failed"},
+    )
     assert r.status_code == 503

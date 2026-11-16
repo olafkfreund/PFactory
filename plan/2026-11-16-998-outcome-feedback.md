@@ -36,3 +36,10 @@ Approved spec decisions, carried over so this file stands alone.
 ## Rollback
 
 Revert the PR. `PlanSession.model_config` is `{}`, so older code ignores the stored `downstream` field on load (and drops it on its next save).
+
+## Deviations (codex review round 1, same commit as the code)
+
+- `record_downstream` takes `tenant_id` (route passes `resolve_tenant(request)`); sessions of another tenant are never matched.
+- After `_save`, a shared store is re-read; a write that did not land raises `StaleSessionError` (so the route retries, then 503), because `_save` swallows store errors.
+- A replayed event (same dedupe key) is skipped entirely, so cost and coverage never go back to older values.
+- The planner text says "unknown (not reported)" for coverage and "not reported" for spend instead of zero.

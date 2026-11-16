@@ -251,5 +251,6 @@ def test_history_reaches_the_prompt_and_empty_changes_nothing():
     plan = _plan(criteria=["Add an endpoint."])
     descriptor = select_for(plan)
     base = build_decompose_prompt(plan, descriptor)
+    assert "Outcomes of earlier plans" not in base
     assert build_decompose_prompt(plan, descriptor, "") == base
     assert "2 handbacks" in build_decompose_prompt(plan, descriptor, "2 handbacks")

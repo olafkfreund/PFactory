@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -21,6 +21,7 @@ if str(_BACKEND_DIR) not in sys.path:
 from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
 from plan.service import SERVICE, StaleSessionError  # noqa: E402
+from server.tenancy import resolve_tenant  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 
@@ -29,7 +30,7 @@ REGISTRY = ContractSyncRegistry()
 
 
 @router.post("")
-async def ingest_event(payload: dict) -> dict:
+async def ingest_event(payload: dict, request: Request) -> dict:
     """Reconcile one inbound completion event; returns the updated state."""
     try:
         state = REGISTRY.apply(payload)
@@ -39,7 +40,7 @@ async def ingest_event(payload: dict) -> dict:
     # reaches the planner. The session may have moved on: reload and refold.
     for _ in range(3):
         try:
-            SERVICE.record_downstream(payload)
+            SERVICE.record_downstream(payload, tenant_id=resolve_tenant(request))
             break
         except StaleSessionError:
             continue

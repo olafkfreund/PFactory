@@ -15,7 +15,13 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
-from plan.service import PlanService, PlanServiceError, PlanSession  # noqa: E402
+from plan.service import (  # noqa: E402
+    PlanService,
+    PlanServiceError,
+    PlanSession,
+    StaleSessionError,
+)
+from tests.fake_session_store import FakeSessionStore  # noqa: E402
 
 _SOFTWARE_PLAN = """# Refund API
 Add a REST API endpoint to the payments microservice with auth and a Kubernetes
@@ -339,3 +345,36 @@ def test_decompose_receives_history_in_the_llm_prompt(tmp_path):
 
     svc.process(new.session_id, llm=_Llm())
     assert seen and "flaky migration" in seen[0]
+
+
+def test_record_downstream_ignores_another_tenants_session(tmp_path):
+    svc = PlanService(store_dir=tmp_path)
+    s = _keyed(svc, "42", tenant="a")
+    assert svc.record_downstream(_evt("aifactory", "failed", "42"), tenant_id="b") is False
+    assert svc.record_downstream(_evt("aifactory", "failed", "42"), tenant_id="a") is True
+    assert svc.get(s.session_id).downstream is not None
+
+
+def test_record_downstream_reports_a_store_that_did_not_take_the_write():
+    store = FakeSessionStore()
+    svc = PlanService(session_store=store)
+    svc._save(_keyed(svc, "42"))
+    store.upsert_error = RuntimeError("db down")
+    with pytest.raises(StaleSessionError):
+        svc.record_downstream(_evt("aifactory", "failed", "42"))
+
+
+def test_record_downstream_incomplete_session_list_stores_nothing(tmp_path, monkeypatch):
+    svc = PlanService(store_dir=tmp_path)
+    _keyed(svc, "42")
+    real = svc._list_sessions
+    monkeypatch.setattr(svc, "_list_sessions", lambda: (real()[0], False))
+    assert svc.record_downstream(_evt("aifactory", "failed", "42")) is False
+
+
+def test_outcome_history_keeps_unknown_unknown(tmp_path):
+    svc = PlanService(store_dir=tmp_path)
+    _keyed(svc, "1")
+    svc.record_downstream(_evt("aifactory", "failed", "1"))  # no usage, no verification
+    text = svc.outcome_history(_keyed(svc, "9"))
+    assert "did not verify: unknown" in text and "$0.00" not in text

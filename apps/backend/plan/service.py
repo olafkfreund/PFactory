@@ -1617,7 +1617,7 @@ class PlanService:
             }
         return {"verdict": "pass", "reason": ""}
 
-    def record_downstream(self, payload: dict) -> bool:
+    def record_downstream(self, payload: dict, *, tenant_id: str | None = None) -> bool:
         """Fold a completion event into its plan session's feedback record (#998).
 
         True when stored. Zero, several or unverifiable matches store nothing:
@@ -1628,6 +1628,8 @@ class PlanService:
         corr = payload.get("correlation")
         sid = corr.get("session_id") if isinstance(corr, dict) else None
         sessions, complete = self._list_sessions()
+        if tenant_id is not None:  # another tenant's session is never attached to
+            sessions = [s for s in sessions if s.tenant_id == tenant_id]
         if sid:
             match = [s for s in sessions if s.session_id == sid and s.correlation_key == key]
         else:
@@ -1641,6 +1643,10 @@ class PlanService:
         except SyncError:
             return False
         self._save(session)
+        if self._session_store is not None:  # _save swallows store errors: confirm it landed
+            stored = self._load_from_store(session.session_id)
+            if stored is None or stored.downstream != session.downstream:
+                raise StaleSessionError(f"feedback for {session.session_id!r} was not stored")
         return True
 
     def outcome_history(self, session: PlanSession) -> str:
@@ -1664,18 +1670,21 @@ class PlanService:
             :3
         ]
         unverified = {c for d in ds for c in (d.unverified_criteria or [])}
+        coverage_known = any(d.unverified_criteria is not None for d in ds)
         est = [e["estimated_cost_usd"] for s in past if (e := s._downstream_summary())]
         act = [d.actual_cost_usd for d in ds if d.actual_cost_usd is not None]
         lines = [
             f"- {len(past)} earlier plan(s) with results; "
             f"handbacks: {sum(d.handback_count for d in ds)}",
             f"- recent handback reasons: {'; '.join(reasons) or 'none recorded'}",
-            f"- criteria TFactory did not verify: {len(unverified)}",
+            "- criteria TFactory did not verify: "
+            + (str(len(unverified)) if coverage_known else "unknown (not reported)"),
         ]
         if any(est) or act:
+            spend = f"${sum(act):,.2f}" if act else "not reported"
             lines.append(
                 f"- cost: estimated monthly cloud cost ${sum(e or 0 for e in est):,.2f}; "
-                f"actual build+verify token spend ${sum(act):,.2f} (different quantities)"
+                f"actual build+verify token spend {spend} (different quantities)"
             )
         return "\n".join(lines)
 

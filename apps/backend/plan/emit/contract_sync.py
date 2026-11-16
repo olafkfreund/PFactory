@@ -151,9 +151,9 @@ def _fold_feedback(state: ContractSyncState, event: CompletionEvent) -> None:
     """Record failure reason, unverified criteria and cost; idempotent per event."""
     raw = event.raw
     key = str(raw.get("id") or f"{event.service}|{event.status}|{event.updated_at}")
-    retry = key in state.seen
-    if not retry:
-        state.seen = [*state.seen, key][-50:]
+    if key in state.seen:
+        return  # replay: must not overwrite newer cost/coverage with older values
+    state.seen = [*state.seen, key][-50:]
     usage = raw.get("usage")
     cost = usage.get("cost_usd") if isinstance(usage, dict) else None
     if isinstance(cost, int | float) and not isinstance(cost, bool):
@@ -170,7 +170,7 @@ def _fold_feedback(state: ContractSyncState, event: CompletionEvent) -> None:
         classify_outcome(event.service, event.status) == "failure"
         or str(raw.get("outcome", "")).lower() == "failure"
     )
-    if failed and not retry:
+    if failed:
         state.handback_count += 1
         reason = _clean_reason(str(raw.get("halt_reason") or event.status))
         state.handbacks = [

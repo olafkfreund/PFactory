@@ -144,3 +144,12 @@ def test_feedback_retry_is_not_double_counted_and_unknown_stays_none() -> None:
     fold_event(st, {**_evt("tfactory", "failed"), "id": "other"})
     assert st.handback_count == 2
     assert st.actual_cost_usd is None and st.unverified_criteria is None
+
+
+def test_feedback_replay_does_not_overwrite_newer_values() -> None:
+    st = ContractSyncState(correlation_key="42")
+    a = {**_evt("aifactory", "running"), "id": "a", "usage": {"cost_usd": 1.0}}
+    fold_event(st, a)
+    fold_event(st, {**_evt("aifactory", "qa_approved"), "id": "b", "usage": {"cost_usd": 2.0}})
+    fold_event(st, a)  # late retry of the older event
+    assert st.actual_cost_usd == 2.0
