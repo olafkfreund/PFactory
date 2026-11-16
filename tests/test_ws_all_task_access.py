@@ -284,3 +284,93 @@ def test_refresh_precedes_queued_send_and_heartbeat(
     assert service.callbacks == {}
     if kind == "progress":
         assert messages[-1]["running_tasks"] == []
+
+
+@pytest.mark.parametrize("kind", ENDPOINTS)
+@pytest.mark.parametrize("deny", [False, True])
+def test_final_event_queued_during_refresh(
+    all_ws: tuple[Any, Any, Service],
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+    kind: str,
+    deny: bool,
+) -> None:
+    _, _, service = all_ws
+    _, _, memberships, _ = request.getfixturevalue("task_ws_app")
+    module = logs if kind == "logs" else progress
+    clock = SimpleNamespace(now=0.0, time=lambda: clock.now)
+    messages: list[dict[str, Any]] = []
+    subscribed_during_lookup = False
+
+    class Socket:
+        def __init__(self) -> None:
+            self.headers = {"authorization": "Bearer jwt-a"}
+            self.query_params: dict[str, str] = {}
+
+        async def accept(self) -> None:
+            return None
+
+        async def send_json(self, message: dict[str, Any]) -> None:
+            messages.append(message)
+
+        async def close(self, code: int) -> None:
+            raise AssertionError(f"unexpected close {code}")
+
+    original_readable = task_access.AllTaskSocketAccess.readable
+    reads = 0
+
+    async def readable(access: task_access.AllTaskSocketAccess, task_ids: list[str]) -> set[str]:
+        nonlocal reads, subscribed_during_lookup
+        reads += 1
+        if reads == 2:
+
+            async def emit_during_lookup() -> None:
+                nonlocal subscribed_during_lookup
+                subscribed_during_lookup = "p-a:001" in service.callbacks
+                if subscribed_during_lookup:
+                    event = (
+                        TaskLog("p-a:001", "final")
+                        if kind == "logs"
+                        else TaskProgress("p-a:001", TaskPhase.CODING, "final")
+                    )
+                    await service.callbacks["p-a:001"](event)
+
+            emission = asyncio.create_task(emit_during_lookup())
+            await asyncio.sleep(0)
+            await emission
+        return await original_readable(access, task_ids)
+
+    monkeypatch.setattr(task_access.AllTaskSocketAccess, "readable", readable)
+    calls = 0
+
+    async def wait_for(item: Any, *, timeout: float) -> Any:  # noqa: ARG001, ASYNC109
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            item.close()
+            clock.now = 5.1
+            service.running.clear()
+            if deny:
+                memberships.pop(("A", "user-a"), None)
+            raise TimeoutError
+        if calls == 2:
+            return await item
+        item.close()
+        raise WebSocketDisconnect()
+
+    monkeypatch.setattr(
+        module,
+        "asyncio",
+        SimpleNamespace(Queue=asyncio.Queue, get_running_loop=lambda: clock, wait_for=wait_for),
+    )
+    handler = module.all_logs_websocket if kind == "logs" else module.all_progress_websocket
+    asyncio.run(handler(Socket()))
+    assert subscribed_during_lookup
+    assert service.callbacks == {}
+    assert [message["type"] for message in messages] == [
+        "connected",
+        "heartbeat",
+        *([] if deny else ["log" if kind == "logs" else "progress"]),
+    ]
+    if not deny:
+        assert messages[-1]["task_id"] == "p-a:001"

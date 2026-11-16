@@ -128,11 +128,12 @@ async def all_progress_websocket(websocket: WebSocket):
         nonlocal allowed
         if not await access.recheck():
             return False
+        fresh = await access.readable(agent_service.get_running_tasks())
         for unregister in unregister_callbacks:
             unregister()
         unregister_callbacks.clear()
 
-        allowed = await access.readable(agent_service.get_running_tasks())
+        allowed = fresh
         for task_id in allowed:
             unregister = agent_service.register_progress_callback(task_id, progress_callback)
             unregister_callbacks.append(unregister)
@@ -175,7 +176,8 @@ async def all_progress_websocket(websocket: WebSocket):
                         ],
                     }
                 )
-            elif progress.task_id in allowed:
+            # a finished task leaves running_tasks before its last event is processed: re-authorize
+            elif progress.task_id in allowed or await access.readable([progress.task_id]):
                 await websocket.send_json(
                     {
                         "type": "progress",
