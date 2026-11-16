@@ -220,8 +220,8 @@ def test_gotcha_different_context_appended(tmp_path, record_gotcha):
 
 def test_gotcha_repeat_outside_window_appended(tmp_path, record_gotcha):
     record_gotcha("old")
-    for i in range(30):
-        record_gotcha(f"filler {i} " + "z" * 50)
+    for i in range(3):
+        record_gotcha(f"filler {i} " + "z" * 400)
     assert len(_gotchas(tmp_path)) > memory_tools.GOTCHA_CONTEXT_CHARS
     assert record_gotcha("old").startswith("Recorded gotcha")
     assert _gotchas(tmp_path).count("\nold\n") == 2
