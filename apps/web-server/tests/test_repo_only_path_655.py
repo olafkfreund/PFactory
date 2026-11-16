@@ -21,6 +21,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -46,6 +47,7 @@ from server.services import (  # noqa: E402
     project_paths,
 )
 
+_SERVICE = SimpleNamespace(state=SimpleNamespace(user={"id": "default", "is_service": True}))
 REPO_ONLY = {"repo-only": {"repo": "o/r", "path": ""}}
 
 
@@ -186,7 +188,7 @@ async def test_terminal_buffer_falls_back_to_home_not_cwd(monkeypatch, tmp_path)
     monkeypatch.setattr(terminal_routes, "get_pty_manager", _Manager)
 
     result = await terminal_routes.save_terminal_buffer(
-        "t1", {"buffer": "hello", "projectId": "repo-only"}
+        "t1", {"buffer": "hello", "projectId": "repo-only"}, _SERVICE
     )
 
     assert result["success"] is True
@@ -222,12 +224,12 @@ async def test_terminal_clear_skips_the_sentinel_but_not_a_dot(monkeypatch, tmp_
 
     _register({"repo-only": {"path": ""}})
     victim.write_text("{}")
-    result = await terminal_routes.clear_terminal_sessions()
+    result = await terminal_routes.clear_terminal_sessions(_SERVICE)
     assert result["data"]["cleared"] == 0
     assert victim.exists()
 
     _register({"here": {"path": "."}})
-    result = await terminal_routes.clear_terminal_sessions()
+    result = await terminal_routes.clear_terminal_sessions(_SERVICE)
     assert result["data"]["cleared"] == 1
     assert not victim.exists()
 

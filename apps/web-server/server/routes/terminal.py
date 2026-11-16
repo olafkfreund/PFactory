@@ -10,12 +10,22 @@ import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
+from server.pty.access import (
+    may_use,
+    path_in_project,
+    project_id_for_path,
+    project_ok,
+)
+from server.pty.manager import DuplicateSessionError, get_pty_manager
+from server.pty.session import PTYSession
+from server.routes.project_authz import is_service_principal
 from server.services.git_utils import (  # #335, #553
     confine_to_project,
     confine_to_workspace,
@@ -23,7 +33,6 @@ from server.services.git_utils import (  # #335, #553
 )
 
 from ..config import get_settings
-from ..pty.manager import get_pty_manager
 from ..services.terminal_worktree_service import TerminalWorktreeService
 from .projects import load_projects
 
@@ -141,17 +150,60 @@ class TerminalWorktreeResult(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# Ownership (#3740)
+# --------------------------------------------------------------------------
+
+
+def _user(http_request: Request) -> dict[str, Any] | None:
+    return getattr(http_request.state, "user", None)
+
+
+def _service_only(http_request: Request) -> None:
+    if not is_service_principal(_user(http_request)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This operation is limited to the service principal",
+        )
+
+
+async def _authorize_path(user: dict[str, Any] | None, path: str | None) -> str | None:
+    """Project id for `path`; non-service callers must be authorized for it."""
+    project_id = project_id_for_path(path)
+    if is_service_principal(user):
+        return project_id
+    if project_id is None or not await project_ok(user, project_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this project",
+        )
+    return project_id
+
+
+async def _owned(terminal_id: str, http_request: Request) -> PTYSession:
+    """The session if the caller may use it; another user's reads as missing."""
+    session = get_pty_manager().get_session(terminal_id)
+    if session is None or not await may_use(_user(http_request), session):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Terminal not found")
+    return session
+
+
+async def _visible(http_request: Request) -> list[PTYSession]:
+    user = _user(http_request)
+    manager = get_pty_manager()
+    return [s for s in list(manager.sessions.values()) if await may_use(user, s)]
+
+
+# --------------------------------------------------------------------------
 # Routes
 # --------------------------------------------------------------------------
 
 
 @router.get("", response_model=TerminalListResponse)
-async def list_terminals():
-    """List all active terminal sessions."""
-    manager = get_pty_manager()
+async def list_terminals(http_request: Request):
+    """List the caller's active terminal sessions."""
     settings = get_settings()
 
-    terminals = [TerminalInfo(**session_dict) for session_dict in manager.list_sessions()]
+    terminals = [TerminalInfo(**s.to_dict()) for s in await _visible(http_request)]
 
     return TerminalListResponse(
         terminals=terminals,
@@ -161,7 +213,7 @@ async def list_terminals():
 
 
 @router.post("", response_model=TerminalInfo, status_code=status.HTTP_201_CREATED)
-async def create_terminal(request: CreateTerminalRequest):
+async def create_terminal(request: CreateTerminalRequest, http_request: Request):
     """Create a new terminal session.
 
     After creating, connect to /ws/terminal/{id} for I/O.
@@ -200,6 +252,20 @@ async def create_terminal(request: CreateTerminalRequest):
             detail=f"Directory does not exist: {cwd}",
         )
 
+    # Bind the session (#3740). Non-service callers must land inside a
+    # registered project they are authorized for.
+    user = _user(http_request)
+    project_id = request.project_id or project_id_for_path(cwd)
+    if not is_service_principal(user) and (
+        not project_id
+        or not path_in_project(cwd, project_id)
+        or not await project_ok(user, project_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this project",
+        )
+
     try:
         session = manager.create_session(
             cwd=cwd,
@@ -207,7 +273,14 @@ async def create_terminal(request: CreateTerminalRequest):
             cols=request.cols,
             rows=request.rows,
             session_id=request.id,  # Use frontend-provided ID if available
+            owner_id=user.get("id") if isinstance(user, dict) else None,
+            project_id=project_id,
         )
+    except DuplicateSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Terminal id already exists",
+        ) from None
     except RuntimeError as e:
         # `str(e)` here is whatever the PTY layer raised - "openpty failed:
         # [Errno 24] Too many open files", a path under the server's runtime
@@ -234,16 +307,19 @@ async def get_session_dates(project: str | None = None):
 
 
 @router.get("/sessions")
-async def get_sessions(project: str | None = None):
-    """Get terminal sessions for a project."""
-    manager = get_pty_manager()
-    sessions = [s for s in manager.list_sessions()]
-    return {"success": True, "data": sessions}
+async def get_sessions(http_request: Request, project: str | None = None):
+    """Get the caller's terminal sessions, for a project when given."""
+    sessions = await _visible(http_request)
+    if project:
+        project_id = project_id_for_path(project)
+        sessions = [s for s in sessions if project_id and s.project_id == project_id]
+    return {"success": True, "data": [s.to_dict() for s in sessions]}
 
 
 @router.post("/cleanup")
-async def cleanup_terminals():
+async def cleanup_terminals(http_request: Request):
     """Clean up dead terminal sessions."""
+    _service_only(http_request)
     manager = get_pty_manager()
     cleaned = manager.cleanup_dead_sessions()
     return {"cleaned": cleaned}
@@ -262,7 +338,7 @@ async def restore_sessions_from_date(request: dict):
 
 
 @router.delete("/sessions")
-async def clear_terminal_sessions(project: str | None = None):
+async def clear_terminal_sessions(http_request: Request, project: str | None = None):
     """Clear terminal session history.
 
     Removes saved session files from the terminal-sessions directory.
@@ -275,6 +351,11 @@ async def clear_terminal_sessions(project: str | None = None):
     Returns:
         dict: Success response with count of cleared sessions
     """
+
+    if project:
+        await _authorize_path(_user(http_request), project)
+    else:
+        _service_only(http_request)
 
     cleared_count = 0
     errors = []
@@ -370,7 +451,7 @@ async def generate_terminal_name(request: dict):
 
 
 @router.get("/worktrees")
-async def list_terminal_worktrees(project: str = Query(...)):
+async def list_terminal_worktrees(http_request: Request, project: str = Query(...)):
     """List all terminal worktrees for a project.
 
     Args:
@@ -379,6 +460,7 @@ async def list_terminal_worktrees(project: str = Query(...)):
     Returns:
         IPCResult with list of TerminalWorktreeConfig dicts
     """
+    await _authorize_path(_user(http_request), project)
     try:
         service = TerminalWorktreeService(project)
         worktrees = service.list_worktrees()
@@ -389,7 +471,7 @@ async def list_terminal_worktrees(project: str = Query(...)):
 
 
 @router.post("/worktrees", response_model=TerminalWorktreeResult)
-async def create_terminal_worktree(request: CreateTerminalWorktreeRequest):
+async def create_terminal_worktree(request: CreateTerminalWorktreeRequest, http_request: Request):
     """Create a new terminal worktree.
 
     Args:
@@ -398,6 +480,7 @@ async def create_terminal_worktree(request: CreateTerminalWorktreeRequest):
     Returns:
         TerminalWorktreeResult with success status and config/error
     """
+    await _authorize_path(_user(http_request), request.projectPath)
     try:
         service = TerminalWorktreeService(request.projectPath)
         config = service.create_worktree(
@@ -429,7 +512,10 @@ async def create_terminal_worktree(request: CreateTerminalWorktreeRequest):
 
 @router.delete("/worktrees/{name}")
 async def remove_terminal_worktree(
-    name: str, project: str = Query(...), deleteBranch: bool = Query(False)
+    name: str,
+    http_request: Request,
+    project: str = Query(...),
+    deleteBranch: bool = Query(False),
 ):
     """Remove a terminal worktree.
 
@@ -441,6 +527,7 @@ async def remove_terminal_worktree(
     Returns:
         IPCResult with success status
     """
+    await _authorize_path(_user(http_request), project)
     try:
         service = TerminalWorktreeService(project)
         success = service.remove_worktree(name, deleteBranch)
@@ -483,26 +570,18 @@ async def get_sessions_for_date(date: str, project: str | None = None):
 
 
 @router.get("/{terminal_id}", response_model=TerminalInfo)
-async def get_terminal(terminal_id: str):
+async def get_terminal(terminal_id: str, http_request: Request):
     """Get information about a specific terminal."""
-    manager = get_pty_manager()
-    session = manager.get_session(terminal_id)
-
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Terminal not found",
-        )
-
+    session = await _owned(terminal_id, http_request)
     return TerminalInfo(**session.to_dict())
 
 
 @router.delete("/{terminal_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def close_terminal(terminal_id: str):
+async def close_terminal(terminal_id: str, http_request: Request):
     """Close a terminal session."""
-    manager = get_pty_manager()
+    session = await _owned(terminal_id, http_request)
 
-    if not manager.close_session(terminal_id):
+    if not get_pty_manager().close_session(terminal_id, expected=session):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Terminal not found",
@@ -510,26 +589,19 @@ async def close_terminal(terminal_id: str):
 
 
 @router.post("/{terminal_id}/resize")
-async def resize_terminal(terminal_id: str, request: ResizeTerminalRequest):
+async def resize_terminal(terminal_id: str, request: ResizeTerminalRequest, http_request: Request):
     """Resize a terminal.
 
     Note: This can also be done via WebSocket with a resize message.
     """
-    manager = get_pty_manager()
-    session = manager.get_session(terminal_id)
-
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Terminal not found",
-        )
+    session = await _owned(terminal_id, http_request)
 
     session.resize(request.cols, request.rows)
     return {"success": True, "cols": request.cols, "rows": request.rows}
 
 
 @router.post("/{terminal_id}/buffer")
-async def save_terminal_buffer(terminal_id: str, request: dict):
+async def save_terminal_buffer(terminal_id: str, request: dict, http_request: Request):
     """Save terminal buffer to session file.
 
     Persists terminal output to a session file in the project's .pfactory directory.
@@ -557,14 +629,8 @@ async def save_terminal_buffer(terminal_id: str, request: dict):
             detail="invalid identifier",
         )
 
-    manager = get_pty_manager()
-
-    # Validate terminal exists
-    session = manager.get_session(terminal_id)
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Terminal {terminal_id} not found"
-        )
+    # Validate terminal exists and belongs to the caller
+    session = await _owned(terminal_id, http_request)
 
     try:
         # Validate buffer content
@@ -576,6 +642,8 @@ async def save_terminal_buffer(terminal_id: str, request: dict):
 
         # Get project ID from request or use default
         project_id = request.get("projectId")
+        if not is_service_principal(_user(http_request)):
+            project_id = session.project_id  # never a body-chosen destination
         metadata = request.get("metadata", {})
 
         # Determine save directory
@@ -644,11 +712,10 @@ async def save_terminal_buffer(terminal_id: str, request: dict):
 
 
 @router.get("/{terminal_id}/alive")
-async def check_terminal_alive(terminal_id: str):
+async def check_terminal_alive(terminal_id: str, http_request: Request):
     """Check if terminal PTY is alive."""
-    manager = get_pty_manager()
-    session = manager.get_session(terminal_id)
-    if session is None:
+    session = get_pty_manager().get_session(terminal_id)
+    if session is None or not await may_use(_user(http_request), session):
         return {"success": True, "data": False}
     return {"success": True, "data": session.is_alive()}
 
