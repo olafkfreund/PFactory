@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: review-fixes (Factory#1016, #1015, #1012, #1004)
 spec: spec/2026-11-16-review-fixes-pfactory.md
 coders:
