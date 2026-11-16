@@ -34,7 +34,7 @@ def _tenant(payload: dict[str, Any], request: Request) -> str | None:
     """Emitters (AIFactory) name the tenant in the body, not a header; off = no filter."""
     if not multi_tenant_enabled():
         return None
-    return str(payload.get("tenant_id") or "").strip() or resolve_tenant(request)
+    return str(payload.get("tenant_id") or "").strip() or str(resolve_tenant(request))
 
 
 @router.post("")
