@@ -49,12 +49,18 @@ def test_create_invokes_runner_in_order(tmp_path) -> None:
         stderr = ""
 
     def runner(argv, *, cwd, stdin=None):
+        if argv[:4] == ["git", "config", "-z", "--includes"]:  # merge-driver probe
+            return _Res()
         calls.append(argv)
         return _Res()
 
     r = write_paths_to_branch(
-        tmp_path, ["automated-test/run1/report.md"], "pfactory/visual-run1",
-        "commit msg", dry_run=False, runner_fn=runner,
+        tmp_path,
+        ["automated-test/run1/report.md"],
+        "pfactory/visual-run1",
+        "commit msg",
+        dry_run=False,
+        runner_fn=runner,
     )
     assert r.ok is True and r.dry_run is False
     assert r.commit_sha == "deadbeef"
@@ -62,7 +68,8 @@ def test_create_invokes_runner_in_order(tmp_path) -> None:
     assert len(calls) == 4
     assert calls[0][3:6] == ["checkout", "-B", "pfactory/visual-run1"]
     assert calls[1][3] == "add"
-    assert calls[2][3] == "commit"
+    assert calls[2][3:5] == ["-c", "commit.gpgSign=false"]
+    assert "commit" in calls[2]
     assert calls[3][3] == "rev-parse"
 
 
