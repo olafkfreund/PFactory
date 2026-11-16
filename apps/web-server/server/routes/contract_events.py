@@ -38,7 +38,7 @@ def _tenant(payload: dict[str, Any], request: Request) -> str | None:
 
 
 @router.post("")
-async def ingest_event(payload: dict, request: Request) -> dict:
+async def ingest_event(payload: dict[str, Any], request: Request) -> dict:
     """Reconcile one inbound completion event; returns the updated state."""
     try:
         state = REGISTRY.apply(payload)
