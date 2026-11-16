@@ -21,6 +21,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agents.run_guard import (
+    guardrail_posttool_hook,
+    guardrail_pretool_hook,
+    max_turns,
+    register_session,
+)
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -914,6 +921,8 @@ def create_client(
     )
 
     # Build options dict, conditionally including output_format
+    register_session(project_dir, spec_dir)  # fresh guardrail controller per client
+
     options_kwargs: dict[str, Any] = {
         "model": model,
         "system_prompt": base_prompt,
@@ -922,9 +931,11 @@ def create_client(
         "hooks": {
             "PreToolUse": [
                 HookMatcher(matcher="Bash", hooks=[bash_security_hook]),
+                HookMatcher(hooks=[guardrail_pretool_hook]),  # type: ignore[list-item]
             ],
+            "PostToolUse": [HookMatcher(hooks=[guardrail_posttool_hook])],  # type: ignore[list-item]
         },
-        "max_turns": 1000,
+        "max_turns": max_turns(),
         "cwd": str(project_dir.resolve()),
         "settings": str(settings_file.resolve()),
         "env": {**get_agent_env_blanks(), **sdk_env},  # Pass ANTHROPIC_BASE_URL etc. to subprocess

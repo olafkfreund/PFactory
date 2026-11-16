@@ -173,3 +173,33 @@ def test_completion_event_reflects_real_usage_when_llm_supplied():
     assert usage["total_tokens"] == 409
     assert usage["model"] == "claude-sonnet-4-6"
     assert usage["cost_usd"] > 0  # known model → non-zero cost
+
+
+def test_token_ceiling_fails_the_run_with_a_typed_halt(monkeypatch):
+    """#1008: usage over PFACTORY_RUN_TOKEN_CEILING fails process() with a reason."""
+    from agents.run_guard import TokenCeilingError
+
+    monkeypatch.setenv("PFACTORY_RUN_TOKEN_CEILING", "100")
+    svc = PlanService()
+    session = svc.ingest_text(_PLAN, title="Refund flow")
+    with pytest.raises(TokenCeilingError):
+        svc.process(session.session_id, llm=_UsageLLM(_EPIC_JSON))
+    session = svc.get(session.session_id)
+    assert session.status == "failed"
+    event = build_completion_event(session)
+    assert event["status"] == "failed"
+    assert event["halt_reason"].startswith("token_ceiling: run used 409 tokens")
+
+    # An over-budget session never makes another paid call.
+    llm = _UsageLLM(_EPIC_JSON)
+    with pytest.raises(TokenCeilingError):
+        svc.process(session.session_id, llm=llm)
+    assert llm.last_usage is None
+
+
+def test_token_ceiling_zero_disables(monkeypatch):
+    monkeypatch.setenv("PFACTORY_RUN_TOKEN_CEILING", "0")
+    svc = PlanService()
+    session = svc.ingest_text(_PLAN, title="Refund flow")
+    session = svc.process(session.session_id, llm=_UsageLLM(_EPIC_JSON))
+    assert session.status == "processed"
