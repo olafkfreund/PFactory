@@ -100,7 +100,7 @@ class TaskSocketAccess:
 
     async def recheck(self) -> bool:
         """Re-validate an ``acw_`` personal key when the recheck interval elapses."""
-        if not self._key_token or not (self.user or {}).get("api_key_id"):
+        if not self._key_token:
             return True
         if time.monotonic() - self._last_recheck < _KEY_RECHECK_SECONDS:
             return True
