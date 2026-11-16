@@ -19,11 +19,13 @@ PFactory receives the completion events AIFactory (build) and TFactory (verify) 
 
 ## Affected users and systems
 
-PFactory only: `contract_sync.py`, the contract-events route, `PlanSession`, `PlanService._decompose`, the decompose prompt. The events already carry what is needed (AIFactory `usage` and `halt_reason`; TFactory `verification.traceability[]` and `halt_reason`), so AIFactory, TFactory and `shared/factory-contracts` need no change.
+PFactory only: `contract_sync.py`, the contract-events route, `PlanSession`, `PlanService._decompose`, the decompose prompt. The events carry what is needed when the emitter has it (AIFactory `usage` and `halt_reason`; TFactory `verification.traceability[]`, `halt_reason` and an explicit `outcome`), so AIFactory, TFactory and `shared/factory-contracts` need no change.
 
 ## Constraints
 
 - Reuse the existing completion events and the existing endpoint; no new transport, no new contract fields.
+- Missing data is unknown, never zero: an event without `usage` records no cost, without traceability records no coverage claim.
+- A failure for feedback is a normalized failure: the existing status classification, or an explicit `outcome: failure` on the event (TFactory can emit `status: triaged` with `outcome: failure`). This is read by the feedback record only; the reconciler's own outcome and handback rules stay unchanged.
 - Additive: old persisted sessions load; the reconciler's outcome and handback rules do not change.
 - The estimate is PFactory's monthly cloud-cost estimate; the actual is build/verify token spend (`usage.cost_usd`). They are different quantities and are shown side by side, not presented as one budget.
 - Reasons are free text from other services: bounded in length and count before they enter a prompt.
