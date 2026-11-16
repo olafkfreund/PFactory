@@ -55,7 +55,7 @@ def create_all_tools(
     all_tools.extend(create_subtask_tools(spec_dir, project_dir))
     all_tools.extend(create_progress_tools(spec_dir, project_dir))
     all_tools.extend(
-        create_memory_tools(spec_dir, project_dir, AGENT_SESSION_TYPES.get(agent_type))
+        create_memory_tools(spec_dir, project_dir, AGENT_SESSION_TYPES.get(agent_type or ""))
     )
     all_tools.extend(create_qa_tools(spec_dir, project_dir))
 
