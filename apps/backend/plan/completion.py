@@ -141,8 +141,7 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
     if getattr(session, "process_error", None) == "TokenCeilingError":
         status = "failed"
         halt_reason = (
-            f"token_ceiling: run used {usage.total_tokens} tokens, "
-            f"ceiling {token_ceiling()}"
+            f"token_ceiling: run used {usage.total_tokens} tokens, ceiling {token_ceiling()}"
         )
 
     event = {
