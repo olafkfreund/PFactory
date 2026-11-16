@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from core.child_env import GITHUB_KEEP, git_env, merge_driver_pins
+
 
 class GitWriterError(Exception):
     """Raised for fatal git-writer failures (path validation,
@@ -145,8 +147,28 @@ def _default_runner_fn(
         input=stdin if stdin is not None else None,
         capture_output=True,
         text=True,
+        errors="surrogateescape",
         check=False,
+        env=git_env(keep=GITHUB_KEEP),
     )
+
+
+def _write_pins(runner: Callable[..., _SubprocessResultLike], cwd: Path) -> list[str]:
+    """Empty merge-driver and filter pins for real writes; RuntimeError fails closed."""
+
+    def probe(argv: list[str]) -> tuple[int, str]:
+        res = runner(argv, cwd=cwd)
+        return res.returncode, res.stdout or ""
+
+    return merge_driver_pins(cwd, run=probe)
+
+
+def _pinned(argv: tuple[str, ...] | list[str], pins: list[str]) -> list[str]:
+    """Insert ``pins`` after ``git -C <dir>``."""
+    return [*argv[:3], *pins, *argv[3:]]
+
+
+_NO_SIGN = ["-c", "commit.gpgSign=false"]
 
 
 # ─── Public entrypoint ──────────────────────────────────────────────────
@@ -190,6 +212,11 @@ def write_tests_to_branch(
             error=str(exc),
         )
 
+    try:
+        pins = _write_pins(runner, request.repo_dir) if not dry_run else []
+    except RuntimeError as exc:
+        return GitWriteResult(ok=False, dry_run=False, error=str(exc))
+
     # 2. Branch existence check.
     verify_argv = (
         "git",
@@ -220,7 +247,7 @@ def write_tests_to_branch(
     )
     argv_log.append(checkout_argv)
     if not dry_run:
-        res = runner(list(checkout_argv), cwd=request.repo_dir)
+        res = runner(_pinned(checkout_argv, pins), cwd=request.repo_dir)
         if res.returncode != 0:
             return GitWriteResult(
                 ok=False,
@@ -260,7 +287,7 @@ def write_tests_to_branch(
     )
     argv_log.append(add_argv)
     if not dry_run:
-        res = runner(list(add_argv), cwd=request.repo_dir)
+        res = runner(_pinned(add_argv, pins), cwd=request.repo_dir)
         if res.returncode != 0:
             return GitWriteResult(
                 ok=False,
@@ -285,7 +312,7 @@ def write_tests_to_branch(
         ]
     argv_log.append(tuple(commit_argv))
     if not dry_run:
-        res = runner(commit_argv, cwd=request.repo_dir)
+        res = runner(_pinned(commit_argv, [*pins, *_NO_SIGN]), cwd=request.repo_dir)
         if res.returncode != 0:
             return GitWriteResult(
                 ok=False,
@@ -348,6 +375,11 @@ def write_paths_to_branch(
     if not rels:
         return GitWriteResult(ok=False, dry_run=dry_run, error="no paths to commit")
 
+    try:
+        pins = _write_pins(runner, repo_dir) if not dry_run else []
+    except RuntimeError as exc:
+        return GitWriteResult(ok=False, dry_run=False, error=str(exc))
+
     steps = [
         ("git", "-C", str(repo_dir), "checkout", "-B", branch),
         ("git", "-C", str(repo_dir), "add", "--", *rels),
@@ -356,7 +388,8 @@ def write_paths_to_branch(
     for argv in steps:
         argv_log.append(argv)
         if not dry_run:
-            res = runner(list(argv), cwd=repo_dir)
+            extra = [*pins, *_NO_SIGN] if argv[3] == "commit" else pins
+            res = runner(_pinned(argv, extra), cwd=repo_dir)
             if res.returncode != 0:
                 return GitWriteResult(
                     ok=False,

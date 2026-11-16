@@ -27,6 +27,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, PrivateAttr
 
+from agents.run_guard import TokenCeilingError, check_ceiling
 from plan.annotate import AnnotationResult, annotate_plan
 from plan.completion import (
     correlation_key_for,
@@ -42,6 +43,7 @@ from plan.decompose.planner import decompose
 from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply, classify_plan
+from plan.emit.contract_sync import ContractSyncState, SyncError, fold_event
 from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import Criterion, NormalizedPlan
 from plan.plan_types import apply as plan_type_apply, select_for
@@ -107,6 +109,9 @@ class PlanSession(BaseModel):
     tenant_id: str = "default"
     # #968: the session's org, stamped at intake from its project; None = derive at read time.
     org_id: str | None = None
+    # Factory#1960: who started the session, stamped at intake; None = unknown.
+    originator: str | None = None
+    agent_identity: str | None = None
     # RFC-0010: the target repo this plan changes, captured at ingest so the
     # reconnaissance stage (Phase 2) can read it during process(). Today `repo`
     # was only known at emit; threading it here lets planning be code-aware.
@@ -166,6 +171,10 @@ class PlanSession(BaseModel):
     # the additive `usage` block on the completion event (CFactory Tokens page).
     usage: PlanUsage = Field(default_factory=PlanUsage)
 
+    # #998: what AIFactory/TFactory reported back for this plan (handbacks,
+    # unverified criteria, actual cost); None until a completion event arrives.
+    downstream: ContractSyncState | None = None
+
     # Factory#273 intake injection-scan verdict: {"verdict": pass|flagged|skipped,
     # "reason": str}. None until classification runs; surfaced on the completion
     # event so CFactory can display it. A `flagged` verdict forces tier=hard
@@ -183,6 +192,7 @@ class PlanSession(BaseModel):
     def record_usage(self, usage: PlanUsage | None) -> None:
         """Fold an LLM call's usage into the run total (no-op for ``None``)."""
         self.usage.add(usage)
+        check_ceiling(self.usage.total_tokens)  # #1008: over budget -> stop the run
 
     def board_state(self) -> BoardColumn:
         return board_state(self.status, self.review)
@@ -222,6 +232,19 @@ class PlanSession(BaseModel):
             ],
         }
 
+    def _downstream_summary(self) -> dict[str, Any] | None:
+        d = self.downstream
+        if d is None:
+            return None
+        ce = self.epic.cost_estimate if self.epic else None
+        return {
+            "handback_count": d.handback_count,
+            "unverified_criteria": d.unverified_criteria,
+            "actual_cost_usd": d.actual_cost_usd,
+            # monthly cloud estimate vs one-time build/verify token spend: not comparable, no ratio.
+            "estimated_cost_usd": ce.monthly_usd if ce and ce.lines else None,
+        }
+
     def summary(self) -> dict:
         return {
             "session_id": self.session_id,
@@ -241,6 +264,7 @@ class PlanSession(BaseModel):
             "origin_issue_number": self.origin_issue_number,
             "aifactory_task_id": self.aifactory_task_id,
             "injection_scan": self.injection_scan,
+            "downstream": self._downstream_summary(),
         }
 
 
@@ -909,6 +933,8 @@ class PlanService:
         origin_issue_number: int | None = None,
         tenant_id: str = "default",
         org_id: str | None = None,
+        originator: str | None = None,
+        agent_identity: str | None = None,
     ) -> PlanSession:
         plan = ingest_text(text, source_channel=channel, title=title, seq=self._next_seq())
         # RFC-0011: carry the label-driven difficulty tier from intake so process()
@@ -917,6 +943,8 @@ class PlanService:
         session = self._store(plan)
         session.tenant_id = tenant_id or "default"  # #308: stamp at intake
         session.org_id = org_id or None  # #968: stamp at intake
+        session.originator = originator or None
+        session.agent_identity = agent_identity or None
         session.selected_category = category
         session.selected_template = template
         session.repo = repo or None  # RFC-0010: target repo for reconnaissance
@@ -945,6 +973,8 @@ class PlanService:
         autonomy_tier: str | None = None,
         tenant_id: str = "default",
         org_id: str | None = None,
+        originator: str | None = None,
+        agent_identity: str | None = None,
     ) -> PlanSession:
         plan = ingest_bytes(
             data,
@@ -957,6 +987,8 @@ class PlanService:
         session = self._store(plan)
         session.tenant_id = tenant_id or "default"  # #308: stamp at intake
         session.org_id = org_id or None  # #968: stamp at intake
+        session.originator = originator or None
+        session.agent_identity = agent_identity or None
         session.original_filename = filename  # preserve for honouring the doc (#D)
         session.selected_category = category
         session.selected_template = template
@@ -1331,6 +1363,8 @@ class PlanService:
             session.process_error = type(exc).__name__
             with suppress(StaleSessionError):
                 self._save(session)
+            if isinstance(exc, TokenCeilingError):
+                emit_usage_snapshot(session)  # typed halt_reason reaches CFactory
             raise
         # Running-cost: planning + governance gates spent LLM tokens, but the
         # session is only ``processed`` (awaiting human approval), not terminal —
@@ -1583,12 +1617,91 @@ class PlanService:
             }
         return {"verdict": "pass", "reason": ""}
 
+    def record_downstream(self, payload: dict[str, Any], *, tenant_id: str | None = None) -> bool:
+        """Fold a completion event into its plan session's feedback record (#998).
+
+        True when stored. Zero, several or unverifiable matches store nothing:
+        issue numbers repeat across repositories, so a wrong attachment is worse
+        than none. ``StaleSessionError`` propagates for the caller to retry.
+        """
+        key = str(payload.get("correlation_key") or "")
+        corr = payload.get("correlation")
+        sid = corr.get("session_id") if isinstance(corr, dict) else None
+        sessions, complete = self._list_sessions()
+        if tenant_id is not None:  # another tenant's session is never attached to
+            sessions = [s for s in sessions if s.tenant_id == tenant_id]
+        if sid:
+            match = [s for s in sessions if s.session_id == sid and s.correlation_key == key]
+        else:
+            match = [s for s in sessions if s.correlation_key == key]
+        if len(match) != 1 or not (sid or complete):
+            return False
+        session = self.get(match[0].session_id)  # reload with its store version
+        state = session.downstream or ContractSyncState(correlation_key=key)
+        try:
+            session.downstream = fold_event(state, payload)
+        except SyncError:
+            return False
+        self._save(session)
+        if self._session_store is not None:  # _save swallows store errors: confirm it landed
+            stored = self._load_from_store(session.session_id)
+            if stored is None or stored.downstream != session.downstream:
+                raise StaleSessionError(f"feedback for {session.session_id!r} was not stored")
+        return True
+
+    def outcome_history(self, session: PlanSession) -> str:
+        """Short outcome summary of earlier plans for this repo; ``""`` if none."""
+        if not session.repo:
+            return ""
+        past = [
+            s
+            for s in self._all_sessions()
+            if s.session_id != session.session_id
+            and s.tenant_id == session.tenant_id
+            and s.repo == session.repo
+            and s.downstream is not None
+        ]
+        past.sort(key=lambda s: s.created_at, reverse=True)
+        past = past[:5]
+        if not past:
+            return ""
+        ds = [s.downstream for s in past if s.downstream is not None]
+        reasons = list(dict.fromkeys(h["reason"] for d in ds for h in d.handbacks if h["reason"]))[
+            :3
+        ]
+        unverified = {c for d in ds for c in (d.unverified_criteria or [])}
+        coverage_known = any(d.unverified_criteria is not None for d in ds)
+        est = [e["estimated_cost_usd"] for s in past if (e := s._downstream_summary())]
+        act = [d.actual_cost_usd for d in ds if d.actual_cost_usd is not None]
+        lines = [
+            f"- {len(past)} earlier plan(s) with results; "
+            f"handbacks: {sum(d.handback_count for d in ds)}",
+            f"- recent handback reasons: {'; '.join(reasons) or 'none recorded'}",
+            "- criteria TFactory did not verify: "
+            + (str(len(unverified)) if coverage_known else "unknown (not reported)"),
+        ]
+        if any(est) or act:
+            spend = f"${sum(act):,.2f}" if act else "not reported"
+            estimate = f"${sum(e or 0 for e in est):,.2f}" if any(est) else "not available"
+            lines.append(
+                f"- cost: estimated monthly cloud cost {estimate}; "
+                f"actual build+verify token spend {spend} (different quantities)"
+            )
+        return "\n".join(lines)
+
     def _decompose(
         self, session: PlanSession, plan: NormalizedPlan, descriptor: object, *, llm=None
     ) -> EpicPlan:
         """Decompose into an epic, record LLM usage, inject implicit requirements."""
+        check_ceiling(session.usage.total_tokens)  # no paid call for an over-budget session
         usage_sink: list[PlanUsage] = []
-        epic = decompose(plan, descriptor=descriptor, llm=llm, usage_sink=usage_sink)
+        epic = decompose(
+            plan,
+            descriptor=descriptor,
+            llm=llm,
+            usage_sink=usage_sink,
+            history=self.outcome_history(session) if llm is not None else "",
+        )
         for u in usage_sink:
             session.record_usage(u)
         # Complete the plan (RFC-0008 §3.1, #166): a user describes feature intent

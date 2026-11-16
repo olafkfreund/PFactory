@@ -1,0 +1,98 @@
+name: agent-sandbox drift
+
+# Factory#3709: the agent sandbox env and git pin rules under
+# apps/backend/agent_sandbox/ (env.py, git_pins.py, policy.py) is a
+# vendored copy of the canonical that lives in the Factory hub at
+# shared/factory-sandbox/. This gate fetches the hub's drift checker AND the
+# canonical tree at a PINNED hub SHA and fails the build if this repo's copy has
+# drifted byte-for-byte. Reconcile by re-vendoring from the hub canonical (do NOT
+# edit the copy to silence the gate — fix the hub canonical first; see
+# shared/factory-sandbox/README.md).
+
+on:
+  pull_request:
+    branches: [dev, main]
+    # No paths: filter (Factory#3585): a required check must post on every PR.
+  push:
+    branches: [dev, main]
+    paths:
+      - "apps/backend/agent_sandbox/**"
+      - ".github/workflows/agent-sandbox-drift.yml"
+
+concurrency:
+  group: agent-sandbox-drift-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned Factory hub commit that holds the canonical agent-sandbox package +
+  # the drift checker. Bump this (and re-vendor apps/backend/agent_sandbox/) when the
+  # canonical changes. See shared/factory-sandbox/README.md in the hub.
+  HUB_REPO: "olafkfreund/Factory"
+  # The CANONICAL is pinned (reproducible comparison). The CHECKER is not:
+  # a gate fetched from its own pin cannot ship its own fix (Factory#405).
+  HUB_CHECKER_REF: "main"
+  HUB_SHA: "92663f47d5db78e1ee7c5a7e89e365f5b4e1ea62"
+
+jobs:
+  drift:
+    name: agent-sandbox canonical drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Assert the hub pin is really on hub main
+        # HUB_SHA comes from THIS workflow file, which on a `pull_request`
+        # trigger is the PR's own copy. codeload serves any commit in the hub's
+        # fork network, so without this a fork PR could pin a canonical tree
+        # crafted to match its own drifted vendored copy and this gate would
+        # diff two matching trees and go green (Factory#806).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/assert-hub-pin-on-main.sh "${HUB_SHA}" "agent-sandbox-drift HUB_SHA"
+
+      - name: Fetch hub drift checker (main) + canonical tree (pinned SHA)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hub/canonical
+          # Checker from main, NOT from HUB_SHA: every service fetched it from
+          # the pin, so Factory#397's fix was unreachable for weeks while the
+          # gate stayed green on a credential-holding file (Factory#405).
+          curl -fsSL \
+            "https://raw.githubusercontent.com/${HUB_REPO}/${HUB_CHECKER_REF}/scripts/check_factory_sandbox_drift.py" \
+            -o /tmp/hub/check_factory_sandbox_drift.py
+          # ...and its sibling module. Factory#526 added `from gate_evidence
+          # import digest` to the checker on the stated assumption that
+          # "consumers run this gate out of a full hub checkout" -- which is not
+          # true here: we fetch the single file. The self-test therefore died on
+          # `ModuleNotFoundError: No module named 'gate_evidence'` in all four
+          # services, i.e. the drift gate could not run at all. Fetch it from the
+          # SAME ref as the checker, so the two never disagree about a version.
+          curl -fsSL \
+            "https://raw.githubusercontent.com/${HUB_REPO}/${HUB_CHECKER_REF}/scripts/gate_evidence.py" \
+            -o /tmp/hub/gate_evidence.py
+          # Canonical as a TREE at the pinned SHA, not a hardcoded file list.
+          # The old list could not contain a file nobody knew to add, so the
+          # completeness guard globbed a directory that was complete BY
+          # CONSTRUCTION and could never fire in CI (Factory#405).
+          curl -fsSL "https://codeload.github.com/${HUB_REPO}/tar.gz/${HUB_SHA}" -o /tmp/hub.tgz
+          tar -xzf /tmp/hub.tgz -C /tmp/hub/canonical --strip-components=4 \
+            --wildcards "*/shared/factory-sandbox/agent_sandbox/*"
+
+      - name: Verify the checker's own self-test passes
+        run: python /tmp/hub/check_factory_sandbox_drift.py --self-test
+
+      - name: Check this repo's copy against the pinned hub canonical (blocking)
+        run: |
+          python /tmp/hub/check_factory_sandbox_drift.py \
+            --canonical /tmp/hub/canonical \
+            --service apps/backend/agent_sandbox

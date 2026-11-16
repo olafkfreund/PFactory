@@ -36,7 +36,7 @@ migration job mode, customCABundle for TLS-intercepting proxies.
 | `service` / `ingress` | Network exposure. |
 | `serviceAccount` / `rbac` | Pod identity. |
 | `networkPolicy` | Default-deny + 443 egress allowlist. |
-| `migrations` | Alembic Job mode (autoApply=false in prod). |
+| `migrations` | With `autoApply=false`, a pre-install/pre-upgrade hook Job runs `alembic upgrade head` before pods roll (no init container). The database Secret must exist before the first install: ExternalSecret- and bundled-managed Secrets are unavailable at pre-install, so pre-create it or install once with `autoApply=true`. |
 | `postgres` | External (default) or bundled CNPG sub-chart. |
 | `externalSecrets` | One of: vault / aws-sm / azure-kv / gcp-sm. |
 | `oidc` | OIDC SSO settings (Epic #26 P3). |

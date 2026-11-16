@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+from agents.run_guard import token_ceiling
+
 if TYPE_CHECKING:
     from plan.service import PlanSession
 
@@ -136,6 +138,12 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
                 status = "failed"
                 halt_reason = "no_evidence: emit created no issues"
 
+    if getattr(session, "process_error", None) == "TokenCeilingError":
+        status = "failed"
+        halt_reason = (
+            f"token_ceiling: run used {usage.total_tokens} tokens, ceiling {token_ceiling()}"
+        )
+
     event = {
         # The persisted key first: a session keeps one key for life, so its event
         # matches the poll row even for a session emitted before #1775.
@@ -151,6 +159,9 @@ def build_completion_event(session: PlanSession, *, now: str | None = None) -> d
             "aifactory_task_id": session.aifactory_task_id,
         },
         "usage": usage.as_event_block(),
+        # Factory#1960: who asked, and which agent identity ran it (nullable).
+        "originator": session.originator,
+        "agent_identity": session.agent_identity,
     }
     if evidence is not None:
         event["evidence"] = evidence

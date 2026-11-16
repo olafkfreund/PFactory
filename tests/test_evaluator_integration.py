@@ -65,28 +65,36 @@ def workspace(tmp_path: Path) -> Path:
     for sub in ("context", "tests", "findings", "logs", "memory"):
         (spec_dir / sub).mkdir()
 
-    (spec_dir / "status.json").write_text(json.dumps({
-        "task_id": "042-session-expiry",
-        "project_id": "demo",
-        "spec_id": "042-session-expiry",
-        "status": "pending",
-        "phase": "created",
-    }))
+    (spec_dir / "status.json").write_text(
+        json.dumps(
+            {
+                "task_id": "042-session-expiry",
+                "project_id": "demo",
+                "spec_id": "042-session-expiry",
+                "status": "pending",
+                "phase": "created",
+            }
+        )
+    )
 
     shutil.copy(FIXTURE / "aifactory_spec.md", spec_dir / "context" / "aifactory_spec.md")
     shutil.copy(FIXTURE / "aifactory_plan.json", spec_dir / "context" / "aifactory_plan.json")
     shutil.copy(FIXTURE / "diff.patch", spec_dir / "context" / "diff.patch")
-    (spec_dir / "context" / "source.json").write_text(json.dumps({
-        "project_id": "demo",
-        "spec_id": "042-session-expiry",
-        "branch": "feature/session-expiry",
-        "base_ref": "main",
-        "snapshotted_at": "2026-05-28T00:00:00+00:00",
-        "has_spec_md": True,
-        "has_plan_json": True,
-        "has_diff_patch": True,
-        "warnings": [],
-    }))
+    (spec_dir / "context" / "source.json").write_text(
+        json.dumps(
+            {
+                "project_id": "demo",
+                "spec_id": "042-session-expiry",
+                "branch": "feature/session-expiry",
+                "base_ref": "main",
+                "snapshotted_at": "2026-05-28T00:00:00+00:00",
+                "has_spec_md": True,
+                "has_plan_json": True,
+                "has_diff_patch": True,
+                "warnings": [],
+            }
+        )
+    )
     return spec_dir
 
 
@@ -110,118 +118,126 @@ _SUBTASK_IDS = [
 
 
 def _realistic_plan_json() -> str:
-    return json.dumps({
-        "feature": "Add session expiry to the auth module",
-        "workflow_type": "feature",
-        "services_involved": ["backend"],
-        "phases": [
-            {
-                "phase": 1,
-                "name": "AC#1: login_user sets expires_at to +24h",
-                "type": "implementation",
-                "subtasks": [
-                    {
-                        "id": _SUBTASK_IDS[0],
-                        "description": "login_user returns a session with expires_at exactly 24h after creation",
-                        "status": "pending", "lane": "functional",
-                        "target": "app/auth/login.py::login_user",
-                        "rationale": "AC#1",
-                        "files_to_create": ["tests/test_login_expiry.py"],
-                        "verification": {
-                            "type": "command",
-                            "command": "pytest tests/test_login_expiry.py",
-                            "expected": "exit 0",
+    return json.dumps(
+        {
+            "feature": "Add session expiry to the auth module",
+            "workflow_type": "feature",
+            "services_involved": ["backend"],
+            "phases": [
+                {
+                    "phase": 1,
+                    "name": "AC#1: login_user sets expires_at to +24h",
+                    "type": "implementation",
+                    "subtasks": [
+                        {
+                            "id": _SUBTASK_IDS[0],
+                            "description": "login_user returns a session with expires_at exactly 24h after creation",
+                            "status": "pending",
+                            "lane": "functional",
+                            "target": "app/auth/login.py::login_user",
+                            "rationale": "AC#1",
+                            "files_to_create": ["tests/test_login_expiry.py"],
+                            "verification": {
+                                "type": "command",
+                                "command": "pytest tests/test_login_expiry.py",
+                                "expected": "exit 0",
+                            },
                         },
-                    },
-                    {
-                        "id": _SUBTASK_IDS[1],
-                        "description": "Session shape unchanged",
-                        "status": "pending", "lane": "functional",
-                        "target": "app/auth/login.py::login_user",
-                        "rationale": "AC#1 regression guard",
-                        "files_to_create": ["tests/test_login_shape.py"],
-                        "verification": {
-                            "type": "command",
-                            "command": "pytest tests/test_login_shape.py",
-                            "expected": "exit 0",
+                        {
+                            "id": _SUBTASK_IDS[1],
+                            "description": "Session shape unchanged",
+                            "status": "pending",
+                            "lane": "functional",
+                            "target": "app/auth/login.py::login_user",
+                            "rationale": "AC#1 regression guard",
+                            "files_to_create": ["tests/test_login_shape.py"],
+                            "verification": {
+                                "type": "command",
+                                "command": "pytest tests/test_login_shape.py",
+                                "expected": "exit 0",
+                            },
                         },
-                    },
-                ],
-                "parallel_safe": False,
-            },
-            {
-                "phase": 2,
-                "name": "AC#2: get_session expires + removes",
-                "type": "implementation",
-                "subtasks": [
-                    {
-                        "id": _SUBTASK_IDS[2],
-                        "description": "get_session returns None for expired",
-                        "status": "pending", "lane": "functional",
-                        "target": "app/auth/session.py::get_session",
-                        "rationale": "AC#2",
-                        "files_to_create": ["tests/test_get_session_expired.py"],
-                        "verification": {
-                            "type": "command",
-                            "command": "pytest tests/test_get_session_expired.py",
-                            "expected": "exit 0",
+                    ],
+                    "parallel_safe": False,
+                },
+                {
+                    "phase": 2,
+                    "name": "AC#2: get_session expires + removes",
+                    "type": "implementation",
+                    "subtasks": [
+                        {
+                            "id": _SUBTASK_IDS[2],
+                            "description": "get_session returns None for expired",
+                            "status": "pending",
+                            "lane": "functional",
+                            "target": "app/auth/session.py::get_session",
+                            "rationale": "AC#2",
+                            "files_to_create": ["tests/test_get_session_expired.py"],
+                            "verification": {
+                                "type": "command",
+                                "command": "pytest tests/test_get_session_expired.py",
+                                "expected": "exit 0",
+                            },
                         },
-                    },
-                    {
-                        "id": _SUBTASK_IDS[3],
-                        "description": "get_session removes expired entry",
-                        "status": "pending", "lane": "functional",
-                        "target": "app/auth/session.py::get_session",
-                        "rationale": "AC#2 store cleanup",
-                        "files_to_create": ["tests/test_get_session_removes.py"],
-                        "verification": {
-                            "type": "command",
-                            "command": "pytest tests/test_get_session_removes.py",
-                            "expected": "exit 0",
+                        {
+                            "id": _SUBTASK_IDS[3],
+                            "description": "get_session removes expired entry",
+                            "status": "pending",
+                            "lane": "functional",
+                            "target": "app/auth/session.py::get_session",
+                            "rationale": "AC#2 store cleanup",
+                            "files_to_create": ["tests/test_get_session_removes.py"],
+                            "verification": {
+                                "type": "command",
+                                "command": "pytest tests/test_get_session_removes.py",
+                                "expected": "exit 0",
+                            },
                         },
-                    },
-                ],
-                "parallel_safe": False,
-            },
-            {
-                "phase": 3,
-                "name": "AC#3: refresh_session honours grace window",
-                "type": "implementation",
-                "subtasks": [
-                    {
-                        "id": _SUBTASK_IDS[4],
-                        "description": "refresh_session extends expiry within 5min",
-                        "status": "pending", "lane": "functional",
-                        "target": "app/auth/session.py::refresh_session",
-                        "rationale": "AC#3 within grace",
-                        "files_to_create": ["tests/test_refresh_within_grace.py"],
-                        "verification": {
-                            "type": "command",
-                            "command": "pytest tests/test_refresh_within_grace.py",
-                            "expected": "exit 0",
+                    ],
+                    "parallel_safe": False,
+                },
+                {
+                    "phase": 3,
+                    "name": "AC#3: refresh_session honours grace window",
+                    "type": "implementation",
+                    "subtasks": [
+                        {
+                            "id": _SUBTASK_IDS[4],
+                            "description": "refresh_session extends expiry within 5min",
+                            "status": "pending",
+                            "lane": "functional",
+                            "target": "app/auth/session.py::refresh_session",
+                            "rationale": "AC#3 within grace",
+                            "files_to_create": ["tests/test_refresh_within_grace.py"],
+                            "verification": {
+                                "type": "command",
+                                "command": "pytest tests/test_refresh_within_grace.py",
+                                "expected": "exit 0",
+                            },
                         },
-                    },
-                    {
-                        "id": _SUBTASK_IDS[5],
-                        "description": "refresh_session unmodified outside grace",
-                        "status": "pending", "lane": "functional",
-                        "target": "app/auth/session.py::refresh_session",
-                        "rationale": "AC#3 outside grace",
-                        "files_to_create": ["tests/test_refresh_outside_grace.py"],
-                        "verification": {
-                            "type": "command",
-                            "command": "pytest tests/test_refresh_outside_grace.py",
-                            "expected": "exit 0",
+                        {
+                            "id": _SUBTASK_IDS[5],
+                            "description": "refresh_session unmodified outside grace",
+                            "status": "pending",
+                            "lane": "functional",
+                            "target": "app/auth/session.py::refresh_session",
+                            "rationale": "AC#3 outside grace",
+                            "files_to_create": ["tests/test_refresh_outside_grace.py"],
+                            "verification": {
+                                "type": "command",
+                                "command": "pytest tests/test_refresh_outside_grace.py",
+                                "expected": "exit 0",
+                            },
                         },
-                    },
-                ],
-                "parallel_safe": True,
-            },
-        ],
-        "final_acceptance": ["All three functions behave per AC."],
-        "status": "in_progress",
-        "planStatus": "pending",
-    })
+                    ],
+                    "parallel_safe": True,
+                },
+            ],
+            "final_acceptance": ["All three functions behave per AC."],
+            "status": "in_progress",
+            "planStatus": "pending",
+        }
+    )
 
 
 _SOURCES_BY_SUBTASK_ID: dict[str, str] = {
@@ -286,21 +302,33 @@ _SOURCES_BY_SUBTASK_ID: dict[str, str] = {
 
 def _install_planner_mock(monkeypatch: pytest.MonkeyPatch) -> None:
     class _CM:
-        async def __aenter__(self): return self
-        async def __aexit__(self, *_): return None
-    async def _resolve(*_a, **_kw): return _CM()
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def _resolve(*_a, **_kw):
+        return _CM()
+
     async def _invoke(_client, _prompt, spec_dir_arg, _verbose):
         (spec_dir_arg / "test_plan.json").write_text(_realistic_plan_json())
         return "complete", "ok", {}
+
     monkeypatch.setattr("agents.planner._resolve_planner_client", _resolve)
     monkeypatch.setattr("agents.planner._invoke_session", _invoke)
 
 
 def _install_gen_functional_mock(monkeypatch: pytest.MonkeyPatch) -> None:
     class _CM:
-        async def __aenter__(self): return self
-        async def __aexit__(self, *_): return None
-    async def _resolve(*_a, **_kw): return _CM()
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def _resolve(*_a, **_kw):
+        return _CM()
 
     async def _invoke(_client, prompt, spec_dir_arg, _verbose):
         m = re.search(r"Subtask:\s*`([^`]+)`", prompt)
@@ -329,7 +357,9 @@ def _install_gen_functional_mock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _install_evaluator_runner_mock(
-    monkeypatch: pytest.MonkeyPatch, *, mutation_returncode: int = 1,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    mutation_returncode: int = 1,
 ) -> None:
     """Replace evaluator's runner_fn seam with one that:
       - Returns 0 for stability calls (3× re-run of the original test)
@@ -340,6 +370,7 @@ def _install_evaluator_runner_mock(
     spec_dir/findings/mutants/<id>.py; stability uses the original
     spec_dir/tests/*.py.
     """
+
     class _FakeResult:
         def __init__(self, rc: int):
             self.returncode = rc
@@ -365,10 +396,16 @@ def _install_evaluator_sdk_mock(
     """Mock the Evaluator SDK seams; on _invoke_session, parse the
     prompt to discover which test_ids are in this batch and write
     a verdicts.json with one verdict per id."""
+
     class _CM:
-        async def __aenter__(self): return self
-        async def __aexit__(self, *_): return None
-    async def _resolve(*_a, **_kw): return _CM()
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def _resolve(*_a, **_kw):
+        return _CM()
 
     async def _invoke(_client, prompt, spec_dir_arg, _verbose):
         if captured_prompt is not None:
@@ -398,9 +435,7 @@ def _install_evaluator_sdk_mock(
                 for tid in test_ids
             ],
         }
-        (spec_dir_arg / "findings" / "verdicts.json").write_text(
-            json.dumps(doc, indent=2)
-        )
+        (spec_dir_arg / "findings" / "verdicts.json").write_text(json.dumps(doc, indent=2))
         return "complete", "ok", {}
 
     monkeypatch.setattr("agents.evaluator._resolve_evaluator_client", _resolve)
@@ -417,9 +452,9 @@ async def test_full_chain_planner_gen_functional_evaluator_happy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Realistic end-to-end:
-      Planner emits 6 subtasks → Gen-Functional writes 6 real tests →
-      Evaluator builds 6 signal bundles, invokes SDK, validates a
-      verdicts.json with 6 verdicts → status.json reaches 'evaluated'.
+    Planner emits 6 subtasks → Gen-Functional writes 6 real tests →
+    Evaluator builds 6 signal bundles, invokes SDK, validates a
+    verdicts.json with 6 verdicts → status.json reaches 'evaluated'.
     """
     _install_planner_mock(monkeypatch)
     _install_gen_functional_mock(monkeypatch)
@@ -454,9 +489,7 @@ async def test_full_chain_planner_gen_functional_evaluator_happy(
     assert status["tests_evaluated"] == 6
 
     # 2. verdicts.json: 6 well-formed verdicts
-    verdicts = json.loads(
-        (workspace / "findings" / "verdicts.json").read_text()
-    )
+    verdicts = json.loads((workspace / "findings" / "verdicts.json").read_text())
     assert verdicts["evaluator_version"] == "task7-commit5"
     assert verdicts["mode"] == "initial"
     assert len(verdicts["verdicts"]) == 6
@@ -507,9 +540,7 @@ async def test_chain_with_evaluator_mixed_verdicts(
     await run_gen_functional(workspace, project_dir, mode="initial")
     assert await run_evaluator(workspace, project_dir, mode="initial") is True
 
-    verdicts = json.loads(
-        (workspace / "findings" / "verdicts.json").read_text()
-    )
+    verdicts = json.loads((workspace / "findings" / "verdicts.json").read_text())
     verdict_values = {v["verdict"] for v in verdicts["verdicts"]}
     assert verdict_values == {"accept", "reject", "flag"}
 
@@ -532,15 +563,22 @@ async def test_chain_aborts_at_evaluator_invalid_verdicts(
     _install_evaluator_runner_mock(monkeypatch)
 
     class _CM:
-        async def __aenter__(self): return self
-        async def __aexit__(self, *_): return None
-    async def _resolve(*_a, **_kw): return _CM()
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def _resolve(*_a, **_kw):
+        return _CM()
+
     async def _invoke(_client, _prompt, spec_dir_arg, _verbose):
         # Emit a doc missing the 'verdicts' array
         (spec_dir_arg / "findings" / "verdicts.json").write_text(
             json.dumps({"evaluator_version": "x", "no_verdicts_here": True})
         )
         return "complete", "ok", {}
+
     monkeypatch.setattr("agents.evaluator._resolve_evaluator_client", _resolve)
     monkeypatch.setattr("agents.evaluator._invoke_session", _invoke)
 
@@ -567,3 +605,33 @@ async def test_chain_aborts_at_evaluator_invalid_verdicts(
         st = next(s for p in plan["phases"] for s in p["subtasks"] if s["id"] == sid)
         path = workspace / st["files_to_create"][0]
         assert path.exists()
+
+
+@pytest.mark.asyncio
+async def test_guardrail_halt_fails_the_evaluator_despite_written_verdicts(
+    workspace: Path,
+    project_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#1008: a halted judge session is evaluator_failed even if it had already
+    written a valid verdicts.json."""
+    _install_planner_mock(monkeypatch)
+    _install_gen_functional_mock(monkeypatch)
+    _install_evaluator_runner_mock(monkeypatch)
+    _install_evaluator_sdk_mock(monkeypatch, lambda _tid: "accept")
+    from agents import evaluator
+
+    wrote_valid = evaluator._invoke_session
+
+    async def _halted(client, prompt, spec_dir_arg, verbose):
+        await wrote_valid(client, prompt, spec_dir_arg, verbose)
+        return "error", "m", {"type": "guardrail_halt", "message": "same_tool_failure: x"}
+
+    monkeypatch.setattr("agents.evaluator._invoke_session", _halted)
+
+    await run_planner(workspace, project_dir, mode="initial")
+    await run_gen_functional(workspace, project_dir, mode="initial")
+    assert await run_evaluator(workspace, project_dir, mode="initial") is False
+    status = json.loads((workspace / "status.json").read_text())
+    assert status["status"] == "evaluator_failed"
+    assert status["evaluator_error"].startswith("same_tool_failure")

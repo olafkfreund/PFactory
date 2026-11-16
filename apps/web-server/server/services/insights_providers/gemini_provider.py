@@ -91,9 +91,9 @@ class GeminiProvider(ProviderStrategy):
         cmd.append(gemini_cmd)
 
         # Scrub ANTHROPIC_API_KEY (OAuth-only policy — see core/auth.py).
-        from ...utils.subprocess_env import make_subprocess_env
+        from ...utils.subprocess_env import child_env
 
-        env = make_subprocess_env()
+        env = child_env(keep=("GEMINI_API_KEY", "GOOGLE_API_KEY"))
         env["PYTHONUNBUFFERED"] = "1"
 
         logger.info(f"[GeminiProvider] Starting: gemini --model {effective_model}")

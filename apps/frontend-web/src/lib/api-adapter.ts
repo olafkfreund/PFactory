@@ -884,9 +884,9 @@ export const webAPI: API & { _isWebMode: boolean } = {
     log.debug(`[WS Event] task-logs:changed received - specId: ${payload.specId}`, payload.logs);
     callback(payload.specId, payload.logs as never);
   }),
-  onTaskLogsStream: (callback) => registerCallback('task-logs:stream', (payload: { specId: string; chunk: unknown }) => {
+  onTaskLogsStream: (callback) => registerCallback('task-logs:stream', (payload: { specId: string; projectId?: string; chunk: unknown }) => {
     log.debug(`[WS Event] task-logs:stream received - specId: ${payload.specId}`);
-    callback(payload.specId, payload.chunk as never);
+    callback(payload.specId, payload.chunk as never, payload.projectId);
   }),
 
   // ========== File Explorer ==========

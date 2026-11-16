@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -20,6 +21,8 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.emit.contract_sync import ContractSyncRegistry, SyncError  # noqa: E402
+from plan.service import SERVICE, PlanService, StaleSessionError  # noqa: E402
+from server.tenancy import multi_tenant_enabled, resolve_tenant  # noqa: E402
 
 router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 
@@ -27,13 +30,32 @@ router = APIRouter(prefix="/api/contract-events", tags=["contract-sync"])
 REGISTRY = ContractSyncRegistry()
 
 
+def _tenant(payload: dict[str, Any], request: Request) -> str | None:
+    """Emitters (AIFactory) name the tenant in the body, not a header; off = no filter."""
+    if not multi_tenant_enabled():
+        return None
+    return str(payload.get("tenant_id") or "").strip() or str(resolve_tenant(request))
+
+
 @router.post("")
-async def ingest_event(payload: dict) -> dict:
+async def ingest_event(payload: dict[str, Any], request: Request) -> dict:
     """Reconcile one inbound completion event; returns the updated state."""
     try:
         state = REGISTRY.apply(payload)
     except SyncError as exc:
         raise HTTPException(status_code=422, detail=client_error(exc)) from exc
+    # #998: keep the feedback on the plan session so it survives a restart and
+    # reaches the planner. The session may have moved on: reload and refold.
+    for _ in range(3):
+        try:
+            cast(PlanService, SERVICE).record_downstream(
+                payload, tenant_id=_tenant(payload, request)
+            )
+            break
+        except StaleSessionError:
+            continue
+    else:
+        raise HTTPException(status_code=503, detail="plan session busy, retry")
     return state.model_dump()
 
 

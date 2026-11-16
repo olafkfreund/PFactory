@@ -195,12 +195,13 @@ networkPolicy:
     extraRules: []
 
 migrations:
-  # Production: false. Operators run the alembic Job out-of-band so
-  # rollouts can be ordered/audited. Set true for POC/dev mode where
-  # the app autoApplies on boot.
+  # Production: false runs a pre-install/pre-upgrade hook Job that executes
+  # alembic upgrade head before pods roll; no init container is used.
+  # Set true for POC/dev mode where the app applies migrations on boot.
   autoApply: false
-  # When false, an alembic-upgrade Job is created and the deployment
-  # waits for it to complete via init container.
+  # The database Secret must exist before the first install: ExternalSecret-
+  # and bundled-managed Secrets do not exist yet at pre-install. Pre-create
+  # the Secret or install once with autoApply=true.
   jobImage: ""  # defaults to the same image as the app
   jobBackoffLimit: 3
 

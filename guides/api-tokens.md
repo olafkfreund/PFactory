@@ -84,6 +84,6 @@ required for MCP / handover access.
 - Mint / list / revoke: `apps/web-server/server/routes/api_keys.py`
   (`POST/GET/DELETE /api/keys`).
 - REST acceptance: `TokenAuthMiddleware` in `apps/web-server/server/auth.py`
-  (`_try_authenticate_api_key`, gated on the `api` scope; hashes match the
+  (`_try_authenticate_personal_key`, gated on the `api` scope; hashes match the
   mint route; expired or revoked keys are rejected).
 - UI: `apps/frontend-web/src/components/settings/sections/McpApiKeysSettings.tsx`.

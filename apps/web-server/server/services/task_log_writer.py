@@ -65,8 +65,9 @@ class TaskLogWriter:
         TaskPhase.QA_FIXING: "validation",
     }
 
-    def __init__(self, spec_dir: Path, task_id: str | None = None):
+    def __init__(self, spec_dir: Path, task_id: str | None = None, project_id: str | None = None):
         self.spec_dir = spec_dir
+        self.project_id = project_id
         self.task_id = task_id if task_id and task_log_store.enabled() else None
         self._db_ops: list[task_log_store.LogOp] = []
         self._db_flush_task: asyncio.Task[None] | None = None
@@ -259,7 +260,9 @@ class TaskLogWriter:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                asyncio.create_task(emit_task_logs_stream(spec_id, stream_chunk))  # noqa: RUF006
+                asyncio.create_task(  # noqa: RUF006
+                    emit_task_logs_stream(spec_id, stream_chunk, self.project_id)
+                )
         except RuntimeError:
             # No event loop running, skip WebSocket emit
             pass

@@ -19,6 +19,8 @@ from typing import Any
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
 from server.services.git_utils import safe_spec_component
+from server.utils.project_env import load_project_env_file
+from server.utils.subprocess_env import RUNNER_STRIP
 from server.websockets import relay
 
 from ..config import get_settings
@@ -680,7 +682,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                             key = key.strip()
                             value = value.strip()
                             # Don't override existing env vars
-                            if key not in env:
+                            if key not in env and key.upper() not in RUNNER_STRIP:
                                 env[key] = value
                 logger.info("[AgentService] Loaded backend .env for spec creation")
             except Exception as e:
@@ -688,20 +690,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         # Load project .pfactory/.env for project-level settings (USE_CLAUDE_MD, etc.)
         project_env_file = project_path / ".pfactory" / ".env"
-        if project_env_file.exists():
-            try:
-                with open(project_env_file) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            key, value = line.split("=", 1)
-                            key = key.strip()
-                            value = value.strip()
-                            if key not in env:
-                                env[key] = value
-                logger.info("[AgentService] Loaded project .env for spec creation")
-            except Exception as e:
-                logger.warning("[AgentService] Failed to load project .env: %s", sanitize_log(e))
+        load_project_env_file(project_env_file, env)
 
         # Get OAuth token with profile tracking
         token, profile_id, profile_name = self._resolve_claude_token()
@@ -931,7 +920,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
                             key = key.strip()
                             value = value.strip()
                             # Don't override existing env vars
-                            if key not in env:
+                            if key not in env and key.upper() not in RUNNER_STRIP:
                                 env[key] = value
                 logger.info(
                     "[AgentService] Loaded backend .env from %s", sanitize_log(backend_env_file)
@@ -941,20 +930,7 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
 
         # Load project .pfactory/.env for project-level settings (USE_CLAUDE_MD, etc.)
         project_env_file = project_path / ".pfactory" / ".env"
-        if project_env_file.exists():
-            try:
-                with open(project_env_file) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            key, value = line.split("=", 1)
-                            key = key.strip()
-                            value = value.strip()
-                            if key not in env:
-                                env[key] = value
-                logger.info("[AgentService] Loaded project .env for task execution")
-            except Exception as e:
-                logger.warning("[AgentService] Failed to load project .env: %s", sanitize_log(e))
+        load_project_env_file(project_env_file, env)
 
         # Get OAuth token with profile tracking
         token, profile_id, profile_name = self._resolve_claude_token()
@@ -1120,14 +1096,15 @@ class AgentService(AgentFailoverMixin, AgentWorktreeSyncMixin, AgentProcessMonit
             / spec_id
         )
         worktree_spec_dir.mkdir(parents=True, exist_ok=True)
-        log_writer = TaskLogWriter(worktree_spec_dir, task_id=task_id)
+        _log_pid = task_id.split(":", 1)[0] if ":" in task_id else None
+        log_writer = TaskLogWriter(worktree_spec_dir, task_id=task_id, project_id=_log_pid)
         if task_log_store.enabled():
             spawn(task_log_store.prune())
 
         # Also write to main spec dir for immediate visibility
         main_spec_dir = project_path / ".pfactory" / "specs" / spec_id
         main_spec_dir.mkdir(parents=True, exist_ok=True)
-        main_log_writer = TaskLogWriter(main_spec_dir)
+        main_log_writer = TaskLogWriter(main_spec_dir, project_id=_log_pid)
 
         # Store log writers for cleanup
         self._task_log_writers[task_id] = (log_writer, main_log_writer)

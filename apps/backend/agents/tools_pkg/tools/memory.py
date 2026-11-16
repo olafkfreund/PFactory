@@ -7,10 +7,14 @@ gotchas, and patterns.
 """
 
 import json
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from memory.novelty import drop_repeats
+from memory.retention import CAPS, confirm, gotchas_context, session_type
 
 try:
     from claude_agent_sdk import tool
@@ -19,6 +23,9 @@ try:
 except ImportError:
     SDK_TOOLS_AVAILABLE = False
     tool = None
+
+# The gotchas window shown by get_session_context.
+GOTCHA_CONTEXT_CHARS = 1000
 
 
 def create_memory_tools(
@@ -102,6 +109,8 @@ def create_memory_tools(
     # -------------------------------------------------------------------------
     # Tool: record_gotcha
     # -------------------------------------------------------------------------
+    gotchas_written: dict[Path, int] = {}  # per spec: the server resolves it per call
+
     @tool(
         "record_gotcha",
         "Record a gotcha or pitfall to avoid. Use this when you encounter something that future sessions should know.",
@@ -120,15 +129,47 @@ def create_memory_tools(
         try:
             timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
 
-            entry = f"\n## [{timestamp}]\n{gotcha}"
+            body = gotcha
             if context:
-                entry += f"\n\n_Context: {context}_"
-            entry += "\n"
+                body += f"\n\n_Context: {context}_"
 
-            with open(gotchas_file, "a") as f:
+            # Escape header-looking lines (injective: backslashes shift by one)
+            # so the split below cannot cut inside an entry.
+            body = re.sub(r"(?m)^(\\*## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\])", r"\\\1", body)
+
+            seen: set[str] = set()
+            if gotchas_file.exists():
+                tail = gotchas_file.read_text()[-GOTCHA_CONTEXT_CHARS:]
+                seen = {
+                    segment.strip()
+                    for segment in re.split(
+                        r"(?m)^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]\r?\n", tail
+                    )[1:]
+                }
+            rejected: list[str] = []
+            if not drop_repeats([body], seen, "gotchas.md", rejected):
+                confirm(memory_dir, rejected)
+                return {"content": [{"type": "text", "text": f"Gotcha already recorded: {gotcha}"}]}
+
+            if gotchas_written.get(memory_dir, 0) >= CAPS[session_type()]:
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Gotcha cap reached; new gotcha not recorded.",
+                        }
+                    ]
+                }
+
+            entry = f"\n## [{timestamp}]\n{body}\n"
+
+            with gotchas_file.open("a") as f:
                 if not gotchas_file.exists() or gotchas_file.stat().st_size == 0:
                     f.write("# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n")
                 f.write(entry)
+
+            gotchas_written[memory_dir] = gotchas_written.get(memory_dir, 0) + 1
+            confirm(memory_dir, [body.strip()])
 
             return {"content": [{"type": "text", "text": f"Recorded gotcha: {gotcha}"}]}
 
@@ -184,8 +225,7 @@ def create_memory_tools(
                 content = gotchas_file.read_text()
                 if content.strip():
                     result_parts.append("\n## Gotchas")
-                    # Take last 1000 chars to avoid too much context
-                    result_parts.append(content[-1000:] if len(content) > 1000 else content)
+                    result_parts.append(gotchas_context(memory_dir, content, GOTCHA_CONTEXT_CHARS))
             except Exception:
                 pass
 

@@ -1,0 +1,69 @@
+{{- /*
+  Alembic migration hook. Run before the Deployment is installed or
+  upgraded when the application does not apply migrations on startup.
+  The database Secret must exist before this hook runs.
+*/}}
+{{- if not .Values.migrations.autoApply }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "pfactory.fullname" . }}-migrations
+  labels:
+    {{- include "pfactory.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.jobBackoffLimit }}
+  template:
+    metadata:
+      labels:
+        # selectorLabels keep the pod inside the chart NetworkPolicy; the Service
+        # also requires component=server, so this pod never becomes an endpoint.
+        {{- include "pfactory.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrations
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      restartPolicy: Never
+      containers:
+        - name: migrations
+          image: {{ .Values.migrations.jobImage | default (include "pfactory.image" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command: ["/home/projects/MagesticAI/.venv/bin/python", "-m", "alembic", "upgrade", "head"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.externalSecretName }}
+                  key: database-url
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

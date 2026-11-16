@@ -75,6 +75,9 @@ extend-exclude = [
     # local formatter at 88, and reformatting here silently breaks byte-exactness
     # against the pin in apps/web-server/factory_common/.hub-sha.
     "apps/web-server/factory_common/",
+    # Factory#3709: byte-exact mirror of the hub shared/factory-sandbox/ package,
+    # kept identical by agent-sandbox-drift.yml (hub formats at 100 columns).
+    "apps/backend/agent_sandbox/",
 ]
 
 [lint.per-file-ignores]
