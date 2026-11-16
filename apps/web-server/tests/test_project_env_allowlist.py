@@ -77,3 +77,24 @@ def test_graphiti_azure_settings_load(tmp_path: Path) -> None:
     env: dict[str, str] = {}
     load_project_env_file(f, env)
     assert set(env) == {"AZURE_OPENAI_BASE_URL", "AZURE_OPENAI_API_KEY"}
+
+
+@pytest.mark.parametrize(
+    ("url", "cred"),
+    [
+        ("GIT_BASE_URL", "GIT_TOKEN"),
+        ("OPENAI_COMPATIBLE_BASE_URL", "OPENAI_API_KEY"),
+        ("OPENAI_COMPATIBLE_BASE_URL", "OPENAI_COMPATIBLE_API_KEY"),
+        ("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY"),
+        ("OLLAMA_BASE_URL", "OLLAMA_API_KEY"),
+    ],
+)
+def test_repo_cannot_redirect_a_host_credential(tmp_path: Path, url: str, cred: str) -> None:
+    f = tmp_path / ".env"
+    f.write_text(f"{url}=https://evil.example\n")
+    env = {cred: "host-secret"}
+    load_project_env_file(f, env)
+    assert url not in env
+    env = {}  # no host credential: the endpoint setting still works
+    load_project_env_file(f, env)
+    assert env == {url: "https://evil.example"}

@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
+from server.utils.subprocess_env import RUNNER_STRIP
+
 # Import ptyprocess for PTY handling (cross-platform)
 try:
     from ptyprocess import PtyProcess, PtyProcessUnicode
@@ -55,7 +57,8 @@ class PTYSession:
             raise RuntimeError("PTY already started")
 
         # Prepare environment
-        env = os.environ.copy()
+        # Control-plane secrets stay out of the user's shell (#1017).
+        env = {k: v for k, v in os.environ.items() if k.upper() not in RUNNER_STRIP}
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         # Remove CLAUDECODE to allow launching claude CLI from the terminal

@@ -24,6 +24,17 @@ _FACTORY_GIT_KEYS = frozenset(
     {"GIT_PROVIDER", "GIT_TOKEN", "GIT_BASE_URL", "GIT_ORG", "GIT_PROJECT", "GIT_REPO"}
 )
 
+# Endpoint settings and the host credentials they would redirect. The repo may set an
+# endpoint only when the host holds none of its credentials (#1004).
+_ENDPOINT_CREDENTIALS: dict[str, tuple[str, ...]] = {
+    "GIT_BASE_URL": ("GIT_TOKEN", "GITHUB_TOKEN"),
+    "OPENAI_COMPATIBLE_BASE_URL": ("OPENAI_COMPATIBLE_API_KEY", "OPENAI_API_KEY"),
+    "AZURE_OPENAI_ENDPOINT": ("AZURE_OPENAI_API_KEY",),
+    "AZURE_OPENAI_BASE_URL": ("AZURE_OPENAI_API_KEY",),
+    "OLLAMA_BASE_URL": ("OLLAMA_API_KEY",),
+    "OLLAMA_CLOUD_BASE_URL": ("OLLAMA_API_KEY",),
+}
+
 PROJECT_ENV_KEYS = frozenset(
     {
         # routes/context.py settings
@@ -94,6 +105,7 @@ def load_project_env_file(env_file: Path, env: dict[str, str]) -> None:
     if not env_file.exists():
         return
     ignored: list[str] = []
+    host_keys = frozenset(env)  # before the file adds anything
     try:
         with env_file.open() as f:
             for raw in f:
@@ -102,7 +114,9 @@ def load_project_env_file(env_file: Path, env: dict[str, str]) -> None:
                     continue
                 k, v = line.split("=", 1)
                 k = k.strip()
-                if not is_project_env_key(k):
+                if not is_project_env_key(k) or any(
+                    c in host_keys for c in _ENDPOINT_CREDENTIALS.get(k, ())
+                ):
                     ignored.append(k)
                 elif k not in env:
                     env[k] = v.strip().strip('"').strip("'")

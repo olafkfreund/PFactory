@@ -813,7 +813,7 @@ def create_client(
 
     # Add custom pfactory MCP server if required and available
     if "pfactory" in required_servers and pfactory_tools_enabled:
-        magestic_ai_mcp_server = create_magestic_ai_mcp_server(spec_dir, project_dir)
+        magestic_ai_mcp_server = create_magestic_ai_mcp_server(spec_dir, project_dir, agent_type)
         if magestic_ai_mcp_server:
             mcp_servers["pfactory"] = magestic_ai_mcp_server
 
