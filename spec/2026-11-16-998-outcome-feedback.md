@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 998
 intent: intent/2026-11-16-998-outcome-feedback.md
 ---
