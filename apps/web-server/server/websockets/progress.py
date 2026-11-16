@@ -11,6 +11,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..auth import verify_websocket_token
 from ..services.agent_service import TaskProgress, get_agent_service
+from .task_access import TaskSocketAccess
 
 router = APIRouter()
 
@@ -33,7 +34,8 @@ async def task_progress_websocket(websocket: WebSocket, task_id: str):
         "data": {} (optional additional data)
     }
     """
-    if not await verify_websocket_token(websocket):
+    access = TaskSocketAccess(websocket, task_id)
+    if not await access.connect():
         return
 
     await websocket.accept()
@@ -60,6 +62,8 @@ async def task_progress_websocket(websocket: WebSocket, task_id: str):
         )
 
         while True:
+            if not await access.recheck():
+                return
             try:
                 progress = await asyncio.wait_for(message_queue.get(), timeout=30.0)
 
@@ -78,7 +82,7 @@ async def task_progress_websocket(websocket: WebSocket, task_id: str):
                     }
                 )
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Send heartbeat
                 await websocket.send_json(
                     {
@@ -158,7 +162,7 @@ async def all_progress_websocket(websocket: WebSocket):
                     }
                 )
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 current_time = asyncio.get_event_loop().time()
                 if current_time - last_task_check > 5.0:
                     await update_subscriptions()

@@ -483,6 +483,9 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
     # Try JWT — returns user info
     jwt_payload = _try_decode_jwt(token)
     if jwt_payload is not None:
+        if not jwt_payload.get("sub"):
+            await websocket.close(code=4001, reason="Unauthorized")
+            raise WebSocketAuthError("Token has no subject")
         return {
             "id": jwt_payload.get("sub"),
             "email": jwt_payload.get("email"),
