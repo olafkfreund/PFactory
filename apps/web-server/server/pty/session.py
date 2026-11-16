@@ -34,6 +34,9 @@ class PTYSession:
     rows: int = 24
     env: dict[str, str] | None = None
     created_at: datetime = field(default_factory=datetime.now)
+    # Binding (#3740): who created the session and for which project.
+    owner_id: str | None = None
+    project_id: str | None = None
 
     # Internal state
     _pty: Optional["PtyProcessUnicode"] = field(default=None, repr=False)

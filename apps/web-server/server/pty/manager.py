@@ -9,10 +9,15 @@ import logging
 import os
 from pathlib import Path
 from threading import Lock
+from typing import Any
 
 from ..config import get_settings
 from ..crypto.secret_field import unseal_profiles  # noqa: TID252
 from .session import PTYSession
+
+
+class DuplicateSessionError(ValueError):
+    """A session with the requested id already exists."""
 
 
 class PTYManager:
@@ -23,13 +28,15 @@ class PTYManager:
         self._lock = Lock()
         self._max_sessions = get_settings().MAX_TERMINALS
 
-    def create_session(
+    def create_session(  # noqa: PLR0913 - owner/project binding extends a flat signature
         self,
         cwd: str | None = None,
         shell: str | None = None,
         cols: int = 80,
         rows: int = 24,
         session_id: str | None = None,
+        owner_id: str | None = None,
+        project_id: str | None = None,
     ) -> PTYSession:
         """Create a new PTY session."""
         logger = logging.getLogger(__name__)
@@ -44,17 +51,21 @@ class PTYManager:
             logger.warning("[PTYManager] No Claude OAuth token available for terminal")
 
         with self._lock:
+            if session_id and session_id in self.sessions:
+                raise DuplicateSessionError(session_id)
             # Check session limit
             if len(self.sessions) >= self._max_sessions:
                 raise RuntimeError(f"Maximum sessions ({self._max_sessions}) reached")
 
             # Create session - only pass id if provided, otherwise let dataclass generate UUID
-            session_kwargs = {
+            session_kwargs: dict[str, Any] = {
                 "cwd": cwd or str(Path.home()),
                 "shell": shell or get_settings().DEFAULT_SHELL,
                 "cols": cols,
                 "rows": rows,
                 "env": token_env or None,
+                "owner_id": owner_id,
+                "project_id": project_id,
             }
             if session_id:
                 session_kwargs["id"] = session_id
@@ -120,11 +131,11 @@ class PTYManager:
         """Get a session by ID."""
         return self.sessions.get(session_id)
 
-    def close_session(self, session_id: str) -> bool:
-        """Close and remove a session."""
+    def close_session(self, session_id: str, expected: PTYSession | None = None) -> bool:
+        """Close and remove a session (only `expected`, when given)."""
         with self._lock:
             session = self.sessions.get(session_id)
-            if session is None:
+            if session is None or (expected is not None and session is not expected):
                 return False
 
             session.close()
