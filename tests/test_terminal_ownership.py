@@ -13,11 +13,11 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "apps" / "web-server"))
 sys.path.insert(0, str(_ROOT / "apps" / "backend"))
 
-from server.services import git_utils, project_paths  # noqa: E402
 from server.pty import access  # noqa: E402
 from server.pty.manager import DuplicateSessionError, PTYManager  # noqa: E402
 from server.pty.session import PTYSession  # noqa: E402
 from server.routes import terminal  # noqa: E402
+from server.services import git_utils, project_paths  # noqa: E402
 from server.websockets import terminal as terminal_ws  # noqa: E402
 
 ALICE = {"id": "alice", "role": "user"}
