@@ -18,8 +18,11 @@ import logging
 import os
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
+
+from agents.run_guard import Guard, max_turns
 
 logger = logging.getLogger(__name__)
 
@@ -914,6 +917,8 @@ def create_client(
     )
 
     # Build options dict, conditionally including output_format
+    guard = Guard()  # anti-loop guardrail, one controller per client
+
     options_kwargs: dict[str, Any] = {
         "model": model,
         "system_prompt": base_prompt,
@@ -922,9 +927,12 @@ def create_client(
         "hooks": {
             "PreToolUse": [
                 HookMatcher(matcher="Bash", hooks=[bash_security_hook]),
+                HookMatcher(hooks=[guard.pre]),  # type: ignore[list-item]
             ],
+            "PostToolUse": [HookMatcher(hooks=[guard.post])],  # type: ignore[list-item]
+            "PostToolUseFailure": [HookMatcher(hooks=[guard.failure])],  # type: ignore[list-item]
         },
-        "max_turns": 1000,
+        "max_turns": max_turns(),
         "cwd": str(project_dir.resolve()),
         "settings": str(settings_file.resolve()),
         "env": {**get_agent_env_blanks(), **sdk_env},  # Pass ANTHROPIC_BASE_URL etc. to subprocess
@@ -1003,4 +1011,7 @@ def create_client(
         existing_extra["remote-control"] = remote_control_session
         options_kwargs["extra_args"] = existing_extra
 
-    return ClaudeSDKClient(options=ClaudeAgentOptions(**options_kwargs))
+    client = ClaudeSDKClient(options=ClaudeAgentOptions(**options_kwargs))
+    with suppress(AttributeError):  # a stand-in client without __dict__ (tests)
+        client._run_guard = guard  # type: ignore[attr-defined]
+    return client
