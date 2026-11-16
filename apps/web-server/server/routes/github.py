@@ -25,7 +25,7 @@ from server.services import run_leases
 from server.services.git_base_url import safe_git_base_url  # #610
 from server.services.project_paths import load_projects, resolve_project_path_or_error
 
-from ..services.git_utils import run_gh_command, safe_spec_component  # #335
+from ..services.git_utils import git_run, run_gh_command, safe_spec_component  # #335
 
 logger = logging.getLogger(__name__)
 
@@ -1091,7 +1091,7 @@ async def add_git_remote(request: AddRemoteRequest):
     """Add GitHub remote to local repository."""
     remote_url = f"https://github.com/{request.repoFullName}.git"
     try:
-        subprocess.run(
+        git_run(
             ["git", "remote", "add", "origin", remote_url],
             cwd=request.projectPath,
             check=True,
@@ -1103,6 +1103,8 @@ async def add_git_remote(request: AddRemoteRequest):
             "success": False,
             "error": e.stderr.decode() if e.stderr else "Failed to add remote",
         }
+    except RuntimeError:  # git_run fails closed when repo config cannot be vetted
+        return {"success": False, "error": "Failed to add remote"}
 
 
 # ============================================
