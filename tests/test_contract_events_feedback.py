@@ -17,6 +17,7 @@ pytest.importorskip("yaml")
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+
 from plan.service import SERVICE, StaleSessionError  # noqa: E402
 from server.routes import contract_events  # noqa: E402
 
@@ -51,7 +52,7 @@ def test_persistent_stale_session_is_503_so_the_emitter_retries(monkeypatch):
 
 def test_tenant_comes_from_the_body_when_multi_tenant(monkeypatch):
     seen = []
-    monkeypatch.setattr(SERVICE, "record_downstream", lambda p, **kw: seen.append(kw) or True)
+    monkeypatch.setattr(SERVICE, "record_downstream", lambda _p, **kw: seen.append(kw) or True)
     monkeypatch.setenv("PFACTORY_MULTI_TENANT", "1")
     _client().post(
         "/api/contract-events",
