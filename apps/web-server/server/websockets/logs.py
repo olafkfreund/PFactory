@@ -9,11 +9,12 @@ from collections.abc import Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from ..auth import verify_websocket_token
-from ..services.agent_service import TaskLog, get_agent_service
-from .task_access import TaskSocketAccess
+from server.services.agent_service import TaskLog, get_agent_service
+
+from .task_access import AllTaskSocketAccess, TaskSocketAccess
 
 router = APIRouter()
+_REFRESH_SECONDS = 5.0
 
 
 @router.websocket("/ws/tasks/{task_id}/logs")
@@ -90,7 +91,8 @@ async def all_logs_websocket(websocket: WebSocket):
     Connect to receive real-time logs from all running tasks.
     Useful for a unified log view.
     """
-    if not await verify_websocket_token(websocket):
+    access = AllTaskSocketAccess(websocket)
+    if not await access.connect():
         return
 
     await websocket.accept()
@@ -99,23 +101,30 @@ async def all_logs_websocket(websocket: WebSocket):
     message_queue: asyncio.Queue[TaskLog] = asyncio.Queue()
     # See progress.py: `callable` is the builtin function, not a type.
     unregister_callbacks: list[Callable[[], None]] = []
+    allowed: set[str] = set()
 
     async def log_callback(log: TaskLog):
         await message_queue.put(log)
 
-    async def update_subscriptions():
+    async def refresh_subscriptions() -> bool:
         """Update subscriptions to match running tasks."""
+        nonlocal allowed
+        if not await access.recheck():
+            return False
         # Unregister all current callbacks
         for unregister in unregister_callbacks:
             unregister()
         unregister_callbacks.clear()
 
-        # Register for all running tasks
-        for task_id in agent_service.get_running_tasks():
+        allowed = await access.readable(agent_service.get_running_tasks())
+        for task_id in allowed:
             unregister = agent_service.register_log_callback(task_id, log_callback)
             unregister_callbacks.append(unregister)
+        return True
 
     try:
+        if not await refresh_subscriptions():
+            return
         await websocket.send_json(
             {
                 "type": "connected",
@@ -123,12 +132,25 @@ async def all_logs_websocket(websocket: WebSocket):
             }
         )
 
-        last_task_check = asyncio.get_event_loop().time()
+        loop = asyncio.get_running_loop()
+        last_refresh = loop.time()
 
         while True:
             try:
-                log = await asyncio.wait_for(message_queue.get(), timeout=5.0)
+                log = await asyncio.wait_for(
+                    message_queue.get(),
+                    timeout=max(0.0, _REFRESH_SECONDS - (loop.time() - last_refresh)),
+                )
+            except TimeoutError:
+                log = None
 
+            if loop.time() - last_refresh >= _REFRESH_SECONDS:
+                if not await refresh_subscriptions():
+                    return
+                last_refresh = loop.time()
+            if log is None:
+                await websocket.send_json({"type": "heartbeat"})
+            elif log.task_id in allowed:
                 await websocket.send_json(
                     {
                         "type": "log",
@@ -139,15 +161,6 @@ async def all_logs_websocket(websocket: WebSocket):
                         "source": log.source,
                     }
                 )
-
-            except TimeoutError:
-                # Periodically update subscriptions
-                current_time = asyncio.get_event_loop().time()
-                if current_time - last_task_check > 5.0:
-                    await update_subscriptions()
-                    last_task_check = current_time
-
-                await websocket.send_json({"type": "heartbeat"})
 
     except WebSocketDisconnect:
         pass
