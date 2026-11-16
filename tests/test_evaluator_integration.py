@@ -567,3 +567,33 @@ async def test_chain_aborts_at_evaluator_invalid_verdicts(
         st = next(s for p in plan["phases"] for s in p["subtasks"] if s["id"] == sid)
         path = workspace / st["files_to_create"][0]
         assert path.exists()
+
+
+@pytest.mark.asyncio
+async def test_guardrail_halt_fails_the_evaluator_despite_written_verdicts(
+    workspace: Path,
+    project_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#1008: a halted judge session is evaluator_failed even if it had already
+    written a valid verdicts.json."""
+    _install_planner_mock(monkeypatch)
+    _install_gen_functional_mock(monkeypatch)
+    _install_evaluator_runner_mock(monkeypatch)
+    _install_evaluator_sdk_mock(monkeypatch, lambda _tid: "accept")
+    from agents import evaluator
+
+    wrote_valid = evaluator._invoke_session
+
+    async def _halted(client, prompt, spec_dir_arg, verbose):
+        await wrote_valid(client, prompt, spec_dir_arg, verbose)
+        return "error", "m", {"type": "guardrail_halt", "message": "same_tool_failure: x"}
+
+    monkeypatch.setattr("agents.evaluator._invoke_session", _halted)
+
+    await run_planner(workspace, project_dir, mode="initial")
+    await run_gen_functional(workspace, project_dir, mode="initial")
+    assert await run_evaluator(workspace, project_dir, mode="initial") is False
+    status = json.loads((workspace / "status.json").read_text())
+    assert status["status"] == "evaluator_failed"
+    assert status["evaluator_error"].startswith("same_tool_failure")
