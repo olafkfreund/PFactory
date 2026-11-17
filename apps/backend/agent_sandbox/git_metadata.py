@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -99,13 +100,12 @@ def _run_git(
                 argv,
                 cwd=cwd,
                 capture_output=True,
-                text=True,
-                errors="surrogateescape",
                 env={k: v for k, v in os.environ.items() if k in ("PATH", "HOME")},
                 timeout=60,
                 check=False,
             )
-            rc, out = proc.returncode, proc.stdout
+            # Bytes, not text mode: universal newlines would turn a CR into LF and hide a change.
+            rc, out = proc.returncode, proc.stdout.decode("utf-8", errors="surrogateescape")
     except (OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError(f"git failed: {exc}") from exc
     if rc != 0 or not isinstance(out, str):
@@ -187,6 +187,12 @@ def _baseline_dir() -> Path:
     except OSError as exc:
         raise RuntimeError(f"cannot create baseline dir {base}: {exc}") from exc
     return base
+
+
+def _baseline_dir_hint() -> str:
+    """The env assignment the recovery command needs when the dir is not the default."""
+    env_dir = os.environ.get("FACTORY_GIT_BASELINE_DIR")
+    return f"FACTORY_GIT_BASELINE_DIR={shlex.quote(env_dir)} " if env_dir else ""
 
 
 def _baseline_path(commondir: str) -> Path:
@@ -312,7 +318,8 @@ def check_git_metadata(
         raise RuntimeError(
             f"git metadata changed since the baseline: {', '.join(changed)}; "
             "check .git/config and .git/info/attributes, then re-baseline: "
-            f"python -m agent_sandbox.git_metadata --rebaseline {Path(cwd).resolve()}"
+            f"{_baseline_dir_hint()}python -m agent_sandbox.git_metadata --rebaseline "
+            f"{Path(cwd).resolve()}"
         )
 
 

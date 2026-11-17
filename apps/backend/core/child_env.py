@@ -138,10 +138,13 @@ def merge_driver_pins(
     program key. With ``baseline`` the git metadata baseline is verified first
     (Factory#3737); the web-server helpers on a user's own repo leave it off.
     """
-    check = None
+    check: Callable[[str | os.PathLike[str], object], None] | None = None
     if baseline:
         ensure_baseline_dir()
-        check = agent_sandbox.check_git_metadata
+        # Not the injected runner: a text-mode runner folds CR into LF and hides a change.
+
+        def check(cwd: str | os.PathLike[str], _run: object) -> None:
+            agent_sandbox.check_git_metadata(cwd)
     pins: list[str] = agent_sandbox.merge_driver_pins(
         cwd, run, env if env is not None else git_env(), check
     )
