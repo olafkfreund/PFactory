@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1010
 intent: intent/2026-11-17-1010-rbac-enforce-on.md
 ---
