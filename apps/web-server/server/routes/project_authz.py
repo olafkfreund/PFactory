@@ -40,6 +40,7 @@ __all__ = [
     "authorize_project_for_user",
     "check_plan_session_access",
     "check_project_access",
+    "creator_org",
     "is_service_principal",
     "plan_session_filter",
     "require_body_project_access",
@@ -530,3 +531,25 @@ async def authorize_plan_ingest(
             minimum_role=minimum_role, db=db,
         )  # fmt: skip
     return repo_org
+
+
+async def creator_org(user: dict[str, Any] | None, db: AsyncSession) -> str | None:
+    """The org to stamp on a project this principal creates (#1036).
+
+    An org-scoped key: its org. A human: their org when they belong to exactly
+    one. The service principal has no org and nothing here resolves a single-org
+    default, so it, and a human in several orgs, get None and a log line; an
+    org-less project is 403 for non-service callers until an org is set.
+    """
+    if _auth_disabled() or is_service_principal(user):
+        return None
+    if key_org := _org_key(user):
+        return key_org
+    roles = await _member_roles(user, db)
+    if len(roles) == 1:
+        return next(iter(roles))
+    logger.warning(
+        "project.org_unstamped principal=%s orgs=%d",
+        user.get("id") if isinstance(user, dict) else None, len(roles),
+    )  # fmt: skip
+    return None

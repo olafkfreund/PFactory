@@ -39,7 +39,7 @@ A FastAPI service tested with pytest.
 def _no_project_tracking(monkeypatch) -> None:
     """Stub the tracked-project side effect on ingest."""
     projects = importlib.import_module("server.routes.projects")
-    monkeypatch.setattr(projects, "ensure_tracked_project", lambda _repo: None)
+    monkeypatch.setattr(projects, "ensure_tracked_project", lambda _repo, _org=None: None)
 
 
 @pytest.fixture

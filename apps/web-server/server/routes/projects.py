@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
+from server.database.engine import get_db
 from server.error_ref import error_message
-from server.routes.project_authz import require_project_access
+from server.routes.project_authz import creator_org, require_project_access
 from server.services import task_log_store
 from server.services.git_utils import confine_to_workspace, git_run, safe_spec_component
 from server.services.project_paths import (
@@ -216,14 +218,15 @@ class Project(ProjectBase):
 # --------------------------------------------------------------------------
 
 
-def ensure_tracked_project(repo: str) -> str | None:
+def ensure_tracked_project(repo: str, org_id: str | None = None) -> str | None:
     """Register a lightweight, repo-only project for a plan session (W4, #218).
 
     A plan session targets a ``repo`` (owner/name) that often has no local clone
     on the portal, so it never appears in the project dropdown. Upsert a minimal
     tracked record (no ``path``) so the repo is visible/selectable; if a project
     is already registered for this repo (e.g. a real local clone), reuse it and
-    don't clobber it. Returns the project id, or ``None`` for a falsy repo.
+    don't clobber it. ``org_id`` (the creator's org, #1036) is stamped on a new
+    record only. Returns the project id, or ``None`` for a falsy repo.
     Best-effort: never raises.
     """
     if not repo or not repo.strip():
@@ -258,6 +261,8 @@ def ensure_tracked_project(repo: str) -> str | None:
                 # agrees with the contract that created it.
                 "settings": {"gitProvider": provider},
             }
+            if org_id:
+                projects[project_id]["org_id"] = org_id
             save_projects(projects)
         return project_id
     except Exception:
@@ -537,7 +542,17 @@ async def scan_for_projects(request: ScanProjectsRequest):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def add_project(project: ProjectCreate):
+async def add_project(
+    project: ProjectCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    """Register a project, stamped with the creating principal's org (#1036)."""
+    org_id = await creator_org(getattr(request.state, "user", None), db)
+    return await create_project(project, org_id)
+
+
+async def create_project(project: ProjectCreate, org_id: str | None = None):
     """Add a new project. Two paths (#82 PR-A):
 
     1. **Local path** (``path`` set) — register an existing directory
@@ -644,6 +659,8 @@ async def add_project(project: ProjectCreate):
         "created_at": now,
         "updated_at": now,
     }
+    if org_id:
+        project_data["org_id"] = org_id
     # Clone-mode (#82 PR-A) — persist the source URL + branch so the
     # Auto-Fix pull-on-poll hook (PR-B) can fast-forward the workspace
     # before each poll cycle. Local-mode projects don't carry these.
