@@ -275,3 +275,12 @@ def test_planner_seam_second_run_route_wins():
     svc.process(session.session_id, llm=_GatewayLLM("cheap"))
     session = svc.process(session.session_id, llm=_GatewayLLM("frontier"))
     assert session.usage.route == "frontier"
+
+
+def test_a_rerun_without_a_route_does_not_keep_the_previous_runs_route():
+    svc = PlanService()
+    session = svc.ingest_text(_PLAN, title="Refund flow")
+    svc.process(session.session_id, llm=_GatewayLLM("cheap"))
+    session = svc.process(session.session_id, llm=_UsageLLM(_EPIC_JSON))  # no route metadata
+    assert session.usage.route == ""
+    assert session.usage.total_tokens == 120 + 409  # totals stay cumulative
