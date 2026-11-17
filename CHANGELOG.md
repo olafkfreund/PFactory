@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.1 — sandbox git metadata baseline and remote program refusal (2026-11-17)
+
+### New Features
+
+- **Sandboxed git gets a metadata baseline and refuses remote programs (#1038; Factory#3737).** Git run for tasks starts from a pinned metadata baseline, and configuration that would launch a remote or external program is refused.
+
 ## 0.8.0 — memory ranking, scratchpad dead ends and promotion gates; org stamp on new projects (2026-11-17)
 
 ### New Features
