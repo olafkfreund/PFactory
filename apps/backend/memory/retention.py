@@ -93,7 +93,37 @@ def split_gotchas(text: str) -> list[tuple[str, str, datetime]]:
     return entries
 
 
+def _last_confirmed(entry_time: datetime, body: str, confirmed: dict[str, str]) -> datetime:
+    last = entry_time
+    try:
+        value = confirmed.get(_key(body))
+        if isinstance(value, str):
+            last = max(
+                last,
+                datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC),
+            )
+    except ValueError:
+        logger.debug("unparseable confirmation time, keeping entry time")
+    return last
+
+
+def _pack(chunks: list[tuple[int, str]], budget: int) -> list[tuple[int, str]]:
+    """Whole chunks, best rank first (chunks arrive ranked), skipping any that
+    does not fit; returned in file order (the first tuple item)."""
+    kept = []
+    for pos, chunk in chunks:
+        if len(chunk) <= budget:
+            kept.append((pos, chunk))
+            budget -= len(chunk)
+    return sorted(kept)
+
+
 def gotchas_context(memory_dir: Path, text: str, limit: int, now: datetime | None = None) -> str:
+    """Pick gotchas for the context window by last confirmation (RFC-0021 Phase 5).
+
+    Whole entries, newest-confirmed first, shown in file order. No fragments
+    unless a single top entry is larger than the window (then its tail).
+    """
     entries = split_gotchas(text)
     if not entries:
         return text[-limit:]
@@ -102,35 +132,41 @@ def gotchas_context(memory_dir: Path, text: str, limit: int, now: datetime | Non
     confirmed = _read(memory_dir)
     fresh = []
     demoted = []
-    expired = False
-    for entry, body, heading_time in entries:
-        last = heading_time
-        try:
-            value = confirmed.get(_key(body))
-            if isinstance(value, str):
-                last = max(
-                    last,
-                    datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC),
-                )
-        except ValueError:
-            logger.debug("unparseable last_confirmed_at, using stored timestamps")
+    for pos, (entry, body, heading_time) in enumerate(entries):
+        last = _last_confirmed(heading_time, body, confirmed)
         age = now - last
         if age >= timedelta(days=expire_days):
-            expired = True
+            continue
         elif age >= timedelta(days=demote_days):
-            demoted.append(entry)
+            demoted.append((last, pos, entry))
         else:
-            fresh.append(entry)
-    if not demoted and not expired:
-        return text[-limit:]
-    # Text before the first heading has no timestamp (legacy bullets): never expire it.
+            fresh.append((last, pos, entry))
+    # Text before the first heading has no timestamp (legacy bullets): never
+    # expire it, rank it last.
     first = HEADING.search(text)
     preamble = text[: first.start()] if first else ""
-    fresh_text = (preamble + "".join(fresh))[-limit:]
+    ranked = sorted(fresh, reverse=True)
+    chunks = [(pos, entry) for _, pos, entry in ranked]
+    if preamble:
+        chunks.append((-1, preamble))
+    kept = _pack(chunks, limit)
+    if ranked and not any(pos >= 0 for pos, _ in kept):
+        kept = [(0, ranked[0][2][-limit:])]
+    if not kept and preamble:  # only legacy text, larger than the window
+        kept = [(-1, preamble[-limit:])]
+    if not kept and preamble:  # only legacy text, larger than the window
+        kept = [(-1, preamble[-limit:])]
+    fresh_text = "".join(c for _, c in kept)
     if not demoted:
         return fresh_text
     heading = f"\n## Low confidence (not re-observed in {demote_days} days)\n"
     remaining = limit - len(fresh_text) - len(heading)
-    if remaining <= 0:
-        return fresh_text
-    return fresh_text + heading + "".join(demoted)[-remaining:]
+    chunks = [(pos, entry) for _, pos, entry in sorted(demoted, reverse=True)]
+    low = "".join(c for _, c in _pack(chunks, remaining))
+    return fresh_text + heading + low if low else fresh_text
+
+
+def escape_headings(body: str) -> str:
+    """Escape header-looking lines (injective: backslashes shift by one) so a
+    stored entry cannot be split in two by ``split_gotchas``."""
+    return re.sub(r"(?m)^(\\*## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\])", r"\\\1", body)

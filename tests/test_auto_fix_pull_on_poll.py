@@ -144,7 +144,7 @@ async def test_add_project_persists_cloned_from(tmp_path, monkeypatch):
     """The add_project route, when called with gitUrl, must persist
     ``clonedFrom`` (+ optional ``clonedBranch``) on the project entry
     so the pull-on-poll hook can find it later."""
-    from server.routes.projects import ProjectCreate, add_project
+    from server.routes.projects import ProjectCreate, create_project
 
     captured: dict = {}
 
@@ -173,7 +173,7 @@ async def test_add_project_persists_cloned_from(tmp_path, monkeypatch):
     project = ProjectCreate(
         gitUrl="https://github.com/olaf/PFactory.git", branch="dev"
     )
-    await add_project(project)
+    await create_project(project)
 
     # Exactly one project should have been saved with clonedFrom set.
     saved = captured["projects"]

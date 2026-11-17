@@ -32,7 +32,7 @@ _BOTH = {"originator": "u-1", "agent_identity": "agent:pfactory/k-1"}
 def _no_project_tracking(monkeypatch) -> None:
     from server.routes import projects
 
-    monkeypatch.setattr(projects, "ensure_tracked_project", lambda repo: None)
+    monkeypatch.setattr(projects, "ensure_tracked_project", lambda repo, org=None: None)
 
 
 @pytest.fixture()

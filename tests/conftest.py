@@ -1391,3 +1391,16 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if item.path.stem in CRITICAL_MODULES:
             item.add_marker(pytest.mark.critical)
+
+
+@pytest.fixture(autouse=True)
+def _reset_memory_trust_window():
+    """The untrusted-content window is process state; never leak it across tests."""
+    try:
+        from memory import trust
+    except ImportError:
+        yield
+        return
+    trust._state.clear()
+    yield
+    trust._state.clear()
