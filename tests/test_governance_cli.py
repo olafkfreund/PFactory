@@ -105,6 +105,16 @@ def test_json_output_emits_matches_and_counts(capsys):
         "originator": None,
         "risk_class": "high",
         "created_at": "2026-10-14T12:00:00+00:00",
+        "controls": [
+            "agentic-ai-governance",
+            "audit-logging",
+            "change-mgmt-sod",
+            "data-governance",
+            "runtime-isolation",
+            "secrets-management",
+        ],
+        "agent_identity": None,
+        "model_route": None,
     }
 
 
@@ -157,3 +167,144 @@ def test_control_characters_in_untrusted_fields_cannot_forge_a_line():
     lines = format_result([forged], counts).splitlines()
     assert len(lines) == 2
     assert "\x1b" not in lines[0] and lines[1].startswith("scanned 1 rows")
+
+
+def _root_with_identity(tmp_path: Path) -> Path:
+    """The fixtures, with agent identity and route filled on the two schema-2 rows."""
+    import shutil
+
+    root = tmp_path / "docs"
+    shutil.copytree(FIXTURES, root)
+    for name, identity, route in (
+        ("005-payments-refund-api", "agent:pfactory/k-1", "frontier"),
+        ("006-docs-typo-fix", None, "cheap"),
+    ):
+        path = root / f"{name}.run.json"
+        sig = json.loads(path.read_text())
+        sig.update(agent_identity=identity, model_route=route)
+        path.write_text(json.dumps(sig))
+    return root
+
+
+def test_json_projects_controls_agent_identity_and_model_route(tmp_path, capsys):
+    root = _root_with_identity(tmp_path)
+    assert main(["--root", str(root), "--tier", "hard", "--json"]) == 0
+    (match,) = json.loads(capsys.readouterr().out)["matches"]
+    assert match["agent_identity"] == "agent:pfactory/k-1"
+    assert match["model_route"] == "frontier"
+    assert "change-mgmt-sod" in match["controls"]
+
+
+def test_text_line_prints_the_new_fields_after_the_old_ones(tmp_path, capsys):
+    root = _root_with_identity(tmp_path)
+    assert main(["--root", str(root), "--tier", "low"]) == 0
+    line = capsys.readouterr().out.splitlines()[0]
+    assert line.endswith("\tcontrols=audit-logging\tagent_identity=None\tmodel_route=cheap")
+    assert line.index("created_at=") < line.index("controls=")
+
+
+def test_control_and_tier_filters_are_exact_and_combine(tmp_path):
+    rows, _ = scan(_root_with_identity(tmp_path))
+    keys = lambda **kw: [m["correlation_key"] for m in select(rows, **kw)]  # noqa: E731
+    assert keys(control="audit-logging") == ["pf-005-payments-refund-api", "pf-006-docs-typo-fix"]
+    assert keys(control="change-mgmt-sod") == ["pf-005-payments-refund-api"]
+    assert keys(control="change-mgmt-sod", tier="low") == []
+    assert keys(control="audit-logging", tier="low") == ["pf-006-docs-typo-fix"]
+    assert keys(control="no-such-control") == []  # and the schema-1 row never matches
+
+
+def test_hostile_new_fields_cannot_forge_a_line():
+    row = {k: None for k in MATCH_KEYS}
+    row.update(controls=["a\nscanned 9 rows"], agent_identity="x\x1b[2J", model_route="y\r\nz")
+    counts = {"scanned": 1, "signed": 1, "schema1": 0, "unsigned": 0}
+    lines = format_result([row], counts).splitlines()
+    assert len(lines) == 2 and "\x1b" not in lines[0]
+
+
+# ── --repo: join a plan to the commits that carry its Plan-Slug trailer ────
+
+
+def _git(repo: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.fixture
+def repo(tmp_path):
+    r = tmp_path / "repo"
+    r.mkdir()
+    _git(r, "init", "-q")
+    _git(r, "commit", "-q", "--allow-empty", "-m", "no trailer")
+    _git(r, "commit", "-q", "--allow-empty", "-m", "ship\n\nPlan-Slug: pf-005-payments-refund-api")
+    _git(
+        r, "commit", "-q", "--allow-empty", "-m", "other\n\nPlan-Slug: pf-005-payments-refund-api-x"
+    )
+    _git(r, "commit", "-q", "--allow-empty", "-m", "words\n\nPlan-Slug: pf-006-docs-typo-fix extra")
+    _git(r, "commit", "-q", "--allow-empty", "-m", "prose\n\nmentions pf-006-docs-typo-fix only")
+    return r
+
+
+def _head_of(repo: Path, grep: str) -> str:
+    import subprocess
+
+    return subprocess.run(
+        ["git", "-C", str(repo), "log", "-1", "--format=%H", f"--grep={grep}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_repo_join_matches_the_trailer_value_exactly(repo, capsys):
+    assert main(["--root", str(FIXTURES), "--repo", str(repo), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    by_key = {m["correlation_key"]: m["commits"] for m in payload["matches"]}
+    assert by_key["pf-005-payments-refund-api"] == [_head_of(repo, "^ship")]  # not the -x slug
+    # neither a prose mention nor a trailer with extra words is the exact value
+    assert by_key["pf-006-docs-typo-fix"] == []
+    assert payload["counts"]["commits_with_plan_slug"] == 3
+
+
+def test_repo_join_text_output_names_the_commits_and_the_count(repo, capsys):
+    assert main(["--root", str(FIXTURES), "--repo", str(repo), "--control", "change-mgmt-sod"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].endswith(f"\tcommits={_head_of(repo, '^ship')}")
+    assert lines[-1] == "3 commits carry a Plan-Slug trailer"
+
+
+def test_without_repo_the_output_is_unchanged(capsys):
+    assert main(["--root", str(FIXTURES), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert all("commits" not in m for m in payload["matches"])
+    assert "commits_with_plan_slug" not in payload["counts"]
+
+
+def test_repo_that_cannot_be_read_is_an_error_not_an_empty_answer(tmp_path, capsys, monkeypatch):
+    assert main(["--root", str(FIXTURES), "--repo", str(tmp_path)]) == 2
+    assert "error:" in capsys.readouterr().err
+
+    import subprocess
+
+    def boom(*a, **kw):
+        raise subprocess.TimeoutExpired("git", 60)
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert main(["--root", str(FIXTURES), "--repo", str(tmp_path)]) == 2
+
+    def missing(*a, **kw):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(subprocess, "run", missing)
+    assert main(["--root", str(FIXTURES), "--repo", str(tmp_path)]) == 2
+
+
+def test_a_repo_path_starting_with_a_dash_is_not_read_as_an_option(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "--version").mkdir()
+    assert main(["--root", str(FIXTURES), "--repo=--version"]) == 2  # a plain error, no git output
+    assert "error:" in capsys.readouterr().err

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from collections.abc import Iterable, Sequence
 from datetime import date
@@ -34,6 +35,9 @@ MATCH_KEYS: tuple[str, ...] = (
     "originator",
     "risk_class",
     "created_at",
+    "controls",
+    "agent_identity",
+    "model_route",
 )
 
 
@@ -45,6 +49,8 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 def _clean(value: Any) -> str:
+    if isinstance(value, list):
+        value = ",".join(str(v) for v in value)
     return _CONTROL_CHARS.sub("?", str(value))
 
 
@@ -168,6 +174,39 @@ def select(
     return matches
 
 
+PLAN_SLUG_TRAILER = "Plan-Slug"
+
+
+def commits_by_plan(repo: Path | str) -> dict[str, list[str]]:
+    """Map ``Plan-Slug`` trailer value -> commit shas of a git checkout (read only).
+
+    Raises ``RuntimeError`` when git is missing, times out or ``repo`` is not a
+    repository: "no commits" must never be the answer to "could not look".
+    """
+    # Resolved first, so a path starting with "-" cannot be read as a git option.
+    argv = [
+        "git",
+        "-C",
+        str(Path(repo).resolve()),
+        "log",
+        f"--format=%H%x00%(trailers:key={PLAN_SLUG_TRAILER},valueonly)%x01",
+    ]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=60, check=False)  # noqa: S603
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"cannot run git log in {repo}: {exc}") from exc
+    if done.returncode != 0:
+        raise RuntimeError(f"git log failed in {repo}: {done.stderr.strip()[:200]}")
+    out: dict[str, list[str]] = {}
+    for record in done.stdout.split("\x01"):
+        sha, _, trailers = record.strip().partition("\x00")
+        for value in (v.strip() for v in trailers.splitlines()):
+            if not value:
+                continue
+            out.setdefault(value, []).append(sha)
+    return out
+
+
 def format_result(matches: Sequence[dict[str, Any]], counts: dict[str, int]) -> str:
     """Render one human line per match followed by the mandatory count line."""
     lines: list[str] = []
@@ -181,7 +220,11 @@ def format_result(matches: Sequence[dict[str, Any]], counts: dict[str, int]) -> 
             f"approved_at={c['approved_at']}\t"
             f"originator={c['originator']}\t"
             f"risk_class={c['risk_class']}\t"
-            f"created_at={c['created_at']}"
+            f"created_at={c['created_at']}\t"
+            f"controls={c['controls']}\t"
+            f"agent_identity={c['agent_identity']}\t"
+            f"model_route={c['model_route']}"
+            + (f"\tcommits={','.join(m['commits'])}" if "commits" in m else "")
         )
     lines.append(
         f"scanned {counts.get('scanned', 0)} rows, "
@@ -212,6 +255,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=_iso_day,
         help="filter by created_at ISO date prefix (YYYY-MM-DD)",
     )
+    p.add_argument(
+        "--repo",
+        type=Path,
+        default=None,
+        help="git checkout to join: matched rows gain the commits whose Plan-Slug trailer "
+        "equals their correlation_key",
+    )
     p.add_argument("--json", action="store_true", dest="as_json", help="emit JSON")
     args = p.parse_args(argv)
 
@@ -222,13 +272,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     rows, counts = scan(args.root)
     matches = select(rows, control=args.control, tier=args.tier, since=args.since)
     full_counts = {**counts, "matched": len(matches)}
+    if args.repo is not None:
+        try:
+            by_plan = commits_by_plan(args.repo)
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)  # noqa: T201
+            return 2
+        for m in matches:
+            m["commits"] = by_plan.get(m["correlation_key"], [])
+        full_counts["commits_with_plan_slug"] = sum(len(v) for v in by_plan.values())
 
     if args.as_json:
         print(  # noqa: T201
             json.dumps({"matches": matches, "counts": full_counts}, indent=2, sort_keys=True)
         )
     else:
-        print(format_result(matches, full_counts))  # noqa: T201
+        text = format_result(matches, full_counts)
+        if args.repo is not None:
+            text += f"\n{full_counts['commits_with_plan_slug']} commits carry a Plan-Slug trailer"
+        print(text)  # noqa: T201
     return 0
 
 

@@ -389,3 +389,40 @@ def test_signature_carries_intake_attribution(service):
 
     assert sig["originator"] == "u-1"
     assert sig["agent_identity"] == "agent:pfactory/k-1"
+
+
+# ── model_route (Factory#1959) ────────────────────────────────────────────
+
+
+def _sig(session):
+    return render_plan_docs(session).run_signature
+
+
+def test_model_route_is_the_gateway_reported_route_through_a_stubbed_gateway(service):
+    from plan.usage import usage_from_obj
+
+    class _Resp(str):
+        headers = {"X-Model-Route": "balanced"}
+
+    session = service.process(service.ingest_text(_PLAN, title="Refund API").session_id)
+    session.record_usage(usage_from_obj(_Resp("{}")))
+    session.contract_result = {"contract": {"execution": {"phase_routes": {"planning": "cheap"}}}}
+    assert _sig(session)["model_route"] == "balanced"  # what ran beats what was planned
+
+
+def test_model_route_falls_back_to_the_planning_route_then_null(processed):
+    assert _sig(processed)["model_route"] is None  # no contract, no gateway
+    processed.contract_result = {"contract": {"execution": {"phase_routes": {"coding": "cheap"}}}}
+    assert _sig(processed)["model_route"] is None  # no planning route
+    processed.contract_result = {
+        "contract": {"execution": {"phase_routes": {"planning": "frontier"}}}
+    }
+    assert _sig(processed)["model_route"] == "frontier"
+
+
+def test_model_route_follows_the_latest_run(processed):
+    from plan.usage import PlanUsage
+
+    processed.record_usage(PlanUsage(route="cheap"))
+    processed.record_usage(PlanUsage(route="frontier"))
+    assert _sig(processed)["model_route"] == "frontier"

@@ -534,6 +534,77 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
             "accept a truncated thread"
         )
 
+    async def fetch_pr_comments(
+        self, pr_number: int, since: datetime | None = None
+    ) -> list[IssueComment]:
+        """Read a pull request's thread comments (Factory#3771).
+
+        The threads endpoint has no ``since`` and no paging cursor, so ``since``
+        is applied client side. Deleted threads and comments are skipped. Raises
+        :class:`ProviderCommentError` rather than returning a partial thread.
+        """
+        cutoff = to_utc(since) if since is not None else None
+        url = (
+            f"{self._base_url}/{self._org}/{self._proj}/_apis/git/repositories/"
+            f"{self._repo_id}/pullrequests/{pr_number}/threads"
+        )
+        try:
+            async with self._client() as client:
+                resp = await client.get(url, params={"api-version": "7.1"})
+                resp.raise_for_status()
+                payload = resp.json() or {}
+        except Exception as exc:
+            raise ProviderCommentError(
+                f"Azure DevOps comment read failed for pull request {pr_number}: {exc}"
+            ) from exc
+
+        collected: list[IssueComment] = []
+        for thread in payload.get("value") or []:
+            if thread.get("isDeleted"):
+                continue
+            for comment in thread.get("comments") or []:
+                if comment.get("isDeleted"):
+                    continue
+                parsed = self._parse_thread_comment(comment, pr_number, thread.get("id"))
+                if cutoff is not None and to_utc(parsed.updated_at) <= cutoff:
+                    continue
+                collected.append(parsed)
+        return oldest_first(collected)
+
+    def _parse_thread_comment(
+        self, comment: dict[str, Any], pr_number: int, thread_id: Any
+    ) -> IssueComment:
+        """Parse one PR thread comment (``author``/``content``/``publishedDate`` keys).
+
+        A comment id is only unique within its thread (every thread starts at 1),
+        so the stable identifier is ``<thread>.<comment>`` and ``threadId`` is kept
+        in ``raw_data`` for consumers that need to reply into the thread.
+        """
+        author = comment.get("author") or {}
+        published = comment.get("publishedDate")
+        return IssueComment(
+            id=f"{thread_id}.{comment.get('id', '')}",
+            issue_number=pr_number,
+            author=(author.get("uniqueName") or author.get("displayName") or "")
+            if isinstance(author, dict)
+            else str(author),
+            body=comment.get("content") or "",
+            created_at=self._parse_datetime(published),
+            updated_at=self._parse_datetime(comment.get("lastContentUpdatedDate") or published),
+            url="",
+            provider=ProviderType.AZURE_DEVOPS,
+            raw_data={**comment, "threadId": thread_id},
+            avatar_url=self._avatar_url(author),
+        )
+
+    @staticmethod
+    def _avatar_url(identity: Any) -> str:
+        """The avatar link on an ADO identity (``_links.avatar.href``), or ""."""
+        links = identity.get("_links") if isinstance(identity, dict) else None
+        avatar = links.get("avatar") if isinstance(links, dict) else None
+        href = avatar.get("href") if isinstance(avatar, dict) else None
+        return href if isinstance(href, str) else ""
+
     def _parse_comment(self, comment: dict[str, Any], issue_number: int) -> IssueComment:
         """Parse an ADO work item comment into the normalised shape."""
         created_by = comment.get("createdBy") or {}
@@ -555,6 +626,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
             url=comment.get("url") or "",
             provider=ProviderType.AZURE_DEVOPS,
             raw_data=comment,
+            avatar_url=self._avatar_url(created_by),
         )
 
     async def assign_to_user(self, issue_number: int, assignees: list[str]) -> None:
