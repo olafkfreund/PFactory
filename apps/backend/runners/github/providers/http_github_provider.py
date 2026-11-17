@@ -270,6 +270,9 @@ class HttpGitHubProvider:
     async def fetch_pr_diff(self, number: int) -> Any:
         raise self._vcs_unsupported("fetch_pr_diff")
 
+    async def fetch_pr_comments(self, *args: Any, **kwargs: Any) -> Any:
+        raise self._vcs_unsupported("fetch_pr_comments")
+
     async def post_review(self, *args: Any, **kwargs: Any) -> Any:
         raise self._vcs_unsupported("post_review")
 

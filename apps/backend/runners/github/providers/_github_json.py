@@ -76,6 +76,7 @@ def parse_comment(data: dict[str, Any], issue_number: int) -> IssueComment:
     """
     user = data.get("user") or {}
     author = user.get("login", "") if isinstance(user, dict) else str(user)
+    avatar = user.get("avatar_url") if isinstance(user, dict) else None
     created = data.get("created_at")
     return IssueComment(
         id=str(data.get("id", "")),
@@ -87,6 +88,7 @@ def parse_comment(data: dict[str, Any], issue_number: int) -> IssueComment:
         url=data.get("html_url") or "",
         provider=ProviderType.GITHUB,
         raw_data=data,
+        avatar_url=avatar if isinstance(avatar, str) else "",
     )
 
 
