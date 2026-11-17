@@ -200,7 +200,9 @@ def commits_by_plan(repo: Path | str) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for record in done.stdout.split("\x01"):
         sha, _, trailers = record.strip().partition("\x00")
-        for value in trailers.split():
+        for value in (v.strip() for v in trailers.splitlines()):
+            if not value:
+                continue
             out.setdefault(value, []).append(sha)
     return out
 

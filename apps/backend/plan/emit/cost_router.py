@@ -259,8 +259,14 @@ def apply_cost_routing(
     merged.update(result["phase_models"])
     execution["phase_models"] = merged
     routes = execution.get("phase_routes")
+    # A role the router re-picked drops its old route: a model absent from the
+    # catalog must not keep the previous model's class.
     execution["phase_routes"] = {
-        **(routes if isinstance(routes, dict) else {}),
+        **{
+            role: route
+            for role, route in (routes if isinstance(routes, dict) else {}).items()
+            if role not in result["phase_models"]
+        },
         **result["phase_routes"],
     }
     execution["routing"] = result["routing"]

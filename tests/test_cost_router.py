@@ -357,3 +357,12 @@ def test_phase_routes_leave_phase_models_unchanged_and_skip_unknown_models():
     assert contract["execution"]["phase_models"]["planning"] == "not-in-catalog"
     assert contract["execution"]["phase_routes"] == {}
     assert baseline["planning"] != "not-in-catalog"
+
+
+def test_a_re_pick_drops_the_previous_route_of_that_role():
+    contract = {"execution": {"autonomy_tier": "hard"}, "final_acceptance": ["a"]}
+    apply_cost_routing(contract, catalog=_CATALOG)
+    assert contract["execution"]["phase_routes"]["planning"] == "frontier"
+    contract["execution"]["routing"]["pinned_model"] = "not-in-catalog"
+    apply_cost_routing(contract, catalog=_CATALOG)
+    assert "planning" not in contract["execution"]["phase_routes"]

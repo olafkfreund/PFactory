@@ -244,6 +244,7 @@ def repo(tmp_path):
     _git(
         r, "commit", "-q", "--allow-empty", "-m", "other\n\nPlan-Slug: pf-005-payments-refund-api-x"
     )
+    _git(r, "commit", "-q", "--allow-empty", "-m", "words\n\nPlan-Slug: pf-006-docs-typo-fix extra")
     _git(r, "commit", "-q", "--allow-empty", "-m", "prose\n\nmentions pf-006-docs-typo-fix only")
     return r
 
@@ -264,15 +265,16 @@ def test_repo_join_matches_the_trailer_value_exactly(repo, capsys):
     payload = json.loads(capsys.readouterr().out)
     by_key = {m["correlation_key"]: m["commits"] for m in payload["matches"]}
     assert by_key["pf-005-payments-refund-api"] == [_head_of(repo, "^ship")]  # not the -x slug
-    assert by_key["pf-006-docs-typo-fix"] == []  # a mention in prose is not a trailer
-    assert payload["counts"]["commits_with_plan_slug"] == 2
+    # neither a prose mention nor a trailer with extra words is the exact value
+    assert by_key["pf-006-docs-typo-fix"] == []
+    assert payload["counts"]["commits_with_plan_slug"] == 3
 
 
 def test_repo_join_text_output_names_the_commits_and_the_count(repo, capsys):
     assert main(["--root", str(FIXTURES), "--repo", str(repo), "--control", "change-mgmt-sod"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].endswith(f"\tcommits={_head_of(repo, '^ship')}")
-    assert lines[-1] == "2 commits carry a Plan-Slug trailer"
+    assert lines[-1] == "3 commits carry a Plan-Slug trailer"
 
 
 def test_without_repo_the_output_is_unchanged(capsys):
