@@ -35,6 +35,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parents[1]
 _BACKEND = _ROOT / "apps" / "backend"
 if str(_BACKEND) not in sys.path:
@@ -91,7 +93,12 @@ def test_the_recon_clone_url_carries_no_token(monkeypatch):
     assert url == "https://x-access-token@github.com/owner/repo.git"
 
 
-def test_the_token_is_absent_from_the_recon_child_argv(monkeypatch):
+# wait_for_helper=True blocks until git-remote-https has connected to the
+# listener, i.e. is alive holding git's inherited fds: the state a loaded CI
+# runner reaches by itself and that hung this test >120s (PFactory#1047).
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize("wait_for_helper", [False, True])
+def test_the_token_is_absent_from_the_recon_child_argv(monkeypatch, wait_for_helper):
     """The property the issue is about, on a real spawned git process."""
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
@@ -115,14 +122,23 @@ def test_the_token_is_absent_from_the_recon_child_argv(monkeypatch):
             argv,
             cwd=kwargs.get("cwd"),
             env=kwargs.get("env"),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            # DEVNULL, not PIPE: git-remote-https inherits stderr and blocks on
+            # the silent listener, so draining a pipe after the kill would wait
+            # on that grandchild until the listener closes (PFactory#1047).
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
+        conn = None
         try:
             cmdline = _published_cmdline(proc.pid)
+            if wait_for_helper:
+                listener.settimeout(10)
+                conn, _ = listener.accept()
         finally:
             proc.kill()
-            proc.communicate()
+            proc.wait()
+            if conn is not None:
+                conn.close()
         seen.append(([str(a) for a in argv], cmdline, dict(kwargs.get("env") or {})))
         return subprocess.CompletedProcess(argv, 0, "", "")
 
