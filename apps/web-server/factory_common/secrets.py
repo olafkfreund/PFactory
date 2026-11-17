@@ -76,6 +76,11 @@ SECRET_PATTERNS: tuple[SecretPattern, ...] = (
         "GitHub fine-grained personal-access token (github_pat_...).",
     ),
     _p(
+        "anthropic-api-key",
+        r"sk-ant-[A-Za-z0-9_-]{10,}",
+        "Anthropic API / OAuth key (sk-ant-...).",
+    ),
+    _p(
         "gitlab-pat",
         r"glpat-[A-Za-z0-9_-]{20,}",
         "GitLab personal-access token (glpat-...).",
