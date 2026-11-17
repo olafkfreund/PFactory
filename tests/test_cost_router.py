@@ -332,3 +332,28 @@ def test_apply_never_raises_on_empty_contract():
     contract: dict = {}
     apply_cost_routing(contract, catalog=_metered_only())
     assert "routing" in contract["execution"]
+
+
+def test_phase_routes_are_the_catalog_class_of_each_pick():
+    contract = {
+        "execution": {"autonomy_tier": "hard", "phase_models": {"qa_fixer": "claude-opus-4-8"}},
+        "final_acceptance": ["a"],
+    }
+    apply_cost_routing(contract, catalog=_CATALOG)
+    execution = contract["execution"]
+    assert execution["phase_routes"]["planning"] == "frontier"
+    for role, model in execution["phase_models"].items():
+        if role in execution["phase_routes"]:
+            assert execution["phase_routes"][role] == _CATALOG[model]["class"]
+    assert set(execution["phase_routes"].values()) <= {"local", "cheap", "balanced", "frontier"}
+    assert "qa_fixer" not in execution["phase_routes"]  # the router does not own it
+
+
+def test_phase_routes_leave_phase_models_unchanged_and_skip_unknown_models():
+    contract = {"execution": {"autonomy_tier": "medium"}, "final_acceptance": ["a"]}
+    baseline = select_phase_models(contract, catalog=_CATALOG)["phase_models"]
+    contract["execution"]["routing"] = {"pinned_model": "not-in-catalog"}
+    apply_cost_routing(contract, catalog=_CATALOG)
+    assert contract["execution"]["phase_models"]["planning"] == "not-in-catalog"
+    assert contract["execution"]["phase_routes"] == {}
+    assert baseline["planning"] != "not-in-catalog"
