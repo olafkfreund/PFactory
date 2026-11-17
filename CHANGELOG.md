@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.8.2 — memory locking and pool merge, plan signature model routes, provider-protocol callers (2026-11-17)
+
+### New Features
+
+- **Plan signature carries the model route (#1051; Factory#1959).** The signature now records `model_route`, `phase_routes` and the governance_cli fields, and joins a plan to its commit.
+
+### Bug Fixes
+
+- **Memory writes are locked and the pool copy merges (#1052; Factory#389).** A flock sidecar guards `confirmed.json`, `scratchpad.json` and the gotchas files, the pool copy can no longer lower counts or drop trust marks, Graphiti writes get the session cap and unverified marker, and dead-end recall gets a project-directory pool with no cross-project read.
+
+### Improvements
+
+- **Service callers use the provider protocol (#1049; RFC-0022 2b).** `factory-github` is re-vendored; the agent_sandbox `.hub-sha` pin follows hub main (#1048; Factory#3737).
+- **The recon argv test cannot block on a git-remote-https grandchild (#1050).**
+
 ## 0.8.1 — sandbox git metadata baseline and remote program refusal (2026-11-17)
 
 ### New Features
