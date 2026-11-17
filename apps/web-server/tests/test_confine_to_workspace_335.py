@@ -148,14 +148,14 @@ def test_strict_tier_rejects_traversal_out_of_a_registered_project(
 def test_registry_paths_are_confined_by_their_writers():
     """...and this is what actually makes those three alerts false positives.
 
-    `add_project` / `update_project` are the only writers of a project's
+    `create_project` / `update_project` are the only writers of a project's
     `path`, and both run the request-supplied value through
     `confine_to_workspace` before it is stored. So the value
     `_resolve_project_path` hands downstream is never caller-supplied text; the
     caller only chooses WHICH already-confined project to address, via a dict
     key guarded by `not in projects`.
     """
-    for fn in (projects_mod.add_project, projects_mod.update_project):
+    for fn in (projects_mod.create_project, projects_mod.update_project):
         src = inspect.getsource(fn)
         assert "confine_to_workspace(" in src, (
             f"{fn.__name__} no longer confines the registered path; the "

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.8.0 — memory ranking, scratchpad dead ends and promotion gates; org stamp on new projects (2026-11-17)
+
+### New Features
+
+- **Memory ranking, scratchpad dead ends and promotion gates (RFC-0021, #1039; Factory#3765, #3766, #3767).** Retrieved memories are ranked, dead ends are kept in a scratchpad, and promotion into long-term memory passes trust gates.
+
+### Bug Fixes
+
+- **New projects are stamped with the creator's org_id (#1036, #1037).** Closes a tenant-scoping gap on project creation.
+
+### Documentation
+
+- Intent, spec and plan for enforcing RBAC on task routes (#1010, #1035).
+
 ## 0.7.2 — token-ceiling terminal status, sandboxed task-route git, CLI pin bump (2026-11-17)
 
 ### Bug Fixes

@@ -32,6 +32,7 @@ _EXPECTED_TOOL_NAMES = {
     "get_build_progress",
     "record_discovery",
     "record_gotcha",
+    "record_dead_end",
     "get_session_context",
     "update_qa_status",
     "test_memory_integration",
