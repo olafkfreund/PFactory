@@ -319,7 +319,7 @@ def check_git_metadata(
             f"git metadata changed since the baseline: {', '.join(changed)}; "
             "check .git/config and .git/info/attributes, then re-baseline: "
             f"{_baseline_dir_hint()}python -m agent_sandbox.git_metadata --rebaseline "
-            f"{Path(cwd).resolve()}"
+            f"{shlex.quote(str(Path(cwd).resolve()))}"
         )
 
 
