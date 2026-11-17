@@ -20,12 +20,14 @@ from .protocol import (
     IssueComment,
     IssueData,
     IssueFilters,
+    IssueRef,
     LabelData,
     PRData,
     PRFilters,
     ProviderCommentError,
     ProviderType,
     ReviewData,
+    as_issue_int,
     oldest_first,
     to_utc,
 )
@@ -325,7 +327,7 @@ class GitLabProvider(FanoutCommentsMixin):
     async def close_pr(self, pr_number: int, comment: str | None = None) -> bool:
         """Close GitLab Merge Request without merging."""
         if comment:
-            await self.add_comment(pr_number, comment)
+            await self.add_comment(str(pr_number), comment)
 
         async with self._client() as client:
             resp = await client.put(
@@ -350,11 +352,12 @@ class GitLabProvider(FanoutCommentsMixin):
     # -------------------------------------------------------------------------
     # Issue Operations
     # -------------------------------------------------------------------------
-    async def fetch_issue(self, number: int) -> IssueData:
+    async def fetch_issue(self, number: IssueRef) -> IssueData:
         """Fetch a GitLab issue by its IID."""
+        iid = as_issue_int(number, "GitLab")
         async with self._client() as client:
             resp = await client.get(
-                f"/api/v4/projects/{self._project_id}/issues/{number}"
+                f"/api/v4/projects/{self._project_id}/issues/{iid}"
             )
             resp.raise_for_status()
             issue = resp.json()
@@ -422,50 +425,52 @@ class GitLabProvider(FanoutCommentsMixin):
             resp.raise_for_status()
             return self._parse_issue_data(resp.json())
 
-    async def close_issue(self, number: int, comment: str | None = None) -> bool:
+    async def close_issue(self, number: IssueRef, comment: str | None = None) -> bool:
         """Close GitLab issue."""
+        iid = as_issue_int(number, "GitLab")
         if comment:
             await self.add_comment(number, comment)
 
         async with self._client() as client:
             resp = await client.put(
-                f"/api/v4/projects/{self._project_id}/issues/{number}",
+                f"/api/v4/projects/{self._project_id}/issues/{iid}",
                 json={"state_event": "close"},
             )
             return resp.status_code == 200
 
-    async def add_comment(self, issue_or_pr_number: int, body: str) -> int:
+    async def add_comment(self, issue_or_pr_number: IssueRef, body: str) -> int:
         """Add a general comment to an issue or merge request."""
+        iid = as_issue_int(issue_or_pr_number, "GitLab")
         # Try merge request notes first, if not found or failed, try issues notes
         async with self._client() as client:
             mr_resp = await client.post(
-                f"/api/v4/projects/{self._project_id}/merge_requests/{issue_or_pr_number}/notes",
+                f"/api/v4/projects/{self._project_id}/merge_requests/{iid}/notes",
                 json={"body": body},
             )
             if mr_resp.status_code == 201:
                 return mr_resp.json()["id"]
 
             issue_resp = await client.post(
-                f"/api/v4/projects/{self._project_id}/issues/{issue_or_pr_number}/notes",
+                f"/api/v4/projects/{self._project_id}/issues/{iid}/notes",
                 json={"body": body},
             )
             issue_resp.raise_for_status()
             return issue_resp.json()["id"]
 
     async def fetch_comments(
-        self, issue_number: int, since: datetime | None = None
+        self, issue_number: IssueRef, since: datetime | None = None
     ) -> list[IssueComment]:
         """Read one issue's notes (Factory#375); see :meth:`_fetch_notes`."""
-        return await self._fetch_notes("issues", issue_number, since)
+        return await self._fetch_notes("issues", str(as_issue_int(issue_number, "GitLab")), since)
 
     async def fetch_pr_comments(
         self, pr_number: int, since: datetime | None = None
     ) -> list[IssueComment]:
         """Read one merge request's notes (Factory#3771); see :meth:`_fetch_notes`."""
-        return await self._fetch_notes("merge_requests", pr_number, since)
+        return await self._fetch_notes("merge_requests", str(pr_number), since)
 
     async def _fetch_notes(
-        self, resource: str, issue_number: int, since: datetime | None
+        self, resource: str, issue_number: str, since: datetime | None
     ) -> list[IssueComment]:
         """Read one issue's or merge request's notes (Factory#375).
 
@@ -526,7 +531,7 @@ class GitLabProvider(FanoutCommentsMixin):
         )
 
     def _parse_note(
-        self, note: dict[str, Any], issue_number: int, resource: str = "issues"
+        self, note: dict[str, Any], issue_number: str, resource: str = "issues"
     ) -> IssueComment:
         """Parse a GitLab note into the normalised shape."""
         author = note.get("author") or {}
@@ -553,7 +558,7 @@ class GitLabProvider(FanoutCommentsMixin):
     # insensitive) for callers that want explicit naming.
     _DUO_ALIASES = frozenset({"copilot", "duo", "gitlab-duo"})
 
-    async def assign_to_user(self, issue_number: int, assignees: list[str]) -> None:
+    async def assign_to_user(self, issue_number: IssueRef, assignees: list[str]) -> None:
         """Trigger a GitLab Duo Workflow against the issue (#98, V1.5).
 
         Mirrors the GitHub provider's ``assign_to_user`` contract: when
@@ -570,6 +575,7 @@ class GitLabProvider(FanoutCommentsMixin):
         Silently no-ops on auth/entitlement failures (401/403) so the
         tracker can detect the missed assignment by re-reading the issue.
         """
+        iid = as_issue_int(issue_number, "GitLab")
         if not assignees:
             return
 
@@ -579,12 +585,12 @@ class GitLabProvider(FanoutCommentsMixin):
         ]
 
         if wants_duo:
-            await self._trigger_duo_workflow(issue_number)
+            await self._trigger_duo_workflow(iid)
 
         # Regular GitLab assignment for any non-Duo usernames (mirrors the
         # behavior the GitHub provider has for non-Copilot users).
         if regular_logins:
-            await self._assign_users(issue_number, regular_logins)
+            await self._assign_users(iid, regular_logins)
 
     async def _trigger_duo_workflow(self, issue_iid: int) -> None:
         """POST to /api/v4/ai/duo_workflows/workflows with the issue context.
@@ -701,30 +707,32 @@ class GitLabProvider(FanoutCommentsMixin):
     # -------------------------------------------------------------------------
     # Label Operations
     # -------------------------------------------------------------------------
-    async def apply_labels(self, issue_or_pr_number: int, labels: list[str]) -> None:
+    async def apply_labels(self, issue_or_pr_number: IssueRef, labels: list[str]) -> None:
         """Add labels to MR or Issue."""
+        iid = as_issue_int(issue_or_pr_number, "GitLab")
         async with self._client() as client:
             # Try MR update first, then issue update
             mr_resp = await client.put(
-                f"/api/v4/projects/{self._project_id}/merge_requests/{issue_or_pr_number}",
+                f"/api/v4/projects/{self._project_id}/merge_requests/{iid}",
                 json={"add_labels": ",".join(labels)},
             )
             if mr_resp.status_code != 200:
                 await client.put(
-                    f"/api/v4/projects/{self._project_id}/issues/{issue_or_pr_number}",
+                    f"/api/v4/projects/{self._project_id}/issues/{iid}",
                     json={"add_labels": ",".join(labels)},
                 )
 
-    async def remove_labels(self, issue_or_pr_number: int, labels: list[str]) -> None:
+    async def remove_labels(self, issue_or_pr_number: IssueRef, labels: list[str]) -> None:
         """Remove labels from MR or Issue."""
+        iid = as_issue_int(issue_or_pr_number, "GitLab")
         async with self._client() as client:
             mr_resp = await client.put(
-                f"/api/v4/projects/{self._project_id}/merge_requests/{issue_or_pr_number}",
+                f"/api/v4/projects/{self._project_id}/merge_requests/{iid}",
                 json={"remove_labels": ",".join(labels)},
             )
             if mr_resp.status_code != 200:
                 await client.put(
-                    f"/api/v4/projects/{self._project_id}/issues/{issue_or_pr_number}",
+                    f"/api/v4/projects/{self._project_id}/issues/{iid}",
                     json={"remove_labels": ",".join(labels)},
                 )
 
@@ -810,7 +818,7 @@ class GitLabProvider(FanoutCommentsMixin):
     # -------------------------------------------------------------------------
     def _parse_issue_data(self, issue: dict[str, Any]) -> IssueData:
         return IssueData(
-            number=issue["iid"],
+            number=str(issue["iid"]),
             title=issue["title"],
             body=issue.get("description") or "",
             author=issue.get("author", {}).get("username", ""),

@@ -378,11 +378,12 @@ async def check_new_issues(project_id: str) -> list[dict[str, Any]]:
 
     new: list[dict[str, Any]] = []
     for iss in issues:
-        if iss.number in existing:
+        number = int(iss.number)  # `existing` holds ints (spec dir names)
+        if number in existing:
             continue
         new.append(
             {
-                "number": iss.number,
+                "number": number,
                 "title": iss.title,
                 "body": iss.body,
                 "state": iss.state,
@@ -466,9 +467,9 @@ async def start_auto_fix(project_id: str, issue_number: int) -> dict[str, Any]:
     if spec_id is None:
         # Fetch the issue and create the spec
         provider = _provider_for(project_id)
-        iss = await provider.fetch_issue(issue_number)
+        iss = await provider.fetch_issue(str(issue_number))
         issue_dict = {
-            "number": iss.number,
+            "number": int(iss.number),
             "title": iss.title,
             "body": iss.body,
             "state": iss.state,

@@ -129,7 +129,7 @@ async def run_delegation(
             )
             skipped_dup = True
         else:
-            await provider.add_comment(issue_number, plan_md)
+            await provider.add_comment(str(issue_number), plan_md)
             posted = True
     except Exception as e:
         logger.warning(
@@ -144,7 +144,7 @@ async def run_delegation(
     # ------------------------------------------------------------------
     assigned = False
     try:
-        await provider.assign_to_user(issue_number, ["Copilot"])
+        await provider.assign_to_user(str(issue_number), ["Copilot"])
         assigned = True
     except NotImplementedError:
         logger.warning(
@@ -187,7 +187,7 @@ async def _existing_enrichment_comment(provider: Any, issue_number: int) -> int 
     (Factory#3771), so it works for every provider rather than only GitHub.
     """
     try:
-        comments = await provider.fetch_comments(issue_number)
+        comments = await provider.fetch_comments(str(issue_number))
     except Exception as e:
         logger.debug(
             "[delegation_runner] could not list comments on issue=%s: %s",
