@@ -145,6 +145,7 @@ def merge_driver_pins(
 
         def check(cwd: str | os.PathLike[str], _run: object) -> None:
             agent_sandbox.check_git_metadata(cwd)
+
     pins: list[str] = agent_sandbox.merge_driver_pins(
         cwd, run, env if env is not None else git_env(), check
     )
