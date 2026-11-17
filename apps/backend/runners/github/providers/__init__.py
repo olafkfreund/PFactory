@@ -23,6 +23,7 @@ from .github_provider import GitHubProvider
 from .gitlab_provider import GitLabProvider
 from .http_github_provider import HttpGitHubProvider
 from .protocol import (
+    CodeProvider,
     FanoutCommentsMixin,
     GitProvider,
     IssueComment,
@@ -34,6 +35,7 @@ from .protocol import (
     ProviderType,
     ReviewData,
     ReviewFinding,
+    WorkItemProvider,
     fanout_comments,
     oldest_first,
 )
@@ -41,6 +43,8 @@ from .protocol import (
 __all__ = [
     # Protocol
     "GitProvider",
+    "WorkItemProvider",
+    "CodeProvider",
     "PRData",
     "IssueData",
     "IssueComment",

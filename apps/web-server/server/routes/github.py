@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path as FilePath
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
@@ -1364,114 +1365,40 @@ def _map_provider_pr(pr) -> dict:
     }
 
 
+def _map_provider_comment(comment: Any) -> dict[str, Any]:
+    """Map a protocol IssueComment to the comment shape the frontend renders."""
+    from runners.github.providers.protocol import to_iso_utc
+
+    return {
+        "id": int(comment.id) if comment.id.isdigit() else comment.id,
+        "body": comment.body,
+        "user": {"login": comment.author, "avatar_url": comment.avatar_url},
+        "created_at": to_iso_utc(comment.created_at),
+        "updated_at": to_iso_utc(comment.updated_at),
+    }
+
+
 async def _get_provider_issue_comments(provider, issueNumber: int) -> list[dict]:
-    """Fetch and map issue/PR comments using GitProvider API endpoints."""
-    from runners.github.providers.protocol import ProviderType
+    """Fetch and map issue/PR comments through the provider protocol (Factory#3771).
 
-    comments = []
-
-    if provider.provider_type == ProviderType.GITLAB:
+    The number may name an issue/work item or a pull request. The issue thread is
+    read first; if that read fails the PR thread is tried (GitLab merge-request
+    notes, Azure DevOps PR threads). A second failure is logged and yields no
+    comments, as before.
+    """
+    try:
+        found = await provider.fetch_comments(issueNumber)
+    except Exception:
         try:
-            notes = await provider.api_get(
-                f"/api/v4/projects/{provider._project_id}/issues/{issueNumber}/notes"
+            found = await provider.fetch_pr_comments(issueNumber)
+        except Exception as exc:
+            logger.warning(
+                "get_issue_comments: failed to fetch comments for issue %s: %s",
+                sanitize_log(issueNumber),
+                sanitize_log(exc),
             )
-        except Exception:
-            try:
-                notes = await provider.api_get(
-                    f"/api/v4/projects/{provider._project_id}/merge_requests/{issueNumber}/notes"
-                )
-            except Exception:
-                notes = []
-
-        for note in notes:
-            if note.get("system"):
-                continue
-            author = note.get("author", {})
-            comments.append(
-                {
-                    "id": note.get("id", 0),
-                    "body": note.get("body", ""),
-                    "user": {
-                        "login": author.get("username", "") or author.get("name", ""),
-                        "avatar_url": author.get("avatar_url", ""),
-                    },
-                    "created_at": note.get("created_at", ""),
-                    "updated_at": note.get("updated_at", ""),
-                }
-            )
-
-    elif provider.provider_type == ProviderType.AZURE_DEVOPS:
-        try:
-            url = f"{provider._base_url}/{provider._org}/{provider._proj}/_apis/wit/workItems/{issueNumber}/comments?api-version=7.1-preview.3"
-            resp = await provider.api_get(url)
-            comments_raw = resp.get("comments", [])
-            for c in comments_raw:
-                author = c.get("createdBy", {})
-                comments.append(
-                    {
-                        "id": c.get("id", 0),
-                        "body": c.get("text", ""),
-                        "user": {
-                            "login": author.get("uniqueName", "") or author.get("displayName", ""),
-                            "avatar_url": author.get("_links", {})
-                            .get("avatar", {})
-                            .get("href", ""),
-                        },
-                        "created_at": c.get("createdDate", ""),
-                        "updated_at": c.get("modifiedDate", ""),
-                    }
-                )
-        except Exception:
-            try:
-                url = f"{provider._base_url}/{provider._org}/{provider._proj}/_apis/git/repositories/{provider._repo_id}/pullRequests/{issueNumber}/threads?api-version=7.1"
-                resp = await provider.api_get(url)
-                for thread in resp.get("value", []):
-                    if thread.get("isDeleted"):
-                        continue
-                    for c in thread.get("comments", []):
-                        if c.get("isDeleted"):
-                            continue
-                        author = c.get("author", {})
-                        comments.append(
-                            {
-                                "id": c.get("id", 0),
-                                "body": c.get("content", ""),
-                                "user": {
-                                    "login": author.get("uniqueName", "")
-                                    or author.get("displayName", ""),
-                                    "avatar_url": author.get("_links", {})
-                                    .get("avatar", {})
-                                    .get("href", ""),
-                                },
-                                "created_at": c.get("publishedDate", ""),
-                                "updated_at": c.get("lastContentUpdatedDate", ""),
-                            }
-                        )
-            except Exception:
-                pass
-    else:
-        # GitHub api-based fallback
-        try:
-            url = f"repos/{provider.repo}/issues/{issueNumber}/comments"
-            comments_raw = await provider.api_get(url)
-            for c in comments_raw:
-                user = c.get("user", {})
-                comments.append(
-                    {
-                        "id": c.get("id", 0),
-                        "body": c.get("body", ""),
-                        "user": {
-                            "login": user.get("login", ""),
-                            "avatar_url": user.get("avatar_url", ""),
-                        },
-                        "created_at": c.get("created_at", ""),
-                        "updated_at": c.get("updated_at", ""),
-                    }
-                )
-        except Exception:
-            pass
-
-    return comments
+            return []
+    return [_map_provider_comment(comment) for comment in found]
 
 
 @project_router.get("/repositories")
