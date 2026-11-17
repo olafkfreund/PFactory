@@ -297,6 +297,15 @@ _SOURCES_BY_SUBTASK_ID: dict[str, str] = {
 }
 
 
+# Fixtures 0, 2 and 3 have nothing the AST mutator can flip, so the probe returns
+# no_mutation without calling the runner; the other three are mutated and judged by
+# the runner's returncode (non-zero = killed, zero = survived).
+_NO_MUTATION_IDS = {_SUBTASK_IDS[i] for i in (0, 2, 3)}
+_EXPECTED_MUTATION_KILLED = {
+    sid: "no_mutation" if sid in _NO_MUTATION_IDS else "killed" for sid in _SUBTASK_IDS
+}
+
+
 # ── Mocks ──────────────────────────────────────────────────────────────
 
 
@@ -412,6 +421,12 @@ def _install_evaluator_sdk_mock(
             captured_prompt.append(prompt)
         # The helper emits one "### Test `<id>`" sub-block per test.
         test_ids = re.findall(r"### Test `([^`]+)`", prompt)
+        # Echo the mutation signal the evaluator actually computed (not a literal), so a
+        # broken mutation path shows up in verdicts.json.
+        mutation_of = {
+            tid: re.search(r"- mutation: (\w+)", block).group(1)  # type: ignore[union-attr]
+            for tid, block in zip(test_ids, re.split(r"### Test `[^`]+`", prompt)[1:], strict=True)
+        }
         doc = {
             "evaluator_version": "task7-commit5",
             "mode": "initial",
@@ -426,7 +441,7 @@ def _install_evaluator_sdk_mock(
                         "coverage_delta_pct": 0.0,
                         "coverage_new_lines": 0,
                         "stability": "stable",
-                        "mutation": "killed",
+                        "mutation": mutation_of[tid],
                         "lint_promotion": "no findings",
                     },
                     "semantic_relevance": "high",
@@ -516,6 +531,33 @@ async def test_full_chain_planner_gen_functional_evaluator_happy(
     # Eq compare or a bool/int Constant → all 6 mutate)
     assert len(mutant_files) >= 1, "mutate_probe didn't write any mutants"
 
+    # 5. The runner's returncode=1 must surface as KILLED for every mutated test.
+    assert {v["test_id"]: v["signals_summary"]["mutation"] for v in verdicts["verdicts"]} == (
+        _EXPECTED_MUTATION_KILLED
+    )
+
+
+@pytest.mark.asyncio
+async def test_surviving_mutants_are_reported_as_survived(
+    workspace: Path,
+    project_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runner returncode=0 on a mutant means it survived; the signal must say so."""
+    _install_planner_mock(monkeypatch)
+    _install_gen_functional_mock(monkeypatch)
+    _install_evaluator_runner_mock(monkeypatch, mutation_returncode=0)  # SURVIVED
+    _install_evaluator_sdk_mock(monkeypatch, verdict_for_id=lambda _tid: "accept")
+
+    await run_planner(workspace, project_dir, mode="initial")
+    await run_gen_functional(workspace, project_dir, mode="initial")
+    assert await run_evaluator(workspace, project_dir, mode="initial") is True
+
+    verdicts = json.loads((workspace / "findings" / "verdicts.json").read_text())
+    assert {v["test_id"]: v["signals_summary"]["mutation"] for v in verdicts["verdicts"]} == {
+        sid: "no_mutation" if sid in _NO_MUTATION_IDS else "survived" for sid in _SUBTASK_IDS
+    }
+
 
 @pytest.mark.asyncio
 async def test_chain_with_evaluator_mixed_verdicts(
@@ -541,8 +583,10 @@ async def test_chain_with_evaluator_mixed_verdicts(
     assert await run_evaluator(workspace, project_dir, mode="initial") is True
 
     verdicts = json.loads((workspace / "findings" / "verdicts.json").read_text())
-    verdict_values = {v["verdict"] for v in verdicts["verdicts"]}
-    assert verdict_values == {"accept", "reject", "flag"}
+    # Per-id mapping: a verdict landing on the wrong test must fail this.
+    assert {v["test_id"]: v["verdict"] for v in verdicts["verdicts"]} == dict(
+        zip(_SUBTASK_IDS, ("accept", "accept", "reject", "reject", "flag", "flag"), strict=True)
+    )
 
     status = json.loads((workspace / "status.json").read_text())
     assert status["status"] == "evaluated"

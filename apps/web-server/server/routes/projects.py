@@ -18,7 +18,7 @@ from factory_common.logsafe import sanitize_log
 from server.error_ref import error_message
 from server.routes.project_authz import require_project_access
 from server.services import task_log_store
-from server.services.git_utils import confine_to_workspace, safe_spec_component
+from server.services.git_utils import confine_to_workspace, git_run, safe_spec_component
 from server.services.project_paths import (
     NO_LOCAL_CLONE_DETAIL,
     get_projects_file,
@@ -944,7 +944,6 @@ async def update_project_settings(project_id: str, settings: ProjectSettingsUpda
 async def list_project_worktrees(project_id: str):
     """List worktrees for a project with detailed stats."""
     import re
-    import subprocess
 
     projects = load_projects()
     if project_id not in projects:
@@ -958,7 +957,7 @@ async def list_project_worktrees(project_id: str):
 
     # Get the base branch (current branch of main repo)
     try:
-        base_result = subprocess.run(
+        base_result = git_run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=str(project_path),
             capture_output=True,
@@ -971,7 +970,7 @@ async def list_project_worktrees(project_id: str):
 
     # List worktrees using git
     try:
-        result = subprocess.run(
+        result = git_run(
             ["git", "worktree", "list", "--porcelain"],
             cwd=str(project_path),
             capture_output=True,
@@ -1017,7 +1016,7 @@ async def list_project_worktrees(project_id: str):
             # Get diff stats between base branch and worktree branch
             try:
                 # Get commit count
-                commit_result = subprocess.run(
+                commit_result = git_run(
                     ["git", "rev-list", "--count", f"{base_branch}..{branch}"],
                     cwd=wt_path,
                     capture_output=True,
@@ -1029,7 +1028,7 @@ async def list_project_worktrees(project_id: str):
                 )
 
                 # Get diff stats
-                diff_result = subprocess.run(
+                diff_result = git_run(
                     ["git", "diff", "--shortstat", f"{base_branch}...{branch}"],
                     cwd=wt_path,
                     capture_output=True,

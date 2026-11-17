@@ -209,3 +209,31 @@ def test_ceiling_is_per_process_run_not_lifetime(monkeypatch):
     monkeypatch.setattr(svc_mod, "decompose", spend)
     with pytest.raises(g.TokenCeilingError):  # this run alone crosses it
         svc.process(s.session_id)
+
+
+def test_ceiling_halt_writes_the_terminal_completion_event(monkeypatch, tmp_path):
+    """A ceiling halt must reach the sentinel (not only a usage snapshot) with halt_reason."""
+    import json  # noqa: PLC0415
+
+    from plan import service as svc_mod  # noqa: PLC0415
+    from plan.usage import PlanUsage  # noqa: PLC0415
+
+    monkeypatch.setenv(P + "RUN_TOKEN_CEILING", "100")
+    monkeypatch.setenv("PFACTORY_COMPLETION_SENTINEL", "1")
+    monkeypatch.setenv("PFACTORY_COMPLETION_SENTINEL_DIR", str(tmp_path))
+    svc = svc_mod.PlanService()
+    s = svc.ingest_text(
+        "# Plan\n\n## Acceptance Criteria\n- It works\n", title="t", category="software"
+    )
+    real = svc_mod.decompose
+
+    def spend(*a, usage_sink=None, **kw):
+        usage_sink.append(PlanUsage(input_tokens=150))
+        return real(*a, usage_sink=usage_sink, **kw)
+
+    monkeypatch.setattr(svc_mod, "decompose", spend)
+    with pytest.raises(g.TokenCeilingError):
+        svc.process(s.session_id)
+    event = json.loads((tmp_path / s.session_id / "COMPLETED.json").read_text())
+    assert event["status"] == "failed"
+    assert event["halt_reason"].startswith("token_ceiling")

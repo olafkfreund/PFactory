@@ -11,7 +11,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from .git_utils import assert_safe_git_ref, confine_to_project, safe_spec_component
+from .git_utils import assert_safe_git_ref, confine_to_project, git_run, safe_spec_component
 
 
 class TerminalWorktreeService:
@@ -345,6 +345,4 @@ class TerminalWorktreeService:
         Raises:
             subprocess.CalledProcessError: If check=True and command fails
         """
-        return subprocess.run(
-            cmd, cwd=self.project_path, capture_output=True, check=check, text=True
-        )
+        return git_run(cmd, cwd=self.project_path, capture_output=True, check=check, text=True)

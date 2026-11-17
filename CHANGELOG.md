@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.7.2 — token-ceiling terminal status, sandboxed task-route git, CLI pin bump (2026-11-17)
+
+### Bug Fixes
+
+- **A task that hits the token ceiling now ends in a terminal status (#1027, #1026).** Task routes run git through the sandboxed, pinned wrapper, and the remaining unsandboxed git calls, a stale-log gap and an evaluator-test gap are closed (#1029).
+
+### Dependencies
+
+- **Baked agent CLI pins bumped (#1003):** claude-code 2.1.325, gemini-cli 0.68.0, codex 0.169.0.
+- **Hub shared packages re-vendored (#1028, Factory#3745).**
+
 ## 0.7.1 — review fixes for terminal env, tenant check, memory caps, project env, run guard (2026-11-16)
 
 ### Bug Fixes
