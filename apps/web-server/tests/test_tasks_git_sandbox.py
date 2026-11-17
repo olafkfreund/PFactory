@@ -63,3 +63,13 @@ def test_git_run_blocks_external_diff_and_textconv(tmp_path: Path) -> None:
     git_utils.git_run(["git", "diff"], cwd=tmp_path, capture_output=True, text=True)
     git_utils.git_run(["git", "show", "HEAD"], cwd=tmp_path, capture_output=True, text=True)
     assert not marker.exists()
+
+
+def test_other_routes_and_services_have_no_bare_git_subprocess_run() -> None:
+    """PFactory#1026: github.py, projects.py and terminal_worktree_service.py use git_run."""
+    server = _WEB_SERVER / "server"
+    for rel in ("routes/github.py", "routes/projects.py"):
+        src = (server / rel).read_text()
+        assert re.findall(r'subprocess\.run\(\s*\[\s*"git"', src) == [], rel
+    # Its helper passes a variable argv, so a literal scan would miss a regression.
+    assert "subprocess.run(" not in (server / "services/terminal_worktree_service.py").read_text()
