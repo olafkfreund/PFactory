@@ -76,6 +76,7 @@ def parse_comment(data: dict[str, Any], issue_number: int) -> IssueComment:
     """
     user = data.get("user") or {}
     author = user.get("login", "") if isinstance(user, dict) else str(user)
+    avatar = user.get("avatar_url") if isinstance(user, dict) else None
     created = data.get("created_at")
     return IssueComment(
         id=str(data.get("id", "")),
@@ -87,6 +88,7 @@ def parse_comment(data: dict[str, Any], issue_number: int) -> IssueComment:
         url=data.get("html_url") or "",
         provider=ProviderType.GITHUB,
         raw_data=data,
+        avatar_url=avatar if isinstance(avatar, str) else "",
     )
 
 
@@ -174,3 +176,111 @@ def group_bulk_comments(
         if number in grouped:
             grouped[number].append(parse_comment(item, number))
     return {number: oldest_first(comments) for number, comments in grouped.items()}
+
+
+# The Copilot Coding Agent's bot login on GitHub.
+# Verified via GraphQL suggestedActors(capabilities: [CAN_BE_ASSIGNED]).
+COPILOT_ALIAS = "copilot"
+COPILOT_BOT_LOGIN = "copilot-swe-agent"
+
+
+async def assign_actors(
+    graphql: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]],
+    repo: str,
+    issue_number: int,
+    assignees: list[str],
+) -> None:
+    """Assign users or the Copilot Coding Agent to an issue over GraphQL.
+
+    Shared by both GitHub providers so the Copilot semantics cannot drift
+    between the gh-CLI transport and the token transport; ``graphql`` is each
+    provider's own transport. Silently returns when the agent is disabled or no
+    actor resolves, so the caller verifies by re-reading the issue.
+    """
+    if not assignees:
+        return
+
+    owner, name = repo.split("/", 1)
+    wants_copilot = any(a.strip().lower() == COPILOT_ALIAS for a in assignees)
+    regular_logins = [a for a in assignees if a.strip().lower() != COPILOT_ALIAS]
+
+    # Resolve actor node IDs. suggestedActors is the only way to get
+    # the Copilot bot's GraphQL node ID; it also tells us whether the
+    # agent is enabled on this repo at all.
+    actors_query = """
+    query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        id
+        suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 100) {
+          nodes { login __typename ... on Bot { id } ... on User { id } }
+        }
+      }
+    }
+    """
+    actors_resp = await graphql(actors_query, {"owner": owner, "name": name})
+    repo_node = actors_resp.get("data", {}).get("repository") or {}
+    nodes = repo_node.get("suggestedActors", {}).get("nodes", []) if repo_node else []
+
+    actor_ids: list[str] = []
+
+    if wants_copilot:
+        bot_id = next(
+            (
+                n.get("id")
+                for n in nodes
+                if n.get("__typename") == "Bot"
+                and n.get("login") == COPILOT_BOT_LOGIN
+                and n.get("id")
+            ),
+            None,
+        )
+        if bot_id is None:
+            # Copilot Coding Agent isn't enabled / available — silent
+            # no-op per the protocol contract. The tracker will detect
+            # this by re-fetching the issue's assignees.
+            return
+        actor_ids.append(bot_id)
+
+    for login in regular_logins:
+        user_id = next(
+            (
+                n.get("id")
+                for n in nodes
+                if n.get("__typename") == "User" and n.get("login") == login and n.get("id")
+            ),
+            None,
+        )
+        if user_id is not None:
+            actor_ids.append(user_id)
+
+    if not actor_ids:
+        return
+
+    # Resolve the issue's node ID.
+    issue_resp = await graphql(
+        """
+        query($owner: String!, $name: String!, $number: Int!) {
+          repository(owner: $owner, name: $name) {
+            issue(number: $number) { id }
+          }
+        }
+        """,
+        {"owner": owner, "name": name, "number": issue_number},
+    )
+    # `or {}` at each level: a deleted/inaccessible issue comes back as null,
+    # which `.get(..., {})` would not catch (Factory#3773).
+    issue_node = ((issue_resp.get("data") or {}).get("repository") or {}).get("issue") or {}
+    assignable_id = issue_node.get("id")
+    if not assignable_id:
+        return
+
+    await graphql(
+        """
+        mutation($assignableId: ID!, $actorIds: [ID!]!) {
+          replaceActorsForAssignable(
+            input: {assignableId: $assignableId, actorIds: $actorIds}
+          ) { assignable { ... on Issue { number } } }
+        }
+        """,
+        {"assignableId": assignable_id, "actorIds": actor_ids},
+    )

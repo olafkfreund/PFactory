@@ -30,7 +30,8 @@ credential comes from.
 What this covers, and what it does not
 --------------------------------------
 This provider implements the **work-item** half of the protocol — issues,
-comments, repository info. It does NOT implement the **code/VCS** half
+comments, assignment, labels, repository info (complete since Factory#3773).
+It does NOT implement the **code/VCS** half
 (``fetch_pr``, ``fetch_pr_diff``, ``post_review``, ``merge_pr``,
 ``enable_auto_merge``, ``get_default_branch``), and that is deliberate rather
 than unfinished.
@@ -58,10 +59,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from ._github_json import (
+    assign_actors,
     PAGE_SIZE as _GITHUB_PAGE_SIZE,
     collect_comment_pages as _collect_comment_pages,
     group_bulk_comments as _group_bulk_comments,
@@ -73,12 +76,24 @@ from .protocol import (
     IssueComment,
     IssueData,
     IssueFilters,
+    LabelData,
     ProviderType,
     oldest_first,
     to_iso_utc,
 )
 
 _TIMEOUT_SECONDS = 10.0
+_NOT_FOUND = 404
+_UNPROCESSABLE = 422
+
+
+def _already_exists(resp: httpx.Response) -> bool:
+    """True when a 422 says the label exists, as opposed to any other validation error."""
+    try:
+        errors = resp.json().get("errors") or []
+    except ValueError:
+        return False
+    return any(isinstance(e, dict) and e.get("code") == "already_exists" for e in errors)
 
 
 @dataclass
@@ -104,12 +119,12 @@ class HttpGitHubProvider:
     _transport: httpx.AsyncBaseTransport | None = None
 
     @property
-    def provider_type(self) -> ProviderType:
-        return ProviderType.GITHUB
-
-    @property
     def repo(self) -> str:
         return self._repo
+
+    @property
+    def provider_type(self) -> ProviderType:
+        return ProviderType.GITHUB
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -186,7 +201,11 @@ class HttpGitHubProvider:
                 if not isinstance(batch, list) or not batch:
                     break
                 for item in batch:
-                    if not filters.include_prs and isinstance(item, dict) and "pull_request" in item:
+                    if (
+                        not filters.include_prs
+                        and isinstance(item, dict)
+                        and "pull_request" in item
+                    ):
                         continue
                     issues.append(self._parse_issue(item))
                 if len(batch) < _GITHUB_PAGE_SIZE:
@@ -194,7 +213,120 @@ class HttpGitHubProvider:
                 page += 1
         return issues[: filters.limit]
 
+    async def close_issue(self, number: int, comment: str | None = None) -> bool:
+        """Close an issue, optionally commenting first.
+
+        Returns ``False`` on any HTTP or transport error rather than raising,
+        matching :meth:`GitHubProvider.close_issue` — callers treat the result as
+        "did it close", and the two transports must answer the same way.
+        """
+        try:
+            if comment:
+                await self.add_comment(number, comment)
+            async with self._client() as client:
+                resp = await client.patch(
+                    f"/repos/{self._repo}/issues/{number}", json={"state": "closed"}
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError:
+            return False
+        return True
+
+    async def assign_to_user(self, issue_number: int, assignees: list[str]) -> None:
+        """Assign users or the Copilot agent; the algorithm is shared with the gh provider."""
+        await assign_actors(
+            self._graphql, repo=self._repo, issue_number=issue_number, assignees=assignees
+        )
+
+    async def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        """One GraphQL request. GitHub Enterprise serves it at ``/api/graphql``."""
+        base = self._base_url.rstrip("/")
+        url = (base.removesuffix("/v3") if base.endswith("/api/v3") else base) + "/graphql"
+        async with self._client() as client:
+            resp = await client.post(url, json={"query": query, "variables": variables})
+            resp.raise_for_status()
+            payload = resp.json()
+        result = dict(payload) if isinstance(payload, dict) else {}
+        # GraphQL reports failures (FORBIDDEN, NOT_FOUND...) with HTTP 200 and an
+        # `errors` array; `gh api graphql` exits non-zero on those, so the two
+        # transports must both raise rather than let a failed mutation look done.
+        if result.get("errors"):
+            raise RuntimeError(f"GitHub GraphQL error: {result['errors']}")
+        return result
+
+    # ── labels ───────────────────────────────────────────────────────────────
+
+    async def apply_labels(self, issue_or_pr_number: int, labels: list[str]) -> None:
+        async with self._client() as client:
+            resp = await client.post(
+                f"/repos/{self._repo}/issues/{issue_or_pr_number}/labels", json={"labels": labels}
+            )
+            resp.raise_for_status()
+
+    async def remove_labels(self, issue_or_pr_number: int, labels: list[str]) -> None:
+        """One DELETE per label; a 404 means it was already absent, which is the goal."""
+        async with self._client() as client:
+            for label in labels:
+                resp = await client.delete(
+                    f"/repos/{self._repo}/issues/{issue_or_pr_number}/labels/"
+                    f"{quote(label, safe='')}"
+                )
+                if resp.status_code != _NOT_FOUND:
+                    resp.raise_for_status()
+
+    async def create_label(self, label: LabelData) -> None:
+        """Create a label, updating it when it already exists (gh ``--force`` semantics)."""
+        payload = {"name": label.name, "color": label.color, "description": label.description}
+        async with self._client() as client:
+            resp = await client.post(f"/repos/{self._repo}/labels", json=payload)
+            if resp.status_code == _UNPROCESSABLE and _already_exists(resp):
+                resp = await client.patch(
+                    f"/repos/{self._repo}/labels/{quote(label.name, safe='')}",
+                    json={"color": label.color, "description": label.description},
+                )
+            resp.raise_for_status()
+
+    async def list_labels(self) -> list[LabelData]:
+        """Every label in the repository, paging to completion."""
+        labels: list[LabelData] = []
+        async with self._client() as client:
+            page = 1
+            while True:
+                resp = await client.get(
+                    f"/repos/{self._repo}/labels",
+                    params={"per_page": _GITHUB_PAGE_SIZE, "page": page},
+                )
+                resp.raise_for_status()
+                batch = resp.json()
+                if not isinstance(batch, list) or not batch:
+                    break
+                labels.extend(
+                    LabelData(
+                        name=str(item.get("name") or ""),
+                        color=str(item.get("color") or ""),
+                        description=str(item.get("description") or ""),
+                    )
+                    for item in batch
+                    if isinstance(item, dict)
+                )
+                if len(batch) < _GITHUB_PAGE_SIZE:
+                    break
+                page += 1
+        return labels
+
     # ── comments ─────────────────────────────────────────────────────────────
+
+    async def add_comment(self, issue_or_pr_number: int, body: str) -> int:
+        """Comment on an issue or PR (both live on the issues endpoint); returns the id."""
+        async with self._client() as client:
+            resp = await client.post(
+                f"/repos/{self._repo}/issues/{issue_or_pr_number}/comments", json={"body": body}
+            )
+            resp.raise_for_status()
+            comment_id = resp.json().get("id")
+        if not isinstance(comment_id, int):
+            raise ValueError(f"{self._repo}: comment response carried no id")
+        return comment_id
 
     async def fetch_comments(
         self, issue_number: int, since: datetime | None = None
@@ -270,6 +402,9 @@ class HttpGitHubProvider:
     async def fetch_pr_diff(self, number: int) -> Any:
         raise self._vcs_unsupported("fetch_pr_diff")
 
+    async def fetch_pr_comments(self, *args: Any, **kwargs: Any) -> Any:
+        raise self._vcs_unsupported("fetch_pr_comments")
+
     async def post_review(self, *args: Any, **kwargs: Any) -> Any:
         raise self._vcs_unsupported("post_review")
 
@@ -304,7 +439,9 @@ class HttpGitHubProvider:
             labels=[
                 name
                 for label in issue.get("labels") or []
-                if isinstance(name := (label.get("name") if isinstance(label, dict) else label), str)
+                if isinstance(
+                    name := (label.get("name") if isinstance(label, dict) else label), str
+                )
             ],
             created_at=_parse_datetime(issue.get("created_at")),
             updated_at=_parse_datetime(issue.get("updated_at")),
@@ -322,6 +459,3 @@ class HttpGitHubProvider:
     def _parse_comment(self, data: dict[str, Any], issue_number: int) -> IssueComment:
         """Shared with the gh-CLI provider — ``gh api`` returns this payload verbatim."""
         return _shared_parse_comment(data, issue_number)
-
-
-
