@@ -322,9 +322,7 @@ async def post_session_processing(
         return False
 
 
-async def _save_memory(
-    source_spec_dir: Path | None, **kwargs: Any
-) -> tuple[bool, str]:
+async def _save_memory(source_spec_dir: Path | None, **kwargs: Any) -> tuple[bool, str]:
     """Save session memory, then merge it into the project's pool (#3795)."""
     result = await save_session_memory(**kwargs)
     pool.sync(kwargs["spec_dir"], source_spec_dir)
