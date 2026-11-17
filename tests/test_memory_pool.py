@@ -1,7 +1,6 @@
 """Pool merge: a stale snapshot never loses newer data (RFC-0021, #3795)."""
 
 import json
-
 from pathlib import Path
 
 from memory import pool, retention, scratchpad

@@ -5,6 +5,7 @@ import multiprocessing
 from pathlib import Path
 
 import pytest
+
 from memory import gates, locking, patterns, retention, scratchpad
 
 CTX = multiprocessing.get_context("fork")
