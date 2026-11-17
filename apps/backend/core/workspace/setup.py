@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from memory import pool
 from merge import FileTimelineTracker
 from ui import (
     Icons,
@@ -245,6 +246,8 @@ def setup_workspace(
     """
     if mode == WorkspaceMode.DIRECT:
         # Work directly in project - spec_dir stays as-is
+        if source_spec_dir:
+            pool.seed(project_dir, source_spec_dir)  # #3795
         return project_dir, None, source_spec_dir
 
     # Create isolated workspace using per-spec worktree
@@ -269,6 +272,8 @@ def setup_workspace(
     localized_spec_dir = None
     if source_spec_dir and source_spec_dir.exists():
         localized_spec_dir = copy_spec_to_worktree(source_spec_dir, worktree_info.path, spec_name)
+        # The worktree spec dir was just replaced: seed it from the project's pool (#3795).
+        pool.seed(project_dir, localized_spec_dir)
         print_status("Spec files copied to workspace", "success")
 
     print_status(f"Workspace ready: {worktree_info.path.name}", "success")

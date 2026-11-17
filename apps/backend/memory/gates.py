@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from . import retention, scratchpad, trust
+from .locking import locked
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +97,18 @@ def promote(
 ) -> list[str]:
     """Run the gates over the scratchpad and append survivors to gotchas.md.
 
-    Never raises; returns the bodies written.
+    Never raises; returns the bodies written. Holds the memory lock for the
+    whole run; if it stays busy, nothing is written.
     """
+    try:
+        with locked(memory_dir):
+            return _promote(memory_dir, session_type, now)
+    except OSError:
+        logger.warning("memory promotion skipped, lock busy: %s", memory_dir)
+        return []
+
+
+def _promote(memory_dir: Path, session_type: str | None, now: datetime | None) -> list[str]:
     try:
         store = scratchpad.read(memory_dir)
         signals = [

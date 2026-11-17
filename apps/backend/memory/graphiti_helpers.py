@@ -8,9 +8,12 @@ Handles checking if Graphiti is available and managing async operations.
 """
 
 import asyncio
+import copy
 import logging
 from pathlib import Path
 from typing import Any
+
+from . import retention, trust
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,57 @@ def is_graphiti_memory_enabled() -> bool:
         return is_graphiti_enabled()
     except ImportError:
         return False
+
+
+_DISCOVERY_FIELDS = (
+    "patterns_found",
+    "gotchas_encountered",
+    "patterns_discovered",
+    "gotchas_discovered",
+    "recommendations",
+    "file_insights",
+    "files_understood",
+)
+_SESSION_FIELDS = ("what_worked", "what_failed", "recommendations_for_next_session")
+_GOTCHA_FIELDS = ("gotchas_encountered", "gotchas_discovered")
+
+
+def gate_for_graphiti(payload: dict[str, Any], session_type: str | None = None) -> dict[str, Any]:
+    """A copy of ``payload`` with the file path's rules applied (#3797).
+
+    One shared budget ``CAPS[session_type]`` over the lesson fields, discoveries
+    first (the order of ``sessions._apply_cap``), and gotchas written while the
+    trust window is open carry the unverified marker. Idempotent. Adds nothing
+    to what Graphiti can store: it only sends less.
+    """
+    out = copy.deepcopy(payload)
+    budget = retention.CAPS[retention.session_type(session_type)]
+    groups = (
+        (out.get("discoveries"), _DISCOVERY_FIELDS),
+        (out, _DISCOVERY_FIELDS + _SESSION_FIELDS),
+    )
+    for source, names in groups:
+        if not isinstance(source, dict):
+            continue
+        for name in names:
+            value = source.get(name)
+            kept: Any
+            if isinstance(value, dict):
+                kept = dict(list(value.items())[: max(budget, 0)])
+            elif isinstance(value, list):
+                kept = value[: max(budget, 0)]
+            else:
+                continue
+            if name in _GOTCHA_FIELDS and trust.tainted():
+                kept = [
+                    item + trust.UNVERIFIED
+                    if isinstance(item, str) and not item.endswith(trust.UNVERIFIED)
+                    else item
+                    for item in kept
+                ]
+            source[name] = kept
+            budget -= len(kept)
+    return out
 
 
 def get_graphiti_memory(spec_dir: Path, project_dir: Path | None = None):
@@ -103,6 +157,7 @@ async def save_to_graphiti_async(
     if not graphiti:
         return False
 
+    insights = gate_for_graphiti(insights)
     try:
         result = await graphiti.save_session_insights(session_num, insights)
 
