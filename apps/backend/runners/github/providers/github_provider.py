@@ -21,6 +21,7 @@ except (ImportError, ValueError, SystemError):
     from gh_client import GHClient
 
 from ._github_json import (
+    assign_actors,
     collect_comment_pages as _collect_comment_pages,
     group_bulk_comments as _group_bulk_comments,
     issue_number_from_url as _shared_issue_number_from_url,
@@ -429,11 +430,6 @@ class GitHubProvider:
         """Shared with the REST provider — ``gh api`` returns this payload verbatim."""
         return _shared_parse_comment(data, issue_number)
 
-    # The Copilot Coding Agent's bot login on GitHub.
-    # Verified via GraphQL suggestedActors(capabilities: [CAN_BE_ASSIGNED]).
-    _COPILOT_ALIAS = "copilot"
-    _COPILOT_BOT_LOGIN = "copilot-swe-agent"
-
     async def assign_to_user(
         self,
         issue_number: int,
@@ -446,98 +442,7 @@ class GitHubProvider:
         Silently no-ops when Copilot is disabled at org/repo level so the
         caller can detect the no-op by re-reading the issue's assignees.
         """
-        if not assignees:
-            return
-
-        owner, name = self._repo.split("/", 1)
-        wants_copilot = any(a.strip().lower() == self._COPILOT_ALIAS for a in assignees)
-        regular_logins = [
-            a for a in assignees if a.strip().lower() != self._COPILOT_ALIAS
-        ]
-
-        # Resolve actor node IDs. suggestedActors is the only way to get
-        # the Copilot bot's GraphQL node ID; it also tells us whether the
-        # agent is enabled on this repo at all.
-        actors_query = """
-        query($owner: String!, $name: String!) {
-          repository(owner: $owner, name: $name) {
-            id
-            suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 100) {
-              nodes { login __typename ... on Bot { id } ... on User { id } }
-            }
-          }
-        }
-        """
-        actors_resp = await self._graphql(actors_query, {"owner": owner, "name": name})
-        repo_node = actors_resp.get("data", {}).get("repository") or {}
-        nodes = (
-            repo_node.get("suggestedActors", {}).get("nodes", []) if repo_node else []
-        )
-
-        actor_ids: list[str] = []
-
-        if wants_copilot:
-            bot_id = next(
-                (
-                    n.get("id")
-                    for n in nodes
-                    if n.get("__typename") == "Bot"
-                    and n.get("login") == self._COPILOT_BOT_LOGIN
-                    and n.get("id")
-                ),
-                None,
-            )
-            if bot_id is None:
-                # Copilot Coding Agent isn't enabled / available — silent
-                # no-op per the protocol contract. The tracker will detect
-                # this by re-fetching the issue's assignees.
-                return
-            actor_ids.append(bot_id)
-
-        for login in regular_logins:
-            user_id = next(
-                (
-                    n.get("id")
-                    for n in nodes
-                    if n.get("__typename") == "User"
-                    and n.get("login") == login
-                    and n.get("id")
-                ),
-                None,
-            )
-            if user_id is not None:
-                actor_ids.append(user_id)
-
-        if not actor_ids:
-            return
-
-        # Resolve the issue's node ID.
-        issue_resp = await self._graphql(
-            """
-            query($owner: String!, $name: String!, $number: Int!) {
-              repository(owner: $owner, name: $name) {
-                issue(number: $number) { id }
-              }
-            }
-            """,
-            {"owner": owner, "name": name, "number": issue_number},
-        )
-        assignable_id = (
-            issue_resp.get("data", {}).get("repository", {}).get("issue", {}).get("id")
-        )
-        if not assignable_id:
-            return
-
-        await self._graphql(
-            """
-            mutation($assignableId: ID!, $actorIds: [ID!]!) {
-              replaceActorsForAssignable(
-                input: {assignableId: $assignableId, actorIds: $actorIds}
-              ) { assignable { ... on Issue { number } } }
-            }
-            """,
-            {"assignableId": assignable_id, "actorIds": actor_ids},
-        )
+        await assign_actors(self._graphql, self._repo, issue_number, assignees)
 
     async def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         """Run a GraphQL query/mutation via `gh api graphql`.

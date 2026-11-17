@@ -565,18 +565,25 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
             for comment in thread.get("comments") or []:
                 if comment.get("isDeleted"):
                     continue
-                parsed = self._parse_thread_comment(comment, pr_number)
+                parsed = self._parse_thread_comment(comment, pr_number, thread.get("id"))
                 if cutoff is not None and to_utc(parsed.updated_at) <= cutoff:
                     continue
                 collected.append(parsed)
         return oldest_first(collected)
 
-    def _parse_thread_comment(self, comment: dict[str, Any], pr_number: int) -> IssueComment:
-        """Parse one PR thread comment (``author``/``content``/``publishedDate`` keys)."""
+    def _parse_thread_comment(
+        self, comment: dict[str, Any], pr_number: int, thread_id: Any
+    ) -> IssueComment:
+        """Parse one PR thread comment (``author``/``content``/``publishedDate`` keys).
+
+        A comment id is only unique within its thread (every thread starts at 1),
+        so the stable identifier is ``<thread>.<comment>`` and ``threadId`` is kept
+        in ``raw_data`` for consumers that need to reply into the thread.
+        """
         author = comment.get("author") or {}
         published = comment.get("publishedDate")
         return IssueComment(
-            id=str(comment.get("id", "")),
+            id=f"{thread_id}.{comment.get('id', '')}",
             issue_number=pr_number,
             author=(author.get("uniqueName") or author.get("displayName") or "")
             if isinstance(author, dict)
@@ -586,7 +593,7 @@ class AzureDevOpsProvider(FanoutCommentsMixin):
             updated_at=self._parse_datetime(comment.get("lastContentUpdatedDate") or published),
             url="",
             provider=ProviderType.AZURE_DEVOPS,
-            raw_data=comment,
+            raw_data={**comment, "threadId": thread_id},
             avatar_url=self._avatar_url(author),
         )
 

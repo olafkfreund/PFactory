@@ -702,40 +702,10 @@ class GitProvider(WorkItemProvider, CodeProvider, Protocol):
     """
     Abstract protocol for git hosting providers.
 
-    The union of :class:`WorkItemProvider` and :class:`CodeProvider` plus the
-    raw ``api_get``/``api_post`` escape hatches, which RFC-0022 section 2.2
-    removes once the caller audit is done. Kept whole so callers and the
-    vendored copies see the same member set as before.
+    Exactly :class:`WorkItemProvider` plus :class:`CodeProvider` (RFC-0022
+    section 2.1). The raw ``api_get``/``api_post`` escape hatches are gone from
+    both protocols (section 2.2, Factory#3772): they stay on the concrete
+    clients and provider classes for callers that legitimately need a
+    GitHub-specific API, and those callers hold a GitHub-specific type to use
+    them.
     """
-
-    async def api_get(
-        self,
-        endpoint: str,
-        params: dict[str, Any] | None = None,
-    ) -> Any:
-        """
-        Make a GET request to the provider API.
-
-        Args:
-            endpoint: API endpoint
-            params: Query parameters
-
-        Returns:
-            API response data
-        """
-
-    async def api_post(
-        self,
-        endpoint: str,
-        data: dict[str, Any] | None = None,
-    ) -> Any:
-        """
-        Make a POST request to the provider API.
-
-        Args:
-            endpoint: API endpoint
-            data: Request body
-
-        Returns:
-            API response data
-        """
