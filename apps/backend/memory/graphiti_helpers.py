@@ -50,6 +50,16 @@ _SESSION_FIELDS = ("what_worked", "what_failed", "recommendations_for_next_sessi
 _GOTCHA_FIELDS = ("gotchas_encountered", "gotchas_discovered")
 
 
+def _mark(item: Any) -> Any:
+    """Append the unverified marker to a gotcha: a string, or the ``gotcha``
+    field of the extractor's dict (other fields are kept)."""
+    if isinstance(item, str):
+        return item if item.endswith(trust.UNVERIFIED) else item + trust.UNVERIFIED
+    if isinstance(item, dict) and isinstance(item.get("gotcha"), str):
+        return {**item, "gotcha": _mark(item["gotcha"])}
+    return item
+
+
 def gate_for_graphiti(payload: dict[str, Any], session_type: str | None = None) -> dict[str, Any]:
     """A copy of ``payload`` with the file path's rules applied (#3797).
 
@@ -77,12 +87,7 @@ def gate_for_graphiti(payload: dict[str, Any], session_type: str | None = None) 
             else:
                 continue
             if name in _GOTCHA_FIELDS and trust.tainted():
-                kept = [
-                    item + trust.UNVERIFIED
-                    if isinstance(item, str) and not item.endswith(trust.UNVERIFIED)
-                    else item
-                    for item in kept
-                ]
+                kept = [_mark(item) for item in kept]
             source[name] = kept
             budget -= len(kept)
     return out

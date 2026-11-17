@@ -69,6 +69,34 @@ def test_confirmed_keeps_the_later_stamp_and_gotchas_are_unioned(tmp_path):
     assert sorted(bodies) == ["first", "old"]
 
 
+def test_legacy_bullet_gotchas_survive_the_merge(tmp_path):
+    pool_dir, snap = tmp_path / "pool", tmp_path / "snap"
+    pool_dir.mkdir()
+    snap.mkdir()
+    (snap / "gotchas.md").write_text("# G\n\n- close the db\n- pin numpy\n")
+    (pool_dir / "gotchas.md").write_text("# G\n\n- close the db\n\n## [2026-11-16 10:00]\nfirst\n")
+    pool.merge_into(snap, pool_dir)
+    text = (pool_dir / "gotchas.md").read_text()
+    assert text.count("- close the db") == 1
+    assert "- pin numpy" in text.split("## [")[0]  # before the first heading
+    assert "first" in text
+    fresh = tmp_path / "fresh"
+    pool.merge_into(snap, fresh)
+    assert "- pin numpy" in (fresh / "gotchas.md").read_text()
+
+
+def test_colliding_session_numbers_keep_both_records(tmp_path):
+    pool_dir, a, b = tmp_path / "pool", tmp_path / "a", tmp_path / "b"
+    for d, body in ((a, '{"who": "a"}'), (b, '{"who": "b"}')):
+        (d / "session_insights").mkdir(parents=True)
+        (d / "session_insights" / "session_001.json").write_text(body)
+    for _ in range(2):  # a re-sync adds nothing
+        pool.merge_into(a, pool_dir)
+        pool.merge_into(b, pool_dir)
+    kept = sorted(p.read_text() for p in (pool_dir / "session_insights").glob("*.json"))
+    assert kept == ['{"who": "a"}', '{"who": "b"}']
+
+
 def test_other_files_are_copied_when_missing_or_newer(tmp_path):
     pool_dir, snap = tmp_path / "pool", tmp_path / "snap"
     (snap / "session_insights").mkdir(parents=True)

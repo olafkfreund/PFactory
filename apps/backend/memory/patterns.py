@@ -34,16 +34,15 @@ def _append_bullet(spec_dir: Path, kind: str, text: str) -> None:
     memory_dir = get_memory_dir(spec_dir)
     path = memory_dir / f"{kind}s.md"
     text = text.strip()
-    if kind == "gotcha" and text and trust.tainted():
-        text += trust.UNVERIFIED  # same rule as the record_gotcha tool
+    mark = trust.UNVERIFIED if kind == "gotcha" and trust.tainted() else ""
     try:
         with locked(memory_dir):
             if not text or text in _bullets(path):
-                return
+                return  # compared without the marker, which is a second line
             with path.open("a") as f:
                 if not path.stat().st_size:
                     f.write(GOTCHAS_HEADER if kind == "gotcha" else PATTERNS_HEADER)
-                f.write(f"- {text}\n")
+                f.write(f"- {text}{mark}\n")
     except OSError:
         logger.warning("%s not recorded in %s", kind, memory_dir, exc_info=True)
         return
@@ -58,7 +57,7 @@ def _append_bullet(spec_dir: Path, kind: str, text: str) -> None:
         graphiti = get_graphiti_memory(spec_dir)
         if graphiti:
             save = graphiti.save_gotcha if kind == "gotcha" else graphiti.save_pattern
-            run_async(save(text))
+            run_async(save(text + mark))
     except Exception as e:  # noqa: BLE001 - Graphiti is best-effort
         logger.warning(f"Graphiti {kind} save failed: {e}")
 

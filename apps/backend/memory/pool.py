@@ -6,7 +6,6 @@ instead, under the destination's memory lock.
 """
 
 import json
-import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -14,8 +13,6 @@ from typing import Any
 
 from . import retention, scratchpad
 from .locking import LOCK_NAME, locked
-
-logger = logging.getLogger(__name__)
 
 
 def _later(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
@@ -58,26 +55,69 @@ def _merge_confirmed(src: Path, dst: Path) -> None:
     Path(f.name).replace(dst / "confirmed.json")
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, suffix=".tmp") as f:
+        f.write(text)
+    Path(f.name).replace(path)
+
+
 def _merge_gotchas(src: Path, dst: Path) -> None:
-    mine = dst.read_text() if dst.exists() else ""
+    """Union of timestamped entries and of legacy bullets (which live before the
+    first heading, where ``gotchas_context`` reads them)."""
+    mine, theirs = (dst.read_text() if dst.exists() else ""), src.read_text()
+    first = retention.HEADING.search(mine)
+    head, rest = (mine[: first.start()], mine[first.start() :]) if first else (mine, "")
+    theirs_first = retention.HEADING.search(theirs)
+    theirs_head = theirs[: theirs_first.start()] if theirs_first else theirs
+    have = {line.strip() for line in head.splitlines()}
+    bullets = [
+        s
+        for line in theirs_head.splitlines()
+        if (s := line.strip()).startswith("- ") and s not in have
+    ]
     known = {body for _, body, _ in retention.split_gotchas(mine)}
-    add = "".join(
+    entries = "".join(
         "\n" + entry.lstrip("\n")
-        for entry, body, _ in retention.split_gotchas(src.read_text())
+        for entry, body, _ in retention.split_gotchas(theirs)
         if body not in known
     )
-    if add or not dst.exists():
-        header = (
-            "" if mine else "# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n"
-        )
-        with dst.open("a") as f:
-            f.write(header + add)
+    if not (bullets or entries or not dst.exists()):
+        return
+    if not head.strip():
+        head = "# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n"
+    head += "" if head.endswith("\n") else "\n"
+    _atomic_write(dst, head + "".join(f"{b}\n" for b in bullets) + rest + entries)
 
 
-def merge_into(src: Path, dst: Path) -> None:
+def _merge_session(src: Path, dst: Path, seen: dict[Path, set[bytes]]) -> None:
+    """Session numbers are only unique within a spec: keep both records under a
+    free number instead of letting the newer file replace the other."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.parent not in seen:
+        seen[dst.parent] = {p.read_bytes() for p in dst.parent.glob("session_*.json")}
+    digests = seen[dst.parent]
+    data = src.read_bytes()
+    if data in digests:
+        return
+    if dst.exists():
+        taken = {p.name for p in dst.parent.glob("session_*.json")}
+        n = len(taken) + 1
+        while (name := f"session_{n:03d}.json") in taken:
+            n += 1
+        dst = dst.parent / name
+    dst.write_bytes(data)
+    digests.add(data)
+
+
+def merge_into(src: Path, dst: Path, same_spec: bool = False) -> None:
     """Merge memory directory ``src`` into ``dst``. Raises OSError (including
-    LockTimeoutError); callers log and carry on."""
+    LockTimeoutError); callers log and carry on.
+
+    ``same_spec``: both sides are the same spec's memory (worktree to source), so
+    a rewritten session file is the build's own and the newer one wins. Across
+    specs (the pool) session numbers collide and both records are kept."""
     dst.mkdir(parents=True, exist_ok=True)
+    seen: dict[Path, set[bytes]] = {}
     with locked(dst):
         for path in sorted(src.rglob("*")):
             rel = path.relative_to(src)
@@ -92,6 +132,10 @@ def merge_into(src: Path, dst: Path) -> None:
                 _merge_confirmed(src, dst)
             elif rel.as_posix() == "gotchas.md":
                 _merge_gotchas(path, target)
+            elif (
+                not same_spec and path.parent.name == "session_insights" and path.suffix == ".json"
+            ):
+                _merge_session(path, target, seen)
             elif not target.exists() or path.stat().st_mtime > target.stat().st_mtime:
                 shutil.copy2(path, target)
 
