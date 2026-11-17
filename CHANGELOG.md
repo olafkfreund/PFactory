@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.3 — python 3.14 CVE floor in the image (2026-11-17)
+
+### Bug Fixes
+
+- **The image floors python-3.14 at 3.14.10_git20261111-r0 (#1057).** This clears CVE-2026-119170 (HIGH) from the Wolfi base so the image-build scan passes.
+
 ## 0.8.2 — memory locking and pool merge, plan signature model routes, provider-protocol callers (2026-11-17)
 
 ### New Features
