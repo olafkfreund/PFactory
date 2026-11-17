@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1047
 spec: spec/2026-11-17-1047-recon-argv-test-hang.md
 coders:
