@@ -34,6 +34,9 @@ MATCH_KEYS: tuple[str, ...] = (
     "originator",
     "risk_class",
     "created_at",
+    "controls",
+    "agent_identity",
+    "model_route",
 )
 
 
@@ -45,6 +48,8 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 def _clean(value: Any) -> str:
+    if isinstance(value, list):
+        value = ",".join(str(v) for v in value)
     return _CONTROL_CHARS.sub("?", str(value))
 
 
@@ -181,7 +186,10 @@ def format_result(matches: Sequence[dict[str, Any]], counts: dict[str, int]) -> 
             f"approved_at={c['approved_at']}\t"
             f"originator={c['originator']}\t"
             f"risk_class={c['risk_class']}\t"
-            f"created_at={c['created_at']}"
+            f"created_at={c['created_at']}\t"
+            f"controls={c['controls']}\t"
+            f"agent_identity={c['agent_identity']}\t"
+            f"model_route={c['model_route']}"
         )
     lines.append(
         f"scanned {counts.get('scanned', 0)} rows, "
