@@ -103,7 +103,7 @@ def _last_confirmed(entry_time: datetime, body: str, confirmed: dict[str, str]) 
                 datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC),
             )
     except ValueError:
-        pass
+        logger.debug("unparseable confirmation time, keeping entry time")
     return last
 
 
