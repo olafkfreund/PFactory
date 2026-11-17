@@ -36,7 +36,13 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from .protocol import IssueComment, ProviderCommentError, ProviderType, oldest_first
+from .protocol import (
+    IssueComment,
+    ProviderCommentError,
+    ProviderType,
+    as_issue_int,
+    oldest_first,
+)
 
 # GitHub caps both the issue and the comment endpoints at 100 per page.
 PAGE_SIZE = 100
@@ -58,17 +64,17 @@ def parse_datetime(value: Any) -> datetime:
         return datetime.now(UTC)
 
 
-def issue_number_from_url(url: str) -> int | None:
+def issue_number_from_url(url: str) -> str | None:
     """Recover the issue number from a comment's ``issue_url``.
 
     The repository-wide comments endpoint does not carry the issue number as a
     field; the only link back is the URL the comment was made against.
     """
     tail = (url or "").rstrip("/").rsplit("/", 1)[-1]
-    return int(tail) if tail.isdigit() else None
+    return str(int(tail)) if tail.isascii() and tail.isdigit() else None
 
 
-def parse_comment(data: dict[str, Any], issue_number: int) -> IssueComment:
+def parse_comment(data: dict[str, Any], issue_number: str) -> IssueComment:
     """A GitHub comment payload as the provider-neutral :class:`IssueComment`.
 
     Shared by both providers because ``gh api`` returns the REST payload
@@ -147,8 +153,8 @@ async def collect_comment_pages(
 
 
 def group_bulk_comments(
-    raw: list[dict[str, Any]], wanted: list[int]
-) -> dict[int, list[IssueComment]]:
+    raw: list[dict[str, Any]], wanted: list[str]
+) -> dict[str, list[IssueComment]]:
     """Fan a repository-wide comment stream back out per issue (Factory#370).
 
     ``GET /repos/{repo}/issues/comments`` returns every issue comment in the
@@ -170,7 +176,7 @@ def group_bulk_comments(
     size of the repository. That fan-out is transport-specific, so it stays with
     each provider.
     """
-    grouped: dict[int, list[IssueComment]] = {number: [] for number in wanted}
+    grouped: dict[str, list[IssueComment]] = {number: [] for number in wanted}
     for item in raw:
         number = issue_number_from_url(item.get("issue_url", ""))
         if number in grouped:
@@ -187,7 +193,7 @@ COPILOT_BOT_LOGIN = "copilot-swe-agent"
 async def assign_actors(
     graphql: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]],
     repo: str,
-    issue_number: int,
+    issue_number: str | int,
     assignees: list[str],
 ) -> None:
     """Assign users or the Copilot Coding Agent to an issue over GraphQL.
@@ -197,6 +203,7 @@ async def assign_actors(
     provider's own transport. Silently returns when the agent is disabled or no
     actor resolves, so the caller verifies by re-reading the issue.
     """
+    number = as_issue_int(issue_number, "GitHub")  # GraphQL ``Int!``; fail before any call
     if not assignees:
         return
 
@@ -265,7 +272,7 @@ async def assign_actors(
           }
         }
         """,
-        {"owner": owner, "name": name, "number": issue_number},
+        {"owner": owner, "name": name, "number": number},
     )
     # `or {}` at each level: a deleted/inaccessible issue comes back as null,
     # which `.get(..., {})` would not catch (Factory#3773).

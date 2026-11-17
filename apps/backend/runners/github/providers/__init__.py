@@ -29,6 +29,7 @@ from .protocol import (
     IssueComment,
     IssueData,
     IssueFilters,
+    IssueRef,
     PRData,
     PRFilters,
     ProviderCommentError,
@@ -36,6 +37,7 @@ from .protocol import (
     ReviewData,
     ReviewFinding,
     WorkItemProvider,
+    as_issue_int,
     fanout_comments,
     oldest_first,
 )
@@ -55,6 +57,8 @@ __all__ = [
     "ProviderType",
     "ProviderCommentError",
     "FanoutCommentsMixin",
+    "IssueRef",
+    "as_issue_int",
     "fanout_comments",
     "oldest_first",
     # Implementations

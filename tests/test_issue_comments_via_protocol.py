@@ -66,7 +66,7 @@ async def test_issue_thread_is_mapped_to_the_frontend_shape():
             "updated_at": "2026-07-21T09:00:00Z",
         }
     ]
-    provider.fetch_comments.assert_awaited_once_with(7)
+    provider.fetch_comments.assert_awaited_once_with("7")
 
 
 @pytest.mark.asyncio

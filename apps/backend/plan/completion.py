@@ -61,7 +61,7 @@ def synthetic_key(session_id: str) -> str:
     return f"pf-{session_id}"
 
 
-def origin_key(repo: str, issue_number: int) -> str:
+def origin_key(repo: str, issue_number: int | str) -> str:
     """Repo-qualified correlation key (``<repo>#<n>``).
 
     Issue numbers only identify an issue *within* a repo, so a bare number is
