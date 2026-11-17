@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1036
 spec: spec/2026-11-17-1036-orgstamp-new-projects.md
 coders:
