@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable, Iterable, Mapping
+from pathlib import Path
 
 import agent_sandbox
 from agent_sandbox import Policy
@@ -118,18 +119,35 @@ def git_env(keep: Iterable[str] = (), extra: Mapping[str, str] | None = None) ->
     return env
 
 
+def ensure_baseline_dir() -> None:
+    """Keep git metadata baselines under ``~/.pfactory``, which the service already writes."""
+    if "FACTORY_GIT_BASELINE_DIR" not in os.environ:
+        os.environ["FACTORY_GIT_BASELINE_DIR"] = str(Path.home() / ".pfactory" / "git-baselines")
+
+
 def merge_driver_pins(
     cwd: str | os.PathLike[str],
     run: Callable[[list[str]], tuple[int, str]] | None = None,
     env: Mapping[str, str] | None = None,
+    *,
+    baseline: bool = False,
 ) -> list[str]:
     """Empty ``-c`` pins for merge drivers and content filters (fails closed).
 
-    Raises RuntimeError when git cannot list the config. No metadata baseline
-    here (Factory#3720).
+    Raises RuntimeError when git cannot list the config, or when a remote sets a
+    program key. With ``baseline`` the git metadata baseline is verified first
+    (Factory#3737); the web-server helpers on a user's own repo leave it off.
     """
+    check: Callable[[str | os.PathLike[str], object], None] | None = None
+    if baseline:
+        ensure_baseline_dir()
+        # Not the injected runner: a text-mode runner folds CR into LF and hides a change.
+
+        def check(cwd: str | os.PathLike[str], _run: object) -> None:
+            agent_sandbox.check_git_metadata(cwd)
+
     pins: list[str] = agent_sandbox.merge_driver_pins(
-        cwd, run, env if env is not None else git_env()
+        cwd, run, env if env is not None else git_env(), check
     )
     return pins
 

@@ -278,7 +278,7 @@ def get_changed_files_from_branch(
     result = subprocess.run(
         [
             "git",
-            *merge_driver_pins(project_dir),
+            *merge_driver_pins(project_dir, baseline=True),
             "diff",
             "--no-ext-diff",
             "--no-textconv",
@@ -502,7 +502,7 @@ def create_conflict_file_with_git(
             result = subprocess.run(
                 [
                     "git",
-                    *merge_driver_pins(project_dir),
+                    *merge_driver_pins(project_dir, baseline=True),
                     "merge-file",
                     "-p",
                     main_path,
