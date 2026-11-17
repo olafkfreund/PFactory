@@ -146,3 +146,9 @@ def test_legacy_preamble_kept_when_room_and_never_expired(tmp_path):
 def test_no_headings_keeps_tail_slice(tmp_path):
     legacy = "# Gotchas\n" + "legacy " * 200
     assert retention.gotchas_context(tmp_path, legacy, LIMIT, NOW) == legacy[-LIMIT:]
+
+
+def test_oversized_legacy_preamble_survives_when_no_entry_does(tmp_path):
+    text = "# Gotchas\n" + "- legacy bullet\n" * 100 + _entry(100, "expired")
+    after = retention.gotchas_context(tmp_path, text, LIMIT, NOW)
+    assert "legacy bullet" in after and len(after) <= LIMIT

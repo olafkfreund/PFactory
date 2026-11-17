@@ -358,7 +358,7 @@ async def save_session_memory(
                             storage_type="graphiti",
                             subtasks_saved=len(subtasks_completed),
                         )
-                    promote_signals(spec_dir / "memory")  # file store is not written
+                    promote_signals(spec_dir / "memory", session_type)  # file store is not written
                     return True, "graphiti"
                 else:
                     logger.warning("Graphiti save returned False, falling back to file-based")

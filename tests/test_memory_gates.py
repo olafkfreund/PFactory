@@ -288,3 +288,18 @@ def test_promotion_runs_when_graphiti_is_the_primary_store(tmp_path, monkeypatch
     result = asyncio.run(memory_manager.save_session_memory(spec, tmp_path, "s1", 1, True, []))
     assert result == (True, "graphiti")
     assert "graphiti era trap" in _gotchas(spec / "memory")
+
+
+def test_abandoned_recurrence_does_not_refresh_a_promoted_gotcha(tmp_path):
+    import json
+
+    _seed(tmp_path, "trap", n=2)
+    (body,) = gates.promote(tmp_path, "build", NOW)
+    sidecar = tmp_path / "confirmed.json"
+    sidecar.write_text(
+        json.dumps(dict.fromkeys(json.loads(sidecar.read_text()), "2020-01-01T00:00:00+00:00"))
+    )
+    scratchpad.observe(tmp_path, "error_fingerprint", "trap")
+    scratchpad.record_dead_end(tmp_path, "approach that hit the trap")  # ab = n
+    gates.promote(tmp_path, "build", NOW)
+    assert json.loads(sidecar.read_text())[retention._key(body)].startswith("2020")

@@ -39,8 +39,16 @@ def normalise(text: str) -> str:
     return re.sub(r"\d+", "#", " ".join(text.lower().split()))[:TEXT_LIMIT]
 
 
-def fingerprint(text: str) -> str:
-    return hashlib.sha256(normalise(text).encode()).hexdigest()[:16]
+def _canon(kind: str, text: str) -> str:
+    """Errors collapse digits and case; a dead end keeps both ("Python 3.11" and
+    "Python 3.12" are different approaches)."""
+    if kind == "dead_end":
+        return " ".join(text.split())[:TEXT_LIMIT]
+    return normalise(text)
+
+
+def fingerprint(text: str, kind: str = "error_fingerprint") -> str:
+    return hashlib.sha256(_canon(kind, text).encode()).hexdigest()[:16]
 
 
 def read(memory_dir: Path) -> Store:
@@ -79,8 +87,8 @@ def _bump(  # noqa: PLR0913
     now: datetime,
 ) -> None:
     entries = store.setdefault(kind, {})
-    key = fingerprint(text)
-    entry = entries.setdefault(key, {"text": normalise(text), "n": 0, "bad": 0, "ab": 0})
+    key = fingerprint(text, kind)
+    entry = entries.setdefault(key, {"text": _canon(kind, text), "n": 0, "bad": 0, "ab": 0})
     entry["n"] = int(entry.get("n", 0)) + 1
     if untrusted:
         entry["bad"] = int(entry.get("bad", 0)) + 1

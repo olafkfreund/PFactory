@@ -214,7 +214,7 @@ def create_memory_tools(
 
         try:
             memory_dir.mkdir(exist_ok=True)
-            known = scratchpad.fingerprint(approach) in scratchpad.read(memory_dir).get(
+            known = scratchpad.fingerprint(approach, "dead_end") in scratchpad.read(memory_dir).get(
                 "dead_end", {}
             )
             if (

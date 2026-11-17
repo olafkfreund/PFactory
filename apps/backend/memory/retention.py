@@ -152,6 +152,10 @@ def gotchas_context(memory_dir: Path, text: str, limit: int, now: datetime | Non
     kept = _pack(chunks, limit)
     if ranked and not any(pos >= 0 for pos, _ in kept):
         kept = [(0, ranked[0][2][-limit:])]
+    if not kept and preamble:  # only legacy text, larger than the window
+        kept = [(-1, preamble[-limit:])]
+    if not kept and preamble:  # only legacy text, larger than the window
+        kept = [(-1, preamble[-limit:])]
     fresh_text = "".join(c for _, c in kept)
     if not demoted:
         return fresh_text

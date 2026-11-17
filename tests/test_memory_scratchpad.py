@@ -112,14 +112,14 @@ def test_pool_never_reads_another_project(tmp_path, monkeypatch):
     agent_utils.seed_memory_from_project(a, spec)
     assert scratchpad.read(spec / "memory") == {}
     context = _call(_tools(spec, monkeypatch)["get_session_context"])
-    assert "project b" not in context
+    assert "project B" not in context
 
 
 def test_spec_memory_never_reads_a_sibling_project(tmp_path, monkeypatch):
     for name in ("projA", "projB"):
         scratchpad.record_dead_end(tmp_path / name / "memory", f"approach of {name}")
     context = _call(_tools(tmp_path / "projA", monkeypatch)["get_session_context"])
-    assert "approach of proja" in context and "projb" not in context
+    assert "approach of projA" in context and "projB" not in context
 
 
 def test_wholly_untrusted_dead_end_is_not_recalled(tmp_path):
@@ -182,3 +182,11 @@ def test_store_growth_is_bounded_and_measured(tmp_path):
     data = json.loads((tmp_path / "memory" / "scratchpad.json").read_text())
     assert all(len(v) <= scratchpad.MAX_KEYS for v in data.values())
     assert sizes[20][1] < 20_000
+
+
+def test_dead_ends_that_differ_only_in_digits_or_case_stay_distinct(tmp_path):
+    scratchpad.record_dead_end(tmp_path, "Use Python 3.11", "no wheels")
+    scratchpad.record_dead_end(tmp_path, "Use Python 3.12", "works but slow")
+    out = scratchpad.dead_end_context(tmp_path)
+    assert "Use Python 3.11" in out and "Use Python 3.12" in out
+    assert "no wheels" in out and "works but slow" in out

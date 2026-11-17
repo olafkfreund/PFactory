@@ -82,7 +82,8 @@ def _refresh_recurring(store: scratchpad.Store, signals: list[Signal]) -> list[s
     bodies = []
     for s in signals:
         recurred = int(s["n"]) > int(s.get("pn") or s["n"])
-        if s.get("promoted") and s.get("body") and not s.get("bad") and recurred:
+        live = int(s["n"]) - int(s.get("ab") or 0) >= 1  # not an abandoned approach
+        if s.get("promoted") and s.get("body") and not s.get("bad") and recurred and live:
             store[s["kind"]][s["key"]]["pn"] = s["n"]
             bodies.append(str(s["body"]))
     return bodies
