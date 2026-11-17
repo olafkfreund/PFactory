@@ -60,6 +60,9 @@ class PlanUsage(BaseModel):
     output_tokens: int = 0
     cost_usd: float = 0.0
     model: str = ""
+    # The gateway-reported route (header ``X-Model-Route``) of the latest call. Not
+    # in ``as_event_block``: the RFC-0001 usage envelope is frozen.
+    route: str = ""
 
     @property
     def total_tokens(self) -> int:
@@ -75,6 +78,10 @@ class PlanUsage(BaseModel):
         # Keep the first non-empty model as the dominant id for the run.
         if other.model and not self.model:
             self.model = other.model
+        # Latest wins (unlike model): usage accumulates across reruns, and the
+        # signature must name the route of the most recent run.
+        if other.route:
+            self.route = other.route
 
     def as_event_block(self) -> dict:
         """The additive ``usage`` block for the completion envelope (RFC-0001)."""
@@ -103,7 +110,40 @@ def _as_int(value: object) -> int:
     return 0
 
 
+_ROUTE_HEADER = "x-model-route"
+
+
+def _route_of(obj: object) -> str:
+    """The route a gateway reported: a ``route`` key/attr or an ``X-Model-Route`` header."""
+    if isinstance(obj, dict):
+        direct, headers = obj.get("route"), obj.get("headers")
+    else:
+        direct, headers = getattr(obj, "route", None), getattr(obj, "headers", None)
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    items = getattr(headers, "items", None)
+    if callable(items):
+        for key, value in items():
+            if str(key).lower() == _ROUTE_HEADER and isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
 def usage_from_obj(obj: object) -> PlanUsage | None:
+    """Token usage plus the gateway-reported route of a provider response.
+
+    A response with a route but no token counts yields a zero-token record, so the
+    route is not dropped with the counts. See :func:`_tokens_from_obj` for shapes.
+    """
+    found = _tokens_from_obj(obj)
+    route = _route_of(obj)
+    if route:
+        found = found or PlanUsage()
+        found.route = found.route or route
+    return found
+
+
+def _tokens_from_obj(obj: object) -> PlanUsage | None:
     """Tolerantly normalize a provider response into a :class:`PlanUsage`.
 
     Handles the common shapes:

@@ -372,7 +372,13 @@ def decompose_with_llm(
         if usage_sink is not None:
             from plan.usage import usage_from_obj
 
-            recorded = usage_from_obj(raw) or usage_from_obj(llm)
+            recorded = usage_from_obj(raw)
+            if recorded is None or recorded.total_tokens == 0:
+                # A route-only response (header, no counts) must not hide the adapter's tokens.
+                adapter = usage_from_obj(llm)
+                if adapter is not None:
+                    adapter.route = adapter.route or (recorded.route if recorded else "")
+                    recorded = adapter
             if recorded is not None:
                 usage_sink.append(recorded)
         data = _extract_first_json_object(completion)

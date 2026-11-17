@@ -210,3 +210,68 @@ def test_token_ceiling_zero_disables(monkeypatch):
     session = svc.ingest_text(_PLAN, title="Refund flow")
     session = svc.process(session.session_id, llm=_UsageLLM(_EPIC_JSON))
     assert session.status == "processed"
+
+
+# ── gateway-reported route (Factory#1959) ─────────────────────────────────
+
+
+class _GatewayResponse(str):
+    """A completion text carrying the HTTP response headers of a stubbed gateway."""
+
+    headers: dict
+
+
+def _gateway_resp(text: str, route: str | None, headers_key: str = "X-Model-Route"):
+    resp = _GatewayResponse(text)
+    resp.headers = {headers_key: route} if route else {}
+    return resp
+
+
+class _GatewayLLM:
+    """Decomposer fake behind a stubbed gateway: route in headers, tokens on the adapter."""
+
+    def __init__(self, route: str | None):
+        self._route = route
+        self.last_usage = None
+
+    def complete(self, prompt: str):
+        self.last_usage = {"input_tokens": 100, "output_tokens": 20, "model": "m"}
+        return _gateway_resp(_EPIC_JSON, self._route)
+
+
+def test_route_read_from_dict_key_and_headers_in_any_case():
+    assert usage_from_obj({"input_tokens": 1, "route": "balanced"}).route == "balanced"
+    assert usage_from_obj({"headers": {"x-MODEL-route": "cheap"}}).route == "cheap"
+    assert usage_from_obj(_gateway_resp("t", "frontier", "X-MODEL-ROUTE")).route == "frontier"
+    assert usage_from_obj(_gateway_resp("t", None)) is None  # no route, no counts
+
+
+def test_route_only_response_is_a_zero_token_record():
+    got = usage_from_obj({"headers": {"X-Model-Route": "local"}})
+    assert got is not None
+    assert (got.total_tokens, got.route) == (0, "local")
+    assert "route" not in got.as_event_block()  # RFC-0001 envelope unchanged
+
+
+def test_add_keeps_the_latest_route():
+    run = PlanUsage(route="cheap")
+    run.add(PlanUsage(input_tokens=1))
+    assert run.route == "cheap"
+    run.add(PlanUsage(route="frontier"))
+    assert run.route == "frontier"
+
+
+def test_planner_seam_keeps_route_and_adapter_tokens():
+    svc = PlanService()
+    session = svc.ingest_text(_PLAN, title="Refund flow")
+    session = svc.process(session.session_id, llm=_GatewayLLM("balanced"))
+    assert session.usage.route == "balanced"
+    assert session.usage.total_tokens == 120  # the ceiling reads these
+
+
+def test_planner_seam_second_run_route_wins():
+    svc = PlanService()
+    session = svc.ingest_text(_PLAN, title="Refund flow")
+    svc.process(session.session_id, llm=_GatewayLLM("cheap"))
+    session = svc.process(session.session_id, llm=_GatewayLLM("frontier"))
+    assert session.usage.route == "frontier"
