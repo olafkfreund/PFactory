@@ -168,6 +168,8 @@ RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
 #                        be apk-deleted with the other pip packages below.
 #   libexpat1 2.8.5-r0 — CVE-2026-113351 and CVE-2026-115506, both HIGH, both
 #                        fixed in 2.10.0-r0.
+#   python-3.14 (+ -base, -base-dev, -dev) 3.14.8_git20261001-r1 — CVE-2026-119170,
+#                        HIGH, fixed in 3.14.10_git20261111-r0.
 # Floors rather than == pins, so the build stays green as Wolfi revs further
 # (1.38.0-r1 and later already exist); drop each once the base digest ships it.
 # Verified present in the Wolfi x86_64 APKINDEX before pinning — a floor above
@@ -203,6 +205,10 @@ RUN echo "security refresh: ${SECURITY_REFRESH}" \
         "libbrotlienc1>=1.2.0-r7" \
         "py3-pip-wheel>=26.2.2-r1" \
         "libexpat1>=2.10.0-r0" \
+        "python-3.14>=3.14.10_git20261111-r0" \
+        "python-3.14-base>=3.14.10_git20261111-r0" \
+        "python-3.14-base-dev>=3.14.10_git20261111-r0" \
+        "python-3.14-dev>=3.14.10_git20261111-r0" \
         git \
         gh \
         gnupg \
