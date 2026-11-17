@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import retention
+from . import gates, retention
 from .graphiti_helpers import (
     is_graphiti_memory_enabled,
     run_async,
@@ -165,6 +165,7 @@ def save_session_insights(
         break
 
     retention.confirm(spec_dir / "memory", kept + rejected)
+    gates.promote(spec_dir / "memory", session_type)
 
     # Also save to Graphiti if enabled (non-blocking, errors logged but not raised)
     if is_graphiti_memory_enabled():

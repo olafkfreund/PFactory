@@ -13,8 +13,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from memory import scratchpad, trust
 from memory.novelty import drop_repeats
-from memory.retention import CAPS, confirm, gotchas_context, session_type
+from memory.retention import (
+    CAPS,
+    confirm,
+    escape_headings,
+    gotchas_context,
+    session_type,
+)
 
 try:
     from claude_agent_sdk import tool
@@ -26,6 +33,13 @@ except ImportError:
 
 # The gotchas window shown by get_session_context.
 GOTCHA_CONTEXT_CHARS = 1000
+
+
+def _dead_end_parts(memory_dir: Path) -> list[str]:
+    dead_ends = scratchpad.dead_end_context(memory_dir)
+    if not dead_ends:
+        return []
+    return ["\n## Dead ends (already tried, do not retry)", dead_ends]
 
 
 def create_memory_tools(
@@ -136,20 +150,20 @@ def create_memory_tools(
 
             # Escape header-looking lines (injective: backslashes shift by one)
             # so the split below cannot cut inside an entry.
-            body = re.sub(r"(?m)^(\\*## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\])", r"\\\1", body)
+            body = escape_headings(body)
 
             seen: set[str] = set()
             if gotchas_file.exists():
                 tail = gotchas_file.read_text()[-GOTCHA_CONTEXT_CHARS:]
                 seen = {
-                    segment.strip()
+                    trust.strip_marker(segment.strip())
                     for segment in re.split(
                         r"(?m)^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]\r?\n", tail
                     )[1:]
                 }
             rejected: list[str] = []
             if not drop_repeats([body], seen, "gotchas.md", rejected):
-                confirm(memory_dir, rejected)
+                confirm(memory_dir, [*rejected, *(k + trust.UNVERIFIED for k in rejected)])
                 return {"content": [{"type": "text", "text": f"Gotcha already recorded: {gotcha}"}]}
 
             if gotchas_written.get(memory_dir, 0) >= CAPS[session_type(memory_session_type)]:
@@ -162,6 +176,8 @@ def create_memory_tools(
                     ]
                 }
 
+            if trust.tainted():
+                body += trust.UNVERIFIED
             entry = f"\n## [{timestamp}]\n{body}\n"
 
             with gotchas_file.open("a") as f:
@@ -178,6 +194,47 @@ def create_memory_tools(
             return {"content": [{"type": "text", "text": f"Error recording gotcha: {e}"}]}
 
     tools.append(record_gotcha)
+
+    # -------------------------------------------------------------------------
+    # record_dead_end tool
+    # -------------------------------------------------------------------------
+    dead_ends_written: dict[Path, int] = {}  # new dead ends per spec (cap)
+
+    @tool(
+        "record_dead_end",
+        "Record an approach you tried and abandoned because it does not work, "
+        "so later sessions do not retry it.",
+        {"approach": str, "reason": str},
+    )
+    async def record_dead_end(args: dict[str, Any]) -> dict[str, Any]:
+        """Record an abandoned approach (counters only, no LLM)."""
+        approach = args["approach"]
+        reason = args.get("reason", "")
+        memory_dir = get_spec_dir() / "memory"
+
+        try:
+            memory_dir.mkdir(exist_ok=True)
+            known = scratchpad.fingerprint(approach) in scratchpad.read(memory_dir).get(
+                "dead_end", {}
+            )
+            if (
+                not known
+                and dead_ends_written.get(memory_dir, 0) >= CAPS[session_type(memory_session_type)]
+            ):
+                text = "Dead end cap reached; new dead end not recorded."
+            elif scratchpad.record_dead_end(
+                memory_dir, approach, reason, untrusted=trust.tainted()
+            ):
+                if not known:
+                    dead_ends_written[memory_dir] = dead_ends_written.get(memory_dir, 0) + 1
+                text = f"Recorded dead end: {approach}"
+            else:
+                text = "Dead end not recorded."
+            return {"content": [{"type": "text", "text": text}]}
+        except (OSError, KeyError, TypeError, ValueError) as e:
+            return {"content": [{"type": "text", "text": f"Error recording dead end: {e}"}]}
+
+    tools.append(record_dead_end)
 
     # -------------------------------------------------------------------------
     # Tool: get_session_context
@@ -229,6 +286,9 @@ def create_memory_tools(
                     result_parts.append(gotchas_context(memory_dir, content, GOTCHA_CONTEXT_CHARS))
             except Exception:
                 pass
+
+        # Load dead ends (approaches already tried and abandoned)
+        result_parts.extend(_dead_end_parts(memory_dir))
 
         # Load patterns
         patterns_file = memory_dir / "patterns.md"
