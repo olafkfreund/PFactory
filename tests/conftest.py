@@ -183,6 +183,12 @@ def _refuse_unless_test_database(url: str) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _git_baseline_dir(tmp_path_factory, monkeypatch):
+    """Git metadata baselines (Factory#3737) never touch the real home."""
+    monkeypatch.setenv("FACTORY_GIT_BASELINE_DIR", str(tmp_path_factory.mktemp("git-baselines")))
+
+
+@pytest.fixture(autouse=True)
 def _empty_session_store():
     """Each test sees only the sessions it creates, as it does per-process."""
     if not os.environ.get("DATABASE_URL", "").strip():
