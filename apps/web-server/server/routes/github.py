@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path as FilePath
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
@@ -1364,7 +1365,7 @@ def _map_provider_pr(pr) -> dict:
     }
 
 
-def _map_provider_comment(comment) -> dict:
+def _map_provider_comment(comment: Any) -> dict[str, Any]:
     """Map a protocol IssueComment to the comment shape the frontend renders."""
     from runners.github.providers.protocol import to_iso_utc
 
