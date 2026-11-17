@@ -33,7 +33,7 @@ A FastAPI service tested with pytest.
 @pytest.fixture(autouse=True)
 def _no_project_tracking(monkeypatch) -> None:
     projects = importlib.import_module("server.routes.projects")
-    monkeypatch.setattr(projects, "ensure_tracked_project", lambda _repo: None)
+    monkeypatch.setattr(projects, "ensure_tracked_project", lambda _repo, _org=None: None)
 
 
 @pytest.fixture

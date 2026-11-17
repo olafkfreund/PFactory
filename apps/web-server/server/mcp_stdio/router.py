@@ -291,10 +291,11 @@ async def proxy_add_project(
     request: FastAPIRequest,
     key=Depends(require_acw_scope(PROJECT_WRITE_SCOPE)),
 ):
-    from ..routes.projects import ProjectCreate, add_project
+    from ..routes.projects import ProjectCreate, create_project
 
     body = await _read_json_body(request)
-    result = await add_project(ProjectCreate(**body))
+    org_id = key.org_id if isinstance(key, AuthenticatedKey) else None  # #1036
+    result = await create_project(ProjectCreate(**body), org_id)
     # ``add_project`` returns the project dict with an ``id`` field.
     project_id = result.get("id") if isinstance(result, dict) else None
     await _audit_mcp_write(

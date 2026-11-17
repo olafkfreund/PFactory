@@ -72,7 +72,7 @@ def _no_project_tracking(monkeypatch) -> None:
     """Stub the tracked-project side effect (it writes through to the DB)."""
     from server.routes import projects  # noqa: PLC0415 — deferred like the route itself
 
-    monkeypatch.setattr(projects, "ensure_tracked_project", lambda _repo: None)
+    monkeypatch.setattr(projects, "ensure_tracked_project", lambda _repo, _org=None: None)
 
 
 @pytest.fixture()

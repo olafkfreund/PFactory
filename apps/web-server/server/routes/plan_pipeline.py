@@ -26,6 +26,7 @@ from ..tenancy import multi_tenant_enabled, resolve_tenant
 from .project_authz import (
     authorize_plan_ingest,
     authorize_plan_session,
+    creator_org,
     plan_session_filter,
     require_plan_access,
 )
@@ -321,7 +322,7 @@ async def ingest_text(
     if body.repo:
         from .projects import ensure_tracked_project
 
-        ensure_tracked_project(body.repo)
+        ensure_tracked_project(body.repo, await creator_org(_user(request), db))
     return _session_dict(session)
 
 
@@ -360,7 +361,7 @@ async def ingest_from_issue(
     # W4 (#218): register the target repo as a tracked project (see ingest-text).
     from .projects import ensure_tracked_project
 
-    ensure_tracked_project(body.repo)
+    ensure_tracked_project(body.repo, await creator_org(_user(request), db))
     return _session_dict(session)
 
 
@@ -396,7 +397,7 @@ async def ingest_upload(
     if repo:
         from .projects import ensure_tracked_project
 
-        ensure_tracked_project(repo)
+        ensure_tracked_project(repo, await creator_org(_user(request), db))
     return _session_dict(session)
 
 
