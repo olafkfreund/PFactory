@@ -34,15 +34,16 @@ def _append_bullet(spec_dir: Path, kind: str, text: str) -> None:
     memory_dir = get_memory_dir(spec_dir)
     path = memory_dir / f"{kind}s.md"
     text = text.strip()
-    mark = trust.UNVERIFIED if kind == "gotcha" and trust.tainted() else ""
+    tainted = kind == "gotcha" and trust.tainted()
+    inline = " " + trust.UNVERIFIED.strip()  # one line, so a merge keeps it
     try:
         with locked(memory_dir):
-            if not text or text in _bullets(path):
-                return  # compared without the marker, which is a second line
+            if not text or text in {b.removesuffix(inline) for b in _bullets(path)}:
+                return
             with path.open("a") as f:
                 if not path.stat().st_size:
                     f.write(GOTCHAS_HEADER if kind == "gotcha" else PATTERNS_HEADER)
-                f.write(f"- {text}{mark}\n")
+                f.write(f"- {text}{inline if tainted else ''}\n")
     except OSError:
         logger.warning("%s not recorded in %s", kind, memory_dir, exc_info=True)
         return
@@ -57,7 +58,7 @@ def _append_bullet(spec_dir: Path, kind: str, text: str) -> None:
         graphiti = get_graphiti_memory(spec_dir)
         if graphiti:
             save = graphiti.save_gotcha if kind == "gotcha" else graphiti.save_pattern
-            run_async(save(text + mark))
+            run_async(save(text + (trust.UNVERIFIED if tainted else "")))
     except Exception as e:  # noqa: BLE001 - Graphiti is best-effort
         logger.warning(f"Graphiti {kind} save failed: {e}")
 

@@ -85,6 +85,32 @@ def test_legacy_bullet_gotchas_survive_the_merge(tmp_path):
     assert "- pin numpy" in (fresh / "gotchas.md").read_text()
 
 
+def test_unverified_marker_and_patterns_and_maps_survive_the_merge(tmp_path):
+    from memory import patterns, trust
+
+    a, b, pool_dir = tmp_path / "a", tmp_path / "b", tmp_path / "pool"
+    a.mkdir()
+    b.mkdir()
+    trust.taint()
+    try:
+        patterns.append_gotcha(a, "from the web")
+    finally:
+        trust._state.clear()
+    patterns.append_pattern(a, "use pytest")
+    patterns.append_pattern(b, "use ruff")
+    for spec, name in ((a, "x.py"), (b, "y.py")):
+        (spec / "memory" / "codebase_map.json").write_text(json.dumps({name: name}))
+    for spec in (a, b):
+        pool.merge_into(spec / "memory", pool_dir)
+    assert "unverified" in (pool_dir / "gotchas.md").read_text().splitlines()[-1]
+    text = (pool_dir / "patterns.md").read_text()
+    assert "- use pytest" in text and "- use ruff" in text
+    assert set(json.loads((pool_dir / "codebase_map.json").read_text())) == {
+        "x.py",
+        "y.py",
+    }
+
+
 def test_colliding_session_numbers_keep_both_records(tmp_path):
     pool_dir, a, b = tmp_path / "pool", tmp_path / "a", tmp_path / "b"
     for d, body in ((a, '{"who": "a"}'), (b, '{"who": "b"}')):
@@ -181,3 +207,16 @@ def test_the_pool_is_wired_into_setup_and_every_session_save():
     assert session.count("await save_session_memory(") == 1  # only inside _save_memory
     assert "pool.sync(" in session
     assert "pool.seed(" in (BACKEND / "core" / "workspace" / "setup.py").read_text()
+
+
+def test_pool_failures_return_false_and_never_raise(tmp_path, monkeypatch):
+    project = tmp_path / "a"
+    spec = _spec(project, "001")
+    pool.pool_dir(project).mkdir(parents=True)
+
+    def boom(*_a, **_k):
+        raise OSError("lock busy")
+
+    monkeypatch.setattr(pool, "merge_into", boom)
+    assert pool.seed(project, spec) is False
+    assert pool.sync(spec, spec) is False

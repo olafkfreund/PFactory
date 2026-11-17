@@ -6,6 +6,7 @@ instead, under the destination's memory lock.
 """
 
 import json
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -13,6 +14,10 @@ from typing import Any
 
 from . import retention, scratchpad
 from .locking import LOCK_NAME, locked
+
+logger = logging.getLogger(__name__)
+GOTCHAS_HEADER = "# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n"
+PATTERNS_HEADER = "# Code Patterns\n\nEstablished patterns to follow in this codebase:\n"
 
 
 def _later(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
@@ -61,9 +66,10 @@ def _atomic_write(path: Path, text: str) -> None:
     Path(f.name).replace(path)
 
 
-def _merge_gotchas(src: Path, dst: Path) -> None:
-    """Union of timestamped entries and of legacy bullets (which live before the
-    first heading, where ``gotchas_context`` reads them)."""
+def _merge_notes(src: Path, dst: Path, header: str) -> None:
+    """Union of timestamped entries and of whole bullet lines (which live before
+    the first heading, where ``gotchas_context`` reads them). A bullet is one
+    line, trust marker included. Also used for ``patterns.md``."""
     mine, theirs = (dst.read_text() if dst.exists() else ""), src.read_text()
     first = retention.HEADING.search(mine)
     head, rest = (mine[: first.start()], mine[first.start() :]) if first else (mine, "")
@@ -84,9 +90,27 @@ def _merge_gotchas(src: Path, dst: Path) -> None:
     if not (bullets or entries or not dst.exists()):
         return
     if not head.strip():
-        head = "# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n"
+        head = header
     head += "" if head.endswith("\n") else "\n"
     _atomic_write(dst, head + "".join(f"{b}\n" for b in bullets) + rest + entries)
+
+
+def _merge_map(src: Path, dst: Path) -> None:
+    """Union of the file maps; for a path both know, the newer file's entry wins."""
+    try:
+        mine = json.loads(dst.read_text()) if dst.exists() else {}
+        theirs = json.loads(src.read_text())
+    except ValueError:
+        return  # a corrupt map is not worth losing the rest of the merge
+    newer = src.stat().st_mtime > dst.stat().st_mtime if dst.exists() else True
+    _atomic_write(
+        dst,
+        json.dumps(
+            {**mine, **theirs} if newer else {**theirs, **mine},
+            indent=2,
+            sort_keys=True,
+        ),
+    )
 
 
 def _merge_session(src: Path, dst: Path, seen: dict[Path, set[bytes]]) -> None:
@@ -116,6 +140,7 @@ def merge_into(src: Path, dst: Path, same_spec: bool = False) -> None:
     ``same_spec``: both sides are the same spec's memory (worktree to source), so
     a rewritten session file is the build's own and the newer one wins. Across
     specs (the pool) session numbers collide and both records are kept."""
+    logger.debug("merging memory %s into %s", src, dst)
     dst.mkdir(parents=True, exist_ok=True)
     seen: dict[Path, set[bytes]] = {}
     with locked(dst):
@@ -131,7 +156,11 @@ def merge_into(src: Path, dst: Path, same_spec: bool = False) -> None:
             elif rel.as_posix() == "confirmed.json":
                 _merge_confirmed(src, dst)
             elif rel.as_posix() == "gotchas.md":
-                _merge_gotchas(path, target)
+                _merge_notes(path, target, GOTCHAS_HEADER)
+            elif rel.as_posix() == "patterns.md":
+                _merge_notes(path, target, PATTERNS_HEADER)
+            elif rel.as_posix() == "codebase_map.json":
+                _merge_map(path, target)
             elif (
                 not same_spec and path.parent.name == "session_insights" and path.suffix == ".json"
             ):
