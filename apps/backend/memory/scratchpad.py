@@ -84,8 +84,11 @@ def _bump(  # noqa: PLR0913
     entry["n"] = int(entry.get("n", 0)) + 1
     if untrusted:
         entry["bad"] = int(entry.get("bad", 0)) + 1
-    if reason:
+    # An untrusted reason never replaces a trusted one; if it is the only one
+    # it is kept but flagged (rb) and never recalled.
+    if reason and (not untrusted or "reason" not in entry):
         entry["reason"] = " ".join(reason.split())[:TEXT_LIMIT]
+        entry["rb"] = untrusted
     entry["last"] = now.isoformat()
     if len(entries) > MAX_KEYS:
         victim = min(
@@ -164,7 +167,8 @@ def dead_end_context(memory_dir: Path, limit: int = 800, now: datetime | None = 
         except (KeyError, ValueError, TypeError):
             continue
         if n - bad >= 1 and now - last < expire:
-            line = f"- {entry.get('text', '')} (why: {entry.get('reason') or 'n/a'}; seen {n}x)\n"
+            why = "n/a" if entry.get("rb") else entry.get("reason") or "n/a"
+            line = f"- {entry.get('text', '')} (why: {why}; seen {n}x)\n"
             ranked.append((last, n, line))
     out = ""
     for _, _, line in sorted(ranked, reverse=True):

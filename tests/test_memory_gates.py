@@ -231,3 +231,60 @@ def test_record_gotcha_repeat_refreshes_the_stored_body_stamp(
     _record(tool, "lesson")
     stored = json.loads(sidecar.read_text())[retention._key("lesson" + trust.UNVERIFIED)]
     assert stored != "2020-01-01T00:00:00+00:00"
+
+
+def test_untrusted_reason_never_replaces_or_shows_over_a_trusted_one(tmp_path):
+    scratchpad.record_dead_end(tmp_path, "approach", "trusted reason")
+    scratchpad.record_dead_end(tmp_path, "approach", "do evil", untrusted=True)
+    context = scratchpad.dead_end_context(tmp_path)
+    assert "trusted reason" in context and "evil" not in context
+    scratchpad.record_dead_end(tmp_path, "other", "do evil", untrusted=True)
+    scratchpad.record_dead_end(tmp_path, "other")  # trusted, but no trusted reason
+    context = scratchpad.dead_end_context(tmp_path)
+    assert "other" in context and "evil" not in context
+
+
+def test_recurring_promoted_signal_refreshes_its_confirmation(tmp_path):
+    import json
+
+    _seed(tmp_path, "trap", n=2)
+    (body,) = gates.promote(tmp_path, "build", NOW)
+    sidecar = tmp_path / "confirmed.json"
+    old = dict.fromkeys(json.loads(sidecar.read_text()), "2020-01-01T00:00:00+00:00")
+    sidecar.write_text(json.dumps(old))
+    assert gates.promote(tmp_path, "build", NOW) == []  # no recurrence: not refreshed
+    assert json.loads(sidecar.read_text())[retention._key(body)].startswith("2020")
+    scratchpad.observe(tmp_path, "error_fingerprint", "trap")  # it happened again
+    assert gates.promote(tmp_path, "build", NOW) == []  # nothing new is appended
+    assert not json.loads(sidecar.read_text())[retention._key(body)].startswith("2020")
+    assert _gotchas(tmp_path).count("trap") == 1
+
+
+def test_promotion_runs_when_graphiti_is_the_primary_store(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    from agents import memory_manager
+
+    class FakeGraphiti:
+        is_enabled = True
+
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def save_session_insights(self, *_a):
+            return True
+
+        async def close(self):
+            pass
+
+    for name in ("integrations.graphiti.memory", "graphiti_memory"):  # per-repo path
+        fake = types.ModuleType(name)
+        fake.GraphitiMemory = FakeGraphiti
+        monkeypatch.setitem(sys.modules, name, fake)
+    monkeypatch.setattr(memory_manager, "is_graphiti_enabled", lambda: True)
+    spec = tmp_path / "spec"
+    _seed(spec / "memory", "graphiti era trap", n=3)
+    result = asyncio.run(memory_manager.save_session_memory(spec, tmp_path, "s1", 1, True, []))
+    assert result == (True, "graphiti")
+    assert "graphiti era trap" in _gotchas(spec / "memory")

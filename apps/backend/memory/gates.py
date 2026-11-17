@@ -76,6 +76,18 @@ GATES: list[Callable[[list[Signal], Context], list[Signal]]] = [
 ]
 
 
+def _refresh_recurring(store: scratchpad.Store, signals: list[Signal]) -> list[str]:
+    """Bodies of already-promoted gotchas whose signal recurred (trusted) since
+    promotion: their confirmation is refreshed so a live trap does not age out."""
+    bodies = []
+    for s in signals:
+        recurred = int(s["n"]) > int(s.get("pn") or s["n"])
+        if s.get("promoted") and s.get("body") and not s.get("bad") and recurred:
+            store[s["kind"]][s["key"]]["pn"] = s["n"]
+            bodies.append(str(s["body"]))
+    return bodies
+
+
 def promote(
     memory_dir: Path,
     session_type: str | None = None,
@@ -101,20 +113,26 @@ def promote(
             },
             cap=retention.CAPS[retention.session_type(session_type)],
         )
+        refreshed = _refresh_recurring(store, signals)
         for gate in GATES:
             signals = gate(signals, ctx)
         if not signals:
+            if refreshed:
+                scratchpad.write(memory_dir, store)
+                retention.confirm(memory_dir, refreshed)
             return []
         stamp = (now or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M")
         bodies = [render(s) for s in signals]
+        body_of = {s["key"]: b for s, b in zip(signals, bodies, strict=True)}
         with gotchas.open("a") as f:
             if not text:
                 f.write("# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n")
             f.write("".join(f"\n## [{stamp}]\n{body}\n" for body in bodies))
         for s in signals:
-            store[s["kind"]][s["key"]]["promoted"] = True
+            entry = store[s["kind"]][s["key"]]
+            entry.update(promoted=True, body=body_of[s["key"]], pn=entry["n"])
         scratchpad.write(memory_dir, store)
-        retention.confirm(memory_dir, bodies)
+        retention.confirm(memory_dir, [*bodies, *refreshed])
     except Exception:  # noqa: BLE001 - promotion must never fail a session save
         logger.warning("memory promotion failed in %s", memory_dir, exc_info=True)
         return []

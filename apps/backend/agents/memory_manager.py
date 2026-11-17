@@ -24,6 +24,7 @@ from graphiti_config import get_graphiti_status, is_graphiti_enabled
 # Import from parent memory package
 # Now safe since this module is named memory_manager (not memory)
 from memory import save_session_insights as save_file_based_memory
+from memory.gates import promote as promote_signals
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +358,7 @@ async def save_session_memory(
                             storage_type="graphiti",
                             subtasks_saved=len(subtasks_completed),
                         )
+                    promote_signals(spec_dir / "memory")  # file store is not written
                     return True, "graphiti"
                 else:
                     logger.warning("Graphiti save returned False, falling back to file-based")
