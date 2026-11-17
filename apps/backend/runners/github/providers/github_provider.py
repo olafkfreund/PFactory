@@ -385,6 +385,12 @@ class GitHubProvider:
         )
         return oldest_first([self._parse_comment(item, issue_number) for item in raw])
 
+    async def fetch_pr_comments(
+        self, pr_number: int, since: datetime | None = None
+    ) -> list[IssueComment]:
+        """A PR's conversation lives on the issues endpoint, so this is fetch_comments."""
+        return await self.fetch_comments(pr_number, since=since)
+
     async def fetch_comments_bulk(
         self, issue_numbers: list[int], since: datetime | None = None
     ) -> dict[int, list[IssueComment]]:

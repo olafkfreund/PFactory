@@ -183,15 +183,11 @@ async def _existing_enrichment_comment(provider: Any, issue_number: int) -> int 
     """Return the comment ID of any prior PFactory enrichment comment
     on this issue, or None.
 
-    Uses the provider's low-level api_get (defined on the GitProvider
-    Protocol). We intentionally don't expose this as a Protocol method
-    because the lookup is delegation-specific.
+    Reads the thread through the provider protocol's ``fetch_comments``
+    (Factory#3771), so it works for every provider rather than only GitHub.
     """
-    repo = getattr(provider, "repo", None)
-    if not repo:
-        return None
     try:
-        comments = await provider.api_get(f"/repos/{repo}/issues/{issue_number}/comments")
+        comments = await provider.fetch_comments(issue_number)
     except Exception as e:
         logger.debug(
             "[delegation_runner] could not list comments on issue=%s: %s",
@@ -199,10 +195,7 @@ async def _existing_enrichment_comment(provider: Any, issue_number: int) -> int 
             sanitize_log(e),
         )
         return None
-    if not isinstance(comments, list):
-        return None
     for c in comments:
-        body = c.get("body") or ""
-        if ENRICHMENT_MARKER in body:
-            return c.get("id")
+        if ENRICHMENT_MARKER in c.body and c.id.isdigit():
+            return int(c.id)
     return None
