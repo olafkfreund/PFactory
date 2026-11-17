@@ -6,7 +6,14 @@ the backend git helper's dry-run + traversal + create contract.
 
 from __future__ import annotations
 
+import pytest
 from tools.git_writer import write_paths_to_branch
+
+
+@pytest.fixture(autouse=True)
+def _stub_baseline_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fake runner works on non-git directories; the real check has its own tests (#3737)."""
+    monkeypatch.setattr("agent_sandbox.check_git_metadata", lambda *_a, **_k: None)
 
 
 def test_dry_run_assembles_argv_no_subprocess() -> None:

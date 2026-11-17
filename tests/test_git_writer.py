@@ -40,6 +40,12 @@ class _FakeProc:
     stderr: str = ""
 
 
+@pytest.fixture(autouse=True)
+def _stub_baseline_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fake runner works on non-git directories; the real check has its own tests (#3737)."""
+    monkeypatch.setattr("agent_sandbox.check_git_metadata", lambda *_a, **_k: None)
+
+
 class _RecordingRunner:
     """Records every runner_fn call; returns scripted results."""
 

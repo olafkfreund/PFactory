@@ -63,7 +63,7 @@ def test_git_utils_calls_carry_pinned_env_and_no_ext_diff(tmp_path: Path, monkey
         calls.append((list(argv), kwargs.get("env")))
         return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(ws, "merge_driver_pins", lambda _cwd: ["-c", "merge.x.driver="])
+    monkeypatch.setattr(ws, "merge_driver_pins", lambda _cwd, **_kw: ["-c", "merge.x.driver="])
     monkeypatch.setattr(ws.subprocess, "run", fake_run)
     monkeypatch.setattr(merge_git.subprocess, "run", fake_run)
 

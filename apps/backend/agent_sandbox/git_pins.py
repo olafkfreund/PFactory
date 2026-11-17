@@ -41,6 +41,9 @@ def pin_git_config(
     return env
 
 
+# Remote keys that make fetch or push run a program (first value wins; see below).
+_REMOTE_PROGRAM_SUFFIXES = (".uploadpack", ".receivepack", ".vcs")
+
 _MERGE_DRIVER_KEYS = (
     "git",
     "config",
@@ -63,7 +66,11 @@ def merge_driver_pins(
     ``.git/info/attributes``; overriding each key with an empty value makes git
     report a conflict instead of running the program. The same pins disable
     ``filter.<name>.clean``, ``.smudge`` and ``.process`` commands; ``.required``
-    remains untouched. Callers fail closed on ``RuntimeError``. Keys are
+    remains untouched. A ``remote.<name>.uploadpack``, ``.receivepack`` or
+    ``.vcs`` key is refused with ``RuntimeError``: git keeps the first value of
+    the first two, so a ``-c`` override cannot beat the repo file, and ``.vcs``
+    cannot be blanked, so such a key cannot be pinned (#3737). Callers fail
+    closed on ``RuntimeError``. Keys are
     filtered in Python, not by ``--get-regexp``: under a UTF-8 locale git's
     regex skips a non-UTF-8 subsection. ``run`` must decode with
     ``surrogateescape`` so such a key round-trips to argv. ``check`` is an
@@ -97,6 +104,8 @@ def merge_driver_pins(
         raise RuntimeError(f"git config exited {rc}")
     pins: list[str] = []
     for key in out.split("\0"):
+        if key.startswith("remote.") and key.endswith(_REMOTE_PROGRAM_SUFFIXES):
+            raise RuntimeError(f"git config sets {key}: it runs a program and cannot be pinned")
         if not (
             (
                 key.startswith("merge.")
