@@ -455,7 +455,21 @@ class GitLabProvider(FanoutCommentsMixin):
     async def fetch_comments(
         self, issue_number: int, since: datetime | None = None
     ) -> list[IssueComment]:
-        """Read one issue's notes (Factory#375).
+        """Read one issue's notes (Factory#375); see :meth:`_fetch_notes`."""
+        return await self._fetch_notes("issues", issue_number, since)
+
+    async def fetch_pr_comments(
+        self, pr_number: int, since: datetime | None = None
+    ) -> list[IssueComment]:
+        """Read one merge request's notes (Factory#3771); see :meth:`_fetch_notes`."""
+        return await self._fetch_notes("merge_requests", pr_number, since)
+
+    async def _fetch_notes(
+        self, resource: str, issue_number: int, since: datetime | None
+    ) -> list[IssueComment]:
+        """Read one issue's or merge request's notes (Factory#375).
+
+        ``resource`` is the GitLab path segment, ``issues`` or ``merge_requests``.
 
         GitLab's Notes API has no ``since`` parameter, so the narrowing lever is
         ordering: newest-first by ``updated_at`` means an incremental poll walks
@@ -474,7 +488,7 @@ class GitLabProvider(FanoutCommentsMixin):
             async with self._client() as client:
                 for page in range(1, _COMMENT_MAX_PAGES + 1):
                     resp = await client.get(
-                        f"/api/v4/projects/{self._project_id}/issues/{issue_number}/notes",
+                        f"/api/v4/projects/{self._project_id}/{resource}/{issue_number}/notes",
                         params={
                             "per_page": _COMMENT_PAGE_SIZE,
                             "page": page,
@@ -494,7 +508,7 @@ class GitLabProvider(FanoutCommentsMixin):
                             return oldest_first(collected)
                         if note.get("system"):
                             continue
-                        collected.append(self._parse_note(note, issue_number))
+                        collected.append(self._parse_note(note, issue_number, resource))
 
                     if len(notes) < _COMMENT_PAGE_SIZE:
                         return oldest_first(collected)
@@ -511,10 +525,13 @@ class GitLabProvider(FanoutCommentsMixin):
             "accept a truncated thread"
         )
 
-    def _parse_note(self, note: dict[str, Any], issue_number: int) -> IssueComment:
+    def _parse_note(
+        self, note: dict[str, Any], issue_number: int, resource: str = "issues"
+    ) -> IssueComment:
         """Parse a GitLab note into the normalised shape."""
         author = note.get("author") or {}
         created = note.get("created_at")
+        note_id = note.get("id", "")
         # Notes carry no web_url of their own; GitLab addresses them as an
         # anchor on the issue page.
         return IssueComment(
@@ -524,9 +541,10 @@ class GitLabProvider(FanoutCommentsMixin):
             body=note.get("body") or "",
             created_at=self._parse_datetime(created),
             updated_at=self._parse_datetime(note.get("updated_at") or created),
-            url=f"{self._base_url}/{self._repo}/-/issues/{issue_number}#note_{note.get('id', '')}",
+            url=f"{self._base_url}/{self._repo}/-/{resource}/{issue_number}#note_{note_id}",
             provider=ProviderType.GITLAB,
             raw_data=note,
+            avatar_url=str(author.get("avatar_url") or "") if isinstance(author, dict) else "",
         )
 
     # GitLab Duo's "alias" for delegation. The runner passes ``["Copilot"]``

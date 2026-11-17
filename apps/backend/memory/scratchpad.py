@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .locking import locked
 from .retention import windows
 
 logger = logging.getLogger(__name__)
@@ -119,9 +120,10 @@ def observe(  # noqa: PLR0913
         logger.warning("scratchpad: ignored observation of kind %r", kind)
         return False
     try:
-        store = read(memory_dir)
-        _bump(store, kind, text, reason, untrusted, (now or datetime.now(UTC)))
-        write(memory_dir, store)
+        with locked(memory_dir):
+            store = read(memory_dir)
+            _bump(store, kind, text, reason, untrusted, (now or datetime.now(UTC)))
+            write(memory_dir, store)
         return True
     except (OSError, TypeError, ValueError):
         logger.warning("scratchpad: could not record in %s", memory_dir, exc_info=True)
@@ -144,19 +146,20 @@ def record_dead_end(
         return False
     now = now or datetime.now(UTC)
     try:
-        store = read(memory_dir)
-        for kind, entries in store.items():
-            if kind == "dead_end":
-                continue
-            for entry in entries.values():
-                try:
-                    last = datetime.fromisoformat(str(entry.get("last")))
-                except ValueError:
+        with locked(memory_dir):
+            store = read(memory_dir)
+            for kind, entries in store.items():
+                if kind == "dead_end":
                     continue
-                if now - last <= timedelta(seconds=ABANDON_WINDOW):
-                    entry["ab"] = int(entry.get("n", 0))
-        _bump(store, "dead_end", approach, reason, untrusted, now)
-        write(memory_dir, store)
+                for entry in entries.values():
+                    try:
+                        last = datetime.fromisoformat(str(entry.get("last")))
+                    except ValueError:
+                        continue
+                    if now - last <= timedelta(seconds=ABANDON_WINDOW):
+                        entry["ab"] = int(entry.get("n", 0))
+            _bump(store, "dead_end", approach, reason, untrusted, now)
+            write(memory_dir, store)
         return True
     except (OSError, TypeError, ValueError):
         logger.warning("scratchpad: could not record in %s", memory_dir, exc_info=True)

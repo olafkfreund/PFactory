@@ -18,6 +18,9 @@ catalog model that meets the tier/class capability floor under the ceiling**:
 It writes (additively) onto the contract's ``execution`` block:
 
   - ``phase_models`` — ``{planning, coding, qa, test_gen}`` model ids.
+  - ``phase_routes`` — the catalog capability class of each picked model
+    (``local|cheap|balanced|frontier``, Factory#1959 stage 3); a model absent from
+    the catalog has no entry. ``phase_models`` stays authoritative.
   - ``routing`` — ``{class, cost_estimate_usd, cost_ceiling_usd, policy,
     rationale, autonomy}``, retaining a valid stronger declared class, a
     ``pinned_model``, and ``requested``/``overrides`` dicts when supplied
@@ -116,8 +119,8 @@ def select_phase_models(
 ) -> dict[str, Any]:
     """Pick per-role models for a contract and return the ``routing`` summary.
 
-    Returns ``{"phase_models": {...}, "routing": {...}}``. Pure: reads the
-    contract + catalog, derives the scorer verdict, and resolves the cheapest
+    Returns ``{"phase_models": {...}, "phase_routes": {...}, "routing": {...}}``.
+    Pure: reads the contract + catalog, derives the scorer verdict, and resolves the cheapest
     capable model per role under the ceiling. A prior routing pin selects every
     role; a valid declared class at least as strong as the scored class sets the
     floor and ceiling. ``catalog`` may be injected for tests; otherwise the
@@ -192,7 +195,12 @@ def select_phase_models(
     routing.update(
         {k: dict(prior[k]) for k in ("requested", "overrides") if isinstance(prior.get(k), dict)}
     )
-    return {"phase_models": phase_models, "routing": routing}
+    phase_routes = {
+        role: str(cat[model]["class"])
+        for role, model in phase_models.items()
+        if isinstance(cat.get(model), dict) and cat[model].get("class")
+    }
+    return {"phase_models": phase_models, "phase_routes": phase_routes, "routing": routing}
 
 
 def _rationale(
@@ -250,5 +258,16 @@ def apply_cost_routing(
     merged = dict(existing) if isinstance(existing, dict) else {}
     merged.update(result["phase_models"])
     execution["phase_models"] = merged
+    routes = execution.get("phase_routes")
+    # A role the router re-picked drops its old route: a model absent from the
+    # catalog must not keep the previous model's class.
+    execution["phase_routes"] = {
+        **{
+            role: route
+            for role, route in (routes if isinstance(routes, dict) else {}).items()
+            if role not in result["phase_models"]
+        },
+        **result["phase_routes"],
+    }
     execution["routing"] = result["routing"]
     return contract

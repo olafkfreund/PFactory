@@ -1328,6 +1328,7 @@ class PlanService:
             external_runner = provider_runner
         session = self.get(session_id)
         session._run_base_tokens = session.usage.total_tokens  # ceiling is per run
+        session.usage.route = ""  # a run names its own route; totals stay cumulative
         # Transient sub-states so a background-run session animates on the board:
         # in-progress while we detect/enrich/decompose/synthesize, AI-review while
         # the gates run. (Synchronous callers just see the final "processed".)
