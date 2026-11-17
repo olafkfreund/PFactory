@@ -165,7 +165,7 @@ def _run_signature(
         "change_id": None,
         "originator": session.originator,
         "agent_identity": session.agent_identity,
-        "model_route": None,
+        "model_route": _model_route(session),
         # Zero tokens means the deterministic path ran — NOT that nothing ran.
         "tokens": session.usage.model_dump() if session.usage else {},
         "emitted_issue_number": session.emitted_issue_number,
@@ -206,6 +206,19 @@ def _dependencies(session: PlanSession) -> list[str]:
             seen.add(d)
             out.append(d)
     return out
+
+
+def _model_route(session: PlanSession) -> str | None:
+    """The route the run used: the gateway-reported one, else the cost router's planning
+    route from the emitted contract, else None (no contract yet is a valid state)."""
+    reported = session.usage.route if session.usage else ""
+    if reported:
+        return reported
+    contract = (session.contract_result or {}).get("contract")
+    execution = contract.get("execution") if isinstance(contract, dict) else None
+    routes = execution.get("phase_routes") if isinstance(execution, dict) else None
+    planned = routes.get("planning") if isinstance(routes, dict) else None
+    return planned if isinstance(planned, str) and planned else None
 
 
 def _routing_verdict(session: PlanSession) -> dict[str, str] | None:
