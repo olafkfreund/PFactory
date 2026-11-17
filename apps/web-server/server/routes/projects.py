@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -546,13 +546,13 @@ async def add_project(
     project: ProjectCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),  # noqa: B008
-):
+) -> dict[str, Any]:
     """Register a project, stamped with the creating principal's org (#1036)."""
     org_id = await creator_org(getattr(request.state, "user", None), db)
     return await create_project(project, org_id)
 
 
-async def create_project(project: ProjectCreate, org_id: str | None = None):
+async def create_project(project: ProjectCreate, org_id: str | None = None) -> dict[str, Any]:
     """Add a new project. Two paths (#82 PR-A):
 
     1. **Local path** (``path`` set) — register an existing directory
