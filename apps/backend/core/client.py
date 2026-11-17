@@ -199,6 +199,7 @@ from core.child_env import (  # noqa: E402 - late like the imports around it
     get_agent_env_blanks,
     without_host_secrets,
 )
+from memory.hooks import make_failure_hook, taint_hook  # noqa: E402
 from prompts_pkg.project_context import (
     detect_infra_markers,
     detect_project_capabilities,
@@ -927,10 +928,17 @@ def create_client(
         "hooks": {
             "PreToolUse": [
                 HookMatcher(matcher="Bash", hooks=[bash_security_hook]),
+                # RFC-0021 Phase 4: external content opens the untrusted window.
+                HookMatcher(matcher="WebFetch", hooks=[taint_hook]),  # type: ignore[list-item]
+                HookMatcher(matcher="WebSearch", hooks=[taint_hook]),  # type: ignore[list-item]
                 HookMatcher(hooks=[guard.pre]),  # type: ignore[list-item]
             ],
             "PostToolUse": [HookMatcher(hooks=[guard.post])],  # type: ignore[list-item]
-            "PostToolUseFailure": [HookMatcher(hooks=[guard.failure])],  # type: ignore[list-item]
+            "PostToolUseFailure": [
+                HookMatcher(hooks=[guard.failure]),  # type: ignore[list-item]
+                # RFC-0021 Phase 3: count normalised tool errors per spec.
+                HookMatcher(hooks=[make_failure_hook(spec_dir / "memory")]),  # type: ignore[list-item]
+            ],
         },
         "max_turns": max_turns(),
         "cwd": str(project_dir.resolve()),
