@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from memory import scratchpad, trust
+from memory.locking import locked
 from memory.novelty import drop_repeats
 from memory.retention import (
     CAPS,
@@ -152,41 +153,46 @@ def create_memory_tools(
             # so the split below cannot cut inside an entry.
             body = escape_headings(body)
 
-            seen: set[str] = set()
-            if gotchas_file.exists():
-                tail = gotchas_file.read_text()[-GOTCHA_CONTEXT_CHARS:]
-                seen = {
-                    trust.strip_marker(segment.strip())
-                    for segment in re.split(
-                        r"(?m)^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]\r?\n", tail
-                    )[1:]
-                }
-            rejected: list[str] = []
-            if not drop_repeats([body], seen, "gotchas.md", rejected):
-                confirm(memory_dir, [*rejected, *(k + trust.UNVERIFIED for k in rejected)])
-                return {"content": [{"type": "text", "text": f"Gotcha already recorded: {gotcha}"}]}
+            with locked(memory_dir):
+                seen: set[str] = set()
+                if gotchas_file.exists():
+                    tail = gotchas_file.read_text()[-GOTCHA_CONTEXT_CHARS:]
+                    seen = {
+                        trust.strip_marker(segment.strip())
+                        for segment in re.split(
+                            r"(?m)^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]\r?\n", tail
+                        )[1:]
+                    }
+                rejected: list[str] = []
+                if not drop_repeats([body], seen, "gotchas.md", rejected):
+                    confirm(memory_dir, [*rejected, *(k + trust.UNVERIFIED for k in rejected)])
+                    return {
+                        "content": [{"type": "text", "text": f"Gotcha already recorded: {gotcha}"}]
+                    }
 
-            if gotchas_written.get(memory_dir, 0) >= CAPS[session_type(memory_session_type)]:
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Gotcha cap reached; new gotcha not recorded.",
-                        }
-                    ]
-                }
+                if gotchas_written.get(memory_dir, 0) >= CAPS[session_type(memory_session_type)]:
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Gotcha cap reached; new gotcha not recorded.",
+                            }
+                        ]
+                    }
 
-            if trust.tainted():
-                body += trust.UNVERIFIED
-            entry = f"\n## [{timestamp}]\n{body}\n"
+                if trust.tainted():
+                    body += trust.UNVERIFIED
+                entry = f"\n## [{timestamp}]\n{body}\n"
 
-            with gotchas_file.open("a") as f:
-                if not gotchas_file.exists() or gotchas_file.stat().st_size == 0:
-                    f.write("# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n")
-                f.write(entry)
+                with gotchas_file.open("a") as f:
+                    if not gotchas_file.exists() or gotchas_file.stat().st_size == 0:
+                        f.write(
+                            "# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n"
+                        )
+                    f.write(entry)
 
-            gotchas_written[memory_dir] = gotchas_written.get(memory_dir, 0) + 1
-            confirm(memory_dir, [body.strip()])
+                gotchas_written[memory_dir] = gotchas_written.get(memory_dir, 0) + 1
+                confirm(memory_dir, [body.strip()])
 
             return {"content": [{"type": "text", "text": f"Recorded gotcha: {gotcha}"}]}
 

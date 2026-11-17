@@ -9,6 +9,8 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from .locking import locked
+
 logger = logging.getLogger(__name__)
 
 CAPS = {"build": 20, "planning": 5, "verification": 8, "insights": 5, "docs": 0}
@@ -65,14 +67,15 @@ def confirm(memory_dir: Path, texts: list[str], now: datetime | None = None) -> 
     path = None
     try:
         memory_dir.mkdir(parents=True, exist_ok=True)
-        data = _read(memory_dir)
-        timestamp = (now or datetime.now(UTC)).astimezone(UTC).isoformat()
-        for item in texts:
-            data[_key(item)] = timestamp
-        with tempfile.NamedTemporaryFile("w", dir=memory_dir, delete=False) as f:
-            path = Path(f.name)
-            json.dump(data, f)
-        path.replace(memory_dir / "confirmed.json")
+        with locked(memory_dir):
+            data = _read(memory_dir)
+            timestamp = (now or datetime.now(UTC)).astimezone(UTC).isoformat()
+            for item in texts:
+                data[_key(item)] = timestamp
+            with tempfile.NamedTemporaryFile("w", dir=memory_dir, delete=False) as f:
+                path = Path(f.name)
+                json.dump(data, f)
+            path.replace(memory_dir / "confirmed.json")
     except OSError:
         logger.warning("could not record confirmed.json in %s", memory_dir, exc_info=True)
     finally:

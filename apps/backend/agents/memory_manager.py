@@ -25,6 +25,7 @@ from graphiti_config import get_graphiti_status, is_graphiti_enabled
 # Now safe since this module is named memory_manager (not memory)
 from memory import save_session_insights as save_file_based_memory
 from memory.gates import promote as promote_signals
+from memory.graphiti_helpers import gate_for_graphiti
 
 logger = logging.getLogger(__name__)
 
@@ -342,10 +343,14 @@ async def save_session_memory(
                             "memory",
                             "Using save_structured_insights (rich data available)",
                         )
-                    result = await memory.save_structured_insights(discoveries)
+                    result = await memory.save_structured_insights(
+                        gate_for_graphiti(discoveries, session_type)
+                    )
                 else:
                     # Fallback to basic session insights
-                    result = await memory.save_session_insights(session_num, insights)
+                    result = await memory.save_session_insights(
+                        session_num, gate_for_graphiti(insights, session_type)
+                    )
 
                 await memory.close()
 
