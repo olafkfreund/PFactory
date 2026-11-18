@@ -1301,9 +1301,12 @@ def _map_provider_issue(issue, repo_full_name: str = "") -> dict:
     """Map IssueData from GitProvider to frontend shape."""
     from datetime import datetime
 
+    # The frontend keys issues by integer until the string-identifier migration
+    # reaches it (Factory#3774); a non-numeric key raises ValueError here, not shown.
+    number = int(issue.number)
     return {
-        "id": issue.number,
-        "number": issue.number,
+        "id": number,
+        "number": number,
         "title": issue.title,
         "body": issue.body,
         "state": issue.state.lower(),
@@ -1387,7 +1390,7 @@ async def _get_provider_issue_comments(provider, issueNumber: int) -> list[dict]
     comments, as before.
     """
     try:
-        found = await provider.fetch_comments(issueNumber)
+        found = await provider.fetch_comments(str(issueNumber))
     except Exception:
         try:
             found = await provider.fetch_pr_comments(issueNumber)
@@ -1617,7 +1620,7 @@ async def get_project_github_issue(projectId: str, issueNumber: int):
     if _use_provider_api(projectId):
         try:
             provider = _get_project_provider(projectId)
-            issue = await provider.fetch_issue(issueNumber)
+            issue = await provider.fetch_issue(str(issueNumber))
             return {"success": True, "data": _map_provider_issue(issue, provider.repo)}
         except Exception:
             logger.exception("Failed to fetch issue")
@@ -1714,9 +1717,9 @@ async def investigate_github_issue(projectId: str, issueNumber: int, request: In
         if _use_provider_api(projectId):
             try:
                 provider = _get_project_provider(projectId)
-                issue_obj = await provider.fetch_issue(issueNumber)
+                issue_obj = await provider.fetch_issue(str(issueNumber))
                 issue_data = {
-                    "number": issue_obj.number,
+                    "number": int(issue_obj.number),
                     "title": issue_obj.title,
                     "body": issue_obj.body,
                     "state": issue_obj.state,
@@ -1957,7 +1960,7 @@ async def close_github_issue(projectId: str, issueNumber: int):
     if _use_provider_api(projectId):
         try:
             provider = _get_project_provider(projectId)
-            success = await provider.close_issue(issueNumber)
+            success = await provider.close_issue(str(issueNumber))
             return {"success": success}
         except Exception:
             logger.exception("Failed to close issue")
@@ -2197,7 +2200,7 @@ async def post_pr_comment(
     if _use_provider_api(projectId):
         try:
             provider = _get_project_provider(projectId)
-            comment_id = await provider.add_comment(prNumber, request.body)
+            comment_id = await provider.add_comment(str(prNumber), request.body)
             return {"success": True, "data": {"commentId": comment_id}}
         except Exception:
             logger.exception("Failed to post PR comment for #%s", sanitize_log(prNumber))

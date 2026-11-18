@@ -41,7 +41,11 @@
           "type": "string"
         },
         "issue_number": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "string"
+          ],
+          "description": "Work-item identifier (Factory#3774): a decimal string, or an integer read as its decimal form, or a tracker key such as PROJ-123."
         },
         "repo": {
           "type": "string",
@@ -487,6 +491,29 @@
             "enforce"
           ],
           "description": "RFC-0014 budget enforcement mode. 'observe' (default) keeps budget_usd as a post-hoc warning that never changes the run. 'enforce' (operator-gated) lets the router refuse a selection whose estimate exceeds the ceiling — downgrading within the capability floor, or failing fast with a named reason if even the floor exceeds it. A 'governed' task is never silently degraded. Absent => 'observe'."
+        },
+        "route": {
+          "type": "string",
+          "enum": [
+            "local",
+            "cheap",
+            "balanced",
+            "frontier"
+          ],
+          "description": "Run-level capability class (RFC-0014, apis/model-catalog.json `class`), additive next to `model`. A gateway resolves the class to a model; consumers that cannot ignore it and keep using `model`/`phase_models`. Distinct from `routing.class` (a scorer verdict)."
+        },
+        "phase_routes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "local",
+              "cheap",
+              "balanced",
+              "frontier"
+            ]
+          },
+          "description": "Per-phase capability class, keyed like phase_models (spec|planning|coding|qa|qa_fixer|test_gen). Additive: phase_models is unchanged and still honoured; a consumer that resolves routes prefers the route when present (Factory#1959 stage 3)."
         }
       }
     },
@@ -1371,7 +1398,13 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["postgres", "mysql", "redis", "mongodb", "none"]
+            "enum": [
+              "postgres",
+              "mysql",
+              "redis",
+              "mongodb",
+              "none"
+            ]
           },
           "description": "Managed data services a PaaS deploy provisions (RFC-0013). Empty/absent => none detected."
         },

@@ -31,7 +31,7 @@ env:
   # (issue #302). Bump this deliberately AND re-vendor
   # apps/backend/plan/emit/contracts/task-contract.schema.json in the same PR.
   # Same convention as factory-github-drift.yml.
-  HUB_SHA: "f53f32bfa37489b8278f8ec6d137fb57efa85974"
+  HUB_SHA: "92d2508e057524c054c6842b0170168ff7213c25"
 
 jobs:
   backend-lint-test:

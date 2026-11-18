@@ -76,8 +76,10 @@ from .protocol import (
     IssueComment,
     IssueData,
     IssueFilters,
+    IssueRef,
     LabelData,
     ProviderType,
+    as_issue_int,
     oldest_first,
     to_iso_utc,
 )
@@ -160,7 +162,8 @@ class HttpGitHubProvider:
             resp.raise_for_status()
             return self._parse_issue(resp.json())
 
-    async def fetch_issue(self, number: int) -> IssueData:
+    async def fetch_issue(self, number: IssueRef) -> IssueData:
+        number = str(as_issue_int(number, "GitHub"))
         async with self._client() as client:
             resp = await client.get(f"/repos/{self._repo}/issues/{number}")
             resp.raise_for_status()
@@ -213,13 +216,14 @@ class HttpGitHubProvider:
                 page += 1
         return issues[: filters.limit]
 
-    async def close_issue(self, number: int, comment: str | None = None) -> bool:
+    async def close_issue(self, number: IssueRef, comment: str | None = None) -> bool:
         """Close an issue, optionally commenting first.
 
         Returns ``False`` on any HTTP or transport error rather than raising,
         matching :meth:`GitHubProvider.close_issue` — callers treat the result as
         "did it close", and the two transports must answer the same way.
         """
+        number = str(as_issue_int(number, "GitHub"))  # a bad key is a caller error, not "False"
         try:
             if comment:
                 await self.add_comment(number, comment)
@@ -232,7 +236,7 @@ class HttpGitHubProvider:
             return False
         return True
 
-    async def assign_to_user(self, issue_number: int, assignees: list[str]) -> None:
+    async def assign_to_user(self, issue_number: IssueRef, assignees: list[str]) -> None:
         """Assign users or the Copilot agent; the algorithm is shared with the gh provider."""
         await assign_actors(
             self._graphql, repo=self._repo, issue_number=issue_number, assignees=assignees
@@ -256,15 +260,17 @@ class HttpGitHubProvider:
 
     # ── labels ───────────────────────────────────────────────────────────────
 
-    async def apply_labels(self, issue_or_pr_number: int, labels: list[str]) -> None:
+    async def apply_labels(self, issue_or_pr_number: IssueRef, labels: list[str]) -> None:
+        issue_or_pr_number = str(as_issue_int(issue_or_pr_number, "GitHub"))
         async with self._client() as client:
             resp = await client.post(
                 f"/repos/{self._repo}/issues/{issue_or_pr_number}/labels", json={"labels": labels}
             )
             resp.raise_for_status()
 
-    async def remove_labels(self, issue_or_pr_number: int, labels: list[str]) -> None:
+    async def remove_labels(self, issue_or_pr_number: IssueRef, labels: list[str]) -> None:
         """One DELETE per label; a 404 means it was already absent, which is the goal."""
+        issue_or_pr_number = str(as_issue_int(issue_or_pr_number, "GitHub"))
         async with self._client() as client:
             for label in labels:
                 resp = await client.delete(
@@ -316,8 +322,9 @@ class HttpGitHubProvider:
 
     # ── comments ─────────────────────────────────────────────────────────────
 
-    async def add_comment(self, issue_or_pr_number: int, body: str) -> int:
+    async def add_comment(self, issue_or_pr_number: IssueRef, body: str) -> int:
         """Comment on an issue or PR (both live on the issues endpoint); returns the id."""
+        issue_or_pr_number = str(as_issue_int(issue_or_pr_number, "GitHub"))
         async with self._client() as client:
             resp = await client.post(
                 f"/repos/{self._repo}/issues/{issue_or_pr_number}/comments", json={"body": body}
@@ -329,13 +336,14 @@ class HttpGitHubProvider:
         return comment_id
 
     async def fetch_comments(
-        self, issue_number: int, since: datetime | None = None
+        self, issue_number: IssueRef, since: datetime | None = None
     ) -> list[IssueComment]:
         """Read ONE issue's comment thread.
 
         GitHub takes ``since`` server-side on the per-issue endpoint, so an
         incremental read transfers only what changed.
         """
+        issue_number = str(as_issue_int(issue_number, "GitHub"))
         params: dict[str, Any] = {}
         if since is not None:
             params["since"] = to_iso_utc(since)
@@ -344,10 +352,10 @@ class HttpGitHubProvider:
         return oldest_first([self._parse_comment(item, issue_number) for item in raw])
 
     async def fetch_comments_bulk(
-        self, issue_numbers: list[int], since: datetime | None = None
-    ) -> dict[int, list[IssueComment]]:
+        self, issue_numbers: list[IssueRef], since: datetime | None = None
+    ) -> dict[IssueRef, list[IssueComment]]:
         """Bulk read over REST. Grouping and the rationale: ``_github_json``."""
-        wanted = sorted({int(number) for number in issue_numbers})
+        wanted = sorted({str(as_issue_int(number, "GitHub")) for number in issue_numbers}, key=int)
         if not wanted:
             return {}
         if since is None:
@@ -431,7 +439,7 @@ class HttpGitHubProvider:
         if not isinstance(number, int):
             raise ValueError(f"{self._repo}: response carried no issue number")
         return IssueData(
-            number=number,
+            number=str(number),
             title=str(issue.get("title") or ""),
             body=str(issue.get("body") or ""),
             author=str((issue.get("user") or {}).get("login") or ""),
@@ -456,6 +464,6 @@ class HttpGitHubProvider:
             raw_data=issue,
         )
 
-    def _parse_comment(self, data: dict[str, Any], issue_number: int) -> IssueComment:
+    def _parse_comment(self, data: dict[str, Any], issue_number: str) -> IssueComment:
         """Shared with the gh-CLI provider — ``gh api`` returns this payload verbatim."""
         return _shared_parse_comment(data, issue_number)

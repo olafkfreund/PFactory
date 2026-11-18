@@ -32,11 +32,13 @@ from .protocol import (
     IssueComment,
     IssueData,
     IssueFilters,
+    IssueRef,
     LabelData,
     PRData,
     PRFilters,
     ProviderType,
     ReviewData,
+    as_issue_int,
     fanout_comments,
     oldest_first,
     to_iso_utc,
@@ -218,7 +220,7 @@ class GitHubProvider:
         """Close a pull request without merging."""
         try:
             if comment:
-                await self.add_comment(pr_number, comment)
+                await self.add_comment(str(pr_number), comment)
             await self._gh_client.run(["pr", "close", str(pr_number)])
             return True
         except Exception:
@@ -252,8 +254,9 @@ class GitHubProvider:
     # Issue Operations
     # -------------------------------------------------------------------------
 
-    async def fetch_issue(self, number: int) -> IssueData:
+    async def fetch_issue(self, number: IssueRef) -> IssueData:
         """Fetch an issue by number."""
+        n = as_issue_int(number, "GitHub")
         fields = [
             "number",
             "title",
@@ -268,7 +271,7 @@ class GitHubProvider:
             "milestone",
         ]
 
-        issue_data = await self._gh_client.issue_get(number, json_fields=fields)
+        issue_data = await self._gh_client.issue_get(n, json_fields=fields)
         return self._parse_issue_data(issue_data)
 
     async def fetch_issues(
@@ -341,62 +344,65 @@ class GitHubProvider:
         # Parse the issue URL to get the number
         # gh issue create outputs the URL
         url = result.stdout.strip()
-        number = int(url.split("/")[-1])
+        number = url.split("/")[-1]
 
         return await self.fetch_issue(number)
 
     async def close_issue(
         self,
-        number: int,
+        number: IssueRef,
         comment: str | None = None,
     ) -> bool:
         """Close an issue."""
+        n = as_issue_int(number, "GitHub")  # a bad key is a caller error, not "False"
         try:
             if comment:
                 await self.add_comment(number, comment)
-            await self._gh_client.run(["issue", "close", str(number)])
+            await self._gh_client.run(["issue", "close", str(n)])
             return True
         except Exception:
             return False
 
     async def add_comment(
         self,
-        issue_or_pr_number: int,
+        issue_or_pr_number: IssueRef,
         body: str,
     ) -> int:
         """Add a comment to an issue or PR."""
-        await self._gh_client.issue_comment(issue_or_pr_number, body)
+        n = as_issue_int(issue_or_pr_number, "GitHub")
+        await self._gh_client.issue_comment(n, body)
         # gh CLI doesn't return comment ID, return 0
         return 0
 
     async def fetch_comments(
-        self, issue_number: int, since: datetime | None = None
+        self, issue_number: IssueRef, since: datetime | None = None
     ) -> list[IssueComment]:
         """Read one issue's comment thread (Factory#375).
 
         GitHub's per-issue endpoint takes ``since`` server-side, so an
         incremental poll transfers only what changed.
         """
+        number = str(as_issue_int(issue_number, "GitHub"))
         params: dict[str, str] = {}
         if since is not None:
             params["since"] = to_iso_utc(since)
 
         raw = await self._fetch_comment_pages(
-            f"/repos/{self._repo}/issues/{issue_number}/comments", params
+            f"/repos/{self._repo}/issues/{number}/comments", params
         )
-        return oldest_first([self._parse_comment(item, issue_number) for item in raw])
+        return oldest_first([self._parse_comment(item, number) for item in raw])
 
     async def fetch_pr_comments(
         self, pr_number: int, since: datetime | None = None
     ) -> list[IssueComment]:
         """A PR's conversation lives on the issues endpoint, so this is fetch_comments."""
-        return await self.fetch_comments(pr_number, since=since)
+        return await self.fetch_comments(str(pr_number), since=since)
 
     async def fetch_comments_bulk(
-        self, issue_numbers: list[int], since: datetime | None = None
-    ) -> dict[int, list[IssueComment]]:
+        self, issue_numbers: list[IssueRef], since: datetime | None = None
+    ) -> dict[IssueRef, list[IssueComment]]:
         """Bulk read over ``gh api``. Grouping and the rationale: ``_github_json``."""
-        wanted = sorted({int(number) for number in issue_numbers})
+        wanted = sorted({str(as_issue_int(number, "GitHub")) for number in issue_numbers}, key=int)
         if not wanted:
             return {}
         if since is None:
@@ -422,17 +428,17 @@ class GitHubProvider:
         return await _collect_comment_pages(fetch_page, path)
 
     @staticmethod
-    def _issue_number_from_url(url: str) -> int | None:
+    def _issue_number_from_url(url: str) -> str | None:
         """Shared with the REST provider — see providers/_github_json.py."""
         return _shared_issue_number_from_url(url)
 
-    def _parse_comment(self, data: dict[str, Any], issue_number: int) -> IssueComment:
+    def _parse_comment(self, data: dict[str, Any], issue_number: str) -> IssueComment:
         """Shared with the REST provider — ``gh api`` returns this payload verbatim."""
         return _shared_parse_comment(data, issue_number)
 
     async def assign_to_user(
         self,
-        issue_number: int,
+        issue_number: IssueRef,
         assignees: list[str],
     ) -> None:
         """Assign an issue to users or the Copilot Coding Agent.
@@ -471,19 +477,21 @@ class GitHubProvider:
 
     async def apply_labels(
         self,
-        issue_or_pr_number: int,
+        issue_or_pr_number: IssueRef,
         labels: list[str],
     ) -> None:
         """Apply labels to an issue or PR."""
-        await self._gh_client.issue_add_labels(issue_or_pr_number, labels)
+        n = as_issue_int(issue_or_pr_number, "GitHub")
+        await self._gh_client.issue_add_labels(n, labels)
 
     async def remove_labels(
         self,
-        issue_or_pr_number: int,
+        issue_or_pr_number: IssueRef,
         labels: list[str],
     ) -> None:
         """Remove labels from an issue or PR."""
-        await self._gh_client.issue_remove_labels(issue_or_pr_number, labels)
+        n = as_issue_int(issue_or_pr_number, "GitHub")
+        await self._gh_client.issue_remove_labels(n, labels)
 
     async def create_label(self, label: LabelData) -> None:
         """Create a label in the repository."""
@@ -632,7 +640,7 @@ class GitHubProvider:
             milestone = milestone.get("title")
 
         return IssueData(
-            number=data.get("number", 0),
+            number=str(data.get("number", 0)),
             title=data.get("title", ""),
             body=data.get("body", "") or "",
             author=author_login,
