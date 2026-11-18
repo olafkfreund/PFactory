@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1083
 spec: spec/2026-11-18-1083-pf-redteam-must-not.md
 coders:
