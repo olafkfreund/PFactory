@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1053
 spec: spec/2026-11-18-1053-cfactory-source-channel.md
 coders:
