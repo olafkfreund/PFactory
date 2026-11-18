@@ -21,6 +21,7 @@ pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
 from plan.service import PlanService  # noqa: E402
+from plan.service_helpers import agent_identity_for  # noqa: E402
 from server.routes import plan_pipeline as pp  # noqa: E402
 
 _PLAN = "# Widget service\nA FastAPI service.\n## Acceptance Criteria\n- Exposes widgets\n"
@@ -63,6 +64,10 @@ def test_jwt_user_uses_id_never_email() -> None:
 
 def test_key_user_has_both() -> None:
     assert pp._attribution(_USER) == _BOTH
+
+
+def test_key_identity_uses_shared_format() -> None:
+    assert pp._attribution(_USER)["agent_identity"] == agent_identity_for(_USER["api_key_id"])
 
 
 @pytest.mark.parametrize(

@@ -33,3 +33,7 @@ Values:
 ## Rollback
 
 Revert the PR. The signature returns to null identities and `unknown` tier; old rows were never changed.
+
+## Deviations
+
+- Steps 1 to 3 landed in one commit: the pre-commit hook runs the Python tests, so step 1 alone (which changes the "honest when absent" expectation) cannot be committed green. Step 2 (lead) and step 1/3 (codex) are otherwise as planned.
