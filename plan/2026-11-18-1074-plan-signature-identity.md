@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1074
 spec: spec/2026-11-18-1074-plan-signature-identity.md
 coders:
