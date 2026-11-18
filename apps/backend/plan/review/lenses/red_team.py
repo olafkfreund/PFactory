@@ -68,8 +68,8 @@ _CONTRADICTION_PAIRS = (
     ("public", "private"),
     ("required", "optional"),
     ("enabled by default", "disabled by default"),
-    ("must not", "must "),
 )
+_MUST_RE = re.compile(r"\bmust(\s+not)?\s+((?:(?!\bmust\b)[^.;,\n])+)")
 # A language explicitly named in the spec text.
 _LANG_RE = re.compile(
     r"(?i)\b(python|rust|go(?:lang)?|java(?:script)?|typescript|ruby|c\+\+|c#|"
@@ -186,7 +186,9 @@ class RedTeamLens:
         joined = " ".join(c.text.lower() for c in plan.criteria)
         out: list[Finding] = []
         for a, b in _CONTRADICTION_PAIRS:
-            if a in joined and b in joined:
+            if re.search(rf"\b{re.escape(a)}\b", joined) and re.search(
+                rf"\b{re.escape(b)}\b", joined
+            ):
                 out.append(
                     _finding(
                         "Contradictory acceptance criteria",
@@ -195,6 +197,23 @@ class RedTeamLens:
                         "high",
                     )
                 )
+        must: set[str] = set()
+        must_not: set[str] = set()
+        for c in plan.criteria:
+            for negated, raw_clause in _MUST_RE.findall(c.text.lower()):
+                clause = re.sub(r"\s+(and|or)$", "", " ".join(raw_clause.split()))
+                if clause:
+                    (must_not if negated else must).add(clause)
+        for clause in sorted(must & must_not):
+            out.append(
+                _finding(
+                    "Contradictory acceptance criteria",
+                    f"The criteria assert both 'must {clause}' and 'must not {clause}'; "
+                    "resolve the conflict before build, or the implementation will pick "
+                    "one arbitrarily.",
+                    "high",
+                )
+            )
         return out
 
     def _infeasible(self, text: str) -> list[Finding]:
