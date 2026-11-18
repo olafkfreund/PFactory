@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.4 — string work-item identifier (2026-11-18)
+
+### New Features
+
+- **The work-item identifier is a string end to end (#1061).** PFactory's part of the contract sync that moves runner and contract identifiers from integers to strings (TFactory #3774).
+
 ## 0.8.3 — python 3.14 CVE floor in the image (2026-11-17)
 
 ### Bug Fixes
