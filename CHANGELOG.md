@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.8 — Plan-Slug trailers in the gitops bump (2026-11-18)
+
+### Improvements
+
+- **The deploy bump commit carries the Plan-Slug trailers of the promoted commits (Factory#1958, #1079, #1080).**
+
 ## 0.8.7 — plan signature identity and RBAC runbook skill (2026-11-18)
 
 ### New Features

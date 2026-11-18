@@ -48,6 +48,8 @@ jobs:
       GITOPS_PAT: "${{ secrets.GITOPS_PAT }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # Plan-Slug range since the pinned SHA (Factory#1958)
 
       - id: tags
         run: echo "sha=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
@@ -137,6 +139,12 @@ jobs:
             git clone --quiet --depth 1 "https://x:${GITOPS_PAT}@github.com/${GITOPS_REPO}.git" gitops
             cd "gitops/${GITOPS_PATH}"
             curl -sSL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz | tar xz
+            # Factory#1958: carry the Plan-Slug trailer(s) of the promoted commits
+            # (pinned SHA..HEAD) into this bump so governance_cli can join deploy
+            # to plan. Read the OLD pin before kustomize rewrites it; never fail
+            # the deploy over a trailer.
+            PREV=$(sed -n 's/.*newTag: *sha-\([0-9a-f]*\).*/\1/p' kustomization.yaml | head -1 || true)
+            SLUGS=$(cd "$GITHUB_WORKSPACE" && bash scripts/plan_slug_trailers.sh "${PREV:-}" || true)
             ./kustomize edit set image "${IMAGE}=${IMAGE}:${SHA}"
             rm -f kustomize
             cd "$GITHUB_WORKSPACE/gitops"
@@ -157,7 +165,9 @@ jobs:
               exit 1
             fi
 
-            git commit --quiet -am "cd(pfactory): ${SHA} [skip ci]"
+            MSG="cd(pfactory): ${SHA} [skip ci]"
+            [ -z "$SLUGS" ] || MSG="${MSG}"$'\n\n'"${SLUGS}"
+            git commit --quiet -am "$MSG"
             if git push --quiet; then
               pushed="yes"
               break
