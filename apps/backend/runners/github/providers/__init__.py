@@ -18,10 +18,11 @@ Usage:
 """
 
 from .azure_devops_provider import AzureDevOpsProvider
-from .factory import get_provider, register_provider
+from .factory import get_provider, get_work_item_provider, register_provider
 from .github_provider import GitHubProvider
 from .gitlab_provider import GitLabProvider
 from .http_github_provider import HttpGitHubProvider
+from .jira_provider import JiraProvider
 from .protocol import (
     CodeProvider,
     FanoutCommentsMixin,
@@ -64,9 +65,11 @@ __all__ = [
     # Implementations
     "GitHubProvider",
     "HttpGitHubProvider",
+    "JiraProvider",
     "GitLabProvider",
     "AzureDevOpsProvider",
     # Factory
     "get_provider",
+    "get_work_item_provider",
     "register_provider",
 ]

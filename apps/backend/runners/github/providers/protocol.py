@@ -22,6 +22,7 @@ class ProviderType(str, Enum):
     BITBUCKET = "bitbucket"
     GITEA = "gitea"
     AZURE_DEVOPS = "azure_devops"
+    JIRA = "jira"
 
 
 # A work-item identifier (RFC-0022 Phase 1, Factory#3774): a decimal string for

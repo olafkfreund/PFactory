@@ -53,6 +53,9 @@ extend-exclude = [
     # the token-authenticated GitHub provider and are vendored on the same terms.
     "apps/backend/runners/github/providers/_github_json.py",
     "apps/backend/runners/github/providers/http_github_provider.py",
+    # RFC-0022 phase 3/5: Jira and Bitbucket providers, vendored byte-exact.
+    "apps/backend/runners/github/providers/jira_provider.py",
+    "apps/backend/runners/github/providers/bitbucket_provider.py",
     # RFC-0016 #190: the shared S3-compatible artifact-store client, vendored
     # byte-exact from the Factory hub canonical (scripts/artifact_store.py).
     # Formatted at the hub width (100); excluded here so the local
