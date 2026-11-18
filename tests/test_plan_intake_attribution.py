@@ -20,7 +20,9 @@ pytest.importorskip("fastapi")
 pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
+from plan.emit.docs.render import render_plan_docs  # noqa: E402
 from plan.service import PlanService  # noqa: E402
+from plan.service_helpers import agent_identity_for  # noqa: E402
 from server.routes import plan_pipeline as pp  # noqa: E402
 
 _PLAN = "# Widget service\nA FastAPI service.\n## Acceptance Criteria\n- Exposes widgets\n"
@@ -63,6 +65,10 @@ def test_jwt_user_uses_id_never_email() -> None:
 
 def test_key_user_has_both() -> None:
     assert pp._attribution(_USER) == _BOTH
+
+
+def test_key_identity_uses_shared_format() -> None:
+    assert pp._attribution(_USER)["agent_identity"] == agent_identity_for(_USER["api_key_id"])
 
 
 @pytest.mark.parametrize(
@@ -153,3 +159,17 @@ def test_issue_route_stamps_agent_only(service: PlanService) -> None:
     )
     session = service.get(out["session_id"])
     assert (session.originator, session.agent_identity) == (None, "agent:pfactory/k-1")
+
+
+def test_authenticated_proxy_route_signs_principal_and_key(service) -> None:
+    request = _Request({"id": "u-1", "api_key_id": "k-1"})
+    out = asyncio.run(
+        pp.ingest_text(pp.IngestTextBody(text=_PLAN, channel="cfactory"), request, db=None)
+    )
+    sig = render_plan_docs(service.process(out["session_id"])).run_signature
+    assert sig["source_channel"] == "cfactory"
+    assert (sig["originator"], sig["originator_basis"]) == ("u-1", "principal")
+    assert (sig["agent_identity"], sig["agent_identity_basis"]) == (
+        "agent:pfactory/k-1",
+        "api-key",
+    )

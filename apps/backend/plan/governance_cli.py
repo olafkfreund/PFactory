@@ -38,6 +38,9 @@ MATCH_KEYS: tuple[str, ...] = (
     "controls",
     "agent_identity",
     "model_route",
+    "originator_basis",
+    "agent_identity_basis",
+    "autonomy_tier_basis",
 )
 
 
@@ -223,7 +226,10 @@ def format_result(matches: Sequence[dict[str, Any]], counts: dict[str, int]) -> 
             f"created_at={c['created_at']}\t"
             f"controls={c['controls']}\t"
             f"agent_identity={c['agent_identity']}\t"
-            f"model_route={c['model_route']}"
+            f"model_route={c['model_route']}\t"
+            f"originator_basis={c['originator_basis']}\t"
+            f"agent_identity_basis={c['agent_identity_basis']}\t"
+            f"autonomy_tier_basis={c['autonomy_tier_basis']}"
             + (f"\tcommits={','.join(m['commits'])}" if "commits" in m else "")
         )
     lines.append(
