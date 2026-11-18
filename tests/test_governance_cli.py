@@ -115,6 +115,9 @@ def test_json_output_emits_matches_and_counts(capsys):
         ],
         "agent_identity": None,
         "model_route": None,
+        "originator_basis": None,
+        "agent_identity_basis": None,
+        "autonomy_tier_basis": None,
     }
 
 
@@ -182,6 +185,12 @@ def _root_with_identity(tmp_path: Path) -> Path:
         path = root / f"{name}.run.json"
         sig = json.loads(path.read_text())
         sig.update(agent_identity=identity, model_route=route)
+        if identity:
+            sig.update(
+                originator_basis="principal",
+                agent_identity_basis="api-key",
+                autonomy_tier_basis="routed",
+            )
         path.write_text(json.dumps(sig))
     return root
 
@@ -192,6 +201,11 @@ def test_json_projects_controls_agent_identity_and_model_route(tmp_path, capsys)
     (match,) = json.loads(capsys.readouterr().out)["matches"]
     assert match["agent_identity"] == "agent:pfactory/k-1"
     assert match["model_route"] == "frontier"
+    assert (
+        match["originator_basis"],
+        match["agent_identity_basis"],
+        match["autonomy_tier_basis"],
+    ) == ("principal", "api-key", "routed")
     assert "change-mgmt-sod" in match["controls"]
 
 
@@ -199,8 +213,18 @@ def test_text_line_prints_the_new_fields_after_the_old_ones(tmp_path, capsys):
     root = _root_with_identity(tmp_path)
     assert main(["--root", str(root), "--tier", "low"]) == 0
     line = capsys.readouterr().out.splitlines()[0]
-    assert line.endswith("\tcontrols=audit-logging\tagent_identity=None\tmodel_route=cheap")
+    assert line.endswith(
+        "\tcontrols=audit-logging\tagent_identity=None\tmodel_route=cheap"
+        "\toriginator_basis=None\tagent_identity_basis=None\tautonomy_tier_basis=None"
+    )
     assert line.index("created_at=") < line.index("controls=")
+
+    assert main(["--root", str(root), "--tier", "hard"]) == 0
+    line = capsys.readouterr().out.splitlines()[0]
+    assert line.endswith(
+        "\tmodel_route=frontier\toriginator_basis=principal"
+        "\tagent_identity_basis=api-key\tautonomy_tier_basis=routed"
+    )
 
 
 def test_control_and_tier_filters_are_exact_and_combine(tmp_path):

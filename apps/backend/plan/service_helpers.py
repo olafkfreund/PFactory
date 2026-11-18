@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from plan.decompose.models import EpicPlan
     from plan.models import NormalizedPlan
     from plan.review.models import PlanReview
+    from plan.service import PlanSession
 
 logger = logging.getLogger("plan.service")
 
@@ -263,3 +264,28 @@ def load_access_inputs(project_id: str, spec_id: str) -> tuple[dict | None, str]
         return config, spec_text
     except Exception:  # noqa: BLE001 - access discovery must never break emit
         return None, ""
+
+
+def agent_identity_for(key_id: str) -> str:
+    return f"agent:pfactory/{key_id}"
+
+
+PLANNER_AGENT = agent_identity_for("planner")
+_RISK_TO_TIER = {"low": "low", "medium": "medium", "high": "hard"}
+
+
+def resolve_attribution(session: PlanSession) -> dict[str, str]:
+    return {
+        "originator": session.originator or f"channel:{session.plan.source_channel}",
+        "originator_basis": "principal" if session.originator else "channel",
+        "agent_identity": session.agent_identity or PLANNER_AGENT,
+        "agent_identity_basis": "api-key" if session.agent_identity else "pfactory-planner",
+    }
+
+
+def resolve_tier(plan_tier: str | None, risk_class: str | None) -> tuple[str, str]:
+    if plan_tier:
+        return plan_tier, "routed"
+    if risk_class in _RISK_TO_TIER:
+        return _RISK_TO_TIER[risk_class], "risk_class"
+    return "unknown", "absent"

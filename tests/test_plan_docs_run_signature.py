@@ -25,6 +25,7 @@ if str(_BACKEND) not in sys.path:
 pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
 
+from plan import agent_api  # noqa: E402
 from plan.emit.docs.emit_docs import _app_version  # noqa: E402
 from plan.emit.docs.render import _controls_engaged, render_plan_docs  # noqa: E402
 from plan.emit.docs.targets.repo import RepoDocsTarget  # noqa: E402
@@ -113,6 +114,7 @@ def test_governance_fields_are_honest_when_absent(processed):
             "risk_class",
             "risk_class_basis",
             "autonomy_tier",
+            "autonomy_tier_basis",
             "autonomy_verdict",
             "data_classification",
             "data_classification_basis",
@@ -123,13 +125,16 @@ def test_governance_fields_are_honest_when_absent(processed):
             "control_catalog_version",
             "change_id",
             "originator",
+            "originator_basis",
             "agent_identity",
+            "agent_identity_basis",
             "model_route",
         )
     } == {
         "risk_class": "unknown",
         "risk_class_basis": "absent",
         "autonomy_tier": "unknown",
+        "autonomy_tier_basis": "absent",
         "autonomy_verdict": None,
         "data_classification": "unknown",
         "data_classification_basis": "absent",
@@ -139,8 +144,10 @@ def test_governance_fields_are_honest_when_absent(processed):
         "controls_basis": None,
         "control_catalog_version": None,
         "change_id": None,
-        "originator": None,
-        "agent_identity": None,
+        "originator": "channel:portal",
+        "originator_basis": "channel",
+        "agent_identity": "agent:pfactory/planner",
+        "agent_identity_basis": "pfactory-planner",
         "model_route": None,
     }
     assert "low" not in (sig["risk_class"], sig["autonomy_tier"])
@@ -385,10 +392,74 @@ def test_signature_carries_intake_attribution(service):
     session = service.ingest_text(
         _PLAN, title="Refund API", originator="u-1", agent_identity="agent:pfactory/k-1"
     )
-    sig = render_plan_docs(service.process(session.session_id)).run_signature
+    processed = service.process(session.session_id)
+    for sig in (
+        render_plan_docs(processed).run_signature,
+        render_plan_docs(service.approve(session.session_id, approver="reviewer")).run_signature,
+    ):
+        assert (sig["originator"], sig["originator_basis"]) == ("u-1", "principal")
+        assert (sig["agent_identity"], sig["agent_identity_basis"]) == (
+            "agent:pfactory/k-1",
+            "api-key",
+        )
 
-    assert sig["originator"] == "u-1"
-    assert sig["agent_identity"] == "agent:pfactory/k-1"
+
+def test_upload_signature_carries_intake_attribution(service):
+    session = service.ingest_bytes(
+        _PLAN.encode(), filename="plan.md", originator="u-1", agent_identity="agent:pfactory/k-1"
+    )
+    sig = _sig(service.process(session.session_id))
+    assert (sig["originator"], sig["originator_basis"]) == ("u-1", "principal")
+    assert (sig["agent_identity"], sig["agent_identity_basis"]) == (
+        "agent:pfactory/k-1",
+        "api-key",
+    )
+
+
+@pytest.mark.parametrize("channel", ["cfactory", "github_issue"])
+def test_service_lane_fallbacks(service, channel):
+    session = service.ingest_text(_PLAN, channel=channel)
+    sig = _sig(service.process(session.session_id))
+    assert (sig["originator"], sig["originator_basis"]) == (f"channel:{channel}", "channel")
+    assert (sig["agent_identity"], sig["agent_identity_basis"]) == (
+        "agent:pfactory/planner",
+        "pfactory-planner",
+    )
+
+
+def test_agent_api_ingest_and_approval_keep_lane_identity(service, monkeypatch):
+    monkeypatch.setattr(agent_api, "SERVICE", service)
+    session_id = agent_api.plan_ingest(text=_PLAN)["session_id"]
+    processed = service.process(session_id)
+    agent_api.plan_approve(session_id, approver="reviewer")
+    sig = _sig(processed)
+    assert (sig["originator"], sig["originator_basis"]) == ("channel:agent", "channel")
+    assert (sig["agent_identity"], sig["agent_identity_basis"]) == (
+        "agent:pfactory/planner",
+        "pfactory-planner",
+    )
+
+
+@pytest.mark.parametrize(
+    ("risk", "expected"),
+    [
+        ("low", ("low", "risk_class")),
+        ("medium", ("medium", "risk_class")),
+        ("high", ("hard", "risk_class")),
+        ("unsupported", ("unknown", "absent")),
+    ],
+)
+def test_signature_derives_tier_from_deployment_risk(processed, risk, expected):
+    processed.epic.deployment = {"risk_class": risk}
+    sig = _sig(processed)
+    assert (sig["autonomy_tier"], sig["autonomy_tier_basis"]) == expected
+
+
+def test_routed_tier_wins_over_risk(processed):
+    processed.epic.deployment = {"risk_class": "high"}
+    processed.plan.autonomy_tier = "low"
+    sig = _sig(processed)
+    assert (sig["autonomy_tier"], sig["autonomy_tier_basis"]) == ("low", "routed")
 
 
 # ── model_route (Factory#1959) ────────────────────────────────────────────

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from plan.emit.skills_block import _PERSONAL_DATA_CLASSES
 from plan.review.approval import is_valid as _approval_is_live
+from plan.service_helpers import resolve_attribution, resolve_tier
 
 from .bundle import DocBundle
 
@@ -22,7 +23,8 @@ if TYPE_CHECKING:  # avoid import cycles / heavy imports at module load
 GENERATED_BY = "pfactory"
 
 # The signature format's own version. Bump when a field's MEANING changes, so a
-# consumer reading an old file is not silently misinterpreting it.
+# consumer reading an old file is not silently misinterpreting it. Basis keys
+# are additive and do not change the meaning of existing fields.
 SIGNATURE_SCHEMA = 2
 
 
@@ -111,6 +113,7 @@ def _run_signature(
     annotation = session.annotation
     block = _deployment(session)
     risk = block.get("risk_class")
+    autonomy_tier, autonomy_tier_basis = resolve_tier(plan.autonomy_tier, risk)
     personal_data = _personal_data_present(session)
     # Live only while bound to the current plan text: nothing resets `valid` on an
     # edit, so the hash is checked here and a stale sign-off is never stamped.
@@ -153,7 +156,8 @@ def _run_signature(
         "injection_scan": (session.injection_scan or {}).get("verdict", "not-run"),
         "risk_class": risk or "unknown",
         "risk_class_basis": "deployment-block" if risk else "absent",
-        "autonomy_tier": plan.autonomy_tier or "unknown",
+        "autonomy_tier": autonomy_tier,
+        "autonomy_tier_basis": autonomy_tier_basis,
         "autonomy_verdict": routing["autonomy"] or None if routing else None,
         "data_classification": "Regulated" if personal_data else "unknown",
         "data_classification_basis": "compliance-data-classes" if personal_data else "absent",
@@ -163,8 +167,7 @@ def _run_signature(
         "controls_basis": "gates-engaged" if controls is not None else None,
         "control_catalog_version": control_catalog.get("version") if control_catalog else None,
         "change_id": None,
-        "originator": session.originator,
-        "agent_identity": session.agent_identity,
+        **resolve_attribution(session),
         "model_route": _model_route(session),
         # Zero tokens means the deterministic path ran — NOT that nothing ran.
         "tokens": session.usage.model_dump() if session.usage else {},

@@ -48,6 +48,7 @@ from plan.service import (  # noqa: E402
     SessionNotDeletableError,
     StaleSessionError,
 )
+from plan.service_helpers import agent_identity_for  # noqa: E402
 from server.services import project_paths  # noqa: E402
 from server.services.audit_service import (  # noqa: E402
     ACTION_PLAN_SESSION_DELETE,
@@ -216,7 +217,7 @@ def _attribution(user: object, *, authored_elsewhere: bool = False) -> dict[str,
         else None
     )
     agent_identity = (
-        f"agent:pfactory/{key_id}"
+        agent_identity_for(key_id)
         if isinstance(key_id, str) and key_id.strip() and key_id.isprintable()
         else None
     )
