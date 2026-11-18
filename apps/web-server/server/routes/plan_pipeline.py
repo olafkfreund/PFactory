@@ -16,7 +16,7 @@ from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -295,6 +295,15 @@ async def list_sessions(
     }
 
 
+def _rejection_reason(exc: ValueError) -> str:
+    if isinstance(exc, ValidationError):
+        return ", ".join(
+            f"{'.'.join(str(p) for p in e['loc'])}:{e['type']}"
+            for e in exc.errors(include_input=False, include_url=False, include_context=False)
+        )
+    return type(exc).__name__
+
+
 @router.post("/ingest-text", dependencies=[Depends(require_plan_access("member"))])
 async def ingest_text(
     body: IngestTextBody,
@@ -316,6 +325,7 @@ async def ingest_text(
             **_attribution(_user(request)),
         )
     except ValueError as exc:
+        logger.warning("plan ingest-text rejected: %s", _rejection_reason(exc))
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     # W4 (#218): register the target repo as a tracked project so it appears in
     # the portal's project dropdown (a plan session otherwise leaves it empty).

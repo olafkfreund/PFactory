@@ -21,7 +21,9 @@ from plan.recon.models import RepoMap
 from spec_sources import NormalizedSpec
 
 TargetKind = Literal["software", "non-software", "undetermined"]
-SourceChannel = Literal["portal", "cli", "mcp", "github_issue", "github_discussion", "agent"]
+SourceChannel = Literal[
+    "portal", "cli", "mcp", "github_issue", "github_discussion", "agent", "cfactory"
+]
 # Factory#273 (untrusted-content provenance): issue/spec-derived text is
 # untrusted user content; operator-authored specs arriving through the
 # authenticated API / CLI / MCP surfaces are trusted.
@@ -185,7 +187,7 @@ class NormalizedPlan(BaseModel):
 
         ``content_trust`` is derived from the channel (Factory#273): GitHub
         issue/discussion bodies are ``untrusted_user_content``; text arriving on
-        the authenticated operator surfaces (portal/cli/mcp/agent) is
+        the authenticated operator surfaces (portal/cli/mcp/agent/cfactory) is
         ``trusted``. Ingest paths whose text is repo-authored despite the
         channel (spec-kit workspaces) override it via ``model_copy``.
         """
