@@ -38,6 +38,8 @@ Error: API key lacks required scope 'mcp:write'. Mint a new key with the right s
 
 Why scopes (not just "is this key valid?"): scope-gating lets you give a Cursor session a read-only key to *observe* PFactory state from your editor without risking accidental task starts. The write-scope key is what you mint when you actually want to drive things.
 
+**WebSocket clients.** An `acw_` key also authenticates `/ws/*`. Send it as `Authorization: Bearer <key>`; this is the supported form. The deprecated `?token=<key>` query form still works (browsers cannot set headers) but the URL can reach proxy and access logs, and the server logs a one-time deprecation warning that never contains the token.
+
 ### Minting a key
 
 In the PFactory web UI:
