@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1053
 intent: intent/2026-11-18-1053-cfactory-source-channel.md
 ---
