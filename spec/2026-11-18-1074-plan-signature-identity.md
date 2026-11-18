@@ -8,9 +8,9 @@ intent: intent/2026-11-18-1074-plan-signature-identity.md
 
 ## Design
 
-All changes are in the signature builder `build_run_signature` (`apps/backend/plan/emit/docs/render.py`, the dict at lines ~119-172) plus two small helpers in `apps/backend/plan/service_helpers.py`. Intake, `PlanSession` and the completion event are unchanged (they keep honest nulls, tests in `tests/test_plan_completion.py` and `tests/test_plan_intake_attribution.py`).
+All changes are in the signature builder `_run_signature` (`apps/backend/plan/emit/docs/render.py`, the dict at lines ~119-172) plus small new helpers in `apps/backend/plan/service_helpers.py`. Intake, `PlanSession` and the completion event are unchanged (they keep honest nulls, tests in `tests/test_plan_completion.py` and `tests/test_plan_intake_attribution.py`).
 
-1. `service_helpers.agent_identity_for(key_id)` returns `agent:pfactory/<key_id>`; `plan_pipeline._attribution` calls it instead of formatting the string itself. This is the one place the identity format lives (the #1011 helper is reused, not duplicated). `PLANNER_AGENT = agent_identity_for("planner")`.
+1. New `service_helpers.agent_identity_for(key_id)` returns `agent:pfactory/<key_id>`, extracted from the inline f-string in `plan_pipeline._attribution` (which keeps its own validation of `api_key_id` and calls the helper for the format). This is the one place the identity format lives (the #1011 helper is reused, not duplicated). `PLANNER_AGENT = agent_identity_for("planner")`.
 2. `service_helpers.resolve_attribution(session)` returns `(originator, originator_basis, agent_identity, agent_identity_basis)`:
    - `originator`: `session.originator` (basis `principal`), else `channel:<plan.source_channel>` (basis `channel`).
    - `agent_identity`: `session.agent_identity` (basis `api-key`), else `PLANNER_AGENT` (basis `pfactory-planner`).
@@ -19,7 +19,11 @@ All changes are in the signature builder `build_run_signature` (`apps/backend/pl
 4. The signature gains `originator_basis`, `agent_identity_basis`, `autonomy_tier_basis` (additive, the `risk_class_basis` pattern). `SIGNATURE_SCHEMA` stays 2: no existing key changes name or type; a reader that ignores the basis keys sees the same shape with fewer nulls, a reader that cares can tell a principal from a lane.
 5. `governance_cli.MATCH_KEYS`/`format_result` print the three basis keys next to their values (already prints originator, agent_identity, autonomy_tier). Old rows without basis keys print `None`.
 
-Entry paths: portal approval (user id present: basis principal; no principal: `channel:portal`), MCP `plan_approve` (in-process `agent_api`, channel `agent`: `channel:agent`; through the proxy with an `acw_` key: principal and api-key), CFactory card (service principal, channel `cfactory`: `channel:cfactory`).
+Entry paths. Attribution is stamped at INTAKE; approval (`SERVICE.approve`, `agent_api.plan_approve`, the portal approve route, the MCP proxy) only changes the review state and leaves the stamped values alone. So each path is specified by how the session came in, and approval is tested separately to keep them:
+- portal ingest (text, upload) with a user id: basis principal; with the default user or a service principal: `channel:portal`;
+- MCP: in-process `agent_api.plan_ingest` (channel `agent`): `channel:agent` / planner; through the proxy with an `acw_` key: user id and `agent:pfactory/<key id>` (basis principal, api-key);
+- CFactory card (service principal, channel `cfactory`): `channel:cfactory` / planner;
+- from-issue (`github_issue`): originator is deliberately null at intake (the issue author is unknown), so the signature shows `channel:github_issue`, basis `channel`, never a person.
 
 ## Alternatives rejected
 
@@ -27,7 +31,7 @@ Entry paths: portal approval (user id present: basis principal; no principal: `c
 - A second identity helper: forbidden by the issue.
 - Import `merge_policy` from AIFactory: no import path across repos; duplicating the disposition table would drift.
 - Leave `unknown` when no tier was routed (Codex's suggestion): kept only as the last fallback; the issue and Factory#1958 need a tier, and the basis key tells a derived tier from a routed one.
-- Bump `SIGNATURE_SCHEMA` to 3: the basis keys keep meanings recoverable, and a bump would make `governance_cli` (MIN_GOVERNANCE_SCHEMA = 2) and Factory#1958 readers reject the one row we are fixing.
+- Bump `SIGNATURE_SCHEMA` to 3: `governance_cli` accepts `>= 2`, but the owner's issue requires schema 2 to stay backward compatible, and remote readers (Factory#1958 tooling, CFactory) were not verified to accept 3. Accepted trade-off: readers that ignore the basis keys see a lane label as originator, and `governance_cli --tier hard` matches risk-derived rows alongside routed ones; that is the intended reading for Factory#1958 (the question is the tier the change is held at), and the basis key is printed beside it.
 
 ## Risks
 
@@ -38,5 +42,5 @@ Entry paths: portal approval (user id present: basis principal; no principal: `c
 ## Verification
 
 - `pytest tests/test_plan_docs_run_signature.py tests/test_governance_cli.py tests/test_plan_intake_attribution.py tests/test_plan_completion.py`.
-- New tests cover the three entry paths (portal approval, MCP `plan_approve` via `agent_api`, CFactory-card session), the tier derivation and basis, an old schema-2 row without basis keys through `governance_cli`, and that completion events still emit null.
+- New tests cover the entry paths above (portal ingest + approve, MCP `agent_api` ingest + `plan_approve`, CFactory-card ingest, upload, from-issue), that approval keeps the stamped attribution, the tier derivation and basis, an old schema-2 row without basis keys through `governance_cli`, and that completion events still emit null.
 - `ruff check` and `ruff format --check` on touched files.
