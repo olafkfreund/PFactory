@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1084
 intent: intent/2026-11-18-1074-pf-autonomy-tier-fill.md
 ---
