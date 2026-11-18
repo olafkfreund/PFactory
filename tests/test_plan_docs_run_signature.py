@@ -133,8 +133,10 @@ def test_governance_fields_are_honest_when_absent(processed):
     } == {
         "risk_class": "unknown",
         "risk_class_basis": "absent",
-        "autonomy_tier": "unknown",
-        "autonomy_tier_basis": "absent",
+        # A greenfield plan (session 232 shape): no deployment block, no routed tier.
+        # The tier is the conservative default, never "unknown" (#1084).
+        "autonomy_tier": "hard",
+        "autonomy_tier_basis": "default-conservative",
         "autonomy_verdict": None,
         "data_classification": "unknown",
         "data_classification_basis": "absent",
@@ -446,13 +448,20 @@ def test_agent_api_ingest_and_approval_keep_lane_identity(service, monkeypatch):
         ("low", ("low", "risk_class")),
         ("medium", ("medium", "risk_class")),
         ("high", ("hard", "risk_class")),
-        ("unsupported", ("unknown", "absent")),
+        ("unsupported", ("hard", "default-conservative")),
     ],
 )
 def test_signature_derives_tier_from_deployment_risk(processed, risk, expected):
     processed.epic.deployment = {"risk_class": risk}
     sig = _sig(processed)
     assert (sig["autonomy_tier"], sig["autonomy_tier_basis"]) == expected
+
+
+def test_signature_without_deployment_block_is_conservative_not_unknown(processed):
+    assert processed.epic.deployment is None
+    sig = _sig(processed)
+    assert (sig["risk_class"], sig["risk_class_basis"]) == ("unknown", "absent")
+    assert (sig["autonomy_tier"], sig["autonomy_tier_basis"]) == ("hard", "default-conservative")
 
 
 def test_routed_tier_wins_over_risk(processed):
