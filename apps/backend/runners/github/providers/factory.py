@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .github_provider import GitHubProvider
-from .protocol import CodeProvider, GitProvider, ProviderType
+from .protocol import CodeProvider, GitProvider, ProviderType, WorkItemProvider
 
 # Provider registry for dynamic registration
 _PROVIDER_REGISTRY: dict[ProviderType, Callable[..., GitProvider]] = {}
@@ -119,6 +119,10 @@ def get_provider(
 
         return AzureDevOpsProvider(_repo=repo, **kwargs)
 
+    if provider_type == ProviderType.JIRA:
+        # Jira has no code seam, so it cannot be returned as a GitProvider.
+        raise ValueError("jira is a work-item provider only: use get_work_item_provider()")
+
     # Future providers (not yet implemented)
     if provider_type == ProviderType.GITEA:
         raise NotImplementedError(
@@ -151,6 +155,23 @@ def get_code_provider(
     return get_provider(provider_type, repo, **kwargs)
 
 
+def get_work_item_provider(
+    provider_type: ProviderType | str,
+    repo: str,
+    **kwargs: Any,
+) -> WorkItemProvider:
+    """A provider typed as the work-item seam only (RFC-0022 Phase 3).
+
+    ``jira`` is served here; every other type is a ``GitProvider`` and therefore
+    already a ``WorkItemProvider``. ``repo`` is the Jira project key.
+    """
+    if str(getattr(provider_type, "value", provider_type)).lower() == ProviderType.JIRA.value:
+        from .jira_provider import JiraProvider
+
+        return JiraProvider(_repo=repo, **kwargs)
+    return get_provider(provider_type, repo, **kwargs)
+
+
 def list_available_providers() -> list[ProviderType]:
     """
     List all available provider types.
@@ -162,6 +183,7 @@ def list_available_providers() -> list[ProviderType]:
         ProviderType.GITHUB,
         ProviderType.GITLAB,
         ProviderType.AZURE_DEVOPS,
+        ProviderType.JIRA,
     ]  # Built-in
 
     if _bitbucket_enabled():
@@ -199,6 +221,8 @@ def is_provider_available(provider_type: ProviderType | str) -> bool:
 
     if provider_type == ProviderType.BITBUCKET:
         return _bitbucket_enabled()
+    if provider_type == ProviderType.JIRA:
+        return True
 
     # Check registry
     return provider_type in _PROVIDER_REGISTRY
