@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.8.6 — WebSocket reconnect fix and vendored Bitbucket provider (2026-11-18)
+
+### Bug Fixes
+
+- **WebSocket handlers are kept across reconnects (#1070, #1071).**
+
+### Improvements
+
+- **The Bitbucket code provider is vendored from the hub (Factory#3776, #1067).**
+
 ## 0.8.5 — cfactory source channel and WS failure logging (2026-11-18)
 
 ### Bug Fixes
