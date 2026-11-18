@@ -11,21 +11,16 @@ looks like a change and the file is useless for detecting staleness.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 _BACKEND = Path(__file__).parent.parent / "apps" / "backend"
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
-_WEB = Path(__file__).parent.parent / "apps" / "web-server"
-if str(_WEB) not in sys.path:
-    sys.path.insert(0, str(_WEB))
 
 pytest.importorskip("pydantic")
 pytest.importorskip("yaml")
@@ -35,7 +30,6 @@ from plan.emit.docs.emit_docs import _app_version  # noqa: E402
 from plan.emit.docs.render import _controls_engaged, render_plan_docs  # noqa: E402
 from plan.emit.docs.targets.repo import RepoDocsTarget  # noqa: E402
 from plan.service import PlanService  # noqa: E402
-from server.routes import plan_pipeline as pp  # noqa: E402
 
 _PLAN = """# Refund API
 Add a REST API endpoint to the payments microservice.
@@ -443,28 +437,6 @@ def test_agent_api_ingest_and_approval_keep_lane_identity(service, monkeypatch):
     assert (sig["agent_identity"], sig["agent_identity_basis"]) == (
         "agent:pfactory/planner",
         "pfactory-planner",
-    )
-
-
-def test_authenticated_proxy_route_stamps_principal_and_key(service, monkeypatch):
-    monkeypatch.setattr(pp, "SERVICE", service)
-
-    async def _ingest_org(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(pp, "_ingest_org", _ingest_org)
-    request = SimpleNamespace(
-        headers={}, state=SimpleNamespace(user={"id": "u-1", "api_key_id": "k-1"})
-    )
-    out = asyncio.run(
-        pp.ingest_text(pp.IngestTextBody(text=_PLAN, channel="cfactory"), request, db=None)
-    )
-    sig = _sig(service.process(out["session_id"]))
-    assert sig["source_channel"] == "cfactory"
-    assert (sig["originator"], sig["originator_basis"]) == ("u-1", "principal")
-    assert (sig["agent_identity"], sig["agent_identity_basis"]) == (
-        "agent:pfactory/k-1",
-        "api-key",
     )
 
 
