@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.8.7 — plan signature identity and RBAC runbook skill (2026-11-18)
+
+### New Features
+
+- **The plan signature fills originator, agent identity and autonomy tier (#1074, #1076).**
+
+### Documentation
+
+- **rbac-enforce-runbook skill over the existing runbook (Factory#1958, #1075).**
+
 ## 0.8.6 — WebSocket reconnect fix and vendored Bitbucket provider (2026-11-18)
 
 ### Bug Fixes
