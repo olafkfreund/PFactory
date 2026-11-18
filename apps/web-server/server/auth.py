@@ -197,7 +197,9 @@ async def _ws_acw_principal(token: str) -> dict[str, object] | None:
     # Same validator as REST; it requires an active owner, so no ownerless key reaches WS.
     try:
         return await _try_authenticate_personal_key(token)
-    except Exception:  # noqa: BLE001 — validator failures deny WS auth
+    except Exception as exc:  # noqa: BLE001 — validator failures deny WS auth
+        # Class only, never the token: tells a DB outage from a bad key (#312).
+        logger.warning("WS key validation failed: %s", type(exc).__name__)
         return None
 
 
