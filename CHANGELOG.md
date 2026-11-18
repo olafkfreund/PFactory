@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.5 — cfactory source channel and WS failure logging (2026-11-18)
+
+### Bug Fixes
+
+- **Plan ingest accepts cfactory as a source channel and logs rejections (#1065).**
+- **WS key and org-lookup failures are logged, and key sockets close on org-lookup failure (#312, #1066).**
+
 ## 0.8.4 — string work-item identifier (2026-11-18)
 
 ### New Features
