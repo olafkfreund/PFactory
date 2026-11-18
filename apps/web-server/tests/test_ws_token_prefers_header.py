@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -70,3 +71,14 @@ def test_header_use_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level("WARNING"):
         auth_mod._ws_extract_token(_ws(header="Bearer hdr"))
     assert not [r for r in caplog.records if "DEPRECATED" in r.getMessage()]
+
+
+def test_query_token_warning_never_contains_the_token(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    auth_mod._warn_ws_query_token_once.cache_clear()
+    ws: Any = _ws(query="acw_sentinel_secret")
+    with caplog.at_level("WARNING", logger=auth_mod.logger.name):
+        assert auth_mod._ws_extract_token(ws) == "acw_sentinel_secret"
+    assert "DEPRECATED" in caplog.text
+    assert "acw_sentinel_secret" not in caplog.text

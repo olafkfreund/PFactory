@@ -168,6 +168,7 @@ class _EventsWebSocket:
         self.headers = {"authorization": "Bearer acw_owned"}
         self.query_params = {}
         self.send_text = AsyncMock()
+        self.close = AsyncMock()
 
     async def accept(self):
         pass
@@ -208,14 +209,78 @@ async def test_bound_key_receives_only_its_org(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_membership_query_failure_receives_no_org_events(monkeypatch):
+async def test_initial_membership_failure_closes_key_socket(monkeypatch, caplog):
     _stub_key_db(monkeypatch, [_key(), "member", _user()])
-    queried = _stub_memberships(monkeypatch, RuntimeError("membership unavailable"))
-    ws, task = await _start_endpoint(monkeypatch, set())
+    _stub_memberships(monkeypatch, RuntimeError("membership unavailable"))
+    monkeypatch.setattr(relay, "publish", AsyncMock())
+    ws = _EventsWebSocket()
+    await asyncio.wait_for(events.events_websocket(ws), 2)
+    ws.close.assert_awaited_once_with(code=1011)
+    assert not events._clients
+    assert "Could not load org memberships for WS client: RuntimeError" in caplog.text
+    assert "acw_owned" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_recheck_membership_failure_closes_key_socket(monkeypatch):
+    _stub_key_db(monkeypatch, [_key(), "member", _user()])
+    calls = 0
+
+    class _FlakySession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, _stmt):
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                raise RuntimeError("membership unavailable")
+            return _Result([("A",)])
+
+    import server.database.engine as engine_mod  # noqa: PLC0415
+
+    monkeypatch.setattr(engine_mod, "async_session_factory", _FlakySession)
+    monkeypatch.setattr(events, "_KEY_RECHECK_SECONDS", 0)
+    monkeypatch.setattr(
+        events,
+        "_ws_acw_principal",
+        AsyncMock(
+            return_value={"id": "user-1", "org_id": "A", "api_key_id": "key-1"}
+        ),
+    )
+    monkeypatch.setattr(relay, "publish", AsyncMock())
+    ws = _EventsWebSocket()
+    await asyncio.wait_for(events.events_websocket(ws), 2)
+    ws.close.assert_awaited_once_with(code=1011)
+    assert not events._clients
+
+
+@pytest.mark.asyncio
+async def test_jwt_socket_stays_open_when_membership_fails(monkeypatch):
+    monkeypatch.setattr(
+        auth, "_try_decode_jwt", lambda raw: {"sub": "jwt-user", "email": "e"}
+    )
+    _stub_memberships(monkeypatch, RuntimeError("membership unavailable"))
+    monkeypatch.setattr(relay, "publish", AsyncMock())
+    ws = _EventsWebSocket()
+    ws.headers = {"authorization": "Bearer jwt"}
+    task = asyncio.create_task(events.events_websocket(ws))
     try:
-        await asyncio.wait_for(queried.wait(), 1)
+        await _wait_for_client(set())
         await events.send_to_org("A", "event", {})
         ws.send_text.assert_not_awaited()
+        ws.close.assert_not_awaited()
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_validator_exception_is_logged_without_the_token(monkeypatch, caplog):
+    _stub_key_db(monkeypatch, [RuntimeError("database unavailable")])
+    assert await auth._ws_acw_principal("acw_sentinel_secret") is None
+    assert "WS key validation failed: RuntimeError" in caplog.text
+    assert "acw_sentinel_secret" not in caplog.text
