@@ -14,9 +14,11 @@ Live session 232 (level 7 notes-api, emitted to olafkfreund/aifactory-demo#611) 
 
 ## Proposed outcome
 
-- An emitted signature never carries `autonomy_tier: "unknown"`. With no routed tier and no risk class it carries the conservative tier `hard` with `autonomy_tier_basis: "default-conservative"`.
-- `risk_class` stays `unknown`/`absent` (it describes the deployment surface, which is genuinely absent); it is not invented.
+- An emitted signature never carries `autonomy_tier: "unknown"` from the resolver's own fall-through (a routed tier is passed through unchanged). With no routed tier and no risk class it carries the conservative tier `hard` with `autonomy_tier_basis: "default-conservative"`.
+- `risk_class` stays `unknown`/`absent` (the deployment surface is absent or was not assessed); it is not invented.
 - Schema stays 2; the `*_basis` convention is kept; old rows stay valid.
+
+The fallback records the tier in the signature; it does not itself change routing.
 
 ## Affected users and systems
 
