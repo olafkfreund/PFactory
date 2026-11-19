@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -20,6 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import provider_runtime as pr
 from server.routes import cli_accounts as ca
 
 
@@ -59,7 +61,7 @@ def _record_runs(stderr: str = "", returncode: int = 0) -> tuple[list[str], Call
 def test_install_targets_the_writable_user_prefix(home: Path, cli: str) -> None:
     calls, fake_run = _record_runs()
     with (
-        patch.object(ca.subprocess, "run", fake_run),
+        patch.object(subprocess, "run", fake_run),
         patch.object(ca, "_detect_cli_version", return_value="9.9.9"),
     ):
         out = ca.install_or_update_cli(cli)
@@ -74,7 +76,7 @@ def test_install_failure_shows_the_real_npm_error() -> None:
     _, fake_run = _record_runs(
         stderr="npm error EROFS: read-only file system, rename", returncode=1
     )
-    with patch.object(ca.subprocess, "run", fake_run):
+    with patch.object(subprocess, "run", fake_run):
         out = ca.install_or_update_cli("codex")
     assert out["success"] is False
     assert "EROFS" in out["error"]
@@ -87,5 +89,5 @@ def test_updated_antigravity_shadows_the_image_copy(
     _fake_cli(home / "image", "antigravity", "@google/gemini-cli", "0.68.0")
     _fake_cli(home / ".local" / "cli-npm", "antigravity", "@google/gemini-cli", "0.69.0")
     monkeypatch.setenv("PATH", str(home / "image" / "bin"))
-    ca.prefer_user_cli_path()
+    pr.prefer_user_cli_path()
     assert ca._detect_cli_version("gemini") == "0.69.0"
