@@ -12,7 +12,7 @@ import os
 logger = logging.getLogger(__name__)
 
 # Default model for utility operations (commit messages, merge resolution)
-DEFAULT_UTILITY_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_UTILITY_MODEL = "claude-haiku-5-5"
 
 
 def get_utility_model_config(
