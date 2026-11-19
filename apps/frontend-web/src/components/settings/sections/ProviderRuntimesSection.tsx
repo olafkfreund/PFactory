@@ -35,6 +35,7 @@ export function ProviderRuntimesSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async (checkLatest: boolean) => {
     setLoading(true);
@@ -53,8 +54,15 @@ export function ProviderRuntimesSection() {
 
   const doUpdate = async (name: string) => {
     setBusy(name);
-    await post(`/provider-runtimes/${name}/update`, {});
+    setActionError(null);
+    const res = await post<{ ok: boolean; output: string }>(
+      `/provider-runtimes/${name}/update`,
+      {}
+    );
     await load(false);
+    if (!res.success) setActionError(res.error ?? `Failed to update ${name}`);
+    else if (res.data && !res.data.ok)
+      setActionError(`${name}: ${res.data.output || 'install failed'}`);
     setBusy(null);
   };
 
@@ -78,6 +86,11 @@ export function ProviderRuntimesSection() {
 
   return (
     <div className="space-y-3">
+      {actionError && (
+        <pre className="whitespace-pre-wrap break-words rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
+          {actionError}
+        </pre>
+      )}
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Installed vs latest for each provider CLI/SDK. Update to latest, or pin a

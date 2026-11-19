@@ -458,7 +458,7 @@ class AgentProcessMonitorMixin:
                 _fb_is_non_claude = (
                     _fb_model
                     and not _fb_model.startswith("claude-")
-                    and _fb_model not in ("haiku", "sonnet", "opus", "opus-1m")
+                    and not _fb_model.startswith(("haiku", "sonnet", "opus", "fable"))
                 )
                 logger.info(
                     "[AgentService] Fallback check: model=%s, attempt=%s, is_non_claude=%s, "

@@ -23,11 +23,12 @@ from .base import ProviderInfo, ProviderModel, ProviderStrategy
 
 logger = logging.getLogger(__name__)
 
-# Claude models (static — CLI supports these shorthands)
+# Claude models (static — CLI supports shorthands for current models)
 CLAUDE_MODELS = [
-    ProviderModel(id="opus", label="Claude Opus 4.7"),
-    ProviderModel(id="sonnet", label="Claude Sonnet 4.6"),
-    ProviderModel(id="haiku", label="Claude Haiku 4.5"),
+    ProviderModel(id="claude-fable-5-2", label="Claude Fable 5.2"),
+    ProviderModel(id="opus", label="Claude Opus 5.5"),
+    ProviderModel(id="sonnet", label="Claude Sonnet 5.5"),
+    ProviderModel(id="haiku", label="Claude Haiku 5.5"),
 ]
 
 

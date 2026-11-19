@@ -13,6 +13,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -23,8 +24,20 @@ from pydantic import BaseModel, Field, SecretStr
 from factory_common.logsafe import sanitize_log
 from server.paths import atomic_write_secret_json
 
+# apps/backend on sys.path so the shared user-prefix helpers resolve (same
+# pattern as routes/provider_runtimes.py).
+_BACKEND = Path(__file__).resolve().parents[3] / "backend"
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from provider_runtime import prefer_user_cli_path, user_cli_prefix  # noqa: E402
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# User-installed CLIs live in a writable prefix (the image's is read-only); put
+# it first on PATH so detection and spawned agents find an updated CLI first.
+prefer_user_cli_path()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -831,32 +844,22 @@ def install_or_update_cli(cli: str):
     # Step 2: Install/update via npm
     try:
         logger.info("[%s] Running npm install -g %s...", sanitize_log(cli), sanitize_log(package))
-        if cli == "gemini":
-            install_result = _run(
-                [
-                    "npm",
-                    "install",
-                    "-g",
-                    "--prefix",
-                    os.path.expanduser("~/.gemini/antigravity-cli"),
-                    package,
-                ],
-                timeout=120,
-            )
-        else:
-            install_result = _run(["npm", "install", "-g", package], timeout=120)
+        install_result = _run(
+            ["npm", "install", "-g", "--prefix", str(user_cli_prefix()), package],
+            timeout=120,
+        )
 
         if install_result.returncode != 0:
             error_msg = install_result.stderr.strip() or install_result.stdout.strip()
             return {
                 "success": False,
-                "error": f"npm install failed: {error_msg}",
+                "error": f"npm install failed: {error_msg[-1500:]}",
             }
 
         # Create antigravity -> gemini symlink if we just installed gemini CLI
         if cli == "gemini":
             try:
-                bin_dir = Path.home() / ".gemini" / "antigravity-cli" / "bin"
+                bin_dir = user_cli_prefix() / "bin"
                 bin_dir.mkdir(parents=True, exist_ok=True)
                 symlink_path = bin_dir / "antigravity"
                 target_path = bin_dir / "gemini"

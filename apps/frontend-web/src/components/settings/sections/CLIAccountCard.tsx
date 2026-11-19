@@ -23,7 +23,7 @@ interface CLIAccountCardProps {
   onImport: () => void;
   onStartLogin: () => void;
   onRemove: () => void;
-  onInstall: () => Promise<void>;
+  onInstall: () => Promise<string | null | void>;
   onRefresh?: () => void;
 }
 
@@ -43,6 +43,7 @@ export function CLIAccountCard({
   const [isInstalling, setIsInstalling] = useState(false);
   const [loginTerminalId, setLoginTerminalId] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
 
   const Icon = cli === 'codex' ? OpenAIIcon : GeminiIcon;
@@ -98,8 +99,9 @@ export function CLIAccountCard({
 
   const handleInstall = async () => {
     setIsInstalling(true);
+    setInstallError(null);
     try {
-      await onInstall();
+      setInstallError((await onInstall()) || null);
     } finally {
       setIsInstalling(false);
     }
@@ -157,6 +159,11 @@ export function CLIAccountCard({
             {installHint}
           </code>
         </div>
+        {installError && (
+          <pre className="mt-2 ml-10 whitespace-pre-wrap break-words rounded bg-destructive/10 p-2 text-xs text-destructive">
+            {installError}
+          </pre>
+        )}
       </div>
     );
   }
@@ -317,6 +324,15 @@ export function CLIAccountCard({
               {t('integrations.waitingForAuth')}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Install/update error */}
+      {installError && (
+        <div className="px-3 pb-3 pt-0">
+          <pre className="whitespace-pre-wrap break-words rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
+            {installError}
+          </pre>
         </div>
       )}
 

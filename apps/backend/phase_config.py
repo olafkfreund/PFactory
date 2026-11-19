@@ -17,13 +17,17 @@ logger = logging.getLogger(__name__)
 
 # Model shorthand to full model ID mapping
 MODEL_ID_MAP: dict[str, str] = {
-    "opus": "claude-opus-4-8",
-    "opus-4.7": "claude-opus-4-7",  # previous flagship — kept for pinning
+    "fable": "claude-fable-5-2",  # most capable (Fable 5.2)
+    "opus": "claude-opus-5-5",  # current Opus (1M ctx)
+    "opus-4.8": "claude-opus-4-8",  # previous Opus — kept for pinning
+    "opus-4.7": "claude-opus-4-7",  # older flagship — kept for pinning
     "opus-1m": "claude-opus-4-6",  # legacy alias — kept for users who pinned 4.6 + 1M beta
     "opus-4.5": "claude-opus-4-5-20251101",
-    "sonnet": "claude-sonnet-5",  # current Sonnet (near-Opus coding, 1M ctx)
-    "sonnet-4.6": "claude-sonnet-4-6",  # previous Sonnet — kept for pinning
-    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-5-5",  # current Sonnet (1M ctx)
+    "sonnet-5": "claude-sonnet-5",  # previous Sonnet — kept for pinning
+    "sonnet-4.6": "claude-sonnet-4-6",  # older Sonnet — kept for pinning
+    "haiku": "claude-haiku-5-5",  # current Haiku (1M ctx)
+    "haiku-4.5": "claude-haiku-4-5-20251001",  # previous Haiku — kept for pinning
 }
 
 # GitHub Models catalog shorthands (epic #87 / #88). Kept SEPARATE from
@@ -51,7 +55,7 @@ THINKING_BUDGET_MAP: dict[str, int | None] = {
 
 # Default phase configuration (fallback, matches 'Balanced' profile)
 DEFAULT_PHASE_MODELS: dict[str, str] = {
-    # Default to Opus 4.8 (current flagship) for all stages — highest-capability
+    # Default to Opus 5.5 (current Opus) for all stages — highest-capability
     # coding/agentic model. Override per-task via the contract `phase_models`.
     "spec": "opus",
     "planning": "opus",

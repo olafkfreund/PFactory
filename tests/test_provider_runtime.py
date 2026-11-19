@@ -161,7 +161,8 @@ def test_latest_pip_via_pypi(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_latest_is_none_for_gh_kind() -> None:
-    assert pr.latest_version(pr.get_runtime("copilot")) is None
+    rt = pr.ProviderRuntime("x", "gh", ("x",), (), package="@x/x")
+    assert pr.latest_version(rt) is None
 
 
 # ── pins ─────────────────────────────────────────────────────────────────────
@@ -215,8 +216,17 @@ def test_status_unmanaged_has_no_latest(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_install_argv_npm_latest_and_pinned() -> None:
     rt = pr.get_runtime("codex")
-    assert pr.install_argv(rt) == ["npm", "install", "-g", "@openai/codex@latest"]
-    assert pr.install_argv(rt, "1.4.0") == ["npm", "install", "-g", "@openai/codex@1.4.0"]
+    prefix = str(pr.user_cli_prefix())
+    assert pr.install_argv(rt) == [
+        "npm",
+        "install",
+        "-g",
+        "--prefix",
+        prefix,
+        "@openai/codex@latest",
+    ]
+    assert pr.install_argv(rt, "1.4.0")[-1] == "@openai/codex@1.4.0"
+    assert prefix.startswith(str(Path.home() / ".local"))
 
 
 def test_install_argv_pip_uses_uv_against_the_service_venv() -> None:
@@ -260,8 +270,44 @@ def test_install_argv_pip_without_uv_raises_rather_than_failing_quietly(
     assert "2823" in str(exc.value)
 
 
-def test_install_argv_gh_is_upgrade() -> None:
-    assert pr.install_argv(pr.get_runtime("copilot")) == ["copilot", "upgrade"]
+def test_copilot_is_an_npm_runtime_so_install_works_when_not_installed() -> None:
+    """`copilot upgrade` cannot run when copilot is absent (the old gh kind)."""
+    rt = pr.get_runtime("copilot")
+    assert rt.kind == "npm"
+    assert pr.install_argv(rt)[-1] == "@github/copilot@latest"
+    assert "--prefix" in pr.install_argv(rt)
+
+
+def test_prefer_user_cli_path_is_first_and_idempotent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    pr.prefer_user_cli_path()
+    pr.prefer_user_cli_path()
+    first = str(tmp_path / ".local" / "cli-npm" / "bin")
+    assert pr.os.environ["PATH"] == f"{first}:/usr/bin:/bin"
+
+
+def test_updated_user_copy_shadows_image_copy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The stale-version bug: the image copy on PATH won over the new install."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    def fake_cli(root: Path, version: str) -> None:
+        pkg = root / "lib" / "node_modules" / "@openai" / "codex"
+        (pkg / "bin").mkdir(parents=True)
+        (pkg / "package.json").write_text(json.dumps({"version": version}))
+        (pkg / "bin" / "codex.js").write_text("")
+        (pkg / "bin" / "codex.js").chmod(0o755)
+        (root / "bin").mkdir()
+        (root / "bin" / "codex").symlink_to(pkg / "bin" / "codex.js")
+
+    fake_cli(tmp_path / "image", "0.169.0")
+    fake_cli(tmp_path / ".local" / "cli-npm", "0.170.0")
+    monkeypatch.setenv("PATH", str(tmp_path / "image" / "bin"))
+    assert pr.detect_installed(pr.get_runtime("codex")) == "0.170.0"
 
 
 def test_install_argv_unmanaged_raises() -> None:
@@ -298,7 +344,8 @@ def test_run_install_executes_and_redetects(monkeypatch: pytest.MonkeyPatch) -> 
     res = pr.run_install("codex")
     assert res.returncode == 0
     assert res.installed_version == "1.9.0"
-    assert res.command == ["npm", "install", "-g", "@openai/codex@latest"]
+    assert res.command[:3] == ["npm", "install", "-g"]
+    assert res.command[-1] == "@openai/codex@latest"
 
 
 def test_run_install_unmanaged_raises() -> None:
@@ -309,3 +356,19 @@ def test_run_install_unmanaged_raises() -> None:
 def test_run_install_unknown_raises() -> None:
     with pytest.raises(KeyError):
         pr.run_install("nope")
+
+
+def test_run_install_surfaces_the_real_npm_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        pr.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=1, stdout="", stderr="npm error EROFS: read-only file system"
+        ),
+    )
+    monkeypatch.setattr(pr, "detect_installed", lambda _rt: None)
+    res = pr.run_install("codex")
+    assert res.returncode == 1
+    assert "EROFS" in res.output
