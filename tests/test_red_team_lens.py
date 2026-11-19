@@ -119,6 +119,32 @@ def test_contradictory_acs_block():
     assert score.blocking is True
 
 
+def _contradictions(criteria):
+    score = _run(_plan(criteria=criteria))
+    return [f for f in score.findings if "Contradictory" in f.title]
+
+
+def test_must_not_alone_is_not_a_contradiction():
+    assert not _contradictions(["Logs must not contain credentials"])
+
+
+def test_unrelated_must_and_must_not_are_not_a_contradiction():
+    assert not _contradictions(["The API must return JSON", "Logs must not contain credentials"])
+
+
+def test_must_and_must_not_on_same_object_contradict():
+    assert _contradictions(["The endpoint must be public", "The endpoint must not be public"])
+    assert _contradictions(["The cache must expire and must not expire."])
+
+
+def test_asynchronous_alone_is_not_a_contradiction():
+    assert not _contradictions(["Processing is asynchronous"])
+
+
+def test_synchronous_and_asynchronous_contradict():
+    assert _contradictions(["The call is synchronous", "The job is asynchronous"])
+
+
 def test_infeasible_constraint_blocks():
     score = _run(_plan(criteria=["The service guarantees 100% uptime"]))
     assert any("Infeasible" in f.title for f in score.findings)

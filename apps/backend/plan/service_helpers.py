@@ -288,4 +288,4 @@ def resolve_tier(plan_tier: str | None, risk_class: str | None) -> tuple[str, st
         return plan_tier, "routed"
     if risk_class in _RISK_TO_TIER:
         return _RISK_TO_TIER[risk_class], "risk_class"
-    return "unknown", "absent"
+    return "hard", "default-conservative"

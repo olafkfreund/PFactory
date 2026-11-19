@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.9 — plan signature tier and red-team lens fixes (2026-11-19)
+
+### Bug Fixes
+
+- **The plan signature `autonomy_tier` falls back to `hard`, never `unknown` (#1084, #1086).**
+- **The red-team review lens no longer flags every plan that says "must not" (#1083, #1085).**
+
 ## 0.8.8 — Plan-Slug trailers in the gitops bump (2026-11-18)
 
 ### Improvements
