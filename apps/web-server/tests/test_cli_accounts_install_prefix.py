@@ -10,8 +10,10 @@ from __future__ import annotations
 import json
 import shlex
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -33,15 +35,15 @@ def _fake_cli(root: Path, binary: str, pkg_name: str, version: str) -> None:
 
 
 @pytest.fixture
-def home(tmp_path, monkeypatch):
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: tmp_path))
     return tmp_path
 
 
-def _record_runs(stderr: str = "", returncode: int = 0):
+def _record_runs(stderr: str = "", returncode: int = 0) -> tuple[list[str], Callable[..., Any]]:
     calls: list[str] = []
 
-    def fake_run(args, **kwargs):
+    def fake_run(args: list[str], **_kwargs: Any) -> SimpleNamespace:
         calls.append(args[-1] if args[:2] == ["bash", "-l"] else " ".join(args))
         is_install = "npm install" in calls[-1]
         return SimpleNamespace(
@@ -54,7 +56,7 @@ def _record_runs(stderr: str = "", returncode: int = 0):
 
 
 @pytest.mark.parametrize("cli", ["codex", "gemini"])
-def test_install_targets_the_writable_user_prefix(home, cli):
+def test_install_targets_the_writable_user_prefix(home: Path, cli: str) -> None:
     calls, fake_run = _record_runs()
     with (
         patch.object(ca.subprocess, "run", fake_run),
@@ -67,7 +69,8 @@ def test_install_targets_the_writable_user_prefix(home, cli):
     assert argv[argv.index("--prefix") + 1] == str(home / ".local" / "cli-npm")
 
 
-def test_install_failure_shows_the_real_npm_error(home):
+@pytest.mark.usefixtures("home")
+def test_install_failure_shows_the_real_npm_error() -> None:
     _, fake_run = _record_runs(
         stderr="npm error EROFS: read-only file system, rename", returncode=1
     )
@@ -77,7 +80,9 @@ def test_install_failure_shows_the_real_npm_error(home):
     assert "EROFS" in out["error"]
 
 
-def test_updated_antigravity_shadows_the_image_copy(home, monkeypatch):
+def test_updated_antigravity_shadows_the_image_copy(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Install succeeded but the UI kept the old version: PATH found the image copy."""
     _fake_cli(home / "image", "antigravity", "@google/gemini-cli", "0.68.0")
     _fake_cli(home / ".local" / "cli-npm", "antigravity", "@google/gemini-cli", "0.69.0")
