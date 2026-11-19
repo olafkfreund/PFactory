@@ -46,7 +46,7 @@ Usage::
 
     from providers.factory import get_provider
 
-    provider = get_provider("codex", phase="coding", model="gpt-5.3-codex",
+    provider = get_provider("codex", phase="coding", model="gpt-6.2-sol",
                             working_dir=project_dir)
     async with provider:
         await provider.query(prompt)

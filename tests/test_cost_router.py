@@ -91,14 +91,14 @@ def test_coding_is_cheaper_than_planning_within_floor():
     # coding model at/above balanced is sonnet (not opus).
     contract = {"execution": {"autonomy_tier": "medium"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_claude_only())
-    assert out["phase_models"]["coding"] == "claude-sonnet-5"
+    assert out["phase_models"]["coding"] == "claude-sonnet-5-5"
 
 
 def test_low_tier_allows_cheap_coding():
     contract = {"execution": {"autonomy_tier": "low"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_claude_only())
     # low floor = cheap; the cheapest coding-capable Claude model is haiku.
-    assert out["phase_models"]["coding"] == "claude-haiku-4-5-20251001"
+    assert out["phase_models"]["coding"] == "claude-haiku-5-5"
 
 
 # ── routing summary ───────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ def test_real_catalog_never_routes_to_unavailable_or_other_provider():
         pm = out["phase_models"]
         for role in ("planning", "coding", "qa", "test_gen"):
             assert pm[role].startswith("claude-"), f"{tier}/{role} resolved to {pm[role]!r}"
-            assert pm[role] not in {"gemini", "claude-opus-4-8", "claude-sonnet-4-6"}
+            assert pm[role] not in {"gemini", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"}
 
 
 def test_low_tier_uses_claude_for_every_role():
@@ -134,15 +134,15 @@ def test_low_tier_uses_claude_for_every_role():
     out = select_phase_models(contract, catalog=_CATALOG)
     pm = out["phase_models"]
     # low tier -> cheap floor; cheapest claude coding-capable model is haiku.
-    assert pm["coding"] == "claude-haiku-4-5-20251001"
-    assert pm["qa"] == "claude-haiku-4-5-20251001"
-    assert pm["test_gen"] == "claude-haiku-4-5-20251001"
-    assert pm["planning"] == "claude-sonnet-5"
+    assert pm["coding"] == "claude-haiku-5-5"
+    assert pm["qa"] == "claude-haiku-5-5"
+    assert pm["test_gen"] == "claude-haiku-5-5"
+    assert pm["planning"] == "claude-sonnet-5-5"
     assert isinstance(out["routing"]["cost_estimate_usd"], float)
     rationale = out["routing"]["rationale"]
     assert "gemini skipped: Gemini CLI terminates the session" in rationale
     assert "claude-opus-4-8 skipped: superseded by claude-opus-5-5" in rationale
-    assert "claude-sonnet-4-6 skipped: superseded by claude-sonnet-5; pinnable only" in rationale
+    assert "claude-sonnet-4-6 skipped: superseded by claude-sonnet-5-5; pinnable only" in rationale
 
 
 def test_medium_tier_coding_resolves_to_sonnet_by_default():
@@ -151,9 +151,9 @@ def test_medium_tier_coding_resolves_to_sonnet_by_default():
     contract = {"execution": {"autonomy_tier": "medium"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_CATALOG)
     pm = out["phase_models"]
-    assert pm["coding"] == "claude-sonnet-5"
-    assert pm["qa"] == "claude-sonnet-5"
-    assert pm["test_gen"] == "claude-sonnet-5"
+    assert pm["coding"] == "claude-sonnet-5-5"
+    assert pm["qa"] == "claude-sonnet-5-5"
+    assert pm["test_gen"] == "claude-sonnet-5-5"
 
 
 def test_unavailable_model_keeps_its_price_and_explicit_run_pin():
@@ -169,7 +169,7 @@ def test_unavailable_model_keeps_its_price_and_explicit_run_pin():
     apply_cost_routing(contract, catalog=_CATALOG)
     assert contract["execution"]["model"] == "claude-opus-4-8"
     assert contract["execution"]["phase_models"]["qa_fixer"] == "claude-opus-4-8"
-    assert contract["execution"]["phase_models"]["planning"] == "claude-sonnet-5"
+    assert contract["execution"]["phase_models"]["planning"] == "claude-sonnet-5-5"
     contract["execution"]["routing"]["pinned_model"] = "claude-opus-4-8"
     apply_cost_routing(contract, catalog=_CATALOG)
     assert contract["execution"]["routing"]["pinned_model"] == "claude-opus-4-8"
@@ -236,7 +236,7 @@ def test_invalid_pin_is_ignored(pin):
     }
     out = select_phase_models(contract, catalog=_CATALOG)
     assert "pinned_model" not in out["routing"]
-    assert out["phase_models"]["planning"] == "claude-sonnet-5"
+    assert out["phase_models"]["planning"] == "claude-sonnet-5-5"
 
 
 def test_requested_and_overrides_survive_apply_cost_routing():

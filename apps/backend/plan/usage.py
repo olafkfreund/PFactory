@@ -24,6 +24,11 @@ from pydantic import BaseModel
 # small; an unknown model simply yields cost 0.0 (never a guessed number).
 _PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     # model id (prefix-matched): (input $/Mtok, output $/Mtok)
+    "claude-fable-5-2": (8.0, 40.0),
+    "claude-opus-5-5": (4.0, 20.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-haiku-5-5": (0.10, 0.50),
     "claude-opus-4": (15.0, 75.0),
     "claude-sonnet-4": (3.0, 15.0),
     "claude-haiku-4": (1.0, 5.0),

@@ -15,7 +15,7 @@ Usage::
     from providers.gemini_agentic import GeminiAgenticProvider
 
     provider = GeminiAgenticProvider(
-        model="gemini-3.1-pro-preview",
+        model="gemini-4-carbon-medium",
         working_dir=project_dir,
         timeout=600,
     )
@@ -94,7 +94,7 @@ class GeminiAgenticProvider(BaseLLMProvider):
     messages.
 
     Args:
-        model: Gemini model identifier (e.g. ``"gemini-3.1-pro-preview"``).
+        model: Gemini model identifier (e.g. ``"gemini-4-carbon-medium"``).
         gemini_path: Path or command name for the ``gemini`` executable.
         timeout: Maximum seconds to wait for the subprocess.
         working_dir: Working directory for the subprocess.

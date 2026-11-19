@@ -1369,7 +1369,7 @@ async def _merge_file_with_ai_async(
 
             client = create_simple_client(
                 agent_type="merge_resolver",
-                model="claude-haiku-4-5-20251001",
+                model="claude-haiku-5-5",
                 system_prompt=AI_MERGE_SYSTEM_PROMPT,
                 max_thinking_tokens=1024,  # Low thinking for speed
             )

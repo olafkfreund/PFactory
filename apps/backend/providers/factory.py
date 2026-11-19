@@ -18,7 +18,7 @@ Usage::
 
     # Coding phase with Codex → CodexAgenticProvider
     provider = get_provider("codex", phase="coding",
-                            model="gpt-5.3-codex", working_dir=project_dir)
+                            model="gpt-6.2-sol", working_dir=project_dir)
 
     async with provider:
         await provider.query(prompt)
