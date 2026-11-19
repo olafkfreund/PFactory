@@ -11,7 +11,7 @@ import { apiRequest } from '../../lib/api-client';
 // ============================================
 
 export const AVAILABLE_MODELS = [
-  { value: 'fable', label: 'Claude Fable 5.2' },
+  { value: 'claude-fable-5-2', label: 'Claude Fable 5.2' },
   { value: 'opus', label: 'Claude Opus 5.5' },
   { value: 'sonnet', label: 'Claude Sonnet 5.5' },
   { value: 'haiku', label: 'Claude Haiku 5.5' }
@@ -21,7 +21,7 @@ export const AVAILABLE_MODELS = [
 // The provider is inferred from the model ID on the backend, so no separate
 // provider setting is needed per phase.
 export const ALL_AVAILABLE_MODELS = [
-  { value: 'fable', label: 'Claude Fable 5.2' },
+  { value: 'claude-fable-5-2', label: 'Claude Fable 5.2' },
   { value: 'opus', label: 'Claude Opus 5.5' },
   { value: 'sonnet', label: 'Claude Sonnet 5.5' },
   { value: 'haiku', label: 'Claude Haiku 5.5' },
