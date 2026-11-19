@@ -18,6 +18,7 @@ is the caller's explicit choice (never silent). ``detect_installed`` /
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -37,12 +38,40 @@ __all__ = [
     "get_status",
     "install_argv",
     "pinned_version",
+    "prefer_user_cli_path",
     "run_install",
     "runtimes",
     "set_pin",
+    "user_cli_prefix",
 ]
 
 RuntimeKind = Literal["npm", "pip", "gh", "binary"]
+
+
+def user_cli_prefix() -> Path:
+    """Writable npm prefix for user-installed CLIs.
+
+    The image's ``~/.npm-global`` sits in the read-only root filesystem, so
+    ``npm install -g`` there fails with EROFS. ``~/.local`` is a mounted
+    volume. It is ephemeral (emptyDir), so a restart falls back to the
+    image-pinned copy -- the pin stays the durable source of truth.
+    """
+    return Path.home() / ".local" / "cli-npm"
+
+
+def prefer_user_cli_path() -> None:
+    """Put the user prefix ``bin`` first on this process's PATH (idempotent).
+
+    Detection and every agent subprocess spawned from this server then find an
+    updated CLI before the image copy. Called at server import.
+    """
+    bin_dir = str(user_cli_prefix() / "bin")
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    if parts[0] != bin_dir:
+        os.environ["PATH"] = os.pathsep.join([bin_dir, *(p for p in parts if p != bin_dir)])
+
+
+_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?)")
 
 _VERSION_RE = re.compile(r"(\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?)")
 
@@ -70,7 +99,7 @@ _REGISTRY: dict[str, ProviderRuntime] = {
     "codex": ProviderRuntime("codex", "npm", ("codex",), ("--version",), package="@openai/codex"),
     "copilot": ProviderRuntime(
         "copilot",
-        "gh",
+        "npm",
         ("copilot", "github-copilot"),
         ("--version",),
         package="@github/copilot",
@@ -147,6 +176,7 @@ def _parse_version(text: str | None) -> str | None:
 
 
 def _find_binary(rt: ProviderRuntime) -> str | None:
+    prefer_user_cli_path()
     for name in rt.binaries:
         path = shutil.which(name)
         if path:
@@ -362,7 +392,7 @@ def install_argv(rt: ProviderRuntime, version: str | None = None) -> list[str]:
         raise InputRejectedError(f"{rt.name} is user-managed; PFactory does not install it")
     if rt.kind == "npm":
         spec = f"{rt.package}@{version or 'latest'}"
-        return ["npm", "install", "-g", spec]
+        return ["npm", "install", "-g", "--prefix", str(user_cli_prefix()), spec]
     if rt.kind == "pip":
         # Narrow for the type checker and for the caller: a pip runtime with no
         # package name is not installable, and saying so here beats an argv
@@ -402,6 +432,14 @@ def install_argv(rt: ProviderRuntime, version: str | None = None) -> list[str]:
     raise InputRejectedError(f"cannot build an install command for kind {rt.kind!r}")
 
 
+def _link_antigravity() -> None:
+    """``antigravity`` is gemini-cli under an alias; keep it pointing at the
+    freshly installed copy so it shadows the image's alias on PATH."""
+    link = user_cli_prefix() / "bin" / "antigravity"
+    link.unlink(missing_ok=True)
+    link.symlink_to("gemini")
+
+
 @dataclass(frozen=True)
 class InstallResult:
     name: str
@@ -425,6 +463,8 @@ def run_install(name: str, version: str | None = None, *, timeout: int = 600) ->
         proc = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=timeout)
         returncode = proc.returncode
         output = ((proc.stdout or "") + (proc.stderr or ""))[-4000:]
+        if returncode == 0 and rt.name == "gemini":
+            _link_antigravity()
     except (OSError, subprocess.SubprocessError) as exc:
         returncode = -1
         output = f"install failed to launch: {exc}"

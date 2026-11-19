@@ -313,14 +313,18 @@ export function LLMAccountsSettings({ isOpen }: LLMAccountsSettingsProps) {
     }
   };
 
-  const handleCLIInstall = async (cli: 'codex' | 'gemini') => {
+  // Returns the failure text so the card can show the real npm error.
+  const handleCLIInstall = async (cli: 'codex' | 'gemini'): Promise<string | null> => {
     try {
       const result = await window.API.installCLI(cli);
       if (result.success) {
         await detectCLIAccounts();
+        return null;
       }
+      return result.error || `Failed to install/update ${cli}`;
     } catch (err) {
       console.error(`Failed to install/update ${cli}:`, err);
+      return `Failed to install/update ${cli}`;
     }
   };
 
