@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.8.10 — new Claude, Codex and Gemini models; CLI account install fix (2026-11-19)
+
+### New Features
+
+- **The new Claude, Codex and Gemini models are enabled (#1089, #1092).**
+
+### Bug Fixes
+
+- **CLI Update/Install writes into a writable prefix and reports real errors (#1090, #1091).**
+
 ## 0.8.9 — plan signature tier and red-team lens fixes (2026-11-19)
 
 ### Bug Fixes
