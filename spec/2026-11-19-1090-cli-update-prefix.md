@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1090
 intent: intent/2026-11-19-1090-cli-update-prefix.md
 ---
