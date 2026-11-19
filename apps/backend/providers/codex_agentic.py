@@ -15,7 +15,7 @@ Usage::
     from providers.codex_agentic import CodexAgenticProvider
 
     provider = CodexAgenticProvider(
-        model="gpt-5.3-codex",
+        model="gpt-6.2-sol",
         working_dir=spec_dir,
         timeout=600,
     )
@@ -44,7 +44,7 @@ from providers.types import AssistantMessage, TextBlock
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CODEX_PATH: str = "codex"
-_DEFAULT_MODEL: str = "gpt-5.3-codex"
+_DEFAULT_MODEL: str = "gpt-6.2-sol"
 _DEFAULT_TIMEOUT: int = 600  # 10 minutes for agentic tasks
 _MODEL_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$")
 
@@ -62,7 +62,7 @@ class CodexAgenticProvider(BaseLLMProvider):
     on exit.
 
     Args:
-        model: Codex model identifier (e.g. ``"gpt-5.3-codex"``).
+        model: Codex model identifier (e.g. ``"gpt-6.2-sol"``).
         codex_path: Path or command name for the ``codex`` executable.
         timeout: Maximum seconds to wait for a response.
         working_dir: Working directory for Codex sessions.
