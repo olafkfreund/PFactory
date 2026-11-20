@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1099
 spec: spec/2026-11-20-1099-pf-project-authz.md
 coders:
