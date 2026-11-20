@@ -196,7 +196,7 @@ async def lifespan(app: FastAPI):  # noqa: PLR0915 - startup and shutdown own th
         logger.info("Stale ingest sweep enabled (TTL %sh)", settings.STALE_INGEST_TTL_HOURS)
 
     app.state.stage_poller_task = None
-    if settings.STAGE_POLLER_ENABLED:
+    if settings.ISSUE_STAGES_ENABLED and settings.STAGE_POLLER_ENABLED:
         from .background.stage_poller import stage_poller_loop  # noqa: PLC0415
 
         app.state.stage_poller_task = asyncio.create_task(

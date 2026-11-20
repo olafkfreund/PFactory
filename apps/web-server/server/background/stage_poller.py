@@ -19,6 +19,7 @@ if str(_BACKEND_PATH) not in sys.path:
 
 from plan import service as plan_service  # noqa: E402
 from plan.service import EmitInProgressError, PlanServiceError, StaleSessionError  # noqa: E402
+from server.config import get_settings  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ def poll_active_issue_stages(
     service: plan_service.PlanService | None = None,
 ) -> list[str]:
     """Poll every active draft-PR issue stage session once. Sync, thread-safe."""
+    if not get_settings().ISSUE_STAGES_ENABLED:
+        return []
     svc = service or cast("plan_service.PlanService", plan_service.SERVICE)
     sessions, _ = svc._list_sessions()
     polled: list[str] = []

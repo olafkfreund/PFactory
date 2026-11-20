@@ -200,7 +200,10 @@ async def verify_bound_approval(  # noqa: PLR0913, PLR0911, PLR0912 - explicit s
     if stage is None or str(comment.id) in state.consumed_comment_ids:
         return None
     state.consumed_comment_ids.append(str(comment.id))
-    updated_at = getattr(comment, "updated_at", None) or comment.raw_data.get("updated_at")
+    raw_updated_at = comment.raw_data.get("updated_at")
+    if state.provider in {"github", "gitlab"} and raw_updated_at is None:
+        return None
+    updated_at = raw_updated_at or getattr(comment, "updated_at", None)
     if updated_at is not None:
         if isinstance(updated_at, str):
             try:

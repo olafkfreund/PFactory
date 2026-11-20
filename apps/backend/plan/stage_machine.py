@@ -98,6 +98,10 @@ def assert_safe_artifact_slug(value: object, field: str = "artifact_slug") -> st
     return text
 
 
+def _markdown_heading_title(title: str) -> str:
+    return re.sub(r"([\\`*_{}\[\]()#+.!<>|])", r"\\\1", title)
+
+
 def _extract_plan_fields(
     plan_or_session: Any,
     *,
@@ -186,7 +190,7 @@ def render_stage_intent(  # noqa: PLR0913 - template renderer options
         f"issue: {issue}\n"
         f"author: {author}\n"
         f"---\n\n"
-        f"# Intent: {resolved_title}\n\n"
+        f"# Intent: {_markdown_heading_title(resolved_title)}\n\n"
         f"## Problem\n\n"
         f"{_literal(problem)}\n\n"
         f"## Proposed outcome\n\n"
@@ -240,7 +244,7 @@ def render_stage_spec(  # noqa: PLR0913 - template renderer options
         f"issue: {issue}\n"
         f"intent: intent/{slug}.md\n"
         f"---\n\n"
-        f"# Spec: {resolved_title}\n\n"
+        f"# Spec: {_markdown_heading_title(resolved_title)}\n\n"
         f"## Design\n\n"
         f"{_literal(design)}\n\n"
         f"## Alternatives rejected\n\n"
@@ -305,7 +309,7 @@ def render_stage_plan(  # noqa: PLR0913 - template renderer options
         f"issue: {issue}\n"
         f"spec: spec/{slug}.md\n"
         f"---\n\n"
-        f"# Plan: {resolved_title}\n\n"
+        f"# Plan: {_markdown_heading_title(resolved_title)}\n\n"
         f"{_literal(summary)}\n\n"
         f"## Steps\n\n"
         f"{_literal(steps)}\n\n"

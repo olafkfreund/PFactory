@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.background.tasks import spawn
+from server.config import get_settings
 
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
@@ -330,16 +331,48 @@ async def ingest_from_issue(
     # that than a session built from a one-line plan nobody can verify against.
     org_id = await _ingest_org(request, body.repo, db)
     tenant = resolve_tenant(request)
-    from runners.github.providers.factory import get_provider  # noqa: PLC0415
-
-    try:
-        effective_base_ref = await get_provider(body.provider, body.repo).get_default_branch()
-    except Exception as exc:  # provider failures must not ingest on an unverified ref
-        raise HTTPException(
-            status_code=502, detail="could not verify repository default branch"
-        ) from exc
     service = cast(PlanService, SERVICE)
+    if not get_settings().ISSUE_STAGES_ENABLED:
+        attribution = _attribution(_user(request), authored_elsewhere=True)
+        try:
+            session = service.ingest_text(
+                body.body or "",
+                title=body.title,
+                channel="github_issue",
+                repo=body.repo,
+                autonomy_tier=body.autonomy_tier,
+                origin_issue_number=body.issue_number,
+                tenant_id=tenant,
+                org_id=org_id,
+                originator=attribution["originator"],
+                agent_identity=attribution["agent_identity"],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=client_error(exc)) from exc
+        from .projects import ensure_tracked_project
+
+        ensure_tracked_project(body.repo, await creator_org(_user(request), db))
+        return _session_dict(session)
+    start_stage = body.auto_start_stage
     try:
+        find_existing = getattr(service, "find_active_issue_session", None)
+        existing = (
+            find_existing(tenant, body.provider, body.repo, body.issue_number)
+            if find_existing is not None
+            else None
+        )
+        effective_base_ref = None
+        if start_stage and existing is None:
+            from runners.github.providers.factory import get_provider  # noqa: PLC0415
+
+            try:
+                effective_base_ref = await get_provider(
+                    body.provider, body.repo
+                ).get_default_branch()
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502, detail="could not verify repository default branch"
+                ) from exc
         ingest_issue = getattr(service, "ingest_from_issue", None)
         if ingest_issue is not None:
             session, created = await asyncio.to_thread(
@@ -354,35 +387,30 @@ async def ingest_from_issue(
                 autonomy_tier=body.autonomy_tier,
                 tenant_id=tenant,
                 org_id=org_id,
+                issue_stage_requested=start_stage,
                 **_attribution(_user(request), authored_elsewhere=True),
             )
+        elif existing is not None:
+            session, created = existing, False
         else:
-            find_existing = getattr(service, "find_active_issue_session", None)
-            existing = (
-                find_existing(tenant, body.provider, body.repo, body.issue_number)
-                if find_existing is not None
-                else None
+            attribution = _attribution(_user(request), authored_elsewhere=True)
+            session = service.ingest_text(
+                body.body or "",
+                title=body.title,
+                channel="github_issue",
+                repo=body.repo,
+                base_ref=effective_base_ref,
+                provider=body.provider,
+                project_id=body.project_id,
+                autonomy_tier=body.autonomy_tier,
+                origin_issue_number=body.issue_number,
+                tenant_id=tenant,  # #308
+                org_id=org_id,  # #968
+                issue_stage_requested=start_stage,
+                originator=attribution["originator"],
+                agent_identity=attribution["agent_identity"],
             )
-            if existing is not None:
-                session, created = existing, False
-            else:
-                attribution = _attribution(_user(request), authored_elsewhere=True)
-                session = service.ingest_text(
-                    body.body or "",
-                    title=body.title,
-                    channel="github_issue",
-                    repo=body.repo,
-                    base_ref=effective_base_ref,
-                    provider=body.provider,
-                    project_id=body.project_id,
-                    autonomy_tier=body.autonomy_tier,
-                    origin_issue_number=body.issue_number,
-                    tenant_id=tenant,  # #308
-                    org_id=org_id,  # #968
-                    originator=attribution["originator"],
-                    agent_identity=attribution["agent_identity"],
-                )
-                created = True
+            created = True
     except (EmitInProgressError, StaleSessionError) as exc:
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
@@ -394,7 +422,8 @@ async def ingest_from_issue(
 
     ensure_tracked_project(body.repo, await creator_org(_user(request), db))
     if (
-        body.auto_start_stage
+        start_stage
+        and session.issue_stage_requested
         and hasattr(service, "bootstrap_issue_stage")
         and (
             created

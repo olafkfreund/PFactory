@@ -444,7 +444,7 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
             type(exc).__name__,
             exc_info=exc,
         )
-        if os.environ.get("PFACTORY_EMIT_FALLBACK") != "1":
+        if handoff or os.environ.get("PFACTORY_EMIT_FALLBACK") != "1":
             result: dict[str, Any] = {
                 "ok": False,
                 "dry_run": False,
