@@ -1,13 +1,26 @@
 """Security checks for base policy and bound stage approvals (#1096)."""
 
+import subprocess
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from client_errors import InputRejectedError
+from plan.decompose.models import ChildIssue, EpicPlan
+from plan.models import Criterion, NormalizedPlan
 from plan.recon.clone import CloneResult
+from plan.stage_machine import (
+    advance_stage_on_pr,
+    assert_safe_git_ref,
+    bootstrap_intent_pr,
+    render_stage_intent,
+    render_stage_plan,
+    render_stage_spec,
+    sync_stage_label,
+)
 from plan.stage_policy import (
     StageJobState,
     StagePolicy,
@@ -164,3 +177,247 @@ async def test_bound_approval_requires_fresh_comment_and_write_fallback():
     provider.permission = "write"
     fresh.id = "3"
     assert await verify_bound_approval(state, policy, fresh, provider, "abc", now)
+
+
+@dataclass
+class StageProviderFake:
+    applied_labels: list[tuple[str, list[str]]] = field(default_factory=list)
+    removed_labels: list[tuple[str, list[str]]] = field(default_factory=list)
+    comments: list[tuple[str, str]] = field(default_factory=list)
+    created_prs: list[dict] = field(default_factory=list)
+
+    async def get_default_branch(self) -> str:
+        return "dev"
+
+    async def apply_labels(self, number: str, labels: list[str]) -> None:
+        self.applied_labels.append((str(number), list(labels)))
+
+    async def remove_labels(self, number: str, labels: list[str]) -> None:
+        self.removed_labels.append((str(number), list(labels)))
+
+    async def add_comment(self, number: str, body: str) -> int:
+        self.comments.append((str(number), body))
+        return len(self.comments)
+
+    async def create_pr(
+        self,
+        source_branch: str,
+        target_branch: str,
+        title: str,
+        body: str = "",
+        draft: bool = False,
+    ) -> dict:
+        record = {
+            "number": 42,
+            "web_url": "https://gitlab.example/org/repo/-/merge_requests/42",
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "title": title,
+            "body": body,
+            "draft": draft,
+        }
+        self.created_prs.append(record)
+        return record
+
+    async def merge_pr(self, *_args, **_kwargs) -> bool:
+        raise AssertionError("merge_pr must never be called")
+
+    async def enable_auto_merge(self, *_args, **_kwargs) -> bool:
+        raise AssertionError("enable_auto_merge must never be called")
+
+
+class FakeGitWorkspace:
+    """In-memory git runner backing clone/checkout/commit/push without network."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, str] = {}
+        self.commits: list[str] = ["base-sha-0001"]
+        self.commands: list[list[str]] = []
+        self.envs: list[dict[str, str]] = []
+
+    def __call__(
+        self, args: list[str], *, cwd: str, env: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        self.commands.append(list(args))
+        self.envs.append(dict(env))
+        if args[0] == "clone":
+            work = Path(args[-1])
+            work.mkdir(parents=True, exist_ok=True)
+            for rel, content in self.files.items():
+                target = work / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if args[:2] == ["rev-parse", "HEAD"]:
+            return subprocess.CompletedProcess(args, 0, f"{self.commits[-1]}\n", "")
+        if "commit" in args:
+            work = Path(cwd)
+            for stage in ("intent", "spec", "plan"):
+                stage_dir = work / stage
+                if stage_dir.is_dir():
+                    for md in stage_dir.glob("*.md"):
+                        self.files[f"{stage}/{md.name}"] = md.read_text(encoding="utf-8")
+            self.commits.append(f"sha-{len(self.commits):04d}")
+            return subprocess.CompletedProcess(args, 0, "", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+
+def _make_fake_session():
+    plan = NormalizedPlan(
+        plan_id="1096-stage-machine",
+        title="Add draft PR stage machine",
+        description="Drive intent, spec, and plan on a draft PR.",
+        source_format="markdown",
+        source_channel="github_issue",
+        criteria=[Criterion(id="AC#1", text="Open draft PR with intent")],
+    ).with_hash()
+    epic = EpicPlan(
+        plan_id=plan.plan_id,
+        epic_title=plan.title,
+        summary="Staged PR workflow.",
+        children=[
+            ChildIssue(
+                key="C1",
+                title="Implement stage driver",
+                body="Commit intent, spec, plan on draft PR.",
+            )
+        ],
+    )
+
+    @dataclass
+    class FakeSession:
+        plan: NormalizedPlan
+        epic: EpicPlan
+        origin_issue_number: int = 1096
+
+    return FakeSession(plan=plan, epic=epic)
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_intent_pr_and_advance_stage_full_cycle(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "ghp_secret_do_not_embed_in_url")
+    session = _make_fake_session()
+    state = StageJobState(
+        tenant_id="default",
+        provider="github",
+        repo="org/repo",
+        issue_number=1096,
+        base_ref="dev",
+    )
+    provider = StageProviderFake()
+    git = FakeGitWorkspace()
+    gh_calls: list[list[str]] = []
+
+    def fake_gh(
+        argv: list[str], _cwd: str, _env: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        gh_calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "https://github.com/org/repo/pull/77\n", "")
+
+    await bootstrap_intent_pr(
+        state,
+        provider,
+        session,
+        date_prefix="2026-11-20",
+        git_runner=git,
+        gh_runner=fake_gh,
+    )
+
+    slug = "2026-11-20-1096-add-draft-pr-stage-machine"
+    assert state.source_branch == "factory/1096-add-draft-pr-stage-machine"
+    assert state.artifact_slug == slug
+    assert (state.pr_number, state.current_stage, state.head_sha) == (77, "intent", "sha-0001")
+    assert "--draft" in gh_calls[0]
+    assert all("ghp_secret_do_not_embed_in_url" not in arg for arg in git.commands[0])
+    assert "https://x-access-token@github.com/org/repo.git" in git.commands[0]
+    assert git.envs[0].get("GIT_PASS") == "ghp_secret_do_not_embed_in_url"
+    assert git.envs[0].get("GIT_ASKPASS", "").endswith("git-askpass.sh")
+    assert "status: draft" in git.files[f"intent/{slug}.md"]
+    assert provider.applied_labels[-1] == ("1096", ["factory:intent"])
+
+    await advance_stage_on_pr(
+        state, provider, session, verify_lanes=("unit", "lint"), git_runner=git
+    )
+    assert (state.current_stage, state.stage_status, state.head_sha) == (
+        "spec",
+        "draft",
+        "sha-0002",
+    )
+    assert "status: approved" in git.files[f"intent/{slug}.md"]
+    assert f"intent: intent/{slug}.md" in git.files[f"spec/{slug}.md"]
+    assert provider.applied_labels[-1] == ("1096", ["factory:spec"])
+
+    seen_approved_spec: list[str] = []
+    await advance_stage_on_pr(
+        state,
+        provider,
+        session,
+        plan_renderer=lambda md: (
+            seen_approved_spec.append(md)
+            or render_stage_plan(session, slug, verify_lanes=("unit",))
+        ),
+        git_runner=git,
+    )
+    assert len(seen_approved_spec) == 1 and "status: approved" in seen_approved_spec[0]
+    assert (state.current_stage, state.stage_status, state.head_sha) == (
+        "plan",
+        "draft",
+        "sha-0003",
+    )
+    assert "status: approved" in git.files[f"spec/{slug}.md"]
+    assert f"spec: spec/{slug}.md" in git.files[f"plan/{slug}.md"]
+    assert provider.applied_labels[-1] == ("1096", ["factory:plan"])
+
+    await advance_stage_on_pr(state, provider, session, git_runner=git)
+    assert (state.current_stage, state.stage_status, state.head_sha) == (
+        "approved",
+        "approved",
+        "sha-0004",
+    )
+    assert "status: approved" in git.files[f"plan/{slug}.md"]
+    assert await sync_stage_label(provider, 1096, "building") == "factory:building"
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_gitlab_uses_provider_create_pr_and_rejects_bad_refs():
+    with pytest.raises(InputRejectedError):
+        assert_safe_git_ref("--upload-pack=evil", "source_branch")
+    with pytest.raises(InputRejectedError):
+        assert_safe_git_ref("main..evil", "base_ref")
+
+    state = StageJobState(
+        tenant_id="default",
+        provider="gitlab",
+        repo="gitlab:org/repo",
+        issue_number=55,
+    )
+    provider = StageProviderFake()
+    git = FakeGitWorkspace()
+    await bootstrap_intent_pr(
+        state,
+        provider,
+        title="GitLab Draft Flow",
+        date_prefix="2026-11-20",
+        git_runner=git,
+    )
+    assert state.pr_number == 42
+    assert provider.created_prs[0]["draft"] is True
+    assert provider.created_prs[0]["target_branch"] == "dev"
+
+    # Simulate remote branch drift before advance_stage_on_pr
+    git.commits.append("unexpected-remote-push")
+    with pytest.raises(ValueError, match="drifted"):
+        await advance_stage_on_pr(state, provider, git_runner=git)
+
+
+def test_stage_renderers_produce_required_frontmatter():
+    intent_md = render_stage_intent(issue_number=12, title="Fix auth")
+    spec_md = render_stage_spec(
+        issue_number=12, title="Fix auth", artifact_slug="2026-11-20-12-fix-auth"
+    )
+    plan_md = render_stage_plan(
+        issue_number=12, title="Fix auth", artifact_slug="2026-11-20-12-fix-auth"
+    )
+    assert "status: draft\nissue: 12\nauthor: factory" in intent_md
+    assert "status: draft\nissue: 12\nintent: intent/2026-11-20-12-fix-auth.md" in spec_md
+    assert "status: draft\nissue: 12\nspec: spec/2026-11-20-12-fix-auth.md" in plan_md
