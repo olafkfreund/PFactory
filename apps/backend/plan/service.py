@@ -470,7 +470,8 @@ class SessionStore(Protocol):
 
     def release_emit_lease(self, session_id: str, owner: str) -> None: ...
 
-    def delete_if_lease_owner(self, session_id: str, owner: str) -> bool: ...
+    def delete_if_lease_owner(self, session_id: str, owner: str) -> bool:
+        pass
 
     def stamp_org(self, session_id: str, org_id: str) -> str | None:
         """Write-once org stamp outside payload/version (#968); returns stored org or None."""
