@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1096
 spec: spec/2026-11-20-1096-pf-issue-stage-machine.md
 coders:
