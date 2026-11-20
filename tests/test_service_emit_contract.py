@@ -98,6 +98,48 @@ def test_emit_contract_live_sets_correlation() -> None:
     assert http.calls[0]["json"]["plan"]["approval"]["signature"]
 
 
+def test_provider_review_approval_emits_signed_stage_handoff() -> None:
+    svc = PlanService()
+    sid = _processed_session(svc)
+    session = svc.get(sid)
+    handoff = {
+        "project_id": "project-1",
+        "provider": "github",
+        "repo": "acme/widget",
+        "base_ref": "dev",
+        "source_branch": "factory/1096-widget",
+        "approved_head_sha": "a" * 40,
+        "pr_number": 77,
+    }
+    session.stage_state = handoff
+    persist(svc, session)
+    svc.approve(
+        sid,
+        approver="alice",
+        user_id="7",
+        auth_kind="provider_review",
+        provider="github",
+        provider_user_id=7,
+        username="alice",
+        pr_number=77,
+        approved_head_sha="a" * 40,
+    )
+    http = FakeHttp()
+    out = svc.emit_contract(
+        sid,
+        repo="acme/widget",
+        project_id="project-1",
+        http=http,
+        key="secret",
+        dry_run=False,
+        require_user_approval=True,
+    )
+    assert out.status == "emitted"
+    assert out.review.human_approval.provider_user_id == 7
+    assert {key: http.calls[0]["json"]["plan"]["provenance"][key] for key in handoff} == handoff
+    assert set(http.calls[0]["json"]) == {"plan"}
+
+
 def test_repeated_live_emit_is_idempotent_until_plan_changes() -> None:
     svc = PlanService()
     sid = _processed_session(svc)

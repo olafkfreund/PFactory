@@ -4,9 +4,10 @@ import hashlib
 import hmac
 import subprocess
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,8 @@ from plan.emit.contract_emit import emit_contract
 from plan.emit.signing import _signing_bytes
 from plan.models import Criterion, NormalizedPlan
 from plan.recon.clone import CloneResult
+from plan.review.models import LensScore, PlanReview
+from plan.service import PlanService
 from plan.stage_machine import (
     advance_stage_on_pr,
     assert_safe_git_ref,
@@ -33,6 +36,8 @@ from plan.stage_policy import (
     provider_user_id,
     verify_bound_approval,
 )
+from tests.conftest import persist
+from tests.fake_session_store import FakeSessionStore
 
 
 @dataclass
@@ -487,3 +492,233 @@ def test_handoff_contract_identity_is_signed_and_request_body_is_unchanged():
     )
     assert all(f'"{key}"'.encode() in signed_bytes for key in handoff)
     assert approval["signature"] == hmac.new(b"test-key", signed_bytes, hashlib.sha256).hexdigest()
+
+
+def test_service_stage_dedup_and_single_cas_transition(monkeypatch):
+    class CountingStore(FakeSessionStore):
+        saves = 0
+
+        def upsert(self, *args, **kwargs):
+            self.saves += 1
+            return super().upsert(*args, **kwargs)
+
+    class LiveProvider(Provider):
+        def __init__(self):
+            super().__init__()
+            self._gh_client = self
+            self.comment = Comment(
+                "c1", "alice", "/approve intent", datetime.now(UTC), {"user": {"id": 7}}
+            )
+
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open")
+
+        async def get_pr_head_sha(self, _number):
+            return "old-sha"
+
+        async def fetch_pr_comments(self, _number, since=None):
+            return [self.comment] if since is None or self.comment.created_at > since else []
+
+        async def remove_labels(self, *_args):
+            pass
+
+        async def apply_labels(self, *_args):
+            pass
+
+    store = CountingStore()
+    svc = PlanService(persist=False, session_store=store)
+    session = svc.ingest_text(
+        "# Fix stage\n## Acceptance Criteria\n- approve intent",
+        repo="org/repo",
+        provider="github",
+        project_id="project-1",
+        origin_issue_number=1096,
+        tenant_id="tenant-1",
+    )
+    state = StageJobState(
+        "tenant-1",
+        "github",
+        "org/repo",
+        1096,
+        project_id="project-1",
+        base_ref="dev",
+        artifact_slug="slug",
+        pr_number=77,
+        head_sha="old-sha",
+        source_branch="factory/1096-stage",
+        last_comment_since=(datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+    )
+    session.stage_state = asdict(state)
+    svc._save(session)
+    assert (
+        svc.find_active_issue_session("tenant-1", "github", "org/repo", 1096).session_id
+        == session.session_id
+    )
+    assert svc.find_active_issue_session("other", "github", "org/repo", 1096) is None
+    provider = LiveProvider()
+
+    async def fake_advance(state, *_args, **_kwargs):
+        state.current_stage = "spec"
+        state.head_sha = "new-sha"
+        return state
+
+    monkeypatch.setattr(
+        "plan.stage_machine.load_stage_policy",
+        lambda *_args: StagePolicy("base", ("intent",), {}, ()),
+    )
+    monkeypatch.setattr("plan.stage_machine.advance_stage_on_pr", fake_advance)
+    before = store.saves
+    result = svc.poll_issue_stage(session.session_id, provider=provider)
+    assert store.saves == before + 1
+    assert result.stage_state["current_stage"] == "spec"
+    assert result.stage_state["approvals"][0]["provider_user_id"] == 7
+    assert not store.lease
+
+
+def test_service_stage_bootstrap_saves_once_after_processing(monkeypatch):
+    class CountingStore(FakeSessionStore):
+        saves = 0
+
+        def upsert(self, *args, **kwargs):
+            self.saves += 1
+            return super().upsert(*args, **kwargs)
+
+    store = CountingStore()
+    svc = PlanService(persist=False, session_store=store)
+    session = svc.ingest_text(
+        "# Stage machine\n## Acceptance Criteria\n- open intent PR",
+        repo="org/repo",
+        origin_issue_number=1096,
+    )
+
+    async def fake_process(session_id):
+        return svc.get(session_id)
+
+    async def fake_bootstrap(state, *_args):
+        state.pr_number = 77
+        state.head_sha = "intent-sha"
+        state.source_branch = "factory/1096-stage"
+        state.artifact_slug = "slug"
+        return state
+
+    monkeypatch.setattr(svc, "process_async", fake_process)
+    monkeypatch.setattr(
+        "plan.stage_machine.load_stage_policy",
+        lambda *_args: StagePolicy("base", ("intent",), {}, (), base_branch="dev"),
+    )
+    monkeypatch.setattr("plan.stage_machine.bootstrap_intent_pr", fake_bootstrap)
+    before = store.saves
+    result = svc.bootstrap_issue_stage(session.session_id, provider=object())
+    assert store.saves == before + 1
+    assert (result.stage_state["pr_number"], result.stage_state["base_ref"]) == (77, "dev")
+    assert (
+        svc.bootstrap_issue_stage(session.session_id, provider=object()).stage_state
+        == result.stage_state
+    )
+    assert store.saves == before + 1
+
+
+def test_service_stage_plan_approval_records_provider_provenance_and_emits(monkeypatch):
+    store = FakeSessionStore()
+    svc = PlanService(persist=False, session_store=store)
+    session = svc.ingest_text(
+        "# Stage machine\n## Acceptance Criteria\n- emit contract",
+        repo="org/repo",
+        provider="github",
+        project_id="project-1",
+        origin_issue_number=1096,
+    )
+    session.epic = EpicPlan(
+        plan_id=session.plan.plan_id,
+        epic_title="Stage machine",
+        children=[
+            ChildIssue(
+                key="C1",
+                title="Build",
+                kind="feature",
+                acceptance_criteria=["emit contract"],
+            )
+        ],
+    )
+    session.review = PlanReview(
+        plan_id=session.plan.plan_id,
+        lenses=[LensScore(lens="architecture", score=1)],
+        gates_passed=True,
+    )
+    state = StageJobState(
+        "default",
+        "github",
+        "org/repo",
+        1096,
+        project_id="project-1",
+        base_ref="dev",
+        source_branch="factory/1096-stage",
+        artifact_slug="slug",
+        pr_number=77,
+        current_stage="plan",
+        head_sha="reviewed-sha",
+        last_comment_since=(datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+    )
+    session.stage_state = asdict(state)
+    persist(svc, session)
+
+    class ProviderForPlan(Provider):
+        def __init__(self):
+            super().__init__()
+            self._gh_client = self
+
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open")
+
+        async def get_pr_head_sha(self, _number):
+            return "reviewed-sha"
+
+        async def fetch_pr_comments(self, _number, since=None):  # noqa: ARG002
+            return [
+                Comment("c-plan", "alice", "/approve plan", datetime.now(UTC), {"user": {"id": 7}})
+            ]
+
+        async def remove_labels(self, *_args):
+            pass
+
+        async def apply_labels(self, *_args):
+            pass
+
+    async def fake_advance(state, *_args, **_kwargs):
+        state.current_stage = "approved"
+        state.stage_status = "approved"
+        state.head_sha = "approved-sha"
+        return state
+
+    captured = {}
+
+    def fake_emit(session_id, **kwargs):
+        captured.update(kwargs)
+        live = svc.get(session_id)
+        live.contract_result = {"ok": True}
+        svc._save(live)
+        return live
+
+    monkeypatch.setattr(
+        "plan.stage_machine.load_stage_policy",
+        lambda *_args: StagePolicy("base", ("plan",), {}, ()),
+    )
+    monkeypatch.setattr("plan.stage_machine.advance_stage_on_pr", fake_advance)
+    monkeypatch.setattr(svc, "_emit_contract", fake_emit)
+    result = svc.poll_issue_stage(session.session_id, provider=ProviderForPlan())
+    approval = result.review.human_approval
+    assert (
+        approval.auth_kind,
+        approval.provider,
+        approval.provider_user_id,
+        approval.username,
+    ) == (
+        "provider_review",
+        "github",
+        7,
+        "alice",
+    )
+    assert (approval.pr_number, approval.approved_head_sha) == (77, "approved-sha")
+    assert captured["dry_run"] is False and captured["require_user_approval"] is True
+    assert result.stage_state["current_stage"] == "building"
+    assert result.stage_state["approved_head_sha"] == "approved-sha"

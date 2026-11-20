@@ -21,6 +21,7 @@ import socket
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -69,6 +70,7 @@ from plan.service_helpers import (
     route_tier as _route_tier,
     template_findings as _template_findings,
 )
+from plan.stage_policy import BoundApproval, StageJobState
 from plan.synthesize.models import SynthesizedArtifact
 from plan.synthesize.run import synthesize
 from plan.usage import PlanUsage
@@ -124,6 +126,9 @@ class PlanSession(BaseModel):
     # `base_ref` defaults to the repo's default branch when omitted.
     repo: str | None = None
     base_ref: str | None = None
+    provider: str = "github"
+    project_id: str | None = None
+    stage_state: dict[str, Any] | None = None
     # The repo the epic was emitted to (#1775). Kept apart from `repo`, the
     # analysed target, because the two can differ and the emitted-epic key must
     # name the repo the epic issue actually lives in.
@@ -947,6 +952,8 @@ class PlanService:
         template: str = "",
         repo: str | None = None,
         base_ref: str | None = None,
+        provider: str = "github",
+        project_id: str | None = None,
         autonomy_tier: str | None = None,
         origin_issue_number: int | None = None,
         tenant_id: str = "default",
@@ -967,6 +974,8 @@ class PlanService:
         session.selected_template = template
         session.repo = repo or None  # RFC-0010: target repo for reconnaissance
         session.base_ref = base_ref or None
+        session.provider = provider
+        session.project_id = project_id
         # RFC-0011 hard tier (AIFactory#874): record the origin issue and resolve
         # the correlation key NOW rather than at emit, so the chain back to the
         # filed issue is observable from the moment the session exists (and a
@@ -1057,6 +1066,24 @@ class PlanService:
             and (include_discarded or s.status != "discarded")
             and (keep is None or keep(s))
         ]
+
+    def find_active_issue_session(
+        self, tenant_id: str, provider: str, repo: str, issue_number: int
+    ) -> PlanSession | None:
+        """Find a durable issue-stage job before creating another PR."""
+        sessions, complete = self._list_sessions()
+        if not complete:
+            raise PlanServiceError("cannot confirm whether an issue stage already exists")
+        for session in sessions:
+            if (
+                session.tenant_id == tenant_id
+                and session.provider == provider
+                and session.repo == repo
+                and session.origin_issue_number == issue_number
+                and session.status not in {"discarded", "rejected", "failed"}
+            ):
+                return self.get(session.session_id)
+        return None
 
     def org_stamps(self) -> dict[str, str]:
         """Persisted lazy ``session_id -> org_id`` stamps (#968)."""
@@ -1936,7 +1963,7 @@ class PlanService:
 
     # ── approval ───────────────────────────────────────────────────────
 
-    def _refresh_readiness(self, session: PlanSession) -> PlanSession:
+    def _refresh_readiness(self, session: PlanSession, *, save: bool = True) -> PlanSession:
         """Bring the stored readiness verdicts up to the current gate logic (#450).
 
         Every gate that consults ``unwaived_hard_failures`` routes through here
@@ -1948,7 +1975,8 @@ class PlanService:
         if session.review is None or session.epic is None:
             return session
         refresh_readiness(session.review, session.plan, session.epic)
-        self._save(session)
+        if save:
+            self._save(session)
         return session
 
     def re_gate(self, session_id: str) -> PlanSession:
@@ -1962,7 +1990,7 @@ class PlanService:
             raise PlanServiceError("process the plan before re-running the readiness gate")
         return self._refresh_readiness(session)
 
-    def approve(
+    def approve(  # noqa: PLR0913 - provider review provenance travels with approval
         self,
         session_id: str,
         *,
@@ -1970,11 +1998,17 @@ class PlanService:
         feedback: str | None = None,
         user_id: str | None = None,
         auth_kind: str = "unknown",
+        provider: str | None = None,
+        provider_user_id: int | None = None,
+        username: str | None = None,
+        pr_number: int | None = None,
+        approved_head_sha: str | None = None,
+        _save: bool = True,
     ) -> PlanSession:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before approving")
-        self._refresh_readiness(session)
+        self._refresh_readiness(session, save=_save)
         approve_review(
             session.review,
             session.plan,
@@ -1982,9 +2016,15 @@ class PlanService:
             feedback=feedback,
             user_id=user_id,
             auth_kind=auth_kind,
+            provider=provider,
+            provider_user_id=provider_user_id,
+            username=username,
+            pr_number=pr_number,
+            approved_head_sha=approved_head_sha,
         )
         session.status = "approved"
-        self._save(session)
+        if _save:
+            self._save(session)
         return session
 
     def waive(
@@ -2269,6 +2309,242 @@ class PlanService:
         with self._emit_lock(session_id, live=not kwargs.get("dry_run", True)):
             return self._emit_contract(session_id, **kwargs)
 
+    def bootstrap_issue_stage(self, session_id: str, *, provider: Any = None) -> PlanSession:
+        """Process an issue and open its intent draft PR once."""
+        from plan.stage_machine import bootstrap_intent_pr, load_stage_policy  # noqa: PLC0415
+        from runners.github.providers.factory import get_provider  # noqa: PLC0415
+
+        with self._emit_lock(session_id, live=True), asyncio.Runner() as runner:
+            session = self.get(session_id)
+            if session.stage_state and session.stage_state.get("pr_number"):
+                return session
+            if not session.repo or session.origin_issue_number is None:
+                raise PlanServiceError("issue stage requires a repository and issue number")
+            provider = provider or get_provider(session.provider, session.repo)
+            runner.run(self.process_async(session_id))
+            session = self.get(session_id)  # process() saved a newer CAS version
+            policy = load_stage_policy(session.repo, session.base_ref)
+            state = StageJobState(
+                tenant_id=session.tenant_id,
+                provider=session.provider,
+                repo=session.repo,
+                issue_number=session.origin_issue_number,
+                project_id=session.project_id,
+                base_ref=session.base_ref or policy.base_branch,
+                base_sha=policy.base_sha,
+            )
+            stage_start = datetime.now(UTC).isoformat()
+            state = runner.run(bootstrap_intent_pr(state, provider, session))
+            state.last_comment_since = stage_start
+            session = self.get(session_id)
+            session.stage_state = asdict(state)
+            self._save(session)
+            return session
+
+    def poll_issue_stage(  # noqa: PLR0911, PLR0912, PLR0915 - one guarded transition per poll
+        self, session_id: str, *, provider: Any = None
+    ) -> PlanSession:
+        """Consume a bound PR approval and move one stage under the emit lease."""
+        from plan.stage_machine import (  # noqa: PLC0415
+            advance_stage_on_pr,
+            load_stage_policy,
+            sync_stage_label,
+        )
+        from plan.stage_policy import verify_bound_approval  # noqa: PLC0415
+        from runners.github.providers.factory import get_provider  # noqa: PLC0415
+
+        with self._emit_lock(session_id, live=True), asyncio.Runner() as runner:
+            session = self.get(session_id)
+            raw = session.stage_state
+            if not raw or raw.get("current_stage") not in {"intent", "spec", "plan"}:
+                return session
+            state = StageJobState(
+                **{
+                    **raw,
+                    "approvals": [BoundApproval(**a) for a in raw.get("approvals", [])],
+                }
+            )
+            provider = provider or get_provider(state.provider, state.repo)
+            pr = runner.run(provider.fetch_pr(state.pr_number))
+            if pr.state != "open":
+                state.current_stage = "needs_human"
+                state.stage_status = "failed"
+                session.status = "discarded"
+                session.stage_state = asdict(state)
+                self._save(session)
+                runner.run(sync_stage_label(provider, state.issue_number, "needs_human"))
+                if hasattr(provider, "add_comment"):
+                    runner.run(
+                        provider.add_comment(
+                            str(state.issue_number),
+                            "Stage PR was closed; human review is required.",
+                        )
+                    )
+                return session
+            if state.provider == "github":
+                live_sha = runner.run(provider._gh_client.get_pr_head_sha(state.pr_number))
+            else:
+                mr = runner.run(
+                    provider.api_get(
+                        f"/api/v4/projects/{provider._project_id}/merge_requests/{state.pr_number}"
+                    )
+                )
+                live_sha = mr.get("sha") if isinstance(mr, dict) else None
+            if not live_sha:
+                raise PlanServiceError("could not verify the live PR head")
+            if live_sha != state.head_sha:
+                state.head_sha = live_sha
+                state.last_comment_since = datetime.now(UTC).isoformat()
+                state.approvals = [a for a in state.approvals if a.stage != state.current_stage]
+                session.stage_state = asdict(state)
+                self._save(session)
+                return session
+            since = (
+                datetime.fromisoformat(state.last_comment_since)
+                if state.last_comment_since
+                else None
+            )
+            comments = runner.run(provider.fetch_pr_comments(state.pr_number, since=since))
+            policy = load_stage_policy(state.repo, state.base_ref)
+            for comment in comments:
+                before = len(state.consumed_comment_ids)
+                approval = runner.run(
+                    verify_bound_approval(
+                        state,
+                        policy,
+                        comment,
+                        provider,
+                        live_sha,
+                        since or datetime.fromisoformat(session.created_at),
+                    )
+                )
+                if approval is None:
+                    if len(state.consumed_comment_ids) != before:
+                        session.stage_state = asdict(state)
+                        self._save(session)
+                        if hasattr(provider, "add_comment"):
+                            source = policy.owners_for(state.current_stage, state.artifact_slug)[1]
+                            message = (
+                                f"Approval refused under {source}; "
+                                f"post a fresh /approve {state.current_stage}."
+                            )
+                            runner.run(
+                                provider.add_comment(
+                                    str(state.pr_number),
+                                    message,
+                                )
+                            )
+                        return session
+                    continue
+                try:
+                    state = runner.run(
+                        advance_stage_on_pr(
+                            state, provider, session, verify_lanes=policy.verify_lanes
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001 - git/PR failures need a durable handoff
+                    logger.warning(
+                        "stage PR advance failed for %s (%s)", session_id, type(exc).__name__
+                    )
+                    state.current_stage = "needs_human"
+                    state.stage_status = "failed"
+                    session.stage_state = asdict(state)
+                    self._save(session)
+                    runner.run(sync_stage_label(provider, state.issue_number, "needs_human"))
+                    if hasattr(provider, "add_comment"):
+                        runner.run(
+                            provider.add_comment(
+                                str(state.issue_number),
+                                "Stage PR update failed; human review is required.",
+                            )
+                        )
+                    return session
+                if approval.stage == "plan":
+                    approved_sha = state.head_sha
+                    try:
+                        session = self.approve(
+                            session_id,
+                            approver=approval.username,
+                            user_id=str(approval.provider_user_id),
+                            auth_kind="provider_review",
+                            provider=state.provider,
+                            provider_user_id=approval.provider_user_id,
+                            username=approval.username,
+                            pr_number=approval.pr_number,
+                            approved_head_sha=approved_sha,
+                            _save=False,
+                        )
+                    except RuntimeError:  # readiness/lens gate refused after PR commit
+                        state.current_stage = "needs_human"
+                        state.stage_status = "failed"
+                        session = self.get(session_id)
+                        session.stage_state = {**asdict(state), "approved_head_sha": approved_sha}
+                        self._save(session)
+                        runner.run(sync_stage_label(provider, state.issue_number, "needs_human"))
+                        if hasattr(provider, "add_comment"):
+                            runner.run(
+                                provider.add_comment(
+                                    str(state.issue_number),
+                                    "Plan approval gate failed; human review is required.",
+                                )
+                            )
+                        return session
+                    state_dict = asdict(state)
+                    state_dict["approved_head_sha"] = approved_sha
+                    session.stage_state = state_dict
+                    self._save(session)
+                    try:
+                        result = self._emit_contract(
+                            session_id,
+                            repo=state.repo,
+                            project_id=state.project_id,
+                            dry_run=False,
+                            require_user_approval=True,
+                        )
+                    except StaleSessionError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 - handoff failure must be durable
+                        logger.warning(
+                            "stage contract handoff failed for %s (%s)",
+                            session_id,
+                            type(exc).__name__,
+                        )
+                        state.current_stage = "needs_human"
+                        state.stage_status = "failed"
+                        session = self.get(session_id)
+                        session.stage_state = {**asdict(state), "approved_head_sha": approved_sha}
+                        self._save(session)
+                        runner.run(sync_stage_label(provider, state.issue_number, "needs_human"))
+                        if hasattr(provider, "add_comment"):
+                            runner.run(
+                                provider.add_comment(
+                                    str(state.issue_number),
+                                    "Signed contract handoff failed; human review is required.",
+                                )
+                            )
+                        return session
+                    state.current_stage = (
+                        "building" if result.contract_result.get("ok") else "needs_human"
+                    )
+                    if state.current_stage == "needs_human":
+                        state.stage_status = "failed"
+                    result.stage_state = {**asdict(state), "approved_head_sha": approved_sha}
+                    self._save(result)
+                    runner.run(sync_stage_label(provider, state.issue_number, state.current_stage))
+                    if hasattr(provider, "add_comment"):
+                        message = (
+                            f"Signed contract handed off as task {result.aifactory_task_id}."
+                            if state.current_stage == "building"
+                            else "Signed contract handoff failed; human review is required."
+                        )
+                        runner.run(provider.add_comment(str(state.issue_number), message))
+                    return result
+                state.last_comment_since = datetime.now(UTC).isoformat()
+                session.stage_state = asdict(state)
+                self._save(session)
+                return session
+            return session
+
     def _emit(
         self,
         session_id: str,
@@ -2408,7 +2684,22 @@ class PlanService:
                 review is None
                 or not approval
                 or not approval.approved
-                or approval.auth_kind != "user"
+                or (
+                    approval.auth_kind != "user"
+                    and not (
+                        approval.auth_kind == "provider_review"
+                        and approval.provider
+                        and approval.provider == session.provider
+                        and approval.provider_user_id
+                        and approval.username
+                        and approval.pr_number
+                        and approval.approved_head_sha
+                        and session.stage_state
+                        and session.stage_state.get("pr_number") == approval.pr_number
+                        and session.stage_state.get("approved_head_sha")
+                        == approval.approved_head_sha
+                    )
+                )
                 or not approval_is_valid(review, session.plan)
             ):
                 raise UserApprovalRequiredError("authenticated user approval required")
@@ -2486,6 +2777,23 @@ class PlanService:
             spec_text=access_spec_text,
             approvals=signed_session.access_approvals or None,
             tenant_id=signed_session.tenant_id,
+            handoff=(
+                {
+                    key: signed_session.stage_state[key]
+                    for key in (
+                        "project_id",
+                        "provider",
+                        "repo",
+                        "base_ref",
+                        "source_branch",
+                        "approved_head_sha",
+                        "pr_number",
+                    )
+                }
+                if signed_session.stage_state
+                and signed_session.stage_state.get("approved_head_sha")
+                else None
+            ),
             approval_timestamp=(
                 signed_session.review.human_approval.approved_at
                 if signed_session.review and signed_session.review.human_approval.approved_at
