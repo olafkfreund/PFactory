@@ -47,10 +47,12 @@ from plan.service import (  # noqa: E402
     PlanSession,
     SessionNotDeletableError,
     StaleSessionError,
+    UserApprovalRequiredError,
 )
 from plan.service_helpers import agent_identity_for  # noqa: E402
 from server.services import project_paths  # noqa: E402
 from server.services.audit_service import (  # noqa: E402
+    ACTION_PLAN_SESSION_APPROVE,
     ACTION_PLAN_SESSION_DELETE,
     log_audit_event,
 )
@@ -611,8 +613,17 @@ async def approve(
 ) -> dict:
     await _guard_session(session_id, request, db)
     try:
-        return _session_dict(
-            SERVICE.approve(session_id, approver=body.approver, feedback=body.feedback)
+        user = _user(request)
+        user_id = _attribution(user)["originator"]
+        auth_kind = "user" if user_id else "shared_token" if user else "unknown"
+        result = _session_dict(
+            SERVICE.approve(
+                session_id,
+                approver=body.approver,
+                feedback=body.feedback,
+                user_id=user_id,
+                auth_kind=auth_kind,
+            )
         )
     except StaleSessionError as exc:  # another replica changed the session (#758)
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
@@ -620,6 +631,18 @@ async def approve(
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except RuntimeError as exc:  # ApprovalError (gates not passed)
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
+    await log_audit_event(
+        db,
+        user_id=user_id,
+        org_id=getattr(request.state, "org_id", None) or (user.get("org_id") if user else None),
+        ip=request.client.host if request.client else None,
+        action=ACTION_PLAN_SESSION_APPROVE,
+        resource_type="plan_session",
+        resource_id=session_id,
+        details={"approver": body.approver, "auth_kind": auth_kind},
+    )
+    await db.commit()
+    return result
 
 
 @router.post("/{session_id}/access/approve", dependencies=[Depends(require_plan_access("member"))])
@@ -857,6 +880,8 @@ async def emit_contract(
     body: EmitContractBody,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
+    *,
+    require_user_approval: bool = False,
 ) -> dict:
     """Emit the RFC-0002 signed Task Contract v2 to AIFactory (#65).
 
@@ -878,9 +903,14 @@ async def emit_contract(
                 project_id=body.project_id,
                 http=http,
                 dry_run=body.dry_run,
+                require_user_approval=require_user_approval,
             )
         )
     except (EmitInProgressError, StaleSessionError) as exc:  # #758
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
+    except UserApprovalRequiredError as exc:
+        raise HTTPException(
+            status_code=409, detail="Live MCP emit requires approval by an authenticated user key"
+        ) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc

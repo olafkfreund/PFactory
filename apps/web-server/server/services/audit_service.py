@@ -68,6 +68,7 @@ ACTION_TASK_START = "task.start"
 ACTION_TASK_MERGE = "task.merge"
 
 ACTION_PLAN_SESSION_DELETE = "plan_session.delete"
+ACTION_PLAN_SESSION_APPROVE = "plan_session.approve"
 
 ACTION_API_KEY_CREATE = "api_key.create"
 ACTION_API_KEY_REVOKE = "api_key.revoke"
@@ -92,6 +93,7 @@ ACTION_MCP_TASK_MERGE = "mcp.task.merge"
 ACTION_MCP_PLAN_INGEST = "mcp.plan.ingest"
 ACTION_MCP_PLAN_PROCESS = "mcp.plan.process"
 ACTION_MCP_PLAN_APPROVE = "mcp.plan.approve"
+ACTION_MCP_PLAN_EMIT = "mcp.plan.emit"
 
 
 # ---------------------------------------------------------------------------

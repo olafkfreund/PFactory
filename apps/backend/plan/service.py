@@ -13,6 +13,7 @@ Flow:  ingest → process (detect → plan-type → decompose → synthesize →
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -44,11 +45,16 @@ from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply, classify_plan
 from plan.emit.contract_sync import ContractSyncState, SyncError, fold_event
+from plan.emit.signing import _canonical
 from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import Criterion, NormalizedPlan
 from plan.plan_types import apply as plan_type_apply, select_for
 from plan.recon import classify_change_mode, reconnoiter
-from plan.review.approval import approve as approve_review, reject as reject_review
+from plan.review.approval import (
+    approve as approve_review,
+    is_valid as approval_is_valid,
+    reject as reject_review,
+)
 from plan.review.gates import refresh_readiness, run_gates
 from plan.review.models import PlanReview
 from plan.service_helpers import (
@@ -140,6 +146,8 @@ class PlanSession(BaseModel):
     emit_result: dict | None = None
     docs_result: list[dict] | None = None  # docs emit per-target results (P1)
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
+    contract_emit_record: dict[str, Any] | None = None
+    contract_emit_records: dict[str, dict[str, Any]] = Field(default_factory=dict)
     # RFC-0016 #190: object-store references (URIs, never blobs) to the plan's
     # emitted documents (plan/spec markdown + audit pack), uploaded best-effort
     # on terminal emit and mirrored onto the durable job_states `artifacts[]`.
@@ -288,6 +296,10 @@ class PlanServiceError(RuntimeError):
     @property
     def client_message(self) -> str:
         return str(self)
+
+
+class UserApprovalRequiredError(PlanServiceError):
+    """A live MCP emit lacks a valid authenticated user approval."""
 
 
 def _criterion_id(title: str) -> str:
@@ -1951,13 +1963,26 @@ class PlanService:
         return self._refresh_readiness(session)
 
     def approve(
-        self, session_id: str, *, approver: str, feedback: str | None = None
+        self,
+        session_id: str,
+        *,
+        approver: str,
+        feedback: str | None = None,
+        user_id: str | None = None,
+        auth_kind: str = "unknown",
     ) -> PlanSession:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before approving")
         self._refresh_readiness(session)
-        approve_review(session.review, session.plan, approver=approver, feedback=feedback)
+        approve_review(
+            session.review,
+            session.plan,
+            approver=approver,
+            feedback=feedback,
+            user_id=user_id,
+            auth_kind=auth_kind,
+        )
         session.status = "approved"
         self._save(session)
         return session
@@ -2352,7 +2377,7 @@ class PlanService:
         self._save(session)
         return session
 
-    def _emit_contract(
+    def _emit_contract(  # noqa: PLR0915 — keep the emit's single CAS save
         self,
         session_id: str,
         *,
@@ -2362,6 +2387,7 @@ class PlanService:
         http=None,
         base_url: str | None = None,
         key: str | None = None,
+        require_user_approval: bool = False,
     ) -> PlanSession:
         """Emit the RFC-0002 signed Task Contract v2 for a session (#65).
 
@@ -2375,6 +2401,18 @@ class PlanService:
         session = self.get(session_id)
         if session.epic is None:
             raise PlanServiceError("process the plan before emitting a contract")
+        if require_user_approval and not dry_run:
+            review = session.review
+            approval = review.human_approval if review else None
+            if (
+                review is None
+                or not approval
+                or not approval.approved
+                or approval.auth_kind != "user"
+                or not approval_is_valid(review, session.plan)
+            ):
+                raise UserApprovalRequiredError("authenticated user approval required")
+        signed_session = session.model_copy(deep=True)
         # RFC-0011 (#182): a `hard` tier means blocking — a live contract emit is
         # HELD until a human approves. (low/medium and dry-runs are unaffected.)
         # The GitHub epic emit is already gated by review.ready_to_emit; the
@@ -2384,20 +2422,26 @@ class PlanService:
         # recorded), so approve -> emit issues -> emit-contract must not 400 (#317).
         if (
             not dry_run
-            and session.plan.autonomy_tier == "hard"
-            and session.status not in ("approved", "emitted")
+            and signed_session.plan.autonomy_tier == "hard"
+            and signed_session.status not in ("approved", "emitted")
         ):
             raise PlanServiceError(
                 "tier=hard requires human approval before emitting the contract: "
-                f"approve session '{session_id}' first (status={session.status!r})"
+                f"approve session '{session_id}' first (status={signed_session.status!r})"
             )
         # #326: the same hard readiness failures that block `approve` must block a
         # live emit, or skipping approve walks straight around the gate.
-        if not dry_run and session.review is not None and session.review.readiness is not None:
+        if (
+            not dry_run
+            and signed_session.review is not None
+            and signed_session.review.readiness is not None
+        ):
             # #450: same refresh as approve — a live emit must be blocked by what
             # the checks say now, not by what a pre-fix build once said.
-            self._refresh_readiness(session)
-            unwaived = session.review.readiness.unwaived_hard_failures(session.plan)
+            refresh_readiness(
+                signed_session.review, signed_session.plan, cast(EpicPlan, signed_session.epic)
+            )
+            unwaived = signed_session.review.readiness.unwaived_hard_failures(signed_session.plan)
             if unwaived:
                 failing = ", ".join(r.check_id for r in unwaived)
                 raise PlanServiceError(
@@ -2405,30 +2449,81 @@ class PlanService:
                     "Fix the plan or record a waiver first."
                 )
         base = base_url or os.environ.get("PFACTORY_AIFACTORY_API_URL", "http://localhost:3101")
-        pid = project_id or repo or session.plan.plan_id
-        corr = session.correlation_key or correlation_key_for(session)
+        pid = project_id or repo or signed_session.plan.plan_id
+        corr = signed_session.correlation_key or correlation_key_for(signed_session)
         # RFC-0007 (#84): discover the access block from the snapshotted
         # .pfactory.yml for this spec. Best-effort — when no snapshot exists the
         # block is simply omitted (the task declares no external resource).
-        access_config, access_spec_text = _load_access_inputs(pid, session.plan.plan_id)
+        access_config, access_spec_text = _load_access_inputs(pid, signed_session.plan.plan_id)
+        digest: str | None = None
+
+        def on_signed(contract: dict[str, Any]) -> dict[str, Any] | None:
+            nonlocal digest
+            digest = hashlib.sha256(
+                _canonical(
+                    {"contract": contract, "base_url": base.rstrip("/"), "project_id": pid}
+                ).encode()
+            ).hexdigest()
+            record = session.contract_emit_records.get(digest)
+            if record is None and (session.contract_emit_record or {}).get("digest") == digest:
+                record = session.contract_emit_record
+            result = record.get("result") if isinstance(record, dict) else None
+            return {**result, "duplicate": True} if isinstance(result, dict) else None
+
         result = _emit_contract(
-            session.plan,
-            session.epic,
-            session.review,
+            signed_session.plan,
+            cast(EpicPlan, signed_session.epic),
+            signed_session.review,
+            http=http,
+            dry_run=dry_run,
+            on_signed=on_signed if not dry_run else None,
             base_url=base,
             project_id=pid,
-            http=http,
             key=key,
             repo=repo,
             correlation_key=corr,
             config=access_config,
             spec_text=access_spec_text,
-            approvals=session.access_approvals or None,
-            dry_run=dry_run,
-            tenant_id=session.tenant_id,
+            approvals=signed_session.access_approvals or None,
+            tenant_id=signed_session.tenant_id,
+            approval_timestamp=(
+                signed_session.review.human_approval.approved_at
+                if signed_session.review and signed_session.review.human_approval.approved_at
+                else signed_session.created_at
+            ),
         )
+        if result.get("duplicate"):
+            response = result.get("response")
+            task_id = (
+                (response.get("taskId") or response.get("task_id"))
+                if isinstance(response, dict)
+                else None
+            )
+            return session.model_copy(
+                update={
+                    "contract_result": result,
+                    "aifactory_task_id": str(task_id) if task_id else None,
+                }
+            )
+        # Signing may have triggered another session write; record the result on
+        # the latest live copy, leaving the signed snapshot untouched.
+        session = self.get(session_id)
+        if (
+            not dry_run
+            and session.review is not None
+            and session.review.readiness is not None
+            and session.epic is not None
+        ):
+            refresh_readiness(session.review, session.plan, session.epic)
         session.contract_result = result
         if result.get("ok") and not dry_run:
+            record = {
+                "digest": digest,
+                "result": result,
+                "at": datetime.now(UTC).isoformat(),
+            }
+            session.contract_emit_record = record
+            session.contract_emit_records[cast(str, digest)] = record
             resp = result.get("response") if isinstance(result.get("response"), dict) else {}
             task_id = (resp or {}).get("taskId") or (resp or {}).get("task_id")
             if task_id:

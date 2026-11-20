@@ -74,11 +74,13 @@ def _gate_refusal(review: PlanReview) -> str:
     return "cannot approve: " + "\n".join(lines)
 
 
-def approve(
+def approve(  # noqa: PLR0913 - approval provenance must travel with the existing fields
     review: PlanReview,
     plan: NormalizedPlan,
     *,
     approver: str,
+    user_id: str | None = None,
+    auth_kind: str = "unknown",
     at: str | None = None,
     feedback: str | None = None,
 ) -> PlanReview:
@@ -113,6 +115,8 @@ def approve(
     approval = review.human_approval
     approval.approved = True
     approval.approved_by = approver
+    approval.user_id = user_id
+    approval.auth_kind = auth_kind
     approval.approved_at = at or _utcnow_iso()
     approval.plan_hash = _plan_hash(plan)
     approval.valid = True
