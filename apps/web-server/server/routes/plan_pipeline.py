@@ -37,7 +37,6 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.repo_ref import parse_repo_ref  # noqa: E402
-from plan.review.approval import is_valid as approval_is_valid  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import (  # noqa: E402
     SERVICE,
@@ -48,6 +47,7 @@ from plan.service import (  # noqa: E402
     PlanSession,
     SessionNotDeletableError,
     StaleSessionError,
+    UserApprovalRequiredError,
 )
 from plan.service_helpers import agent_identity_for  # noqa: E402
 from server.services import project_paths  # noqa: E402
@@ -614,7 +614,7 @@ async def approve(
     await _guard_session(session_id, request, db)
     try:
         user = _user(request)
-        user_id = user.get("id") if isinstance(user, dict) and not user.get("is_service") else None
+        user_id = _attribution(user)["originator"]
         auth_kind = "user" if user_id else "shared_token" if user else "unknown"
         result = _session_dict(
             SERVICE.approve(
@@ -634,7 +634,7 @@ async def approve(
     await log_audit_event(
         db,
         user_id=user_id,
-        org_id=getattr(request.state, "org_id", None),
+        org_id=getattr(request.state, "org_id", None) or (user.get("org_id") if user else None),
         ip=request.client.host if request.client else None,
         action=ACTION_PLAN_SESSION_APPROVE,
         resource_type="plan_session",
@@ -880,6 +880,8 @@ async def emit_contract(
     body: EmitContractBody,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
+    *,
+    require_user_approval: bool = False,
 ) -> dict:
     """Emit the RFC-0002 signed Task Contract v2 to AIFactory (#65).
 
@@ -892,19 +894,6 @@ async def emit_contract(
     """
     await _guard_session(session_id, request, db)
     try:
-        if request.headers.get("X-PFactory-Channel") == "mcp" and not body.dry_run:
-            session = SERVICE.get(session_id)
-            approval = session.review.human_approval if session.review else None
-            if (
-                not approval
-                or not approval.approved
-                or approval.auth_kind != "user"
-                or not approval_is_valid(session.review, session.plan)
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Live MCP emit requires approval by an authenticated user key",
-                )
         http = None if body.dry_run else _UrllibHttp()
         return _session_dict(
             await asyncio.to_thread(
@@ -914,9 +903,14 @@ async def emit_contract(
                 project_id=body.project_id,
                 http=http,
                 dry_run=body.dry_run,
+                require_user_approval=require_user_approval,
             )
         )
     except (EmitInProgressError, StaleSessionError) as exc:  # #758
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
+    except UserApprovalRequiredError as exc:
+        raise HTTPException(
+            status_code=409, detail="Live MCP emit requires approval by an authenticated user key"
+        ) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc

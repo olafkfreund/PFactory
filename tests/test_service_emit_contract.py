@@ -112,6 +112,32 @@ def test_repeated_live_emit_is_idempotent_until_plan_changes() -> None:
     third = svc.emit_contract(sid, repo="acme/widget", http=http, key="secret", dry_run=False)
     assert third.contract_result["ok"]
     assert len(http.calls) == 2
+    session = svc.get(sid)
+    session.plan.criteria[0].text = "exposes a widget API"
+    persist(svc, session)
+    again = svc.emit_contract(sid, repo="acme/widget", http=http, key="secret", dry_run=False)
+    assert again.contract_result["duplicate"] is True
+    assert len(http.calls) == 2
+    assert svc.get(sid).contract_result.get("duplicate") is None
+    svc.emit_contract(
+        sid, repo="acme/widget", project_id="different", http=http, key="secret", dry_run=False
+    )
+    assert len(http.calls) == 3
+
+
+def test_live_mcp_emit_requires_valid_user_approval() -> None:
+    svc = PlanService()
+    sid = _processed_session(svc)
+    http = FakeHttp()
+    with pytest.raises(PlanServiceError, match="authenticated user approval required"):
+        svc.emit_contract(sid, http=http, key="secret", dry_run=False, require_user_approval=True)
+    assert http.calls == []
+    svc.approve(sid, approver="human", user_id="user-1", auth_kind="user")
+    result = svc.emit_contract(
+        sid, http=http, key="secret", dry_run=False, require_user_approval=True
+    )
+    assert result.contract_result["ok"] is True
+    assert len(http.calls) == 1
 
 
 def test_emit_contract_live_refused_on_unwaived_hard_readiness() -> None:

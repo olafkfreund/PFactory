@@ -50,7 +50,11 @@ from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import Criterion, NormalizedPlan
 from plan.plan_types import apply as plan_type_apply, select_for
 from plan.recon import classify_change_mode, reconnoiter
-from plan.review.approval import approve as approve_review, reject as reject_review
+from plan.review.approval import (
+    approve as approve_review,
+    is_valid as approval_is_valid,
+    reject as reject_review,
+)
 from plan.review.gates import refresh_readiness, run_gates
 from plan.review.models import PlanReview
 from plan.service_helpers import (
@@ -143,6 +147,7 @@ class PlanSession(BaseModel):
     docs_result: list[dict] | None = None  # docs emit per-target results (P1)
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
     contract_emit_record: dict | None = None
+    contract_emit_records: dict[str, dict] = Field(default_factory=dict)
     # RFC-0016 #190: object-store references (URIs, never blobs) to the plan's
     # emitted documents (plan/spec markdown + audit pack), uploaded best-effort
     # on terminal emit and mirrored onto the durable job_states `artifacts[]`.
@@ -291,6 +296,10 @@ class PlanServiceError(RuntimeError):
     @property
     def client_message(self) -> str:
         return str(self)
+
+
+class UserApprovalRequiredError(PlanServiceError):
+    """A live MCP emit lacks a valid authenticated user approval."""
 
 
 def _criterion_id(title: str) -> str:
@@ -2378,6 +2387,7 @@ class PlanService:
         http=None,
         base_url: str | None = None,
         key: str | None = None,
+        require_user_approval: bool = False,
     ) -> PlanSession:
         """Emit the RFC-0002 signed Task Contract v2 for a session (#65).
 
@@ -2391,6 +2401,15 @@ class PlanService:
         session = self.get(session_id)
         if session.epic is None:
             raise PlanServiceError("process the plan before emitting a contract")
+        if require_user_approval and not dry_run:
+            approval = session.review.human_approval if session.review else None
+            if (
+                not approval
+                or not approval.approved
+                or approval.auth_kind != "user"
+                or not approval_is_valid(session.review, session.plan)
+            ):
+                raise UserApprovalRequiredError("authenticated user approval required")
         # RFC-0011 (#182): a `hard` tier means blocking — a live contract emit is
         # HELD until a human approves. (low/medium and dry-runs are unaffected.)
         # The GitHub epic emit is already gated by review.ready_to_emit; the
@@ -2444,31 +2463,38 @@ class PlanService:
             ),
         }
         digest = None
-        if not dry_run:
-            preview = _emit_contract(
-                session.plan, session.epic, session.review, dry_run=True, **emit_args
-            )
-            if preview.get("ok"):
-                digest = hashlib.sha256(_canonical(preview["contract"]).encode()).hexdigest()
+
+        def on_signed(contract: dict) -> dict | None:
+            nonlocal digest
+            digest = hashlib.sha256(
+                _canonical({"contract": contract, "base_url": base, "project_id": pid}).encode()
+            ).hexdigest()
+            record = session.contract_emit_records.get(digest)
+            if record is None and (session.contract_emit_record or {}).get("digest") == digest:
                 record = session.contract_emit_record
-                if record and record["digest"] == digest:
-                    session.contract_result = {**record["result"], "duplicate": True}
-                    return session
+            result = record.get("result") if isinstance(record, dict) else None
+            return {**result, "duplicate": True} if isinstance(result, dict) else None
+
         result = _emit_contract(
             session.plan,
             session.epic,
             session.review,
             http=http,
             dry_run=dry_run,
+            on_signed=on_signed if not dry_run else None,
             **emit_args,
         )
+        if result.get("duplicate"):
+            return session.model_copy(update={"contract_result": result})
         session.contract_result = result
         if result.get("ok") and not dry_run:
-            session.contract_emit_record = {
+            record = {
                 "digest": digest,
                 "result": result,
                 "at": datetime.now(UTC).isoformat(),
             }
+            session.contract_emit_record = record
+            session.contract_emit_records[digest] = record
             resp = result.get("response") if isinstance(result.get("response"), dict) else {}
             task_id = (resp or {}).get("taskId") or (resp or {}).get("task_id")
             if task_id:

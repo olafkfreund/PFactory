@@ -174,3 +174,14 @@ def test_a_server_error_surfaces_as_a_tool_error(tools_by_name, monkeypatch):
     result = _run(tools_by_name["plan_list"], {})
     assert result.get("is_error") is True
     assert "not reachable" in result["content"][0]["text"]
+
+
+def test_plan_emit_hides_unexpected_errors(tools_by_name, monkeypatch, caplog):
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("private transport detail")
+
+    monkeypatch.setattr(http_client, "request", boom)
+    result = _run(tools_by_name["plan_emit"], {"session_id": "001-x", "dry_run": False})
+    assert result["is_error"] is True
+    assert "private transport detail" not in result["content"][0]["text"]
+    assert "plan_emit failed" in caplog.text

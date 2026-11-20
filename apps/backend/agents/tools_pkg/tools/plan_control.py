@@ -32,8 +32,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 try:
     from claude_agent_sdk import tool
@@ -85,7 +88,7 @@ def _err(message: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"ERROR: {message}"}], "is_error": True}
 
 
-def create_plan_tools() -> list:
+def create_plan_tools() -> list:  # noqa: PLR0915 - one tool registration per supported action
     """Create the PFactory plan tools (empty list if the SDK isn't installed)."""
     if not SDK_TOOLS_AVAILABLE:
         return []
@@ -301,8 +304,11 @@ def create_plan_tools() -> list:
                     },
                 )
             )
-        except Exception as exc:  # noqa: BLE001
+        except http_client.MCPHTTPError as exc:
             return _err(str(exc))
+        except Exception:
+            logger.exception("plan_emit failed")
+            return _err("Plan emit failed; check server logs")
 
     tools.append(plan_emit)
 

@@ -96,7 +96,12 @@ logger = logging.getLogger(__name__)
 
 def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
     if isinstance(key, AuthenticatedKey):
-        return {"id": key.user_id, "api_key_id": key.key_id, "org_id": key.org_id}
+        return {
+            "id": key.user_id,
+            "api_key_id": key.key_id,
+            "org_id": key.org_id,
+            "is_service": getattr(key, "is_service", False),
+        }
     return {"id": "default", "is_service": True}
 
 
@@ -662,7 +667,7 @@ async def proxy_plan_emit_contract(
     await PlanAccessChecker("member").check(principal, request.url.path, db)
     request.state.user = principal
     body = EmitContractBody(**(await _read_json_body(request)))
-    result = await plan_emit_contract(session_id, body, request, db=db)
+    result = await plan_emit_contract(session_id, body, request, db=db, require_user_approval=True)
     await _audit_mcp_write(
         key,
         ACTION_MCP_PLAN_EMIT,

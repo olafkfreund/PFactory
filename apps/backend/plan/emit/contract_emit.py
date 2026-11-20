@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import socket
+from collections.abc import Callable
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
@@ -323,7 +324,7 @@ def _attach_pubkey_signature(contract: dict[str, Any]) -> None:
         logger.warning("Ed25519 contract signing skipped: %s", type(exc).__name__)
 
 
-def emit_contract(  # noqa: PLR0911 - validation, dry-run, and opt-in fallback exit independently
+def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback exit independently
     plan: NormalizedPlan,
     epic: EpicPlan,
     review: PlanReview | None = None,
@@ -342,6 +343,7 @@ def emit_contract(  # noqa: PLR0911 - validation, dry-run, and opt-in fallback e
     max_retries: int = 2,
     dry_run: bool = True,
     tenant_id: str | None = None,
+    on_signed: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     """Assemble, validate, sign, and (unless dry-run) emit the contract.
 
@@ -403,6 +405,9 @@ def emit_contract(  # noqa: PLR0911 - validation, dry-run, and opt-in fallback e
             "contract": contract,
         }
 
+    if on_signed and (cached := on_signed(contract)) is not None:
+        return cached
+
     if http is None:
         raise ValueError("live emit_contract requires an injected `http` client")
 
@@ -451,12 +456,15 @@ def emit_contract(  # noqa: PLR0911 - validation, dry-run, and opt-in fallback e
                     detail = body.get("detail") if isinstance(body, dict) else None
                     if isinstance(detail, (str, list, dict)):
                         result["aifactory_detail"] = str(detail)[:500]
-                except (ValueError, UnicodeError, OSError):
+                except (AttributeError, ValueError, UnicodeError, OSError):
                     pass
             if isinstance(exc, (TimeoutError, socket.timeout)) or (
                 isinstance(exc, URLError) and isinstance(exc.reason, (TimeoutError, socket.timeout))
             ):
                 result["outcome"] = "unknown"
+                result["errors"] = [
+                    "Task creation outcome unknown; check AIFactory for the task before retrying"
+                ]
             return result
         from plan.emit.aifactory_handoff import build_requirements, trigger_api
 

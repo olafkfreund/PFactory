@@ -302,7 +302,28 @@ def test_timeout_reports_unknown_outcome(monkeypatch) -> None:
         dry_run=False,
     )
     assert result["outcome"] == "unknown"
+    assert "check AIFactory" in result["errors"][0]
     assert "private host" not in str(result)
+
+
+def test_http_error_without_body_keeps_status(monkeypatch) -> None:
+    monkeypatch.delenv("PFACTORY_EMIT_FALLBACK", raising=False)
+
+    class Http:
+        def post(self, url, *, params, json):  # noqa: ARG002
+            raise HTTPError(url, 422, "private transport detail", {}, None)
+
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=Http(),
+        dry_run=False,
+    )
+    assert result["aifactory_status"] == 422
+    assert result["aifactory_detail"] is None
 
 
 def test_invalid_contract_not_emitted() -> None:

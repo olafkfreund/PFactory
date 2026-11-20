@@ -131,13 +131,14 @@ def test_plain_service_error_keeps_its_status(monkeypatch, route, status):
         ("unknown", True, True),
     ],
 )
-def test_mcp_emit_requires_user_approval(monkeypatch, auth_kind, dry_run, allowed):
-    class Service:
-        def get(self, _session_id):
-            approval = SimpleNamespace(approved=True, valid=True, auth_kind=auth_kind)
-            return SimpleNamespace(review=SimpleNamespace(human_approval=approval), plan=None)
+def test_mcp_emit_passes_server_side_approval_requirement(monkeypatch, auth_kind, dry_run, allowed):
+    observed = {}
 
-        def emit_contract(self, *_args, **_kwargs):
+    class Service:
+        def emit_contract(self, *_args, **kwargs):
+            observed.update(kwargs)
+            if kwargs["require_user_approval"] and not dry_run and auth_kind != "user":
+                raise pp.UserApprovalRequiredError("private detail")
             return {"ok": True}
 
     async def no_guard(*_args):
@@ -146,20 +147,28 @@ def test_mcp_emit_requires_user_approval(monkeypatch, auth_kind, dry_run, allowe
     monkeypatch.setattr(pp, "SERVICE", Service())
     monkeypatch.setattr(pp, "_guard_session", no_guard)
     monkeypatch.setattr(pp, "_session_dict", lambda session: session)
-    monkeypatch.setattr(pp, "approval_is_valid", lambda review, _plan: review.human_approval.valid)
-    request = SimpleNamespace(headers={"X-PFactory-Channel": "mcp"})
-    call = pp.emit_contract("PLAN-1", pp.EmitContractBody(dry_run=dry_run), request, None)
+    request = SimpleNamespace(headers={})
+    call = pp.emit_contract(
+        "PLAN-1", pp.EmitContractBody(dry_run=dry_run), request, None, require_user_approval=True
+    )
     if allowed:
         assert asyncio.run(call) == {"ok": True}
     else:
         with pytest.raises(HTTPException) as info:
             asyncio.run(call)
         assert info.value.status_code == 409
+        assert "private detail" not in info.value.detail
+    assert observed["require_user_approval"] is True
 
 
 @pytest.mark.parametrize(
     ("user", "expected_kind"),
-    [({"id": "user-123"}, "user"), ({"id": "default", "is_service": True}, "shared_token")],
+    [
+        ({"id": "user-123", "org_id": "org-1"}, "user"),
+        ({"id": "default", "is_service": True}, "shared_token"),
+        ({"id": "default"}, "shared_token"),
+        ({"id": " ", "is_service": False}, "shared_token"),
+    ],
 )
 def test_approve_uses_authenticated_principal_and_commits_audit(monkeypatch, user, expected_kind):
     observed = {}
@@ -188,5 +197,6 @@ def test_approve_uses_authenticated_principal_and_commits_audit(monkeypatch, use
     assert result == {"ok": True}
     assert observed["user_id"] == ("user-123" if expected_kind == "user" else None)
     assert observed["auth_kind"] == expected_kind
+    assert observed["audit"]["org_id"] == user.get("org_id")
     assert observed["audit"]["action"] == "plan_session.approve"
     assert observed["committed"] is True

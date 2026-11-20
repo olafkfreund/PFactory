@@ -37,6 +37,8 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 
+from server import config  # noqa: E402
+from server.database.engine import get_db  # noqa: E402
 from server.mcp_remote.auth import AuthenticatedKey, MCPAuthError
 from server.mcp_stdio.auth import (
     MCP_READ_SCOPE,
@@ -44,6 +46,7 @@ from server.mcp_stdio.auth import (
     _LegacyAdminKey,
     require_acw_scope,
 )
+from server.routes import plan_pipeline as pp  # noqa: E402
 
 # ── Legacy admin token = wildcard ────────────────────────────────────
 
@@ -58,6 +61,18 @@ def test_legacy_admin_key_has_every_scope():
     # Unknown scopes also pass — by design, the legacy admin is
     # unconstrained, so even a typo-scope wouldn't block it.
     assert k.has_scope("anything-the-caller-passes")
+
+
+def test_principal_carries_service_identity_when_key_exposes_it():
+    class ServiceKey(AuthenticatedKey):
+        @property
+        def is_service(self):
+            return True
+
+    principal = _proxy_module()._principal(
+        ServiceKey(key_id="service-key", scopes=frozenset(), user_id="service-user")
+    )
+    assert principal["is_service"] is True
 
 
 # ── Dependency: auth + scope behaviour ───────────────────────────────
@@ -456,6 +471,31 @@ def test_plan_writes_need_plan_write_and_reads_need_mcp_read():
     for path, scopes in seen.items():
         expected = "plan:write" if path in writes else "mcp:read"
         assert expected in scopes, f"{path} not gated by {expected} (got {scopes})"
+
+
+def test_headerless_proxy_live_emit_refuses_shared_token_without_approval(monkeypatch):
+    async def no_guard(*_args):
+        pass
+
+    class Service:
+        def emit_contract(self, *_args, **kwargs):
+            assert kwargs["require_user_approval"] is True
+            raise pp.UserApprovalRequiredError("private detail")
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(pp, "SERVICE", Service())
+    monkeypatch.setattr(pp, "_guard_session", no_guard)
+    monkeypatch.setattr(_proxy_module().PlanAccessChecker, "check", no_guard)
+    app = FastAPI()
+    app.include_router(_proxy_module().router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        "/api/mcp-stdio/plan/sessions/PLAN-1/emit-contract",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"},
+        json={"dry_run": False},
+    )
+    assert response.status_code == 409
+    assert "private detail" not in response.text
 
 
 @pytest.mark.parametrize("query", ["", "?tail=50"])
