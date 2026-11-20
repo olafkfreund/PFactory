@@ -18,6 +18,7 @@ from plan.review.gates import run_gates  # noqa: E402
 from plan.review.models import LensScore, PlanReview  # noqa: E402
 from plan.service import PlanService, PlanServiceError  # noqa: E402
 from tests.conftest import persist  # noqa: E402
+from tests.fake_session_store import FakeSessionStore  # noqa: E402
 
 _PLAN = """# Widget service
 A FastAPI service tested with pytest.
@@ -128,7 +129,7 @@ def test_repeated_live_emit_is_idempotent_until_plan_changes() -> None:
 def test_live_emit_signs_approved_snapshot_when_cached_plan_changes(monkeypatch) -> None:
     import plan.emit.contract_emit as contract_emit
 
-    svc = PlanService()
+    svc = PlanService(session_store=FakeSessionStore())
     sid = _processed_session(svc)
     svc.approve(sid, approver="human", user_id="user-1", auth_kind="user")
     original = contract_emit.emit_contract
@@ -142,6 +143,23 @@ def test_live_emit_signs_approved_snapshot_when_cached_plan_changes(monkeypatch)
     out = svc.emit_contract(sid, http=http, key="secret", dry_run=False, require_user_approval=True)
     assert out.contract_result["ok"] is True
     assert http.calls[0]["json"]["plan"]["feature"] == "Widget service"
+    assert svc.get(sid).plan.title == "Unapproved title"
+
+
+def test_live_emit_with_readiness_saves_once_under_cas() -> None:
+    store = FakeSessionStore()
+    svc = PlanService(session_store=store)
+    sid = _processed_session(svc)
+    session = svc.get(sid)
+    session.review = run_gates(session.plan, session.epic)
+    persist(svc, session)
+    before = store.get(sid)[1]
+
+    out = svc.emit_contract(sid, http=FakeHttp(), key="secret", dry_run=False)
+
+    assert out.contract_result["ok"] is True
+    assert store.get(sid)[1] == before + 1
+    assert svc.get(sid).contract_emit_records
 
 
 def test_live_emit_dedupes_trailing_slash_in_destination() -> None:

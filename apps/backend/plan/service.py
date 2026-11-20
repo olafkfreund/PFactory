@@ -2377,7 +2377,7 @@ class PlanService:
         self._save(session)
         return session
 
-    def _emit_contract(
+    def _emit_contract(  # noqa: PLR0915 — keep the emit's single CAS save
         self,
         session_id: str,
         *,
@@ -2438,7 +2438,9 @@ class PlanService:
         ):
             # #450: same refresh as approve — a live emit must be blocked by what
             # the checks say now, not by what a pre-fix build once said.
-            self._refresh_readiness(signed_session)
+            refresh_readiness(
+                signed_session.review, signed_session.plan, cast(EpicPlan, signed_session.epic)
+            )
             unwaived = signed_session.review.readiness.unwaived_hard_failures(signed_session.plan)
             if unwaived:
                 failing = ", ".join(r.check_id for r in unwaived)
@@ -2503,6 +2505,16 @@ class PlanService:
                     "aifactory_task_id": str(task_id) if task_id else None,
                 }
             )
+        # Signing may have triggered another session write; record the result on
+        # the latest live copy, leaving the signed snapshot untouched.
+        session = self.get(session_id)
+        if (
+            not dry_run
+            and session.review is not None
+            and session.review.readiness is not None
+            and session.epic is not None
+        ):
+            refresh_readiness(session.review, session.plan, session.epic)
         session.contract_result = result
         if result.get("ok") and not dry_run:
             record = {
