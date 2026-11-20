@@ -188,6 +188,7 @@ async def _try_authenticate_personal_key(token: str) -> dict | None:
             "role": user.role,
             "api_key_id": api_key.id,
             "org_id": api_key.org_id,
+            "scopes": tuple(scopes),
         }
 
     return None
@@ -302,7 +303,6 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 "id": "default",
                 "email": "default@localhost",
                 "role": "admin",
-                "is_service": True,
             }
             return await call_next(request)
 
@@ -361,7 +361,8 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         # was wiped on a cluster rebuild). Without this ordering an acw_-prefixed
         # shared token falls into Strategy 3, fails the DB lookup, and 401s
         # without ever reaching here.
-        if _is_legacy_api_token(token):
+        if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+            logger.warning("DEPRECATED: legacy shared token used for API access")
             # Legacy token — populate a default user so notifications still work
             request.state.user = {
                 "id": "default",
@@ -413,7 +414,8 @@ async def verify_token(
         return token
 
     # Accept legacy API token
-    if _is_legacy_api_token(token):
+    if _is_legacy_api_token(token) and get_settings().LEGACY_SHARED_TOKEN_FULL_ACCESS:
+        logger.warning("DEPRECATED: legacy shared token used for API access")
         return token
 
     raise HTTPException(
@@ -450,7 +452,8 @@ async def verify_websocket_token(websocket: WebSocket) -> bool:
         return True
 
     # Accept legacy API token
-    if _is_legacy_api_token(token):
+    if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+        logger.warning("DEPRECATED: legacy shared token used for WebSocket access")
         return True
 
     await websocket.close(code=4001, reason="Unauthorized")
@@ -495,7 +498,8 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
         }
 
     # Fall back to legacy token — no user info available
-    if _is_legacy_api_token(token):
+    if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+        logger.warning("DEPRECATED: legacy shared token used for WebSocket access")
         return None
 
     if token.startswith(API_KEY_PREFIX):
