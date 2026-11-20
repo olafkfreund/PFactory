@@ -89,6 +89,7 @@ _BOARD_COLUMN: dict[str, BoardColumn] = {
     "approved": "done",
     "emitted": "done",
     "rejected": "human_review",  # needs attention / edit
+    "needs_human": "human_review",
     # discarded is DONE, and that is the whole point of it being separate from
     # rejected (#360). Rejected means "this plan is wrong, fix it", so the card
     # stays in human_review awaiting that edit. Discarded means "this should not

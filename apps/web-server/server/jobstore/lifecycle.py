@@ -9,7 +9,7 @@ PFactory job without knowing PFactory's private vocabulary.
 
 PFactory's :class:`plan.service.PlanSession` statuses are::
 
-    ingested | processing | reviewing | processed | approved | rejected | emitted
+    ingested | processing | reviewing | processed | approved | rejected | needs_human | emitted
 
 We classify them EXPLICITLY rather than by loose token containment so the
 mapping is auditable and stable:
@@ -20,6 +20,7 @@ mapping is auditable and stable:
   - ``processed``              -> review    (pipeline done; awaiting human approve)
   - ``approved``               -> review    (approved but NOT terminal until emit)
   - ``rejected``               -> failed    (terminal, unhealthy)
+  - ``needs_human``            -> review    (stage blocked; awaiting human action)
   - ``emitted``                -> done       (terminal, healthy)
 
 Note ``approved`` maps to ``review`` (not ``done``): in PFactory a plan is
@@ -38,6 +39,7 @@ _NATIVE_TO_LIFECYCLE: dict[str, str] = {
     "reviewing": "running",
     "processed": "review",
     "approved": "review",
+    "needs_human": "review",
     "rejected": "failed",
     # Abandoned outright (#360): "this was never real work". Terminal, and
     # `failed` rather than `done` because it did not succeed -- same reasoning

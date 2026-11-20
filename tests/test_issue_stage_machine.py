@@ -863,6 +863,8 @@ def test_poll_refuses_retarged_stage_pr():
     provider.apply_labels = noop
     result = svc.poll_issue_stage(session.session_id, provider=provider)
     assert result.stage_state["current_stage"] == "needs_human"
+    assert result.status == "needs_human"
+    assert result.board_state() == "human_review"
 
 
 def test_service_stage_bootstrap_saves_once_after_processing(monkeypatch):
