@@ -20,6 +20,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from server.background.tasks import spawn
+from server.config import get_settings
+
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
 from ..tenancy import multi_tenant_enabled, resolve_tenant
@@ -95,6 +98,10 @@ class FromIssueBody(_StrictBody):
     provider: str = "github"
     labels: list[str] = Field(default_factory=list)
     autonomy_tier: str | None = None
+    base_ref: str | None = None  # legacy input; stage policy uses provider default
+    base_branch: str | None = None  # legacy input; stage policy uses provider default
+    project_id: str | None = None
+    auto_start_stage: bool = True
     # Accepted because the poller sends them, but not acted on here: the poller
     # has already classified the tier from `labels`, and `change_mode` is an
     # AIFactory build-time concern with no PFactory planning equivalent.
@@ -153,41 +160,7 @@ class EmitContractBody(_StrictBody):
     dry_run: bool = True
 
 
-class _UrllibHttp:
-    """Stdlib HttpClient for live contract emit (avoids an httpx dependency)."""
-
-    def post(self, url: str, *, params: dict, json: object) -> object:
-        import json as _json
-        import os
-        import urllib.parse
-        import urllib.request
-
-        if params:
-            url = f"{url}?{urllib.parse.urlencode(params)}"
-        headers = {"Content-Type": "application/json"}
-        # Authenticate the cross-service handoff. AIFactory's auth middleware
-        # requires a bearer token on /api/*; without it the POST 401s and the
-        # whole PFactory→AIFactory emit fails. PFactory holds the shared
-        # APP_API_TOKEN (factory-secrets); send it.
-        token = (
-            os.environ.get("PFACTORY_AIFACTORY_API_TOKEN")
-            or os.environ.get("APP_API_TOKEN")
-            or os.environ.get("PFACTORY_MCP_SECRET")
-        )
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        req = urllib.request.Request(
-            url,
-            data=_json.dumps(json).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
-            body = resp.read().decode("utf-8")
-        try:
-            return _json.loads(body)
-        except ValueError:
-            return {"raw": body}
+from plan.emit.http_transport import _UrllibHttp  # noqa: E402
 
 
 def _session_dict(session) -> dict:
@@ -357,24 +330,111 @@ async def ingest_from_issue(
     # acceptance criteria, so it cannot parse either way — better a 400 naming
     # that than a session built from a one-line plan nobody can verify against.
     org_id = await _ingest_org(request, body.repo, db)
+    tenant = resolve_tenant(request)
+    service = cast(PlanService, SERVICE)
+    if not get_settings().ISSUE_STAGES_ENABLED:
+        attribution = _attribution(_user(request), authored_elsewhere=True)
+        try:
+            session = service.ingest_text(
+                body.body or "",
+                title=body.title,
+                channel="github_issue",
+                repo=body.repo,
+                autonomy_tier=body.autonomy_tier,
+                origin_issue_number=body.issue_number,
+                tenant_id=tenant,
+                org_id=org_id,
+                originator=attribution["originator"],
+                agent_identity=attribution["agent_identity"],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=client_error(exc)) from exc
+        from .projects import ensure_tracked_project
+
+        ensure_tracked_project(body.repo, await creator_org(_user(request), db))
+        return _session_dict(session)
+    start_stage = body.auto_start_stage
     try:
-        session = SERVICE.ingest_text(
-            body.body or "",
-            title=body.title,
-            channel="github_issue",
-            repo=body.repo,
-            autonomy_tier=body.autonomy_tier,
-            origin_issue_number=body.issue_number,
-            tenant_id=resolve_tenant(request),  # #308
-            org_id=org_id,  # #968
-            **_attribution(_user(request), authored_elsewhere=True),
+        find_existing = getattr(service, "find_active_issue_session", None)
+        existing = (
+            find_existing(tenant, body.provider, body.repo, body.issue_number)
+            if find_existing is not None
+            else None
         )
+        effective_base_ref = None
+        if start_stage and existing is None:
+            from runners.github.providers.factory import get_provider  # noqa: PLC0415
+
+            try:
+                effective_base_ref = await get_provider(
+                    body.provider, body.repo
+                ).get_default_branch()
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502, detail="could not verify repository default branch"
+                ) from exc
+        ingest_issue = getattr(service, "ingest_from_issue", None)
+        if ingest_issue is not None:
+            session, created = await asyncio.to_thread(
+                ingest_issue,
+                body.body or "",
+                repo=body.repo,
+                issue_number=body.issue_number,
+                title=body.title,
+                base_ref=effective_base_ref,
+                provider=body.provider,
+                project_id=body.project_id,
+                autonomy_tier=body.autonomy_tier,
+                tenant_id=tenant,
+                org_id=org_id,
+                issue_stage_requested=start_stage,
+                **_attribution(_user(request), authored_elsewhere=True),
+            )
+        elif existing is not None:
+            session, created = existing, False
+        else:
+            attribution = _attribution(_user(request), authored_elsewhere=True)
+            session = service.ingest_text(
+                body.body or "",
+                title=body.title,
+                channel="github_issue",
+                repo=body.repo,
+                base_ref=effective_base_ref,
+                provider=body.provider,
+                project_id=body.project_id,
+                autonomy_tier=body.autonomy_tier,
+                origin_issue_number=body.issue_number,
+                tenant_id=tenant,  # #308
+                org_id=org_id,  # #968
+                issue_stage_requested=start_stage,
+                originator=attribution["originator"],
+                agent_identity=attribution["agent_identity"],
+            )
+            created = True
+    except (EmitInProgressError, StaleSessionError) as exc:
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
+    except PlanServiceError as exc:
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except ValueError as exc:  # SpecSourceError subclasses ValueError
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     # W4 (#218): register the target repo as a tracked project (see ingest-text).
     from .projects import ensure_tracked_project
 
     ensure_tracked_project(body.repo, await creator_org(_user(request), db))
+    if (
+        start_stage
+        and session.issue_stage_requested
+        and hasattr(service, "bootstrap_issue_stage")
+        and (
+            created
+            or not session.stage_state
+            or session.stage_state.get("stage_status") == "bootstrap_pending"
+        )
+    ):
+        spawn(
+            asyncio.to_thread(service.bootstrap_issue_stage, session.session_id),
+            name=f"bootstrap-issue-stage:{session.session_id}",
+        )
     return _session_dict(session)
 
 
@@ -912,5 +972,27 @@ async def emit_contract(
         raise HTTPException(
             status_code=409, detail="Live MCP emit requires approval by an authenticated user key"
         ) from exc
+    except PlanServiceError as exc:
+        raise HTTPException(status_code=400, detail=client_error(exc)) from exc
+
+
+@router.post("/{session_id}/poll-stage", dependencies=[Depends(require_plan_access("member"))])
+async def poll_stage(
+    session_id: str,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Poll the session's draft PR for a bound `/approve <stage>` comment (#1096)."""
+    await _guard_session(session_id, request, db)
+    await db.close()
+    try:
+        return _session_dict(
+            await asyncio.to_thread(
+                cast(PlanService, SERVICE).poll_issue_stage,
+                session_id,
+            )
+        )
+    except (EmitInProgressError, StaleSessionError) as exc:
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc

@@ -149,7 +149,12 @@ def test_upload_route_stamps_both(service: PlanService) -> None:
     assert (session.originator, session.agent_identity) == ("u-1", "agent:pfactory/k-1")
 
 
-def test_issue_route_stamps_agent_only(service: PlanService) -> None:
+def test_issue_route_stamps_agent_only(service: PlanService, monkeypatch) -> None:
+    class Provider:
+        async def get_default_branch(self) -> str:
+            return "main"
+
+    monkeypatch.setattr("runners.github.providers.factory.get_provider", lambda *_args: Provider())
     out = asyncio.run(
         pp.ingest_from_issue(
             pp.FromIssueBody(repo="acme/widgets", issue_number=996, body=_PLAN),

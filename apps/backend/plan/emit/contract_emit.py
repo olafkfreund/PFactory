@@ -139,6 +139,7 @@ def assemble_contract(
     spec_text: str = "",
     approvals: dict | None = None,
     tenant_id: str | None = None,
+    handoff: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compose the complete (unsigned) Task Contract from all #65 blocks.
 
@@ -148,7 +149,9 @@ def assemble_contract(
     curation so ``curated: true`` lands on the contract (#86). Both optional, so
     existing callers are unaffected.
     """
-    contract = build_task_contract(plan, epic, repo=repo, correlation_key=correlation_key)
+    contract = build_task_contract(
+        plan, epic, repo=repo, correlation_key=correlation_key, handoff=handoff
+    )
     # Multi-tenancy (#308): carry the tenant as OPTIONAL additive provenance
     # metadata (the hub schema's provenance allows additional properties), so
     # AIFactory can keep the PARR chain tenant-scoped. Omitted for the default
@@ -343,6 +346,7 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
     max_retries: int = 2,
     dry_run: bool = True,
     tenant_id: str | None = None,
+    handoff: dict[str, Any] | None = None,
     on_signed: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     """Assemble, validate, sign, and (unless dry-run) emit the contract.
@@ -376,6 +380,7 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
         spec_text=spec_text,
         approvals=approvals,
         tenant_id=tenant_id,
+        handoff=handoff,
     )
     errors = validate_contract(contract)
     if errors:
@@ -384,6 +389,8 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
     # #401: key and kid resolve together. An explicit `key=` override signs the
     # legacy way (no kid) — only the environment knows which kid a key belongs to.
     signing_key, signing_kid = (key, None) if key else key_from_env("pfactory")
+    if handoff and not dry_run and not signing_key:
+        raise ValueError("staged contract handoff requires a signing key")
     signed = False
     if signing_key:
         attach_signature(
@@ -437,7 +444,7 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
             type(exc).__name__,
             exc_info=exc,
         )
-        if os.environ.get("PFACTORY_EMIT_FALLBACK") != "1":
+        if handoff or os.environ.get("PFACTORY_EMIT_FALLBACK") != "1":
             result: dict[str, Any] = {
                 "ok": False,
                 "dry_run": False,

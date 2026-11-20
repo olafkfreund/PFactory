@@ -223,6 +223,20 @@ class PlanSessionStore:
         async with self._sessionmaker() as session, session.begin():
             await session.execute(stmt)
 
+    def delete_if_lease_owner(self, session_id: str, owner: str) -> bool:
+        """Remove an issue claim only while this worker's lease is still live."""
+        return bool(self._run(self._delete_if_lease_owner_coro(session_id, owner)))
+
+    async def _delete_if_lease_owner_coro(self, session_id: str, owner: str) -> bool:
+        now, _ = self._now_and_until(0)
+        stmt = sa_delete(PlanSessionRow).where(
+            PlanSessionRow.session_id == session_id,
+            PlanSessionRow.emit_lease_owner == owner,
+            PlanSessionRow.emit_lease_until >= now,
+        )
+        async with self._sessionmaker() as session, session.begin():
+            return _rowcount(await session.execute(stmt)) > 0
+
     def stamp_org(self, session_id: str, org_id: str) -> str | None:
         """Write-once org stamp outside payload/version (#968).
 
