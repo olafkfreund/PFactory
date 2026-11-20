@@ -2323,12 +2323,12 @@ class PlanService:
             provider = provider or get_provider(session.provider, session.repo)
             runner.run(self.process_async(session_id))
             session = self.get(session_id)  # process() saved a newer CAS version
-            policy = load_stage_policy(session.repo, session.base_ref)
+            policy = load_stage_policy(cast(str, session.repo), session.base_ref)
             state = StageJobState(
                 tenant_id=session.tenant_id,
                 provider=session.provider,
-                repo=session.repo,
-                issue_number=session.origin_issue_number,
+                repo=cast(str, session.repo),
+                issue_number=cast(int, session.origin_issue_number),
                 project_id=session.project_id,
                 base_ref=session.base_ref or policy.base_branch,
                 base_sha=policy.base_sha,
@@ -2423,7 +2423,9 @@ class PlanService:
                         session.stage_state = asdict(state)
                         self._save(session)
                         if hasattr(provider, "add_comment"):
-                            source = policy.owners_for(state.current_stage, state.artifact_slug)[1]
+                            source = policy.owners_for(
+                                state.current_stage, cast(str, state.artifact_slug)
+                            )[1]
                             message = (
                                 f"Approval refused under {source}; "
                                 f"post a fresh /approve {state.current_stage}."
@@ -2524,7 +2526,9 @@ class PlanService:
                             )
                         return session
                     state.current_stage = (
-                        "building" if result.contract_result.get("ok") else "needs_human"
+                        "building"
+                        if cast(dict[str, Any], result.contract_result).get("ok")
+                        else "needs_human"
                     )
                     if state.current_stage == "needs_human":
                         state.stage_status = "failed"

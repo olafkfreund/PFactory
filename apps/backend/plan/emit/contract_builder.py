@@ -194,7 +194,7 @@ def _workflow_type(plan: NormalizedPlan) -> str:
     return "feature"
 
 
-def build_task_contract(
+def build_task_contract(  # noqa: PLR0913 - handoff provenance joins existing contract inputs
     plan: NormalizedPlan,
     epic: EpicPlan,
     *,
