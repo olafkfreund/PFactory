@@ -1,5 +1,7 @@
 """Security checks for base policy and bound stage approvals (#1096)."""
 
+import hashlib
+import hmac
 import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -10,6 +12,8 @@ import pytest
 
 from client_errors import InputRejectedError
 from plan.decompose.models import ChildIssue, EpicPlan
+from plan.emit.contract_emit import emit_contract
+from plan.emit.signing import _signing_bytes
 from plan.models import Criterion, NormalizedPlan
 from plan.recon.clone import CloneResult
 from plan.stage_machine import (
@@ -421,3 +425,65 @@ def test_stage_renderers_produce_required_frontmatter():
     assert "status: draft\nissue: 12\nauthor: factory" in intent_md
     assert "status: draft\nissue: 12\nintent: intent/2026-11-20-12-fix-auth.md" in spec_md
     assert "status: draft\nissue: 12\nspec: spec/2026-11-20-12-fix-auth.md" in plan_md
+
+
+def test_handoff_contract_identity_is_signed_and_request_body_is_unchanged():
+    class Http:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, *, params, json):
+            self.calls.append((url, params, json))
+            return {"taskId": "task-1"}
+
+    handoff = {
+        "project_id": "project-1",
+        "provider": "github",
+        "repo": "org/repo",
+        "base_ref": "dev",
+        "source_branch": "factory/1096-stage-machine",
+        "approved_head_sha": "a" * 40,
+        "pr_number": 77,
+    }
+    plan = NormalizedPlan(
+        plan_id="1096-stage-machine",
+        title="Stage machine",
+        source_format="markdown",
+        description="Build the stage machine",
+        criteria=[Criterion(id="AC1", text="works")],
+    ).with_hash()
+    epic = EpicPlan(
+        plan_id=plan.plan_id,
+        epic_title=plan.title,
+        children=[ChildIssue(key="C1", title="Implement", kind="feature")],
+    )
+    http = Http()
+    result = emit_contract(
+        plan,
+        epic,
+        base_url="http://ai:3101",
+        project_id="project-1",
+        http=http,
+        key="test-key",
+        approval_timestamp="2026-11-20T00:00:00Z",
+        dry_run=False,
+        handoff={**handoff, "unrelated_stage_state": "excluded"},
+    )
+    assert result["ok"] and result["signed"]
+    url, params, body = http.calls[0]
+    assert url == "http://ai:3101/api/tasks/from-plan"
+    assert set(params) == {"project_id", "title", "description"}
+    assert set(body) == {"plan"}
+    contract = body["plan"]
+    assert "handoff" not in contract
+    assert {key: contract["provenance"][key] for key in handoff} == handoff
+    assert "unrelated_stage_state" not in contract["provenance"]
+    approval = contract["approval"]
+    signed_bytes = _signing_bytes(
+        contract,
+        approval["approved_by"],
+        approval["approval_timestamp"],
+        approval["plan_contract_version"],
+    )
+    assert all(f'"{key}"'.encode() in signed_bytes for key in handoff)
+    assert approval["signature"] == hmac.new(b"test-key", signed_bytes, hashlib.sha256).hexdigest()
