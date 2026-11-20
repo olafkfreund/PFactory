@@ -464,7 +464,7 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
                     if isinstance(detail, (str, list, dict)):
                         result["aifactory_detail"] = str(detail)[:500]
                 except (AttributeError, ValueError, UnicodeError, OSError):
-                    pass
+                    logger.debug("Ignoring unreadable AIFactory error detail", exc_info=True)
             if isinstance(exc, (TimeoutError, socket.timeout)) or (
                 isinstance(exc, URLError) and isinstance(exc.reason, (TimeoutError, socket.timeout))
             ):
