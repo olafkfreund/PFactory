@@ -146,8 +146,8 @@ class PlanSession(BaseModel):
     emit_result: dict | None = None
     docs_result: list[dict] | None = None  # docs emit per-target results (P1)
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
-    contract_emit_record: dict | None = None
-    contract_emit_records: dict[str, dict] = Field(default_factory=dict)
+    contract_emit_record: dict[str, Any] | None = None
+    contract_emit_records: dict[str, dict[str, Any]] = Field(default_factory=dict)
     # RFC-0016 #190: object-store references (URIs, never blobs) to the plan's
     # emitted documents (plan/spec markdown + audit pack), uploaded best-effort
     # on terminal emit and mirrored onto the durable job_states `artifacts[]`.
@@ -2402,12 +2402,14 @@ class PlanService:
         if session.epic is None:
             raise PlanServiceError("process the plan before emitting a contract")
         if require_user_approval and not dry_run:
-            approval = session.review.human_approval if session.review else None
+            review = session.review
+            approval = review.human_approval if review else None
             if (
-                not approval
+                review is None
+                or not approval
                 or not approval.approved
                 or approval.auth_kind != "user"
-                or not approval_is_valid(session.review, session.plan)
+                or not approval_is_valid(review, session.plan)
             ):
                 raise UserApprovalRequiredError("authenticated user approval required")
         # RFC-0011 (#182): a `hard` tier means blocking — a live contract emit is
@@ -2446,25 +2448,9 @@ class PlanService:
         # .pfactory.yml for this spec. Best-effort — when no snapshot exists the
         # block is simply omitted (the task declares no external resource).
         access_config, access_spec_text = _load_access_inputs(pid, session.plan.plan_id)
-        emit_args = {
-            "base_url": base,
-            "project_id": pid,
-            "key": key,
-            "repo": repo,
-            "correlation_key": corr,
-            "config": access_config,
-            "spec_text": access_spec_text,
-            "approvals": session.access_approvals or None,
-            "tenant_id": session.tenant_id,
-            "approval_timestamp": (
-                session.review.human_approval.approved_at
-                if session.review and session.review.human_approval.approved_at
-                else session.created_at
-            ),
-        }
-        digest = None
+        digest: str | None = None
 
-        def on_signed(contract: dict) -> dict | None:
+        def on_signed(contract: dict[str, Any]) -> dict[str, Any] | None:
             nonlocal digest
             digest = hashlib.sha256(
                 _canonical({"contract": contract, "base_url": base, "project_id": pid}).encode()
@@ -2482,7 +2468,20 @@ class PlanService:
             http=http,
             dry_run=dry_run,
             on_signed=on_signed if not dry_run else None,
-            **emit_args,
+            base_url=base,
+            project_id=pid,
+            key=key,
+            repo=repo,
+            correlation_key=corr,
+            config=access_config,
+            spec_text=access_spec_text,
+            approvals=session.access_approvals or None,
+            tenant_id=session.tenant_id,
+            approval_timestamp=(
+                session.review.human_approval.approved_at
+                if session.review and session.review.human_approval.approved_at
+                else session.created_at
+            ),
         )
         if result.get("duplicate"):
             return session.model_copy(update={"contract_result": result})
@@ -2494,7 +2493,7 @@ class PlanService:
                 "at": datetime.now(UTC).isoformat(),
             }
             session.contract_emit_record = record
-            session.contract_emit_records[digest] = record
+            session.contract_emit_records[cast(str, digest)] = record
             resp = result.get("response") if isinstance(result.get("response"), dict) else {}
             task_id = (resp or {}).get("taskId") or (resp or {}).get("task_id")
             if task_id:
