@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.11 — trusted plan submit and issue stage machine (2026-11-20)
+
+### New Features
+
+- **Trusted plan submit over MCP, with approval provenance and no silent re-plan (#1095, #1097).**
+- **Issue stage machine: an issue becomes intent/spec/plan on a draft PR with a bound /approve; off by default (#1096, #1098).**
+
 ## 0.8.10 — new Claude, Codex and Gemini models; CLI account install fix (2026-11-19)
 
 ### New Features
