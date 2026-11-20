@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     # #808: discard ingested-and-never-processed plan sessions after this; 0 = off.
     STALE_INGEST_TTL_HOURS: int = Field(168, ge=0)
     INVARIANTS_PERIOD_SECONDS: int = Field(300, ge=30)  # non-critical invariant timer (RFC-0024)
+    # #1096: poll active draft PRs for bound /approve <stage> comments.
+    STAGE_POLLER_ENABLED: bool = True
+    STAGE_POLLER_INTERVAL_SECONDS: float = Field(30.0, ge=1.0)
 
     class Config:
         env_file = ".env"

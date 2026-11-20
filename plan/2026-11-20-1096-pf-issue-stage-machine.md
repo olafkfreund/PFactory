@@ -67,3 +67,9 @@ Expected result: all tests in `tests/test_issue_stage_machine.py` pass (covering
 ## Rollback
 
 Revert the PR. `PlanSession` fields (`provider`, `project_id`, `stage_state`) and Task Contract `handoff`/`provenance` keys are additive and default to `None`, so existing sessions in `plan_sessions` and non-stage `emit-contract` calls continue working without migration rollback. Setting `APP_STAGE_POLLER_ENABLED=false` disables background PR comment polling immediately without a redeploy of the schema.
+
+## Deviations (recorded during implementation)
+
+- Step 1 also added the step-6 focused tests early, and the exact GitLab member lookup (`/members/all/{user_id}`) lives in `stage_policy.py` as decided; step 6 needed no separate handoff. The vendored `runners/github/` provider and the Factory hub fix stay for W2b (AIFactory#2173).
+- CODEOWNERS team owners (`@org/team`) are not matched yet: such paths fail closed (no one can approve) until a team lookup is added.
+- Step 5 adds an atomic first-time claim so concurrent `from-issue` calls across replicas create one session (review finding on step 4). The poller setting is `STAGE_POLLER_ENABLED` (env `APP_STAGE_POLLER_ENABLED`), default on, interval `STAGE_POLLER_INTERVAL_SECONDS`.

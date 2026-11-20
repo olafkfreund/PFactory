@@ -1067,6 +1067,92 @@ class PlanService:
             and (keep is None or keep(s))
         ]
 
+    def ingest_from_issue(
+        self,
+        text: str,
+        *,
+        repo: str,
+        issue_number: int,
+        **kwargs: Any,
+    ) -> tuple[PlanSession, bool]:
+        """Atomically reuse or create the active session for one issue (#1096).
+
+        Returns ``(session, created)``. When ``self._session_store`` is present,
+        claims the issue key via Compare-And-Set on ``expected_version=0`` (like
+        an emit-lease claim row) so two concurrent ``from-issue`` calls across
+        replicas create at most one session and draft PR.
+        """
+        tenant = str(kwargs.get("tenant_id") or "default")
+        prov = str(kwargs.get("provider") or "github").strip().lower() or "github"
+        key_hash = hashlib.sha256(f"{tenant}\0{prov}\0{repo}\0{issue_number}".encode()).hexdigest()[
+            :24
+        ]
+        claim_id = f"__issue_claim__:{key_hash}"
+        owner = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
+
+        with self._store_lock:
+            lock = self._emit_locks.setdefault(claim_id, threading.Lock())
+        with lock:
+            existing = self.find_active_issue_session(tenant, prov, repo, issue_number)
+            if existing is not None:
+                return existing, False
+
+            store = self._session_store
+            claimed = False
+            if store is not None:
+                retries = 40
+                for attempt in range(retries):
+                    ver = store.upsert(
+                        claim_id,
+                        payload="{}",
+                        seq=0,
+                        tenant_id=tenant,
+                        expected_version=0,
+                    )
+                    if ver is not None:
+                        store.acquire_emit_lease(claim_id, owner, _emit_lease_ttl())
+                        claimed = True
+                        break
+                    existing = self.find_active_issue_session(tenant, prov, repo, issue_number)
+                    if existing is not None:
+                        return existing, False
+                    if store.acquire_emit_lease(claim_id, owner, _emit_lease_ttl()):
+                        claimed = True
+                        break
+                    if attempt == retries - 1:
+                        raise EmitInProgressError(
+                            f"an issue intake for {repo}#{issue_number} is already running"
+                        )
+                    import time  # noqa: PLC0415
+
+                    time.sleep(0.025)
+            try:
+                existing = self.find_active_issue_session(tenant, prov, repo, issue_number)
+                if existing is not None:
+                    return existing, False
+                session = self.ingest_text(
+                    text,
+                    title=kwargs.get("title"),
+                    channel="github_issue",
+                    repo=repo,
+                    base_ref=kwargs.get("base_ref"),
+                    provider=prov,
+                    project_id=kwargs.get("project_id"),
+                    autonomy_tier=kwargs.get("autonomy_tier"),
+                    origin_issue_number=issue_number,
+                    tenant_id=tenant,
+                    org_id=kwargs.get("org_id"),
+                    originator=kwargs.get("originator"),
+                    agent_identity=kwargs.get("agent_identity"),
+                )
+                return session, True
+            finally:
+                if claimed and store is not None:
+                    with suppress(Exception):
+                        store.release_emit_lease(claim_id, owner)
+                    with suppress(Exception):
+                        store.delete(claim_id)
+
     def find_active_issue_session(
         self, tenant_id: str, provider: str, repo: str, issue_number: int
     ) -> PlanSession | None:
@@ -1161,6 +1247,8 @@ class PlanService:
         out: list[PlanSession] = []
         complete = True
         for raw in payloads:
+            if raw == "{}":
+                continue
             try:
                 out.append(PlanSession.model_validate_json(raw))
             except Exception as exc:  # noqa: BLE001 — skip a corrupt row

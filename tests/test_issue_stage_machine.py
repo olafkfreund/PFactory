@@ -1,8 +1,11 @@
 """Security checks for base policy and bound stage approvals (#1096)."""
 
+import asyncio
 import hashlib
 import hmac
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -36,6 +39,8 @@ from plan.stage_policy import (
     provider_user_id,
     verify_bound_approval,
 )
+from server.background import stage_poller, tasks as bg_tasks
+from server.routes import plan_pipeline as pp
 from tests.conftest import persist
 from tests.fake_session_store import FakeSessionStore
 
@@ -722,3 +727,140 @@ def test_service_stage_plan_approval_records_provider_provenance_and_emits(monke
     assert captured["dry_run"] is False and captured["require_user_approval"] is True
     assert result.stage_state["current_stage"] == "building"
     assert result.stage_state["approved_head_sha"] == "approved-sha"
+
+
+class _BarrierStore(FakeSessionStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lock = threading.Lock()
+
+    def upsert(self, session_id: str, **kwargs):
+        with self.lock:
+            return super().upsert(session_id, **kwargs)
+
+    def acquire_emit_lease(self, session_id: str, owner: str, ttl_seconds: int) -> bool:
+        with self.lock:
+            return super().acquire_emit_lease(session_id, owner, ttl_seconds)
+
+    def release_emit_lease(self, session_id: str, owner: str) -> None:
+        with self.lock:
+            super().release_emit_lease(session_id, owner)
+
+    def delete(self, session_id: str) -> bool:
+        with self.lock:
+            return super().delete(session_id)
+
+    def list_payloads(self, *, tenant_id: str | None = None) -> list[str]:
+        with self.lock:
+            return super().list_payloads(tenant_id=tenant_id)
+
+
+def test_concurrent_from_issue_across_replicas_creates_single_session():
+    store = _BarrierStore()
+    replica_a = PlanService(persist=False, session_store=store)
+    replica_b = PlanService(persist=False, session_store=store)
+
+    def call_ingest(svc: PlanService):
+        return svc.ingest_from_issue(
+            "# Hard issue\n## Acceptance Criteria\n- atomic across replicas",
+            repo="org/repo",
+            issue_number=1096,
+            title="Hard issue",
+            base_ref="dev",
+            provider="github",
+            project_id="proj-1",
+            autonomy_tier="hard",
+            tenant_id="default",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f1 = pool.submit(call_ingest, replica_a)
+        f2 = pool.submit(call_ingest, replica_b)
+        (s1, c1), (s2, c2) = f1.result(), f2.result()
+
+    assert s1.session_id == s2.session_id
+    assert sorted([c1, c2]) == [False, True]
+    assert len(replica_a.list_sessions()) == 1
+
+
+@pytest.mark.asyncio
+async def test_from_issue_route_spawns_bootstrap_and_poll_stage_advances(monkeypatch):
+    svc = PlanService(persist=False, session_store=_BarrierStore())
+    spawned: list[str] = []
+    bootstrapped: list[str] = []
+    polled: list[str] = []
+
+    def fake_bootstrap(session_id: str):
+        bootstrapped.append(session_id)
+        s = svc.get(session_id)
+        s.stage_state = {"pr_number": 88, "current_stage": "intent", "stage_status": "draft"}
+        svc._save(s)
+        return s
+
+    def fake_poll(session_id: str):
+        polled.append(session_id)
+        s = svc.get(session_id)
+        if s.stage_state:
+            s.stage_state = {**s.stage_state, "current_stage": "spec"}
+            svc._save(s)
+        return s
+
+    monkeypatch.setattr(svc, "bootstrap_issue_stage", fake_bootstrap)
+    monkeypatch.setattr(svc, "poll_issue_stage", fake_poll)
+    monkeypatch.setattr(pp, "SERVICE", svc)
+
+    async def noop_async(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pp, "_ingest_org", noop_async)
+    monkeypatch.setattr(pp, "creator_org", noop_async)
+    monkeypatch.setattr(pp, "_guard_session", noop_async)
+    monkeypatch.setattr("server.routes.projects.ensure_tracked_project", lambda *_a, **_k: None)
+
+    real_spawn = bg_tasks.spawn
+    tasks_created: list[asyncio.Task] = []
+
+    def tracking_spawn(coro, *, name=None):
+        spawned.append(name or "")
+        t = real_spawn(coro, name=name)
+        tasks_created.append(t)
+        return t
+
+    monkeypatch.setattr(bg_tasks, "spawn", tracking_spawn)
+    monkeypatch.setattr(pp, "spawn", tracking_spawn)
+
+    class DummyDB:
+        async def close(self):
+            pass
+
+    req = SimpleNamespace(state=SimpleNamespace(user={"id": "u1"}), headers={})
+    body = pp.FromIssueBody(
+        repo="org/repo",
+        issue_number=2001,
+        title="New stage issue",
+        body="# Stage issue\n## Acceptance Criteria\n- stage machine works",
+        provider="github",
+        labels=["factory:hard"],
+        autonomy_tier="hard",
+        change_mode="feature",
+        base_branch="dev",
+        project_id="proj-1",
+    )
+    resp1, resp2 = await asyncio.gather(
+        pp.ingest_from_issue(body, req, DummyDB()),
+        pp.ingest_from_issue(body, req, DummyDB()),
+    )
+    if tasks_created:
+        await asyncio.gather(*tasks_created)
+    assert resp1["session_id"] == resp2["session_id"]
+    assert (resp1["base_ref"], resp1["project_id"]) == ("dev", "proj-1")
+    assert any(name.startswith("bootstrap-issue-stage:") for name in spawned)
+    assert bootstrapped == [resp1["session_id"]]
+    assert stage_poller.poll_active_issue_stages(svc) == [resp1["session_id"]]
+
+    s = svc.get(resp1["session_id"])
+    s.stage_state = {"pr_number": 88, "current_stage": "spec", "stage_status": "draft"}
+    svc._save(s)
+    poll_resp = await pp.poll_stage(resp1["session_id"], req, DummyDB())
+    assert poll_resp["session_id"] == resp1["session_id"]
+    assert polled.count(resp1["session_id"]) == 2
