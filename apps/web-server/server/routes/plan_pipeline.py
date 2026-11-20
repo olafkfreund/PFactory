@@ -37,6 +37,7 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from client_errors import client_error  # noqa: E402
 from plan.repo_ref import parse_repo_ref  # noqa: E402
+from plan.review.approval import is_valid as approval_is_valid  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import (  # noqa: E402
     SERVICE,
@@ -51,6 +52,7 @@ from plan.service import (  # noqa: E402
 from plan.service_helpers import agent_identity_for  # noqa: E402
 from server.services import project_paths  # noqa: E402
 from server.services.audit_service import (  # noqa: E402
+    ACTION_PLAN_SESSION_APPROVE,
     ACTION_PLAN_SESSION_DELETE,
     log_audit_event,
 )
@@ -611,8 +613,17 @@ async def approve(
 ) -> dict:
     await _guard_session(session_id, request, db)
     try:
-        return _session_dict(
-            SERVICE.approve(session_id, approver=body.approver, feedback=body.feedback)
+        user = _user(request)
+        user_id = user.get("id") if isinstance(user, dict) and not user.get("is_service") else None
+        auth_kind = "user" if user_id else "shared_token" if user else "unknown"
+        result = _session_dict(
+            SERVICE.approve(
+                session_id,
+                approver=body.approver,
+                feedback=body.feedback,
+                user_id=user_id,
+                auth_kind=auth_kind,
+            )
         )
     except StaleSessionError as exc:  # another replica changed the session (#758)
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
@@ -620,6 +631,18 @@ async def approve(
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except RuntimeError as exc:  # ApprovalError (gates not passed)
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
+    await log_audit_event(
+        db,
+        user_id=user_id,
+        org_id=getattr(request.state, "org_id", None),
+        ip=request.client.host if request.client else None,
+        action=ACTION_PLAN_SESSION_APPROVE,
+        resource_type="plan_session",
+        resource_id=session_id,
+        details={"approver": body.approver, "auth_kind": auth_kind},
+    )
+    await db.commit()
+    return result
 
 
 @router.post("/{session_id}/access/approve", dependencies=[Depends(require_plan_access("member"))])
@@ -869,6 +892,19 @@ async def emit_contract(
     """
     await _guard_session(session_id, request, db)
     try:
+        if request.headers.get("X-PFactory-Channel") == "mcp" and not body.dry_run:
+            session = SERVICE.get(session_id)
+            approval = session.review.human_approval if session.review else None
+            if (
+                not approval
+                or not approval.approved
+                or approval.auth_kind != "user"
+                or not approval_is_valid(session.review, session.plan)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Live MCP emit requires approval by an authenticated user key",
+                )
         http = None if body.dry_run else _UrllibHttp()
         return _session_dict(
             await asyncio.to_thread(

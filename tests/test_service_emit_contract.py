@@ -79,6 +79,7 @@ def test_emit_contract_dry_run() -> None:
     assert contract["execution"]["review_tier"] == "auto"
     assert "unit" in contract["tfactory"]["lanes"]
     assert out.status != "emitted"  # dry-run doesn't advance status
+    assert out.contract_emit_record is None
 
 
 def test_emit_contract_live_sets_correlation() -> None:
@@ -94,6 +95,23 @@ def test_emit_contract_live_sets_correlation() -> None:
     assert http.calls[0]["url"].endswith("/api/tasks/from-plan")
     # signed
     assert http.calls[0]["json"]["plan"]["approval"]["signature"]
+
+
+def test_repeated_live_emit_is_idempotent_until_plan_changes() -> None:
+    svc = PlanService()
+    sid = _processed_session(svc)
+    http = FakeHttp()
+    first = svc.emit_contract(sid, repo="acme/widget", http=http, key="secret", dry_run=False)
+    assert first.contract_emit_record["digest"]
+    second = svc.emit_contract(sid, repo="acme/widget", http=http, key="secret", dry_run=False)
+    assert second.contract_result["duplicate"] is True
+    assert len(http.calls) == 1
+    session = svc.get(sid)
+    session.plan.criteria[0].text = "Changed acceptance criterion"
+    persist(svc, session)
+    third = svc.emit_contract(sid, repo="acme/widget", http=http, key="secret", dry_run=False)
+    assert third.contract_result["ok"]
+    assert len(http.calls) == 2
 
 
 def test_emit_contract_live_refused_on_unwaived_hard_readiness() -> None:

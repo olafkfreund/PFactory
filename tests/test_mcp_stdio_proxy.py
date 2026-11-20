@@ -89,13 +89,9 @@ def test_legacy_admin_token_acts_as_wildcard(monkeypatch):
     from server import config
 
     # Patch settings.API_TOKEN to a known value.
-    monkeypatch.setattr(
-        config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test"
-    )
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
     client = TestClient(_app_with_scope("task:merge"))
-    r = client.get(
-        "/probe", headers={"Authorization": "Bearer legacy-secret-token-for-test"}
-    )
+    r = client.get("/probe", headers={"Authorization": "Bearer legacy-secret-token-for-test"})
     assert r.status_code == 200
     assert r.json() == {"ok": True}
 
@@ -103,12 +99,11 @@ def test_legacy_admin_token_acts_as_wildcard(monkeypatch):
 def test_unknown_acw_key_returns_401(monkeypatch):
     """An unknown bearer token falls through to acw_ validation, which
     rejects via MCPAuthError → 401."""
+
     async def _raise(_header):
         raise MCPAuthError("Invalid API key")
 
-    monkeypatch.setattr(
-        "server.mcp_stdio.auth.mcp_remote_auth.authenticate", _raise
-    )
+    monkeypatch.setattr("server.mcp_stdio.auth.mcp_remote_auth.authenticate", _raise)
     client = TestClient(_app_with_scope(MCP_READ_SCOPE))
     r = client.get("/probe", headers={"Authorization": "Bearer acw_unknown"})
     assert r.status_code == 401
@@ -121,6 +116,7 @@ def test_acw_key_with_wrong_scope_returns_403(monkeypatch):
     The 401/403 split lets the client tell 'your key is bad' (regen)
     apart from 'your key works but is scoped wrong' (mint a new one).
     """
+
     async def _ok(_header):
         return AuthenticatedKey(
             key_id="key-123",
@@ -128,9 +124,7 @@ def test_acw_key_with_wrong_scope_returns_403(monkeypatch):
             user_id="user-1",
         )
 
-    monkeypatch.setattr(
-        "server.mcp_stdio.auth.mcp_remote_auth.authenticate", _ok
-    )
+    monkeypatch.setattr("server.mcp_stdio.auth.mcp_remote_auth.authenticate", _ok)
     client = TestClient(_app_with_scope(PROJECT_WRITE_SCOPE))  # need WRITE
     r = client.get("/probe", headers={"Authorization": "Bearer acw_readonly"})
     assert r.status_code == 403
@@ -139,6 +133,7 @@ def test_acw_key_with_wrong_scope_returns_403(monkeypatch):
 
 def test_acw_key_with_right_scope_passes(monkeypatch):
     """Happy path: scoped acw_ key passes → handler runs."""
+
     async def _ok(_header):
         return AuthenticatedKey(
             key_id="key-456",
@@ -146,13 +141,9 @@ def test_acw_key_with_right_scope_passes(monkeypatch):
             user_id="user-2",
         )
 
-    monkeypatch.setattr(
-        "server.mcp_stdio.auth.mcp_remote_auth.authenticate", _ok
-    )
+    monkeypatch.setattr("server.mcp_stdio.auth.mcp_remote_auth.authenticate", _ok)
     client = TestClient(_app_with_scope(PROJECT_WRITE_SCOPE))
-    r = client.get(
-        "/probe", headers={"Authorization": "Bearer acw_writer"}
-    )
+    r = client.get("/probe", headers={"Authorization": "Bearer acw_writer"})
     assert r.status_code == 200
     assert r.json() == {"ok": True}
 
@@ -218,6 +209,7 @@ def test_client_rewrites_path_to_proxy_prefix(monkeypatch):
         async def request(self, method, path, **kwargs):
             captured["method"] = method
             captured["path"] = path
+            captured["headers"] = kwargs["headers"]
             return _FakeResp()
 
         async def aclose(self):
@@ -228,8 +220,10 @@ def test_client_rewrites_path_to_proxy_prefix(monkeypatch):
     monkeypatch.setattr(http_client, "_read_token", lambda: "acw_test_key")
 
     import asyncio
+
     asyncio.run(http_client.request("GET", "/api/tasks"))
     assert captured["path"] == "/api/mcp-stdio/tasks"
+    assert captured["headers"]["X-PFactory-Channel"] == "mcp"
 
     # And paths already under the proxy prefix pass through unchanged.
     asyncio.run(http_client.request("GET", "/api/mcp-stdio/projects"))
@@ -250,6 +244,7 @@ def test_audit_helper_passes_right_fields_for_authenticated_key(monkeypatch):
     from unittest.mock import AsyncMock
 
     import server.mcp_stdio.router  # noqa: F401  (load into sys.modules)
+
     proxy_router = sys.modules["server.mcp_stdio.router"]
 
     captured: dict = {}
@@ -269,9 +264,11 @@ def test_audit_helper_passes_right_fields_for_authenticated_key(monkeypatch):
     class _FakeRequest:
         class _Client:
             host = "10.0.0.1"
+
         client = _Client()
 
     import asyncio
+
     asyncio.run(
         proxy_router._audit_mcp_write(
             key,
@@ -304,6 +301,7 @@ def test_audit_helper_marks_legacy_admin_calls(monkeypatch):
     import sys
 
     import server.mcp_stdio.router  # noqa: F401  (load into sys.modules)
+
     proxy_router = sys.modules["server.mcp_stdio.router"]
 
     captured: dict = {}
@@ -317,6 +315,7 @@ def test_audit_helper_marks_legacy_admin_calls(monkeypatch):
         client = None  # exercises the IP-less branch
 
     import asyncio
+
     asyncio.run(
         proxy_router._audit_mcp_write(
             _LegacyAdminKey(),
@@ -431,6 +430,7 @@ def test_every_plan_tool_has_a_proxy_route():
         ("POST", "/api/mcp-stdio/plan/sessions/ingest-text"),
         ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/process"),
         ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/approve"),
+        ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/emit-contract"),
     }
 
 
@@ -444,6 +444,7 @@ def test_plan_writes_need_plan_write_and_reads_need_mcp_read():
         "/api/mcp-stdio/plan/sessions/ingest",
         "/api/mcp-stdio/plan/sessions/ingest-text",
         "/api/mcp-stdio/plan/sessions/{session_id}/process",
+        "/api/mcp-stdio/plan/sessions/{session_id}/emit-contract",
         "/api/mcp-stdio/plan/sessions/{session_id}/approve",
     }
     seen = {

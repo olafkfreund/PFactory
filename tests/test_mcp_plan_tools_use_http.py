@@ -29,8 +29,7 @@ try:
     import claude_agent_sdk  # noqa: F401 — availability probe
 except ImportError:
     pytest.skip(
-        "claude_agent_sdk not installed in this venv — install with "
-        "'npm run install:backend'.",
+        "claude_agent_sdk not installed in this venv — install with 'npm run install:backend'.",
         allow_module_level=True,
     )
 
@@ -110,6 +109,7 @@ def test_ingest_without_text_or_path_is_rejected(tools_by_name, calls):
         ("plan_status", {"session_id": "001-x"}, ("GET", "/api/plan/sessions/001-x")),
         ("plan_list", {}, ("GET", "/api/plan/sessions")),
         ("plan_categories", {}, ("GET", "/api/plan/meta/categories")),
+        ("plan_emit", {"session_id": "001-x"}, ("POST", "/api/plan/sessions/001-x/emit-contract")),
         (
             "plan_approve",
             {"session_id": "001-x", "approver": "olaf"},

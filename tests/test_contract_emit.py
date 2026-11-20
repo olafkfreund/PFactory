@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+from urllib.error import HTTPError
+
 from plan.decompose.models import ChildIssue, EpicPlan
 from plan.emit.contract_emit import assemble_contract, emit_contract
 from plan.emit.task_contract import validate_contract
@@ -187,7 +190,8 @@ def test_live_posts_to_from_plan() -> None:
     assert http.calls[0]["json"]["plan"]["approval"]["signature"]
 
 
-def test_falls_back_to_create_and_run() -> None:
+def test_falls_back_to_create_and_run(monkeypatch) -> None:
+    monkeypatch.setenv("PFACTORY_EMIT_FALLBACK", "1")
     http = FakeHttp(fail_urls=("/from-plan",))
     result = emit_contract(
         _plan(),
@@ -212,7 +216,8 @@ class _AssertHttp(FakeHttp):
         raise AssertionError("urllib blew up")
 
 
-def test_both_endpoints_failing_returns_error_not_500() -> None:
+def test_both_endpoints_failing_returns_error_not_500(monkeypatch) -> None:
+    monkeypatch.setenv("PFACTORY_EMIT_FALLBACK", "1")
     # #321: from-plan fails AND the create-and-run fallback fails. The handoff
     # must surface a clean error dict, never let the exception escape as a 500.
     http = _AssertHttp()
@@ -233,6 +238,71 @@ def test_both_endpoints_failing_returns_error_not_500() -> None:
     # both endpoints were attempted
     assert any("from-plan" in c["url"] for c in http.calls)
     assert any("create-and-run" in c["url"] for c in http.calls)
+
+
+def test_failed_from_plan_does_not_fall_back_or_echo_transport_error(monkeypatch) -> None:
+    monkeypatch.delenv("PFACTORY_EMIT_FALLBACK", raising=False)
+    http = FakeHttp(fail_urls=("/from-plan",))
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=http,
+        dry_run=False,
+    )
+    assert result["ok"] is False
+    assert result["aifactory_status"] is None
+    assert "endpoint unavailable" not in str(result)
+    assert len(http.calls) == 1
+
+
+def test_from_plan_422_detail_is_returned(monkeypatch) -> None:
+    monkeypatch.delenv("PFACTORY_EMIT_FALLBACK", raising=False)
+
+    class Http:
+        def post(self, url, *, params, json):  # noqa: ARG002
+            raise HTTPError(
+                url,
+                422,
+                "internal transport info",
+                {},
+                io.BytesIO(b'{"detail":"body.plan required"}'),
+            )
+
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=Http(),
+        dry_run=False,
+    )
+    assert result["aifactory_status"] == 422
+    assert result["aifactory_detail"] == "body.plan required"
+    assert "internal transport info" not in str(result)
+
+
+def test_timeout_reports_unknown_outcome(monkeypatch) -> None:
+    monkeypatch.delenv("PFACTORY_EMIT_FALLBACK", raising=False)
+
+    class Http:
+        def post(self, url, *, params, json):  # noqa: ARG002
+            raise TimeoutError("private host")
+
+    result = emit_contract(
+        _plan(),
+        _epic(),
+        _review(),
+        base_url="http://ai:3101",
+        project_id="p1",
+        http=Http(),
+        dry_run=False,
+    )
+    assert result["outcome"] == "unknown"
+    assert "private host" not in str(result)
 
 
 def test_invalid_contract_not_emitted() -> None:

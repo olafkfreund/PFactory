@@ -159,6 +159,7 @@ async def request(method: str, path: str, **kwargs: Any) -> dict[str, Any] | lis
     token = _read_token()
     headers = dict(kwargs.pop("headers", {}) or {})
     headers["Authorization"] = f"Bearer {token}"
+    headers["X-PFactory-Channel"] = "mcp"
 
     # Rewrite ``/api/...`` → ``/api/mcp-stdio/...`` so every stdio MCP call
     # hits the scope-gated proxy. Paths already under the proxy prefix

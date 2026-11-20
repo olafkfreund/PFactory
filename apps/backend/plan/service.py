@@ -13,6 +13,7 @@ Flow:  ingest → process (detect → plan-type → decompose → synthesize →
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -44,6 +45,7 @@ from plan.detect.migration_classifier import classify_migration
 from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply, classify_plan
 from plan.emit.contract_sync import ContractSyncState, SyncError, fold_event
+from plan.emit.signing import _canonical
 from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import Criterion, NormalizedPlan
 from plan.plan_types import apply as plan_type_apply, select_for
@@ -140,6 +142,7 @@ class PlanSession(BaseModel):
     emit_result: dict | None = None
     docs_result: list[dict] | None = None  # docs emit per-target results (P1)
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
+    contract_emit_record: dict | None = None
     # RFC-0016 #190: object-store references (URIs, never blobs) to the plan's
     # emitted documents (plan/spec markdown + audit pack), uploaded best-effort
     # on terminal emit and mirrored onto the durable job_states `artifacts[]`.
@@ -1951,13 +1954,26 @@ class PlanService:
         return self._refresh_readiness(session)
 
     def approve(
-        self, session_id: str, *, approver: str, feedback: str | None = None
+        self,
+        session_id: str,
+        *,
+        approver: str,
+        feedback: str | None = None,
+        user_id: str | None = None,
+        auth_kind: str = "unknown",
     ) -> PlanSession:
         session = self.get(session_id)
         if session.review is None:
             raise PlanServiceError("process the plan before approving")
         self._refresh_readiness(session)
-        approve_review(session.review, session.plan, approver=approver, feedback=feedback)
+        approve_review(
+            session.review,
+            session.plan,
+            approver=approver,
+            feedback=feedback,
+            user_id=user_id,
+            auth_kind=auth_kind,
+        )
         session.status = "approved"
         self._save(session)
         return session
@@ -2411,24 +2427,48 @@ class PlanService:
         # .pfactory.yml for this spec. Best-effort — when no snapshot exists the
         # block is simply omitted (the task declares no external resource).
         access_config, access_spec_text = _load_access_inputs(pid, session.plan.plan_id)
+        emit_args = {
+            "base_url": base,
+            "project_id": pid,
+            "key": key,
+            "repo": repo,
+            "correlation_key": corr,
+            "config": access_config,
+            "spec_text": access_spec_text,
+            "approvals": session.access_approvals or None,
+            "tenant_id": session.tenant_id,
+            "approval_timestamp": (
+                session.review.human_approval.approved_at
+                if session.review and session.review.human_approval.approved_at
+                else session.created_at
+            ),
+        }
+        digest = None
+        if not dry_run:
+            preview = _emit_contract(
+                session.plan, session.epic, session.review, dry_run=True, **emit_args
+            )
+            if preview.get("ok"):
+                digest = hashlib.sha256(_canonical(preview["contract"]).encode()).hexdigest()
+                record = session.contract_emit_record
+                if record and record["digest"] == digest:
+                    session.contract_result = {**record["result"], "duplicate": True}
+                    return session
         result = _emit_contract(
             session.plan,
             session.epic,
             session.review,
-            base_url=base,
-            project_id=pid,
             http=http,
-            key=key,
-            repo=repo,
-            correlation_key=corr,
-            config=access_config,
-            spec_text=access_spec_text,
-            approvals=session.access_approvals or None,
             dry_run=dry_run,
-            tenant_id=session.tenant_id,
+            **emit_args,
         )
         session.contract_result = result
         if result.get("ok") and not dry_run:
+            session.contract_emit_record = {
+                "digest": digest,
+                "result": result,
+                "at": datetime.now(UTC).isoformat(),
+            }
             resp = result.get("response") if isinstance(result.get("response"), dict) else {}
             task_id = (resp or {}).get("taskId") or (resp or {}).get("task_id")
             if task_id:

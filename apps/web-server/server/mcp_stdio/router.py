@@ -44,9 +44,11 @@ from server.database.engine import get_db
 from server.routes.plan_meta import categories as plan_categories
 from server.routes.plan_pipeline import (
     ApproveBody,
+    EmitContractBody,
     IngestTextBody,
     approve as plan_approve,
     audit_pack as plan_audit_pack,
+    emit_contract as plan_emit_contract,
     get_session as plan_get_session,
     ingest_text as plan_ingest_text,
     ingest_upload as plan_ingest_upload,
@@ -61,6 +63,7 @@ from server.routes.project_authz import (
 from server.services import project_paths
 from server.services.audit_service import (
     ACTION_MCP_PLAN_APPROVE,
+    ACTION_MCP_PLAN_EMIT,
     ACTION_MCP_PLAN_INGEST,
     ACTION_MCP_PLAN_PROCESS,
 )
@@ -644,5 +647,28 @@ async def proxy_plan_approve(
         session_id,
         request,
         details={"approver": body.get("approver")},
+    )
+    return result
+
+
+@router.post("/plan/sessions/{session_id}/emit-contract")
+async def proxy_plan_emit_contract(
+    session_id: str,
+    request: FastAPIRequest,
+    key: _PlanWrite,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, request.url.path, db)
+    request.state.user = principal
+    body = EmitContractBody(**(await _read_json_body(request)))
+    result = await plan_emit_contract(session_id, body, request, db=db)
+    await _audit_mcp_write(
+        key,
+        ACTION_MCP_PLAN_EMIT,
+        "plan_session",
+        session_id,
+        request,
+        details={"dry_run": body.dry_run},
     )
     return result

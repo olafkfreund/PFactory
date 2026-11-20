@@ -206,9 +206,7 @@ def test_add_feedback_appends_line():
 
     add_feedback(review, author="reviewer", text="looks good", at="2026-06-03T00:00:00+00:00")
 
-    assert review.human_approval.feedback == [
-        "[2026-06-03T00:00:00+00:00] reviewer: looks good"
-    ]
+    assert review.human_approval.feedback == ["[2026-06-03T00:00:00+00:00] reviewer: looks good"]
 
 
 def test_json_round_trip_preserves_validity(tmp_path):
@@ -224,3 +222,21 @@ def test_json_round_trip_preserves_validity(tmp_path):
     assert loaded.human_approval.plan_hash == plan.content_hash
     assert is_valid(loaded, plan) is True
     assert loaded.ready_to_emit() is True
+
+
+@pytest.mark.parametrize(
+    ("user_id", "auth_kind"),
+    [("user-123", "user"), (None, "shared_token")],
+)
+def test_approval_records_auth_provenance(user_id, auth_kind):
+    review = _passing_review()
+    approve(review, _plan(), approver="display name", user_id=user_id, auth_kind=auth_kind)
+    assert review.human_approval.user_id == user_id
+    assert review.human_approval.auth_kind == auth_kind
+    assert review.human_approval.approved_by == "display name"
+
+
+def test_old_approval_has_unknown_auth_kind():
+    old = _passing_review().model_dump()
+    old["human_approval"].update({"approved": True, "approved_by": "olaf"})
+    assert PlanReview.model_validate(old).human_approval.auth_kind == "unknown"

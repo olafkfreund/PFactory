@@ -40,3 +40,8 @@ Approved decisions (from the spec): approvals record the authenticated principal
 ## Rollback
 
 Revert the PR. Setting `PFACTORY_EMIT_FALLBACK=1` restores the old fallback without a revert. Approval provenance fields are additive.
+
+## Deviations (recorded during implementation)
+
+- Step 1: this branch exposes the authenticated principal as `request.state.user` (dict with `id`, `is_service`), not `request.state.user_id`; provenance derives from it. Service principals count as `shared_token`.
+- Step 2: the stdio MCP client calls go through the `/api/mcp-stdio/*` proxy, so a proxy route `POST /api/mcp-stdio/plan/sessions/{id}/emit-contract` and audit action `ACTION_MCP_PLAN_EMIT` were added to make `plan_emit` reachable through the existing scoped path.

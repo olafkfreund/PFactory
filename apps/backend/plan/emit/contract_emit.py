@@ -4,18 +4,22 @@
 (plan → execution → review_tier → verification → tfactory) into one contract.
 :func:`emit_contract` validates it, signs it (HMAC trusted_plan envelope), and —
 unless dry-run — POSTs it to AIFactory's ``/api/tasks/from-plan`` skip-planning
-endpoint, falling back to the legacy ``create-and-run`` requirements path if the
-fast-path is unavailable. Dry-run by default, honouring the no-automatic-pushes
+endpoint, with an opt-in legacy ``create-and-run`` fallback when
+``PFACTORY_EMIT_FALLBACK=1``. Dry-run by default, honouring the no-automatic-pushes
 policy.
 """
 
 from __future__ import annotations
 
 import binascii
+import json
 import logging
 import os
+import socket
 from datetime import UTC, datetime
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
+from urllib.error import HTTPError, URLError
 
 from plan.emit.access_block import attach_access
 from plan.emit.compliance_block import attach_compliance
@@ -319,7 +323,7 @@ def _attach_pubkey_signature(contract: dict[str, Any]) -> None:
         logger.warning("Ed25519 contract signing skipped: %s", type(exc).__name__)
 
 
-def emit_contract(
+def emit_contract(  # noqa: PLR0911 - validation, dry-run, and opt-in fallback exit independently
     plan: NormalizedPlan,
     epic: EpicPlan,
     review: PlanReview | None = None,
@@ -348,7 +352,7 @@ def emit_contract(
     Returns a result dict: ``{ok, dry_run, signed, endpoint, contract, ...}``.
     On a validation failure ``ok`` is False and ``errors`` lists the problems —
     an incomplete contract is never POSTed. Live emit POSTs to ``/from-plan`` and
-    falls back to ``create-and-run`` (first child) if that raises.
+    falls back to ``create-and-run`` (first child) only when explicitly enabled.
 
     Validated handshake (#81): after a successful POST the ``task_id`` is read
     from the response. When the injected client exposes ``get`` AND
@@ -416,19 +420,44 @@ def emit_contract(
             max_retries=max_retries,
         )
     except Exception as exc:
-        # Fast-path unavailable — fall back to the legacy create-and-run path for
-        # the first child so the handoff still lands (AIFactory then plans).
+        # Fast-path unavailable; the legacy fallback is explicitly opt-in.
         # Factory#718: `exc` is whatever `_post_with_readback`'s transport call
         # raised -- urllib, TLS, or AIFactory's own response parsing -- and its
         # text was never reviewed for what it reveals (a host, a port, an
         # internal URL). Logged in full server-side; only the class name and a
         # static sentence cross into the response body below.
         logger.warning(
-            "emit_contract fast-path failed for spec_id=%s, falling back to create-and-run: %s",
+            "emit_contract fast-path failed for spec_id=%s: %s",
             spec_id,
             type(exc).__name__,
             exc_info=exc,
         )
+        if os.environ.get("PFACTORY_EMIT_FALLBACK") != "1":
+            result: dict[str, Any] = {
+                "ok": False,
+                "dry_run": False,
+                "endpoint": url,
+                "errors": ["from-plan failed; no task was confirmed"],
+                "aifactory_status": None,
+                "aifactory_detail": None,
+            }
+            if (
+                isinstance(exc, HTTPError)
+                and HTTPStatus.BAD_REQUEST <= exc.code < HTTPStatus.INTERNAL_SERVER_ERROR
+            ):
+                result["aifactory_status"] = exc.code
+                try:
+                    body = json.loads(exc.read().decode("utf-8"))
+                    detail = body.get("detail") if isinstance(body, dict) else None
+                    if isinstance(detail, (str, list, dict)):
+                        result["aifactory_detail"] = str(detail)[:500]
+                except (ValueError, UnicodeError, OSError):
+                    pass
+            if isinstance(exc, (TimeoutError, socket.timeout)) or (
+                isinstance(exc, URLError) and isinstance(exc.reason, (TimeoutError, socket.timeout))
+            ):
+                result["outcome"] = "unknown"
+            return result
         from plan.emit.aifactory_handoff import build_requirements, trigger_api
 
         if not epic.children:
