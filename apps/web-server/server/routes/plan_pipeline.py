@@ -97,8 +97,8 @@ class FromIssueBody(_StrictBody):
     provider: str = "github"
     labels: list[str] = Field(default_factory=list)
     autonomy_tier: str | None = None
-    base_ref: str | None = None
-    base_branch: str | None = None
+    base_ref: str | None = None  # legacy input; stage policy uses provider default
+    base_branch: str | None = None  # legacy input; stage policy uses provider default
     project_id: str | None = None
     auto_start_stage: bool = True
     # Accepted because the poller sends them, but not acted on here: the poller
@@ -159,41 +159,7 @@ class EmitContractBody(_StrictBody):
     dry_run: bool = True
 
 
-class _UrllibHttp:
-    """Stdlib HttpClient for live contract emit (avoids an httpx dependency)."""
-
-    def post(self, url: str, *, params: dict, json: object) -> object:
-        import json as _json
-        import os
-        import urllib.parse
-        import urllib.request
-
-        if params:
-            url = f"{url}?{urllib.parse.urlencode(params)}"
-        headers = {"Content-Type": "application/json"}
-        # Authenticate the cross-service handoff. AIFactory's auth middleware
-        # requires a bearer token on /api/*; without it the POST 401s and the
-        # whole PFactory→AIFactory emit fails. PFactory holds the shared
-        # APP_API_TOKEN (factory-secrets); send it.
-        token = (
-            os.environ.get("PFACTORY_AIFACTORY_API_TOKEN")
-            or os.environ.get("APP_API_TOKEN")
-            or os.environ.get("PFACTORY_MCP_SECRET")
-        )
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        req = urllib.request.Request(
-            url,
-            data=_json.dumps(json).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
-            body = resp.read().decode("utf-8")
-        try:
-            return _json.loads(body)
-        except ValueError:
-            return {"raw": body}
+from plan.emit.http_transport import _UrllibHttp  # noqa: E402
 
 
 def _session_dict(session) -> dict:
@@ -364,7 +330,14 @@ async def ingest_from_issue(
     # that than a session built from a one-line plan nobody can verify against.
     org_id = await _ingest_org(request, body.repo, db)
     tenant = resolve_tenant(request)
-    effective_base_ref = body.base_ref or body.base_branch
+    from runners.github.providers.factory import get_provider  # noqa: PLC0415
+
+    try:
+        effective_base_ref = await get_provider(body.provider, body.repo).get_default_branch()
+    except Exception as exc:  # provider failures must not ingest on an unverified ref
+        raise HTTPException(
+            status_code=502, detail="could not verify repository default branch"
+        ) from exc
     service = cast(PlanService, SERVICE)
     try:
         ingest_issue = getattr(service, "ingest_from_issue", None)
@@ -420,7 +393,15 @@ async def ingest_from_issue(
     from .projects import ensure_tracked_project
 
     ensure_tracked_project(body.repo, await creator_org(_user(request), db))
-    if body.auto_start_stage and created and hasattr(service, "bootstrap_issue_stage"):
+    if (
+        body.auto_start_stage
+        and hasattr(service, "bootstrap_issue_stage")
+        and (
+            created
+            or not session.stage_state
+            or session.stage_state.get("stage_status") == "bootstrap_pending"
+        )
+    ):
         spawn(
             asyncio.to_thread(service.bootstrap_issue_stage, session.session_id),
             name=f"bootstrap-issue-stage:{session.session_id}",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import re
 import shutil
 import subprocess
@@ -20,6 +21,7 @@ from plan.recon.clone import (
     _hardened_env,
     _recon_token,
     _run_git,
+    clone_for_recon,
 )
 from plan.repo_ref import project_of
 from plan.stage_policy import (
@@ -32,6 +34,7 @@ from plan.stage_policy import (
     provider_user_id,
     verify_bound_approval,
 )
+from runners.github.providers.protocol import PRFilters
 
 __all__ = [
     "STAGES",
@@ -124,6 +127,7 @@ def _extract_plan_fields(
         or (plan_or_session if isinstance(plan_or_session, str) else None)
         or f"Issue #{resolved_issue}"
     ).strip()
+    resolved_title = " ".join(resolved_title.split())
     resolved_desc = (
         description
         if description is not None
@@ -139,6 +143,11 @@ def _extract_plan_fields(
     repo_map = getattr(plan, "repo_map", None)
     langs = tuple(getattr(repo_map, "languages", None) or ())
     return int(resolved_issue), resolved_title, resolved_desc, criteria, children, langs
+
+
+def _literal(text: str) -> str:
+    """Keep issue text inside an indented Markdown literal block."""
+    return "\n".join(f"    {line}" for line in text.splitlines())
 
 
 def render_stage_intent(  # noqa: PLR0913 - template renderer options
@@ -179,9 +188,9 @@ def render_stage_intent(  # noqa: PLR0913 - template renderer options
         f"---\n\n"
         f"# Intent: {resolved_title}\n\n"
         f"## Problem\n\n"
-        f"{problem}\n\n"
+        f"{_literal(problem)}\n\n"
         f"## Proposed outcome\n\n"
-        f"{outcome}\n\n"
+        f"{_literal(outcome)}\n\n"
         f"## Affected users and systems\n\n"
         f"{affected}\n\n"
         f"## Constraints\n\n"
@@ -233,13 +242,15 @@ def render_stage_spec(  # noqa: PLR0913 - template renderer options
         f"---\n\n"
         f"# Spec: {resolved_title}\n\n"
         f"## Design\n\n"
-        f"{design}\n\n"
+        f"{_literal(design)}\n\n"
         f"## Alternatives rejected\n\n"
         f"{rejected}\n\n"
         f"## Risks\n\n"
         f"- Stale branch state if concurrent commits land on the PR branch before approval.\n\n"
+        f"## Acceptance Criteria\n\n"
+        f"{_literal(ver_items)}\n\n"
         f"## Verification\n\n"
-        f"{lanes_line}{ver_items}\n"
+        f"{_literal(lanes_line + ver_items)}\n"
     )
 
 
@@ -295,11 +306,11 @@ def render_stage_plan(  # noqa: PLR0913 - template renderer options
         f"spec: spec/{slug}.md\n"
         f"---\n\n"
         f"# Plan: {resolved_title}\n\n"
-        f"{summary}\n\n"
+        f"{_literal(summary)}\n\n"
         f"## Steps\n\n"
-        f"{steps}\n\n"
+        f"{_literal(steps)}\n\n"
         f"## Tests\n\n"
-        f"{tests}\n\n"
+        f"{_literal(tests)}\n\n"
         f"## Rollback\n\n"
         f"Revert the PR branch commits; all stage artifacts live on the isolated feature branch.\n"
     )
@@ -423,7 +434,7 @@ async def sync_stage_label(provider: Any, issue_number: int | str, stage: str) -
     return target
 
 
-async def bootstrap_intent_pr(  # noqa: PLR0913 - explicit stage driver seams
+async def bootstrap_intent_pr(  # noqa: PLR0913, PLR0915 - staged git and PR recovery
     state: StageJobState,
     provider: Any,
     plan_or_session: Any = None,
@@ -434,6 +445,8 @@ async def bootstrap_intent_pr(  # noqa: PLR0913 - explicit stage driver seams
     date_prefix: str | None = None,
     git_runner: GitRunner | None = None,
     gh_runner: GhRunner | None = None,
+    before_push: Callable[[str], None] | None = None,
+    after_push: Callable[[str], None] | None = None,
 ) -> StageJobState:
     """Cut `factory/<n>-<slug>`, commit draft `intent/<slug>.md`, and open a draft PR."""
     _, resolved_title, resolved_desc, _, _, _ = _extract_plan_fields(
@@ -466,6 +479,54 @@ async def bootstrap_intent_pr(  # noqa: PLR0913 - explicit stage driver seams
         description=resolved_desc,
     )
     run_git = git_runner or _run_git
+    if state.stage_status == "bootstrap_pending":
+        with clone_for_recon(state.repo, source_branch) as existing:
+            if existing.ok and existing.path is not None and existing.commit:
+                if existing.commit != state.pending_head_sha:
+                    raise ValueError("existing stage branch is not the pending commit")
+                prior = _read_stage_file(existing.path, "intent", artifact_slug)
+                if prior != markdown:
+                    raise ValueError("existing stage branch does not contain the expected intent")
+                prs = await provider.fetch_prs(
+                    PRFilters(state="open", base_branch=base_ref, head_branch=source_branch)
+                )
+                if len(prs) > 1:
+                    raise ValueError("multiple stage PRs exist for the branch")
+                if prs:
+                    pr_number, pr_url = prs[0].number, prs[0].url
+                else:
+                    with tempfile.TemporaryDirectory(prefix="pfactory-stage-") as recovery_tmp:
+                        url = _git_url(state.repo)
+                        env = _hardened_env(
+                            home=recovery_tmp,
+                            token=_recon_token() if url.startswith(_CRED_PREFIX) else "",
+                        )
+                        pr_number, pr_url = await _open_draft_pr(
+                            state=state,
+                            provider=provider,
+                            base_ref=base_ref,
+                            source_branch=source_branch,
+                            title=f"feat(#{state.issue_number}): {resolved_title}",
+                            body=f"Staged artifact workflow for #{state.issue_number}.",
+                            cwd=recovery_tmp,
+                            env=env,
+                            gh_runner=gh_runner,
+                        )
+                state.base_ref = base_ref
+                state.source_branch = source_branch
+                state.artifact_slug = artifact_slug
+                state.pr_number = pr_number
+                state.pr_url = pr_url
+                state.current_stage = "intent"
+                state.stage_status = "draft"
+                state.head_sha = existing.commit
+                state.pending_head_sha = None
+                state.last_comment_since = state.pending_published_at or (
+                    prs[0].created_at.isoformat() if prs else datetime.now(UTC).isoformat()
+                )
+                state.pending_published_at = None
+                await sync_stage_label(provider, state.issue_number, "intent")
+                return state
     tmp = tempfile.mkdtemp(prefix="pfactory-stage-")
     work = Path(tmp) / "repo"
     url = _git_url(state.repo)
@@ -495,8 +556,13 @@ async def bootstrap_intent_pr(  # noqa: PLR0913 - explicit stage driver seams
             cwd=str(work),
             env=env,
         )
-        run_git(["push", "-u", "origin", source_branch], cwd=str(work), env=env)
         head_sha = run_git(["rev-parse", "HEAD"], cwd=str(work), env=env).stdout.strip()
+        if before_push is not None:
+            before_push(head_sha)
+        run_git(["push", "-u", "origin", source_branch], cwd=str(work), env=env)
+        published_at = datetime.now(UTC).isoformat()
+        if after_push is not None:
+            after_push(published_at)
         pr_title = f"feat(#{state.issue_number}): {resolved_title}"
         pr_body = (
             f"Staged artifact workflow for #{state.issue_number}.\n\n"
@@ -526,6 +592,9 @@ async def bootstrap_intent_pr(  # noqa: PLR0913 - explicit stage driver seams
     state.current_stage = "intent"
     state.stage_status = "draft"
     state.head_sha = head_sha
+    state.pending_head_sha = None
+    state.pending_published_at = None
+    state.last_comment_since = published_at
 
     await sync_stage_label(provider, state.issue_number, "intent")
     if hasattr(provider, "add_comment"):
@@ -589,7 +658,7 @@ def _prepare_stage_transition_files(  # noqa: PLR0913 - stage transition file bu
     return paths_to_add, None, f"docs(plan): approve {artifact_slug} (#{issue_num})"
 
 
-async def advance_stage_on_pr(  # noqa: PLR0913 - explicit stage transition seams
+async def advance_stage_on_pr(  # noqa: PLR0912, PLR0913, PLR0915 - stage transition gates
     state: StageJobState,
     provider: Any,
     plan_or_session: Any = None,
@@ -598,6 +667,8 @@ async def advance_stage_on_pr(  # noqa: PLR0913 - explicit stage transition seam
     plan_renderer: Callable[[str], str] | None = None,
     verify_lanes: Sequence[str] = (),
     git_runner: GitRunner | None = None,
+    before_push: Callable[[str], None] | None = None,
+    after_push: Callable[[str], None] | None = None,
 ) -> StageJobState:
     """Flip current stage artifact to approved, commit next stage draft, push, and sync labels."""
     stage = state.current_stage
@@ -633,6 +704,14 @@ async def advance_stage_on_pr(  # noqa: PLR0913 - explicit stage transition seam
             raise ValueError(
                 f"remote branch HEAD {remote_sha} drifted from approved SHA {state.head_sha}"
             )
+        if stage == "plan":
+            reviewed = _read_stage_file(work, "plan", artifact_slug)
+            if (
+                reviewed is None
+                or not state.plan_artifact_hash
+                or hashlib.sha256(reviewed.encode()).hexdigest() != state.plan_artifact_hash
+            ):
+                raise ValueError("reviewed plan artifact changed")
         paths_to_add, next_stage, commit_msg = _prepare_stage_transition_files(
             work,
             state,
@@ -642,6 +721,12 @@ async def advance_stage_on_pr(  # noqa: PLR0913 - explicit stage transition seam
             plan_renderer=plan_renderer,
             verify_lanes=verify_lanes,
         )
+        if next_stage == "plan":
+            rendered = _read_stage_file(work, "plan", artifact_slug)
+            if rendered is None or not getattr(plan_or_session, "plan", None):
+                raise ValueError("rendered plan is missing")
+            state.plan_hash = plan_or_session.plan.compute_hash()
+            state.plan_artifact_hash = hashlib.sha256(rendered.encode()).hexdigest()
         run_git(["add", "--", *paths_to_add], cwd=str(work), env=env)
         run_git(
             [
@@ -656,12 +741,20 @@ async def advance_stage_on_pr(  # noqa: PLR0913 - explicit stage transition seam
             cwd=str(work),
             env=env,
         )
-        run_git(["push", "origin", source_branch], cwd=str(work), env=env)
         new_head_sha = run_git(["rev-parse", "HEAD"], cwd=str(work), env=env).stdout.strip()
+        if before_push is not None:
+            before_push(new_head_sha)
+        run_git(["push", "origin", source_branch], cwd=str(work), env=env)
+        published_at = datetime.now(UTC).isoformat()
+        if after_push is not None:
+            after_push(published_at)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
     state.head_sha = new_head_sha
+    state.pending_head_sha = None
+    state.pending_published_at = None
+    state.last_comment_since = published_at
     if next_stage is not None:
         state.current_stage = next_stage
         state.stage_status = "draft"

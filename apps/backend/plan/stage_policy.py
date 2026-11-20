@@ -46,6 +46,11 @@ class StageJobState:
     current_stage: str = "intent"
     stage_status: str = "draft"
     head_sha: str | None = None
+    plan_hash: str | None = None
+    plan_artifact_hash: str | None = None
+    approved_head_sha: str | None = None
+    pending_head_sha: str | None = None
+    pending_published_at: str | None = None
     last_comment_since: str | None = None
     approvals: list[BoundApproval] = field(default_factory=list)
     consumed_comment_ids: list[str] = field(default_factory=list)
@@ -63,10 +68,10 @@ class StagePolicy:
     def owners_for(self, stage: str, artifact_slug: str) -> tuple[set[str], str]:
         path = f"{stage}/{artifact_slug}.md"
         owners = set(self.approvers.get(stage, ()))
-        source = ".factory.yml" if owners else "repository permission"
+        source = ".factory.yml" if stage in self.approvers else "repository permission"
         for pattern, rule_owners in self.codeowners:
             if _matches(pattern, path):
-                owners = set(self.approvers.get(stage, ())) | set(rule_owners)
+                owners = set(rule_owners)
                 source = f"CODEOWNERS {pattern}"
         return owners, source
 
@@ -99,18 +104,20 @@ def _matches(pattern: str, path: str) -> bool:
             regex += re.escape(pattern[i])
             i += 1
     prefix = "^" if anchored or "/" in pattern else r"(?:^|/)"
-    suffix = r"(?:/.*)?$" if directory else "$"
+    suffix = r"(?:/.*)?$" if directory or not any(char in pattern for char in "*?") else "$"
     return re.search(prefix + regex + suffix, path) is not None
 
 
 def _read_codeowners(root: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
     for name in _CODEOWNERS_PATHS:
         file = root / name
-        if file.is_file() and not file.is_symlink():
+        if file.is_symlink() or file.parent.is_symlink():
+            raise ValueError("CODEOWNERS must be a regular file")
+        if file.is_file():
             rules = []
             for line in file.read_text(encoding="utf-8").splitlines():
                 parts = line.split()
-                if len(parts) > 1 and not parts[0].startswith(("#", "!")):
+                if parts and not parts[0].startswith(("#", "!")):
                     rules.append(
                         (parts[0], tuple(part for part in parts[1:] if part.startswith("@")))
                     )
@@ -156,7 +163,7 @@ def load_stage_policy(repo: str, base_ref: str | None = None, tier: str = "hard"
         if not isinstance(verify, dict):
             raise ValueError("invalid verify policy")
         lanes = verify.get("lanes", [])
-        if not isinstance(lanes, list):
+        if not isinstance(lanes, list) or not all(isinstance(lane, str) for lane in lanes):
             raise ValueError("invalid verify lanes")
         return StagePolicy(
             base_sha=clone.commit,
@@ -193,6 +200,15 @@ async def verify_bound_approval(  # noqa: PLR0913, PLR0911, PLR0912 - explicit s
     if stage is None or str(comment.id) in state.consumed_comment_ids:
         return None
     state.consumed_comment_ids.append(str(comment.id))
+    updated_at = getattr(comment, "updated_at", None) or comment.raw_data.get("updated_at")
+    if updated_at is not None:
+        if isinstance(updated_at, str):
+            try:
+                updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        if updated_at != comment.created_at:
+            return None
     if (
         stage != state.current_stage
         or state.stage_status != "draft"
@@ -206,16 +222,17 @@ async def verify_bound_approval(  # noqa: PLR0913, PLR0911, PLR0912 - explicit s
     user_id = provider_user_id(comment, state.provider)
     if user_id is None or not comment.author:
         return None
-    if state.provider == "github":
-        user = await provider.api_get(f"/users/{comment.author}")
-        if not isinstance(user, dict) or user.get("id") != user_id:
+    try:
+        if state.provider == "github":
+            user = await provider.api_get(f"/users/{comment.author}")
+        elif state.provider == "gitlab":
+            project = provider._project_id
+            user = await provider.api_get(f"/api/v4/projects/{project}/members/all/{user_id}")
+        else:
             return None
-    elif state.provider == "gitlab":
-        project = provider._project_id
-        user = await provider.api_get(f"/api/v4/projects/{project}/members/all/{user_id}")
-        if not isinstance(user, dict) or user.get("id") != user_id:
-            return None
-    else:
+    except Exception:  # noqa: BLE001 - a failed identity lookup rejects the consumed comment
+        return None
+    if not isinstance(user, dict) or user.get("id") != user_id:
         return None
     if str(user.get("login", user.get("username", ""))).lower() != comment.author.lower():
         return None
@@ -225,7 +242,10 @@ async def verify_bound_approval(  # noqa: PLR0913, PLR0911, PLR0912 - explicit s
     elif state.provider == "gitlab":
         allowed = user.get("access_level", 0) >= _GITLAB_WRITE_ACCESS
     else:
-        allowed = await provider.check_permissions(comment.author) in {"write", "admin"}
+        try:
+            allowed = await provider.check_permissions(comment.author) in {"write", "admin"}
+        except Exception:  # noqa: BLE001 - permission API failure consumes the comment
+            return None
     if not allowed:
         return None
     approval = BoundApproval(

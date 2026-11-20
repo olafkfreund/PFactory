@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,7 +17,7 @@ pytest.importorskip("pydantic")
 from plan.decompose.models import ChildIssue, EpicPlan  # noqa: E402
 from plan.review.gates import run_gates  # noqa: E402
 from plan.review.models import LensScore, PlanReview  # noqa: E402
-from plan.service import PlanService, PlanServiceError  # noqa: E402
+from plan.service import PlanService, PlanServiceError, UserApprovalRequiredError  # noqa: E402
 from tests.conftest import persist  # noqa: E402
 from tests.fake_session_store import FakeSessionStore  # noqa: E402
 
@@ -125,7 +126,18 @@ def test_provider_review_approval_emits_signed_stage_handoff() -> None:
         approved_head_sha="a" * 40,
     )
     http = FakeHttp()
-    out = svc.emit_contract(
+
+    class StageProvider:
+        def __init__(self):
+            self._gh_client = self
+
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open", target_branch="dev")
+
+        async def get_pr_head_sha(self, _number):
+            return "a" * 40
+
+    out = svc._emit_contract(
         sid,
         repo="acme/widget",
         project_id="project-1",
@@ -133,11 +145,78 @@ def test_provider_review_approval_emits_signed_stage_handoff() -> None:
         key="secret",
         dry_run=False,
         require_user_approval=True,
+        stage_provider=StageProvider(),
+        stage_handoff=True,
     )
     assert out.status == "emitted"
     assert out.review.human_approval.provider_user_id == 7
     assert {key: http.calls[0]["json"]["plan"]["provenance"][key] for key in handoff} == handoff
     assert set(http.calls[0]["json"]) == {"plan"}
+
+
+def test_staged_emit_requires_provider_approval_signature_and_current_head(monkeypatch) -> None:
+    svc = PlanService()
+    sid = _processed_session(svc)
+    session = svc.get(sid)
+    session.stage_state = {
+        "project_id": "p1",
+        "provider": "github",
+        "repo": "acme/widget",
+        "base_ref": "dev",
+        "source_branch": "factory/1",
+        "pr_number": 77,
+        "approved_head_sha": "a" * 40,
+    }
+    persist(svc, session)
+    with pytest.raises(PlanServiceError, match="PR approval"):
+        svc.approve(sid, approver="alice", auth_kind="user", user_id="7")
+    http = FakeHttp()
+    with pytest.raises(PlanServiceError, match="stage machine"):
+        svc.emit_contract(sid, repo="acme/widget", http=http, dry_run=False)
+    svc.approve(
+        sid,
+        approver="alice",
+        auth_kind="provider_review",
+        user_id="7",
+        provider="github",
+        provider_user_id=7,
+        username="alice",
+        pr_number=77,
+        approved_head_sha="a" * 40,
+    )
+
+    class StageProvider:
+        def __init__(self, head):
+            self.head = head
+            self._gh_client = self
+
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open", target_branch="dev")
+
+        async def get_pr_head_sha(self, _number):
+            return self.head
+
+    with pytest.raises(UserApprovalRequiredError, match="head changed"):
+        svc._emit_contract(
+            sid,
+            repo="acme/widget",
+            http=http,
+            key="test-key",
+            dry_run=False,
+            stage_provider=StageProvider("b" * 40),
+            stage_handoff=True,
+        )
+    monkeypatch.setattr("plan.emit.contract_emit.key_from_env", lambda _authority: (None, None))
+    with pytest.raises(ValueError, match="signing key"):
+        svc._emit_contract(
+            sid,
+            repo="acme/widget",
+            http=http,
+            dry_run=False,
+            stage_provider=StageProvider("a" * 40),
+            stage_handoff=True,
+        )
+    assert not http.calls
 
 
 def test_repeated_live_emit_is_idempotent_until_plan_changes() -> None:

@@ -389,6 +389,8 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
     # #401: key and kid resolve together. An explicit `key=` override signs the
     # legacy way (no kid) — only the environment knows which kid a key belongs to.
     signing_key, signing_kid = (key, None) if key else key_from_env("pfactory")
+    if handoff and not dry_run and not signing_key:
+        raise ValueError("staged contract handoff requires a signing key")
     signed = False
     if signing_key:
         attach_signature(

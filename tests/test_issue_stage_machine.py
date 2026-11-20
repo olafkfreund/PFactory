@@ -21,7 +21,7 @@ from plan.emit.signing import _signing_bytes
 from plan.models import Criterion, NormalizedPlan
 from plan.recon.clone import CloneResult
 from plan.review.models import LensScore, PlanReview
-from plan.service import PlanService
+from plan.service import PlanService, PlanServiceError
 from plan.stage_machine import (
     advance_stage_on_pr,
     assert_safe_git_ref,
@@ -89,13 +89,38 @@ def test_policy_reads_base_clone_only(monkeypatch, tmp_path: Path):
     policy = load_stage_policy("org/repo", "dev")
     assert policy.base_sha == "a" * 40
     assert policy.verify_lanes == ("unit",)
-    assert policy.owners_for("intent", "slug") == ({"@alice", "@bob"}, "CODEOWNERS /intent/*.md")
+    assert policy.owners_for("intent", "slug") == ({"@bob"}, "CODEOWNERS /intent/*.md")
     assert policy.owners_for("spec", "slug") == (set(), "repository permission")
 
 
 def test_codeowners_last_match_and_no_permission_fallback():
     policy = StagePolicy("sha", ("intent",), {}, (("/intent/", ("@alice",)), ("/intent/*.md", ())))
     assert policy.owners_for("intent", "slug") == (set(), "CODEOWNERS /intent/*.md")
+    assert StagePolicy("sha", ("plan",), {"plan": ()}, ()).owners_for("plan", "slug") == (
+        set(),
+        ".factory.yml",
+    )
+    assert StagePolicy("sha", ("plan",), {}, (("/plan", ("@alice",)),)).owners_for(
+        "plan", "slug"
+    ) == ({"@alice"}, "CODEOWNERS /plan")
+
+
+def test_policy_rejects_symlinked_codeowners_and_nonstring_lanes(monkeypatch, tmp_path):
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / "CODEOWNERS").symlink_to(tmp_path / "other")
+
+    @contextmanager
+    def fake_clone(_repo, _ref):
+        yield CloneResult(ok=True, path=base, commit="a" * 40)
+
+    monkeypatch.setattr("plan.stage_policy.clone_for_recon", fake_clone)
+    with pytest.raises(ValueError, match="CODEOWNERS"):
+        load_stage_policy("org/repo", "dev")
+    (base / "CODEOWNERS").unlink()
+    (base / ".factory.yml").write_text("verify:\n  lanes: [unit, 123]\n")
+    with pytest.raises(ValueError, match="verify lanes"):
+        load_stage_policy("org/repo", "dev")
 
 
 def test_bound_approval_parser_and_immutable_id():
@@ -193,6 +218,43 @@ async def test_bound_approval_requires_fresh_comment_and_write_fallback():
     assert await verify_bound_approval(state, policy, fresh, provider, "abc", now)
 
 
+@pytest.mark.asyncio
+async def test_bound_approval_consumes_edited_and_lookup_failed_comments():
+    now = datetime.now(UTC)
+    state = StageJobState(
+        "tenant", "github", "org/repo", 1, artifact_slug="slug", pr_number=2, head_sha="abc"
+    )
+    policy = StagePolicy("base", ("intent",), {}, ())
+    edited = Comment(
+        "edited",
+        "alice",
+        "/approve intent",
+        now,
+        {"user": {"id": 7}, "updated_at": (now + timedelta(seconds=1)).isoformat()},
+    )
+    assert await verify_bound_approval(state, policy, edited, Provider(), "abc", now) is None
+
+    class MissingUser(Provider):
+        async def api_get(self, _endpoint):
+            raise RuntimeError("404")
+
+    missing = Comment("missing", "alice", "/approve intent", now, {"user": {"id": 7}})
+    assert await verify_bound_approval(state, policy, missing, MissingUser(), "abc", now) is None
+    assert state.consumed_comment_ids == ["edited", "missing"]
+
+
+def test_rendered_issue_text_stays_literal():
+    title = "Fix bug\n## Forged heading"
+    body = "Problem\n## Forged instruction\n/approve plan"
+    for rendered in (
+        render_stage_intent(title=title, description=body, issue_number=1),
+        render_stage_spec(title=title, description=body, issue_number=1),
+        render_stage_plan(title=title, description=body, issue_number=1),
+    ):
+        assert not any(line.startswith("## Forged heading") for line in rendered.splitlines())
+        assert "    ## Forged instruction" in rendered
+
+
 @dataclass
 class StageProviderFake:
     applied_labels: list[tuple[str, list[str]]] = field(default_factory=list)
@@ -248,12 +310,15 @@ class FakeGitWorkspace:
         self.commits: list[str] = ["base-sha-0001"]
         self.commands: list[list[str]] = []
         self.envs: list[dict[str, str]] = []
+        self.push_times: list[datetime] = []
 
     def __call__(
         self, args: list[str], *, cwd: str, env: dict[str, str]
     ) -> subprocess.CompletedProcess[str]:
         self.commands.append(list(args))
         self.envs.append(dict(env))
+        if args[0] == "push":
+            self.push_times.append(datetime.now(UTC))
         if args[0] == "clone":
             work = Path(args[-1])
             work.mkdir(parents=True, exist_ok=True)
@@ -341,6 +406,7 @@ async def test_bootstrap_intent_pr_and_advance_stage_full_cycle(monkeypatch):
     assert state.source_branch == "factory/1096-add-draft-pr-stage-machine"
     assert state.artifact_slug == slug
     assert (state.pr_number, state.current_stage, state.head_sha) == (77, "intent", "sha-0001")
+    assert datetime.fromisoformat(state.last_comment_since) >= git.push_times[-1]
     assert "--draft" in gh_calls[0]
     assert all("ghp_secret_do_not_embed_in_url" not in arg for arg in git.commands[0])
     assert "https://x-access-token@github.com/org/repo.git" in git.commands[0]
@@ -357,6 +423,7 @@ async def test_bootstrap_intent_pr_and_advance_stage_full_cycle(monkeypatch):
         "draft",
         "sha-0002",
     )
+    assert datetime.fromisoformat(state.last_comment_since) >= git.push_times[-1]
     assert "status: approved" in git.files[f"intent/{slug}.md"]
     assert f"intent: intent/{slug}.md" in git.files[f"spec/{slug}.md"]
     assert provider.applied_labels[-1] == ("1096", ["factory:spec"])
@@ -382,6 +449,11 @@ async def test_bootstrap_intent_pr_and_advance_stage_full_cycle(monkeypatch):
     assert f"spec: spec/{slug}.md" in git.files[f"plan/{slug}.md"]
     assert provider.applied_labels[-1] == ("1096", ["factory:plan"])
 
+    reviewed_plan = git.files[f"plan/{slug}.md"]
+    git.files[f"plan/{slug}.md"] += "\nUnreviewed change"
+    with pytest.raises(ValueError, match="reviewed plan artifact changed"):
+        await advance_stage_on_pr(state, provider, session, git_runner=git)
+    git.files[f"plan/{slug}.md"] = reviewed_plan
     await advance_stage_on_pr(state, provider, session, git_runner=git)
     assert (state.current_stage, state.stage_status, state.head_sha) == (
         "approved",
@@ -390,6 +462,54 @@ async def test_bootstrap_intent_pr_and_advance_stage_full_cycle(monkeypatch):
     )
     assert "status: approved" in git.files[f"plan/{slug}.md"]
     assert await sync_stage_label(provider, 1096, "building") == "factory:building"
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_reconciles_existing_exact_branch_and_pr(monkeypatch, tmp_path):
+    markdown = render_stage_intent(title="Fix", issue_number=1096)
+    (tmp_path / "intent").mkdir()
+    (tmp_path / "intent" / "slug.md").write_text(markdown)
+    state = StageJobState(
+        "tenant",
+        "github",
+        "org/repo",
+        1096,
+        base_ref="dev",
+        source_branch="factory/1096-fix",
+        artifact_slug="slug",
+        stage_status="bootstrap_pending",
+        pending_head_sha="expected-sha",
+    )
+
+    @contextmanager
+    def fake_clone(_repo, ref):
+        assert ref == "factory/1096-fix"
+        yield CloneResult(ok=True, path=tmp_path, commit="expected-sha")
+
+    class ExistingProvider(StageProviderFake):
+        async def fetch_prs(self, filters):
+            assert filters.head_branch == "factory/1096-fix"
+            assert filters.base_branch == "dev"
+            return [
+                SimpleNamespace(
+                    number=77,
+                    url="https://example.test/pr/77",
+                    created_at=datetime.now(UTC),
+                )
+            ]
+
+    monkeypatch.setattr("plan.stage_machine.clone_for_recon", fake_clone)
+    provider = ExistingProvider()
+    result = await bootstrap_intent_pr(
+        state,
+        provider,
+        "Fix",
+        title="Fix",
+        intent_markdown=markdown,
+        git_runner=lambda *_a, **_k: pytest.fail("must reconcile without another push"),
+    )
+    assert (result.pr_number, result.head_sha, result.stage_status) == (77, "expected-sha", "draft")
+    assert not provider.created_prs
 
 
 @pytest.mark.asyncio
@@ -499,7 +619,7 @@ def test_handoff_contract_identity_is_signed_and_request_body_is_unchanged():
     assert approval["signature"] == hmac.new(b"test-key", signed_bytes, hashlib.sha256).hexdigest()
 
 
-def test_service_stage_dedup_and_single_cas_transition(monkeypatch):
+def test_service_stage_dedup_and_pending_transition(monkeypatch):
     class CountingStore(FakeSessionStore):
         saves = 0
 
@@ -516,7 +636,7 @@ def test_service_stage_dedup_and_single_cas_transition(monkeypatch):
             )
 
         async def fetch_pr(self, _number):
-            return SimpleNamespace(state="open")
+            return SimpleNamespace(state="open", target_branch="dev")
 
         async def get_pr_head_sha(self, _number):
             return "old-sha"
@@ -574,10 +694,88 @@ def test_service_stage_dedup_and_single_cas_transition(monkeypatch):
     monkeypatch.setattr("plan.stage_machine.advance_stage_on_pr", fake_advance)
     before = store.saves
     result = svc.poll_issue_stage(session.session_id, provider=provider)
-    assert store.saves == before + 1
+    assert store.saves == before + 2
     assert result.stage_state["current_stage"] == "spec"
     assert result.stage_state["approvals"][0]["provider_user_id"] == 7
     assert not store.lease
+
+
+def test_poll_persists_comment_consumed_after_provider_lookup_error(monkeypatch):
+    svc = PlanService(persist=False, session_store=FakeSessionStore())
+    session = svc.ingest_text(
+        "# Fix\n## Acceptance Criteria\n- approve",
+        provider="github",
+        origin_issue_number=1,
+    )
+    state = StageJobState(
+        "default",
+        "github",
+        "org/repo",
+        1,
+        base_ref="dev",
+        artifact_slug="slug",
+        pr_number=2,
+        head_sha="sha",
+        last_comment_since=(datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+    )
+    session.stage_state = asdict(state)
+    persist(svc, session)
+
+    class LookupFailure(Provider):
+        def __init__(self):
+            super().__init__()
+            self._gh_client = self
+
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open", target_branch="dev")
+
+        async def get_pr_head_sha(self, _number):
+            return "sha"
+
+        async def fetch_pr_comments(self, _number, since=None):
+            return [
+                Comment(
+                    "bad-id", "alice", "/approve intent", datetime.now(UTC), {"user": {"id": 7}}
+                )
+            ]
+
+        async def api_get(self, _endpoint):
+            raise RuntimeError("404")
+
+        async def add_comment(self, *_args):
+            pass
+
+    monkeypatch.setattr(
+        "plan.stage_machine.load_stage_policy",
+        lambda *_args: StagePolicy("base", ("intent",), {}, ()),
+    )
+    svc.poll_issue_stage(session.session_id, provider=LookupFailure())
+    assert svc.get(session.session_id).stage_state["consumed_comment_ids"] == ["bad-id"]
+
+
+def test_poll_refuses_retarged_stage_pr():
+    svc = PlanService(persist=False, session_store=FakeSessionStore())
+    session = svc.ingest_text("# Fix\n## Acceptance Criteria\n- approve")
+    session.stage_state = asdict(
+        StageJobState(
+            "default",
+            "github",
+            "org/repo",
+            1,
+            base_ref="dev",
+            pr_number=2,
+            head_sha="sha",
+            artifact_slug="slug",
+        )
+    )
+    persist(svc, session)
+
+    class Retargeted:
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open", target_branch="attacker-branch")
+
+    with pytest.raises(PlanServiceError, match="target branch changed"):
+        svc.poll_issue_stage(session.session_id, provider=Retargeted())
 
 
 def test_service_stage_bootstrap_saves_once_after_processing(monkeypatch):
@@ -599,7 +797,7 @@ def test_service_stage_bootstrap_saves_once_after_processing(monkeypatch):
     async def fake_process(session_id):
         return svc.get(session_id)
 
-    async def fake_bootstrap(state, *_args):
+    async def fake_bootstrap(state, *_args, **_kwargs):
         state.pr_number = 77
         state.head_sha = "intent-sha"
         state.source_branch = "factory/1096-stage"
@@ -613,14 +811,88 @@ def test_service_stage_bootstrap_saves_once_after_processing(monkeypatch):
     )
     monkeypatch.setattr("plan.stage_machine.bootstrap_intent_pr", fake_bootstrap)
     before = store.saves
-    result = svc.bootstrap_issue_stage(session.session_id, provider=object())
-    assert store.saves == before + 1
+    result = svc.bootstrap_issue_stage(session.session_id, provider=StageProviderFake())
+    assert store.saves == before + 2
     assert (result.stage_state["pr_number"], result.stage_state["base_ref"]) == (77, "dev")
     assert (
-        svc.bootstrap_issue_stage(session.session_id, provider=object()).stage_state
+        svc.bootstrap_issue_stage(session.session_id, provider=StageProviderFake()).stage_state
         == result.stage_state
     )
-    assert store.saves == before + 1
+    assert store.saves == before + 2
+
+
+def test_spec_approval_reprocesses_exact_reviewed_spec(monkeypatch, tmp_path):
+    svc = PlanService(persist=False, session_store=FakeSessionStore())
+    session = svc.ingest_text(
+        "# Fix\n## Acceptance Criteria\n- old behavior",
+        provider="github",
+        origin_issue_number=1096,
+    )
+    state = StageJobState(
+        "default",
+        "github",
+        "org/repo",
+        1096,
+        base_ref="dev",
+        source_branch="factory/1096-fix",
+        artifact_slug="slug",
+        pr_number=77,
+        current_stage="spec",
+        head_sha="spec-sha",
+        last_comment_since=(datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+    )
+    session.stage_state = asdict(state)
+    persist(svc, session)
+    (tmp_path / "spec").mkdir()
+    (tmp_path / "spec" / "slug.md").write_text(
+        render_stage_spec(session, "slug").replace("old behavior", "new behavior")
+    )
+
+    @contextmanager
+    def fake_clone(_repo, ref):
+        assert ref == "factory/1096-fix"
+        yield CloneResult(ok=True, path=tmp_path, commit="spec-sha")
+
+    class LiveProvider(Provider):
+        def __init__(self):
+            super().__init__()
+            self._gh_client = self
+
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open", target_branch="dev")
+
+        async def get_pr_head_sha(self, _number):
+            return "spec-sha"
+
+        async def fetch_pr_comments(self, _number, since=None):
+            return [
+                Comment(
+                    "spec-approval",
+                    "alice",
+                    "/approve spec",
+                    datetime.now(UTC),
+                    {"user": {"id": 7}},
+                )
+            ]
+
+    async def fake_advance(state, _provider, reviewed, **_kwargs):
+        state.current_stage = "plan"
+        state.stage_status = "draft"
+        state.head_sha = "plan-sha"
+        state.plan_hash = reviewed.plan.compute_hash()
+        return state
+
+    monkeypatch.setattr("plan.recon.clone.clone_for_recon", fake_clone)
+    monkeypatch.setattr(
+        "plan.stage_machine.load_stage_policy",
+        lambda *_args: StagePolicy("base", ("spec",), {}, ()),
+    )
+    monkeypatch.setattr("plan.stage_machine.advance_stage_on_pr", fake_advance)
+    result = svc.poll_issue_stage(session.session_id, provider=LiveProvider())
+    assert "new behavior" in result.plan.raw_text
+    assert any("new behavior" in criterion.text for criterion in result.plan.criteria)
+    assert result.stage_state["plan_hash"] == result.plan.compute_hash()
+    assert result.stage_state["current_stage"] == "plan"
 
 
 def test_service_stage_plan_approval_records_provider_provenance_and_emits(monkeypatch):
@@ -662,6 +934,7 @@ def test_service_stage_plan_approval_records_provider_provenance_and_emits(monke
         pr_number=77,
         current_stage="plan",
         head_sha="reviewed-sha",
+        plan_hash=session.plan.compute_hash(),
         last_comment_since=(datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
     )
     session.stage_state = asdict(state)
@@ -671,12 +944,13 @@ def test_service_stage_plan_approval_records_provider_provenance_and_emits(monke
         def __init__(self):
             super().__init__()
             self._gh_client = self
+            self.head_sha = "reviewed-sha"
 
         async def fetch_pr(self, _number):
-            return SimpleNamespace(state="open")
+            return SimpleNamespace(state="open", target_branch="dev")
 
         async def get_pr_head_sha(self, _number):
-            return "reviewed-sha"
+            return self.head_sha
 
         async def fetch_pr_comments(self, _number, since=None):  # noqa: ARG002
             return [
@@ -693,23 +967,22 @@ def test_service_stage_plan_approval_records_provider_provenance_and_emits(monke
         state.current_stage = "approved"
         state.stage_status = "approved"
         state.head_sha = "approved-sha"
+        _args[0].head_sha = state.head_sha
         return state
 
-    captured = {}
+    posted = []
 
-    def fake_emit(session_id, **kwargs):
-        captured.update(kwargs)
-        live = svc.get(session_id)
-        live.contract_result = {"ok": True}
-        svc._save(live)
-        return live
+    def fake_post(_self, url, *, params, json):
+        posted.append((url, params, json))
+        return {"taskId": "task-1"}
 
     monkeypatch.setattr(
         "plan.stage_machine.load_stage_policy",
         lambda *_args: StagePolicy("base", ("plan",), {}, ()),
     )
     monkeypatch.setattr("plan.stage_machine.advance_stage_on_pr", fake_advance)
-    monkeypatch.setattr(svc, "_emit_contract", fake_emit)
+    monkeypatch.setattr("plan.emit.http_transport._UrllibHttp.post", fake_post)
+    monkeypatch.setenv("AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY", "test-signing-key")
     result = svc.poll_issue_stage(session.session_id, provider=ProviderForPlan())
     approval = result.review.human_approval
     assert (
@@ -724,15 +997,162 @@ def test_service_stage_plan_approval_records_provider_provenance_and_emits(monke
         "alice",
     )
     assert (approval.pr_number, approval.approved_head_sha) == (77, "approved-sha")
-    assert captured["dry_run"] is False and captured["require_user_approval"] is True
+    assert posted[0][2]["plan"]["approval"]["signature"]
     assert result.stage_state["current_stage"] == "building"
     assert result.stage_state["approved_head_sha"] == "approved-sha"
+
+
+def test_pending_plan_push_reconciles_exact_head_and_emits_once(monkeypatch):
+    class CountingStore(FakeSessionStore):
+        saves = 0
+
+        def upsert(self, *args, **kwargs):
+            self.saves += 1
+            return super().upsert(*args, **kwargs)
+
+    store = CountingStore()
+    svc = PlanService(persist=False, session_store=store)
+    session = svc.ingest_text(
+        "# Stage\n## Acceptance Criteria\n- hand off",
+        repo="org/repo",
+        provider="github",
+        origin_issue_number=1096,
+    )
+    session.epic = EpicPlan(
+        plan_id=session.plan.plan_id,
+        epic_title="Stage",
+        children=[
+            ChildIssue(key="C1", title="Build", kind="feature", acceptance_criteria=["hand off"])
+        ],
+    )
+    session.review = PlanReview(
+        plan_id=session.plan.plan_id,
+        lenses=[LensScore(lens="architecture", score=1)],
+        gates_passed=True,
+    )
+    state = StageJobState(
+        "default",
+        "github",
+        "org/repo",
+        1096,
+        project_id="p1",
+        base_ref="dev",
+        source_branch="factory/1096-stage",
+        artifact_slug="slug",
+        pr_number=77,
+        current_stage="plan",
+        stage_status="handoff_pending",
+        head_sha="old-sha",
+        pending_head_sha="new-sha",
+        pending_published_at="2026-11-20T12:00:00+00:00",
+        plan_hash=session.plan.compute_hash(),
+    )
+    session.stage_state = asdict(state)
+    persist(svc, session)
+    svc.approve(
+        session.session_id,
+        approver="alice",
+        auth_kind="provider_review",
+        user_id="7",
+        provider="github",
+        provider_user_id=7,
+        username="alice",
+        pr_number=77,
+        approved_head_sha="old-sha",
+    )
+
+    class LiveProvider(Provider):
+        def __init__(self):
+            super().__init__()
+            self._gh_client = self
+
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open", target_branch="dev")
+
+        async def get_pr_head_sha(self, _number):
+            return "new-sha"
+
+        async def apply_labels(self, *_args):
+            pass
+
+        async def remove_labels(self, *_args):
+            pass
+
+        async def add_comment(self, *_args):
+            pass
+
+    posted = []
+
+    def post(_self, _url, *, params, json):
+        posted.append((params, json))
+        return {"taskId": "task-1"}
+
+    monkeypatch.setattr("plan.emit.http_transport._UrllibHttp.post", post)
+    monkeypatch.setenv("AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY", "test-signing-key")
+    before = store.saves
+    result = svc.poll_issue_stage(session.session_id, provider=LiveProvider())
+    assert result.stage_state["current_stage"] == "building"
+    assert result.stage_state["approved_head_sha"] == "new-sha"
+    assert result.stage_state["last_comment_since"] == "2026-11-20T12:00:00+00:00"
+    assert result.review.human_approval.approved_head_sha == "new-sha"
+    assert len(posted) == 1
+    assert store.saves == before + 1
+
+
+def test_failed_plan_gate_never_pushes_approved_markdown(monkeypatch):
+    svc = PlanService(persist=False, session_store=FakeSessionStore())
+    session = svc.ingest_text("# Fix\n## Acceptance Criteria\n- safe approval")
+    session.epic = EpicPlan(plan_id=session.plan.plan_id, epic_title="Fix", children=[])
+    session.review = PlanReview(plan_id=session.plan.plan_id, gates_passed=False)
+    session.stage_state = asdict(
+        StageJobState(
+            "default",
+            "github",
+            "org/repo",
+            1,
+            base_ref="dev",
+            pr_number=2,
+            artifact_slug="slug",
+            current_stage="plan",
+            head_sha="sha",
+            plan_hash=session.plan.compute_hash(),
+            last_comment_since=(datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+        )
+    )
+    persist(svc, session)
+
+    class LiveProvider(Provider):
+        def __init__(self):
+            super().__init__()
+            self._gh_client = self
+
+        async def fetch_pr(self, _number):
+            return SimpleNamespace(state="open", target_branch="dev")
+
+        async def get_pr_head_sha(self, _number):
+            return "sha"
+
+        async def fetch_pr_comments(self, _number, since=None):
+            return [
+                Comment("gate", "alice", "/approve plan", datetime.now(UTC), {"user": {"id": 7}})
+            ]
+
+    monkeypatch.setattr(
+        "plan.stage_machine.load_stage_policy",
+        lambda *_args: StagePolicy("base", ("plan",), {}, ()),
+    )
+    monkeypatch.setattr(
+        "plan.stage_machine.advance_stage_on_pr",
+        lambda *_args, **_kwargs: pytest.fail("gate refusal must precede the PR push"),
+    )
+    result = svc.poll_issue_stage(session.session_id, provider=LiveProvider())
+    assert result.stage_state["current_stage"] == "needs_human"
 
 
 class _BarrierStore(FakeSessionStore):
     def __init__(self) -> None:
         super().__init__()
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def upsert(self, session_id: str, **kwargs):
         with self.lock:
@@ -745,6 +1165,10 @@ class _BarrierStore(FakeSessionStore):
     def release_emit_lease(self, session_id: str, owner: str) -> None:
         with self.lock:
             super().release_emit_lease(session_id, owner)
+
+    def delete_if_lease_owner(self, session_id: str, owner: str) -> bool:
+        with self.lock:
+            return super().delete_if_lease_owner(session_id, owner)
 
     def delete(self, session_id: str) -> bool:
         with self.lock:
@@ -783,6 +1207,32 @@ def test_concurrent_from_issue_across_replicas_creates_single_session():
     assert len(replica_a.list_sessions()) == 1
 
 
+def test_issue_claim_retries_failed_first_lease_and_keeps_foreign_claim():
+    class ContendedStore(FakeSessionStore):
+        attempts = 0
+
+        def acquire_emit_lease(self, session_id, owner, ttl_seconds):
+            self.attempts += 1
+            if self.attempts == 1:
+                return False
+            return super().acquire_emit_lease(session_id, owner, ttl_seconds)
+
+    store = ContendedStore()
+    svc = PlanService(persist=False, session_store=store)
+    session, created = svc.ingest_from_issue(
+        "# Fix\n## Acceptance Criteria\n- safe claim",
+        repo="org/repo",
+        issue_number=1096,
+    )
+    assert created and session.origin_issue_number == 1096
+    assert store.attempts >= 2
+    assert not any(key.startswith("__issue_claim__:") for key in store.rows)
+    store.rows["claim"] = ("{}", 1)
+    store.lease["claim"] = "other"
+    assert store.delete_if_lease_owner("claim", "mine") is False
+    assert "claim" in store.rows
+
+
 @pytest.mark.asyncio
 async def test_from_issue_route_spawns_bootstrap_and_poll_stage_advances(monkeypatch):
     svc = PlanService(persist=False, session_store=_BarrierStore())
@@ -808,6 +1258,10 @@ async def test_from_issue_route_spawns_bootstrap_and_poll_stage_advances(monkeyp
     monkeypatch.setattr(svc, "bootstrap_issue_stage", fake_bootstrap)
     monkeypatch.setattr(svc, "poll_issue_stage", fake_poll)
     monkeypatch.setattr(pp, "SERVICE", svc)
+    monkeypatch.setattr(
+        "runners.github.providers.factory.get_provider",
+        lambda *_args: StageProviderFake(),
+    )
 
     async def noop_async(*_args, **_kwargs):
         return None
@@ -843,7 +1297,7 @@ async def test_from_issue_route_spawns_bootstrap_and_poll_stage_advances(monkeyp
         labels=["factory:hard"],
         autonomy_tier="hard",
         change_mode="feature",
-        base_branch="dev",
+        base_branch="attacker-branch",
         project_id="proj-1",
     )
     resp1, resp2 = await asyncio.gather(
@@ -855,7 +1309,7 @@ async def test_from_issue_route_spawns_bootstrap_and_poll_stage_advances(monkeyp
     assert resp1["session_id"] == resp2["session_id"]
     assert (resp1["base_ref"], resp1["project_id"]) == ("dev", "proj-1")
     assert any(name.startswith("bootstrap-issue-stage:") for name in spawned)
-    assert bootstrapped == [resp1["session_id"]]
+    assert bootstrapped and set(bootstrapped) == {resp1["session_id"]}
     assert stage_poller.poll_active_issue_stages(svc) == [resp1["session_id"]]
 
     s = svc.get(resp1["session_id"])

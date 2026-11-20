@@ -38,10 +38,23 @@ def poll_active_issue_stages(
         raw = session.stage_state
         if not isinstance(raw, dict):
             continue
-        if (
-            raw.get("pr_number")
-            and raw.get("current_stage") in _ACTIVE_STAGES
-            and raw.get("stage_status", "draft") == "draft"
+        if raw.get("stage_status") == "bootstrap_pending":
+            try:
+                svc.bootstrap_issue_stage(session.session_id)
+                polled.append(session.session_id)
+            except (EmitInProgressError, StaleSessionError):
+                logger.debug("stage bootstrap skipped busy session %s", session.session_id)
+            except Exception as exc:  # noqa: BLE001 - retry the durable pending bootstrap next tick
+                logger.warning(
+                    "stage bootstrap failed for %s (%s)", session.session_id, type(exc).__name__
+                )
+            continue
+        if raw.get("pr_number") and (
+            (
+                raw.get("current_stage") in _ACTIVE_STAGES
+                and raw.get("stage_status", "draft") == "draft"
+            )
+            or raw.get("stage_status") in {"advance_pending", "handoff_pending"}
         ):
             try:
                 svc.poll_issue_stage(session.session_id)
