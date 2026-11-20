@@ -20,7 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..background.tasks import spawn
+from server.background.tasks import spawn
+
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
 from ..tenancy import multi_tenant_enabled, resolve_tenant
@@ -392,6 +393,7 @@ async def ingest_from_issue(
             if existing is not None:
                 session, created = existing, False
             else:
+                attribution = _attribution(_user(request), authored_elsewhere=True)
                 session = service.ingest_text(
                     body.body or "",
                     title=body.title,
@@ -404,7 +406,8 @@ async def ingest_from_issue(
                     origin_issue_number=body.issue_number,
                     tenant_id=tenant,  # #308
                     org_id=org_id,  # #968
-                    **_attribution(_user(request), authored_elsewhere=True),
+                    originator=attribution["originator"],
+                    agent_identity=attribution["agent_identity"],
                 )
                 created = True
     except (EmitInProgressError, StaleSessionError) as exc:
