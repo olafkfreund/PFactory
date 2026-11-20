@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1095
 intent: intent/2026-11-20-1095-pf-trusted-plan-submit.md
 ---
