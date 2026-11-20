@@ -185,3 +185,21 @@ def test_plan_emit_hides_unexpected_errors(tools_by_name, monkeypatch, caplog):
     assert result["is_error"] is True
     assert "private transport detail" not in result["content"][0]["text"]
     assert "plan_emit failed" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "status",
+    [503, 409],
+)
+def test_plan_emit_hides_raw_http_errors(tools_by_name, monkeypatch, status):
+    async def boom(*_args, **_kwargs):
+        raise http_client.MCPHTTPError(
+            f"HTTP {status}: private upstream response",
+            status_code=status,
+        )
+
+    monkeypatch.setattr(http_client, "request", boom)
+    result = _run(tools_by_name["plan_emit"], {"session_id": "001-x", "dry_run": False})
+    assert result["is_error"] is True
+    assert f"HTTP {status}" in result["content"][0]["text"]
+    assert "private upstream response" not in result["content"][0]["text"]

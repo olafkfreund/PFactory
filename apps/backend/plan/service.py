@@ -2412,6 +2412,7 @@ class PlanService:
                 or not approval_is_valid(review, session.plan)
             ):
                 raise UserApprovalRequiredError("authenticated user approval required")
+        signed_session = session.model_copy(deep=True)
         # RFC-0011 (#182): a `hard` tier means blocking — a live contract emit is
         # HELD until a human approves. (low/medium and dry-runs are unaffected.)
         # The GitHub epic emit is already gated by review.ready_to_emit; the
@@ -2421,20 +2422,24 @@ class PlanService:
         # recorded), so approve -> emit issues -> emit-contract must not 400 (#317).
         if (
             not dry_run
-            and session.plan.autonomy_tier == "hard"
-            and session.status not in ("approved", "emitted")
+            and signed_session.plan.autonomy_tier == "hard"
+            and signed_session.status not in ("approved", "emitted")
         ):
             raise PlanServiceError(
                 "tier=hard requires human approval before emitting the contract: "
-                f"approve session '{session_id}' first (status={session.status!r})"
+                f"approve session '{session_id}' first (status={signed_session.status!r})"
             )
         # #326: the same hard readiness failures that block `approve` must block a
         # live emit, or skipping approve walks straight around the gate.
-        if not dry_run and session.review is not None and session.review.readiness is not None:
+        if (
+            not dry_run
+            and signed_session.review is not None
+            and signed_session.review.readiness is not None
+        ):
             # #450: same refresh as approve — a live emit must be blocked by what
             # the checks say now, not by what a pre-fix build once said.
-            self._refresh_readiness(session)
-            unwaived = session.review.readiness.unwaived_hard_failures(session.plan)
+            self._refresh_readiness(signed_session)
+            unwaived = signed_session.review.readiness.unwaived_hard_failures(signed_session.plan)
             if unwaived:
                 failing = ", ".join(r.check_id for r in unwaived)
                 raise PlanServiceError(
@@ -2442,18 +2447,20 @@ class PlanService:
                     "Fix the plan or record a waiver first."
                 )
         base = base_url or os.environ.get("PFACTORY_AIFACTORY_API_URL", "http://localhost:3101")
-        pid = project_id or repo or session.plan.plan_id
-        corr = session.correlation_key or correlation_key_for(session)
+        pid = project_id or repo or signed_session.plan.plan_id
+        corr = signed_session.correlation_key or correlation_key_for(signed_session)
         # RFC-0007 (#84): discover the access block from the snapshotted
         # .pfactory.yml for this spec. Best-effort — when no snapshot exists the
         # block is simply omitted (the task declares no external resource).
-        access_config, access_spec_text = _load_access_inputs(pid, session.plan.plan_id)
+        access_config, access_spec_text = _load_access_inputs(pid, signed_session.plan.plan_id)
         digest: str | None = None
 
         def on_signed(contract: dict[str, Any]) -> dict[str, Any] | None:
             nonlocal digest
             digest = hashlib.sha256(
-                _canonical({"contract": contract, "base_url": base, "project_id": pid}).encode()
+                _canonical(
+                    {"contract": contract, "base_url": base.rstrip("/"), "project_id": pid}
+                ).encode()
             ).hexdigest()
             record = session.contract_emit_records.get(digest)
             if record is None and (session.contract_emit_record or {}).get("digest") == digest:
@@ -2462,9 +2469,9 @@ class PlanService:
             return {**result, "duplicate": True} if isinstance(result, dict) else None
 
         result = _emit_contract(
-            session.plan,
-            session.epic,
-            session.review,
+            signed_session.plan,
+            cast(EpicPlan, signed_session.epic),
+            signed_session.review,
             http=http,
             dry_run=dry_run,
             on_signed=on_signed if not dry_run else None,
@@ -2475,16 +2482,27 @@ class PlanService:
             correlation_key=corr,
             config=access_config,
             spec_text=access_spec_text,
-            approvals=session.access_approvals or None,
-            tenant_id=session.tenant_id,
+            approvals=signed_session.access_approvals or None,
+            tenant_id=signed_session.tenant_id,
             approval_timestamp=(
-                session.review.human_approval.approved_at
-                if session.review and session.review.human_approval.approved_at
-                else session.created_at
+                signed_session.review.human_approval.approved_at
+                if signed_session.review and signed_session.review.human_approval.approved_at
+                else signed_session.created_at
             ),
         )
         if result.get("duplicate"):
-            return session.model_copy(update={"contract_result": result})
+            response = result.get("response")
+            task_id = (
+                (response.get("taskId") or response.get("task_id"))
+                if isinstance(response, dict)
+                else None
+            )
+            return session.model_copy(
+                update={
+                    "contract_result": result,
+                    "aifactory_task_id": str(task_id) if task_id else None,
+                }
+            )
         session.contract_result = result
         if result.get("ok") and not dry_run:
             record = {

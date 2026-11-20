@@ -125,6 +125,63 @@ def test_repeated_live_emit_is_idempotent_until_plan_changes() -> None:
     assert len(http.calls) == 3
 
 
+def test_live_emit_signs_approved_snapshot_when_cached_plan_changes(monkeypatch) -> None:
+    import plan.emit.contract_emit as contract_emit
+
+    svc = PlanService()
+    sid = _processed_session(svc)
+    svc.approve(sid, approver="human", user_id="user-1", auth_kind="user")
+    original = contract_emit.emit_contract
+
+    def edit_before_signing(*args, **kwargs):
+        svc.update_plan(sid, title="Unapproved title")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(contract_emit, "emit_contract", edit_before_signing)
+    http = FakeHttp()
+    out = svc.emit_contract(sid, http=http, key="secret", dry_run=False, require_user_approval=True)
+    assert out.contract_result["ok"] is True
+    assert http.calls[0]["json"]["plan"]["feature"] == "Widget service"
+
+
+def test_live_emit_dedupes_trailing_slash_in_destination() -> None:
+    svc = PlanService()
+    sid = _processed_session(svc)
+    http = FakeHttp()
+    svc.emit_contract(sid, http=http, key="secret", dry_run=False, base_url="http://x:3101")
+    duplicate = svc.emit_contract(
+        sid, http=http, key="secret", dry_run=False, base_url="http://x:3101/"
+    )
+    assert duplicate.contract_result["duplicate"] is True
+    assert len(http.calls) == 1
+
+
+def test_duplicate_response_uses_cached_task_id() -> None:
+    class TaskHttp(FakeHttp):
+        def post(self, url, *, params, json):
+            super().post(url, params=params, json=json)
+            return {"taskId": f"t-{len(self.calls)}", "status": "accepted"}
+
+    svc = PlanService()
+    sid = _processed_session(svc)
+    http = TaskHttp()
+    svc.emit_contract(sid, http=http, key="secret", dry_run=False)
+    session = svc.get(sid)
+    original_text = session.plan.criteria[0].text
+    session.plan.criteria[0].text = "Changed acceptance criterion"
+    persist(svc, session)
+    svc.emit_contract(sid, http=http, key="secret", dry_run=False)
+    session = svc.get(sid)
+    assert session.aifactory_task_id == "t-2"
+    session.plan.criteria[0].text = original_text
+    persist(svc, session)
+    duplicate = svc.emit_contract(sid, http=http, key="secret", dry_run=False)
+    assert duplicate.contract_result["duplicate"] is True
+    assert duplicate.contract_result["response"]["taskId"] == "t-1"
+    assert duplicate.aifactory_task_id == "t-1"
+    assert len(http.calls) == 2
+
+
 def test_live_mcp_emit_requires_valid_user_approval() -> None:
     svc = PlanService()
     sid = _processed_session(svc)

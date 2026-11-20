@@ -305,7 +305,8 @@ def create_plan_tools() -> list:  # noqa: PLR0915 - one tool registration per su
                 )
             )
         except http_client.MCPHTTPError as exc:
-            return _err(str(exc))
+            status = f"HTTP {exc.status_code}" if exc.status_code else "request failed"
+            return _err(f"Plan emit {status}; check server logs")
         except Exception:
             logger.exception("plan_emit failed")
             return _err("Plan emit failed; check server logs")

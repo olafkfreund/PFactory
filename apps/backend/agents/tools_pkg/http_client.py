@@ -59,6 +59,10 @@ class MCPHTTPError(RuntimeError):
     concrete next step.
     """
 
+    def __init__(self, message: str, *, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class _ClientState:
     """Lazy singleton — opened on first request, reused thereafter."""
@@ -184,7 +188,8 @@ async def request(method: str, path: str, **kwargs: Any) -> dict[str, Any] | lis
     if response.status_code == 401:
         raise MCPHTTPError(
             "PFactory MCP key rejected — mint a fresh key in Settings → "
-            "API Keys (or check $PFACTORY_MCP_KEY / ~/.pfactory/.mcp-key)."
+            "API Keys (or check $PFACTORY_MCP_KEY / ~/.pfactory/.mcp-key).",
+            status_code=401,
         )
     if response.status_code == 403:
         # The proxy includes the missing scope name in the body. Pull it
@@ -192,18 +197,25 @@ async def request(method: str, path: str, **kwargs: Any) -> dict[str, Any] | lis
         body = response.text[:300]
         raise MCPHTTPError(
             f"PFactory MCP key lacks the required scope: {body} — "
-            "mint a new key with the right scope in Settings → API Keys."
+            "mint a new key with the right scope in Settings → API Keys.",
+            status_code=403,
         )
     if response.status_code == 404:
         # Tools may want to differentiate "no such resource" from other
         # errors; surface a structured message but stay a single line.
-        raise MCPHTTPError(f"Resource not found at {method} {path} (HTTP 404)")
+        raise MCPHTTPError(f"Resource not found at {method} {path} (HTTP 404)", status_code=404)
     if response.status_code >= 500:
         body = response.text[:500]
-        raise MCPHTTPError(f"PFactory web-server returned HTTP {response.status_code}: {body}")
+        raise MCPHTTPError(
+            f"PFactory web-server returned HTTP {response.status_code}: {body}",
+            status_code=response.status_code,
+        )
     if response.status_code >= 400:
         body = response.text[:500]
-        raise MCPHTTPError(f"PFactory web-server returned HTTP {response.status_code}: {body}")
+        raise MCPHTTPError(
+            f"PFactory web-server returned HTTP {response.status_code}: {body}",
+            status_code=response.status_code,
+        )
 
     if not response.content:
         return {}
