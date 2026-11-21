@@ -94,9 +94,7 @@ def test_issue_stages_default_off_preserves_ordinary_intake(
     from server.config import Settings
 
     assert Settings.model_fields["ISSUE_STAGES_ENABLED"].default is False
-    monkeypatch.setattr(
-        pp, "get_settings", lambda: type("Flags", (), {"ISSUE_STAGES_ENABLED": False})()
-    )
+    monkeypatch.setattr(pp, "get_settings", type("Flags", (), {"ISSUE_STAGES_ENABLED": False}))
     monkeypatch.setattr(
         "runners.github.providers.factory.get_provider",
         lambda *_args: pytest.fail("ordinary intake must not query the provider"),
@@ -111,9 +109,7 @@ def test_issue_stages_default_off_preserves_ordinary_intake(
 def test_stage_choice_is_persisted_and_retry_cannot_convert_session(
     service: PlanService, monkeypatch
 ) -> None:
-    monkeypatch.setattr(
-        pp, "get_settings", lambda: type("Flags", (), {"ISSUE_STAGES_ENABLED": True})()
-    )
+    monkeypatch.setattr(pp, "get_settings", type("Flags", (), {"ISSUE_STAGES_ENABLED": True}))
     monkeypatch.setattr(
         "runners.github.providers.factory.get_provider",
         lambda *_args: pytest.fail("no stage starts for an existing ordinary session"),
