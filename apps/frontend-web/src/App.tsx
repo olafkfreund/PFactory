@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Routes, Route, Navigate } from 'react-router';
+import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
@@ -28,7 +28,6 @@ import { TaskDetailModal } from './components/task-detail';
 import { PFactoryPortal } from './components/pfactory/PFactoryPortal';
 import { PlanningView } from './components/planning/PlanningView';
 import { OnboardingWizard } from './components/onboarding';
-import { LoadingScreen } from './components/LoadingScreen';
 import { ProjectSwitchLoadingModal } from './components/ProjectSwitchLoadingModal';
 import { LoginPage } from './pages/LoginPage';
 import { EditorPage } from './pages/EditorPage';
@@ -39,16 +38,40 @@ import { useTaskStore, loadTasks } from './stores/task-store';
 import { useSettingsStore, loadSettings } from './stores/settings-store';
 import { useAuthStore } from './stores/auth-store';
 import { useIpcListeners } from './hooks/useIpc';
+import { useEnsureProjects } from './hooks/useEnsureProjects';
+import { findProjectByRef, parseRoute, projectPath, projectSlugs } from './lib/project-route';
 import { UI_SCALE_MIN, UI_SCALE_MAX, UI_SCALE_DEFAULT } from './shared/constants';
 import type { Task, Project } from './shared/types';
 
-function AuthenticatedApp() {
-  // Loading screen state - show for 5 seconds on every page load
-  const [isLoading, setIsLoading] = useState(true);
+const RETURN_TO_KEY = 'pf-return-to';
 
-  const handleLoadingComplete = useCallback(() => {
-    setIsLoading(false);
-  }, []);
+function RedirectToLogin() {
+  const { pathname, search } = useLocation();
+  try {
+    if (pathname !== '/' && pathname !== '/login') {
+      sessionStorage.setItem(RETURN_TO_KEY, pathname + search);
+    }
+  } catch {
+    // sessionStorage may be unavailable
+  }
+  return <Navigate to="/login" replace />;
+}
+
+function LegacyConsoleRedirect() {
+  const { projectId, specId } = useParams<{ projectId: string; specId?: string }>();
+  const ready = useEnsureProjects();
+  const projects = useProjectStore((state) => state.projects);
+  if (!ready) return null;
+  const project = projectId ? findProjectByRef(projects, projectId) : undefined;
+  const slug = project ? (projectSlugs(projects).get(project.id) ?? project.id) : projectId;
+  return <Navigate to={`/p/${encodeURIComponent(slug ?? '')}/console${specId ? `/${specId}` : ''}`} replace />;
+}
+
+function AuthenticatedApp() {
+  const navigate = useNavigate();
+  const { pathname, search } = useLocation();
+  const route = useMemo(() => parseRoute(pathname), [pathname]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
 
   // Stores
   const projects = useProjectStore((state) => state.projects);
@@ -62,6 +85,48 @@ function AuthenticatedApp() {
   const isSwitchingProject = useProjectStore((state) => state.isSwitchingProject);
   const tasks = useTaskStore((state) => state.tasks);
   const settings = useSettingsStore((state) => state.settings);
+  const slugs = useMemo(() => projectSlugs(projects), [projects]);
+  const urlProject = route.kind === 'project' ? findProjectByRef(projects, route.ref) : undefined;
+  const urlSlug = urlProject ? slugs.get(urlProject.id) : undefined;
+  const activeView: SidebarView = route.kind === 'project' ? route.view : 'planning';
+  const urlProjectId = urlProject?.id;
+  const inSync = !!urlProjectId && activeProjectId === urlProjectId && selectedProjectId === urlProjectId;
+  const selectedProject = inSync ? urlProject : undefined;
+  const navProject = urlProject ?? projects.find((p) => p.id === (activeProjectId || selectedProjectId));
+  const goProject = useCallback((id: string, view?: SidebarView) => {
+    void navigate(projectPath(slugs.get(id) ?? id, view));
+  }, [navigate, slugs]);
+  const setActiveView = useCallback((view: SidebarView) => {
+    if (navProject) goProject(navProject.id, view);
+  }, [navProject, goProject]);
+
+  useEffect(() => {
+    if (!projectsLoaded || !urlProjectId) return;
+    const state = useProjectStore.getState();
+    if (state.activeProjectId === urlProjectId && state.selectedProjectId === urlProjectId) return;
+    useTaskStore.getState().clearTasks();
+    state.openProjectTab(urlProjectId);
+    if (useProjectStore.getState().selectedProjectId !== urlProjectId) {
+      useProjectStore.getState().selectProject(urlProjectId);
+    }
+  }, [projectsLoaded, urlProjectId, activeProjectId, selectedProjectId]);
+
+  useEffect(() => {
+    if (route.kind === 'project' && urlSlug && route.ref !== urlSlug) {
+      void navigate(projectPath(urlSlug, route.view) + search, { replace: true });
+    }
+  }, [route, urlSlug, search, navigate]);
+
+  useEffect(() => {
+    if (route.kind !== 'home' || pathname !== '/') return;
+    try {
+      const to = sessionStorage.getItem(RETURN_TO_KEY);
+      sessionStorage.removeItem(RETURN_TO_KEY);
+      if (to?.startsWith('/') && !to.startsWith('//')) void navigate(to, { replace: true });
+    } catch {
+      // sessionStorage may be unavailable
+    }
+  }, [route.kind, pathname, navigate]);
 
   // Set up IPC event listeners for real-time task updates via WebSocket
   useIpcListeners();
@@ -101,7 +166,6 @@ function AuthenticatedApp() {
     },
     [selectedTaskId, tasks]
   );
-  const [activeView, setActiveView] = useState<SidebarView>('planning');
   const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
   const [isCloudCheckOpen, setIsCloudCheckOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
@@ -146,7 +210,7 @@ function AuthenticatedApp() {
       { id: 'act-settings', group: 'Actions', label: 'Open settings', keywords: 'preferences config theme', run: () => { setIsSettingsDialogOpen(true); } },
     ];
     return [...nav, ...actions];
-  }, []);
+  }, [setActiveView]);
 
   // Federated fleet search (#149): the cockpit aggregates every portal's work
   // and exposes a ranked /api/search; this portal proxies it same-origin
@@ -170,8 +234,6 @@ function AuthenticatedApp() {
     }));
   }, []);
 
-  const selectedProject = projects.find((p) => p.id === (activeProjectId || selectedProjectId));
-
   // Compute project name for loading modal
   const switchingProjectName = useMemo(() => {
     if (!isSwitchingProject || !activeProjectId) return undefined;
@@ -180,7 +242,7 @@ function AuthenticatedApp() {
 
   // Initial load
   useEffect(() => {
-    loadProjects();
+    void loadProjects().finally(() => setProjectsLoaded(true));
     loadSettings();
   }, []);
 
@@ -334,12 +396,7 @@ function AuthenticatedApp() {
     });
     // Switch to terminals view to show the new terminal
     setActiveView('terminals');
-  }, []);
-
-  // Show loading screen for 2 seconds on page load
-  if (isLoading) {
-    return <LoadingScreen duration={2000} onComplete={handleLoadingComplete} />;
-  }
+  }, [setActiveView]);
 
   return (
     <ViewStateProvider>
@@ -545,10 +602,15 @@ function AuthenticatedApp() {
 export default function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const checkAuth = useAuthStore((state) => state.checkAuth);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    checkAuth();
+    let cancelled = false;
+    void checkAuth().finally(() => { if (!cancelled) setAuthChecked(true); });
+    return () => { cancelled = true; };
   }, [checkAuth]);
+
+  if (!authChecked) return null;
 
   return (
     <Routes>
@@ -560,12 +622,24 @@ export default function App() {
           the portal's sidebar + tab bar so the URL can be copied,
           opened on a phone, sent to a teammate over a VPN, etc. */}
       <Route
+        path="/p/:slug/console/:specId"
+        element={isAuthenticated ? <ConsolePage /> : <RedirectToLogin />}
+      />
+      <Route
+        path="/p/:slug/console"
+        element={isAuthenticated ? <ConsolePage /> : <RedirectToLogin />}
+      />
+      <Route
         path="/console/:projectId/:specId"
-        element={isAuthenticated ? <ConsolePage /> : <Navigate to="/login" replace />}
+        element={isAuthenticated ? <LegacyConsoleRedirect /> : <RedirectToLogin />}
+      />
+      <Route
+        path="/console/:projectId"
+        element={isAuthenticated ? <LegacyConsoleRedirect /> : <RedirectToLogin />}
       />
       <Route
         path="/*"
-        element={isAuthenticated ? <AuthenticatedApp /> : <Navigate to="/login" replace />}
+        element={isAuthenticated ? <AuthenticatedApp /> : <RedirectToLogin />}
       />
     </Routes>
   );
