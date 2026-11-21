@@ -14,12 +14,26 @@ import re
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.auth import _is_legacy_api_token, _try_decode_jwt
+from server.auth import (
+    API_KEY_PREFIX,
+    _is_legacy_api_token,
+    _try_authenticate_personal_key,
+    _try_decode_jwt,
+)
+from server.database.engine import get_db
+from server.pty.access import project_id_for_path
+from server.routes.project_authz import (
+    require_plan_access,
+    require_project_role,
+    visible_project_ids,
+)
 from server.services.git_utils import confine_to_project, confine_to_workspace  # #335, #553
 
 from ..config import get_settings
@@ -129,8 +143,10 @@ class DiscoveredProject(BaseModel):
     has_claude_md: bool = False
 
 
-@router.get("/discover")
+@router.get("/discover", dependencies=[Depends(require_plan_access("viewer"))])
 async def discover_projects(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
     base_path: str = Query(..., description="Base directory to scan for projects"),
     max_depth: int = Query(1, description="How deep to scan (1 = direct children only)"),
 ):
@@ -148,6 +164,11 @@ async def discover_projects(
 
     if not base.is_dir():
         return {"success": False, "error": f"Path is not a directory: {base_path}", "data": []}
+
+    visible = await visible_project_ids(getattr(request.state, "user", None), db)
+    base_owner = project_id_for_path(str(base))
+    if base_owner is not None and base_owner not in visible:
+        return []
 
     projects = []
 
@@ -171,6 +192,10 @@ async def discover_projects(
                     "target",
                     ".git",
                 ):
+                    continue
+
+                owner_pid = project_id_for_path(str(entry))
+                if owner_pid is not None and owner_pid not in visible:
                     continue
 
                 # Check for project indicators
@@ -212,14 +237,23 @@ async def discover_projects(
 
 @router.get("/list")
 async def list_directory_direct(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
     path: str = Query(..., description="Absolute path to directory"),
     show_hidden: bool = Query(False, description="Show hidden files"),
 ):
     """List contents of a directory by absolute path."""
+    principal = getattr(request.state, "user", None)
+    project_id = project_id_for_path(path)
+    await require_project_role(principal, project_id, "viewer", db=db)
+
     try:
         full_path = confine_to_workspace(path)  # #335
     except ValueError:
         return {"success": False, "error": "path outside the allowed workspace", "data": None}
+
+    if (resolved_pid := project_id_for_path(str(full_path))) != project_id:
+        await require_project_role(principal, resolved_pid, "viewer", db=db)
 
     if _is_app_internal_path(full_path):
         return {"success": False, "error": "Access denied", "data": None}
@@ -266,9 +300,15 @@ async def list_directory_direct(
 
 @router.get("/read")
 async def read_file_direct(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
     path: str = Query(..., description="Absolute path to file"),
 ):
     """Read file contents by absolute path."""
+    principal = getattr(request.state, "user", None)
+    project_id = project_id_for_path(path)
+    await require_project_role(principal, project_id, "viewer", db=db)
+
     try:
         # #553 strict tier: this returns file CONTENT, so the path must be
         # inside a REGISTERED project -- not merely under the workspace root,
@@ -276,6 +316,9 @@ async def read_file_direct(
         full_path = confine_to_project(path)
     except ValueError:
         return {"success": False, "error": "path outside the allowed workspace", "data": None}
+
+    if (resolved_pid := project_id_for_path(str(full_path))) != project_id:
+        await require_project_role(principal, resolved_pid, "viewer", db=db)
 
     if _is_app_internal_path(full_path):
         return {"success": False, "error": "Access denied", "data": None}
@@ -331,22 +374,65 @@ def _validate_serve_token(request: Request, token: str) -> bool:
         header_token = auth_header[7:]
         if _try_decode_jwt(header_token) is not None:
             return True
-        if _is_legacy_api_token(header_token):
+        if _is_legacy_api_token(header_token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
             return True
 
     # 2. Try query-param token (used by rewritten HTML asset URLs)
     if token:
         if _try_decode_jwt(token) is not None:
             return True
-        if _is_legacy_api_token(token):
+        if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
             return True
 
     return False
 
 
+async def _resolve_serve_principal(request: Request, token: str) -> dict[str, Any] | None:
+    """Resolve the caller principal for /serve from request.state.user, header, or ?token=."""
+    user = getattr(request.state, "user", None)
+    if isinstance(user, dict):
+        return user
+
+    settings = get_settings()
+    if settings.DISABLE_AUTH:
+        return {"id": "default", "email": "default@localhost", "role": "admin"}
+
+    candidates: list[str] = []
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        candidates.append(auth_header[7:])
+    if token:
+        candidates.append(token)
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        jwt_payload = _try_decode_jwt(candidate)
+        if jwt_payload is not None:
+            return {
+                "id": jwt_payload.get("sub"),
+                "email": jwt_payload.get("email"),
+                "role": jwt_payload.get("role", "user"),
+            }
+        if _is_legacy_api_token(candidate) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+            return {
+                "id": "default",
+                "email": None,
+                "role": "user",
+                "is_service": True,
+            }
+        if candidate.startswith(API_KEY_PREFIX):
+            api_user = await _try_authenticate_personal_key(candidate)
+            if api_user is not None:
+                return api_user
+
+    return None
+
+
 @router.get("/serve")
 async def serve_project_file(
     request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
     path: str = Query(..., description="Absolute path to the file to serve"),
     root: str = Query(..., description="Project root directory (for resolving relative URLs)"),
     token: str = Query(default="", description="Bearer token for authentication"),
@@ -357,9 +443,13 @@ async def serve_project_file(
     CSS/JS/images load through this same endpoint.  External URLs
     (http://, https://, //, data:, #, mailto:) are left untouched.
     """
-    # Authenticate: check token from query param or Authorization header
-    if not _validate_serve_token(request, token):
+    # Authenticate: check request.state.user, token query param, or Authorization header
+    principal = await _resolve_serve_principal(request, token)
+    if principal is None:
         raise HTTPException(status_code=401, detail="Authentication required")
+    project_id = project_id_for_path(root) or project_id_for_path(path)
+    await require_project_role(principal, project_id, "viewer", db=db)
+
     try:
         # #553 strict tier for `root`: the declared project root must be a
         # REGISTERED project. `path` is then confined to that root by the
@@ -368,6 +458,9 @@ async def serve_project_file(
         root_path = confine_to_project(root)
     except ValueError:
         raise HTTPException(status_code=400, detail="path outside the allowed workspace")
+
+    if (resolved_pid := project_id_for_path(str(root_path))) != project_id:
+        await require_project_role(principal, resolved_pid, "viewer", db=db)
 
     # Security: file must exist inside the declared project root
     if not root_path.is_dir():

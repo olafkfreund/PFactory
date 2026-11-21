@@ -13,15 +13,26 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path as FilePath
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
 from server.background.tasks import spawn
+from server.database.engine import get_db
 from server.error_ref import error_message
+from server.routes.organizations import ROLE_LEVELS
+from server.routes.project_authz import (
+    is_service_principal,
+    require_camel_project_access,
+    require_path_project_role,
+    require_project_role,
+    require_repo_project_role,
+    scope_role_ceiling,
+)
 from server.services import run_leases
 from server.services.git_base_url import safe_git_base_url  # #610
 from server.services.git_utils import git_run
@@ -433,13 +444,20 @@ async def get_copilot_dispatch_config():
 
 
 @router.post("/copilot/dispatch")
-async def dispatch_to_copilot(request: CopilotDispatchRequest):
+async def dispatch_to_copilot(
+    request: CopilotDispatchRequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """Assign a PFactory planning issue to the Copilot cloud agent (#88).
 
     Opt-in: returns 409 when ``PFACTORY_COPILOT_DISPATCH_ENABLED`` is off so the
     caller falls back to the normal PFactory flow instead of silently ignoring
     the label.
     """
+    await require_repo_project_role(
+        getattr(http_request.state, "user", None), request.repo, "member", db
+    )
     from ..services.copilot_dispatch_service import SERVICE, CopilotDispatchService
 
     if not CopilotDispatchService.is_enabled():
@@ -467,8 +485,14 @@ async def dispatch_to_copilot(request: CopilotDispatchRequest):
 
 
 @router.get("/copilot/pr")
-async def find_copilot_pr(repo: str = Query(...), issueNumber: int = Query(...)):
+async def find_copilot_pr(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    repo: str = Query(...),
+    issueNumber: int = Query(...),
+):
     """Find the Copilot-opened plan-draft PR for an issue, if any (#88)."""
+    await require_repo_project_role(getattr(request.state, "user", None), repo, "viewer", db)
     from ..services.copilot_dispatch_service import SERVICE
 
     pr_number = SERVICE.find_copilot_pr(repo, issueNumber)
@@ -503,7 +527,12 @@ def _render_plan_review_comment(repo: str, pr_number: int, session) -> str:
 
 
 @router.post("/prs/{pr_number}/plan-review")
-async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
+async def plan_review_pr(
+    pr_number: int,
+    request: PlanReviewPRRequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """Run PFactory's governance gates on a (Copilot-authored) plan-draft PR.
 
     Component 4 of the GitHub Agentic Integration (epic #87 / #90). Ingests the
@@ -515,6 +544,10 @@ async def plan_review_pr(pr_number: int, request: PlanReviewPRRequest):
     import os
     import sys
     from pathlib import Path as _Path
+
+    await require_repo_project_role(
+        getattr(http_request.state, "user", None), request.repo, "member", db
+    )
 
     backend_dir = _Path(__file__).resolve().parents[3] / "backend"
     if str(backend_dir) not in sys.path:
@@ -736,13 +769,19 @@ async def check_github_auth():
 
 
 @router.get("/auto-detect")
-async def auto_detect_github(projectId: str | None = Query(None)):
+async def auto_detect_github(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    projectId: str | None = Query(None),
+):
     """Auto-detect GitHub CLI authentication and username in one call.
 
     If projectId is provided, the CLI token is persisted directly to the
     project's .pfactory/.env file (server-side). The raw token is never
     included in the response.
     """
+    if projectId is not None:
+        await require_project_role(getattr(request.state, "user", None), projectId, "admin", db=db)
     # Check gh CLI is installed
     if not shutil.which("gh"):
         return {"success": True, "data": {"authenticated": False, "reason": "gh_not_installed"}}
@@ -990,11 +1029,18 @@ async def get_github_token():
 
 
 @router.post("/persist-token")
-async def persist_github_token(request: PersistTokenRequest):
+async def persist_github_token(
+    request: PersistTokenRequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """Persist the gh CLI token to a project's .pfactory/.env file.
 
     The raw token never appears in the response.
     """
+    await require_project_role(
+        getattr(http_request.state, "user", None), request.projectId, "admin", db=db
+    )
     persisted = _persist_cli_token_to_project(request.projectId)
     if persisted:
         return {"success": True, "data": {"tokenPersisted": True}}
@@ -1044,8 +1090,13 @@ async def list_github_orgs():
 
 
 @router.get("/detect-repo")
-async def detect_github_repo(path: str = Query(...)):
+async def detect_github_repo(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    path: str = Query(...),
+):
     """Detect GitHub remote for a local repository."""
+    await require_path_project_role(getattr(request.state, "user", None), path, "viewer", db)
     result = run_gh_command(
         ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], cwd=path
     )
@@ -1056,9 +1107,12 @@ async def detect_github_repo(path: str = Query(...)):
 
 @router.get("/branches")
 async def get_github_branches(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
     repo: str = Query(...),
 ):
     """Get branches for a GitHub repository."""
+    await require_repo_project_role(getattr(request.state, "user", None), repo, "viewer", db)
     result = run_gh_command(["api", f"repos/{repo}/branches", "--jq", ".[].name"])
     if result["success"]:
         branches = result["output"].split("\n") if result["output"] else []
@@ -1089,8 +1143,15 @@ async def create_github_repo(request: CreateRepoRequest):
 
 
 @router.post("/remote")
-async def add_git_remote(request: AddRemoteRequest):
+async def add_git_remote(
+    request: AddRemoteRequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """Add GitHub remote to local repository."""
+    await require_path_project_role(
+        getattr(http_request.state, "user", None), request.projectPath, "member", db
+    )
     remote_url = f"https://github.com/{request.repoFullName}.git"
     try:
         git_run(
@@ -1404,7 +1465,10 @@ async def _get_provider_issue_comments(provider, issueNumber: int) -> list[dict]
     return [_map_provider_comment(comment) for comment in found]
 
 
-@project_router.get("/repositories")
+@project_router.get(
+    "/repositories",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_project_github_repositories(projectId: str):
     """Get GitHub repositories for a project."""
     project_path = _resolve_project_path(projectId)
@@ -1441,7 +1505,10 @@ async def get_project_github_repositories(projectId: str):
         return {"success": True, "data": []}
 
 
-@project_router.get("/status")
+@project_router.get(
+    "/status",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def check_project_github_connection(projectId: str):
     """Check GitHub connection status for a project."""
     project_path = _resolve_project_path(projectId)
@@ -1560,7 +1627,10 @@ async def check_project_github_connection(projectId: str):
     }
 
 
-@project_router.get("/issues")
+@project_router.get(
+    "/issues",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_project_github_issues(projectId: str, state: str | None = Query(None)):
     """Get GitHub issues for a project."""
     project_path = _resolve_project_path(projectId)
@@ -1610,7 +1680,10 @@ async def get_project_github_issues(projectId: str, state: str | None = Query(No
     return {"success": True, "data": issues}
 
 
-@project_router.get("/issues/{issueNumber}")
+@project_router.get(
+    "/issues/{issueNumber}",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_project_github_issue(projectId: str, issueNumber: int):
     """Get a specific GitHub issue."""
     project_path = _resolve_project_path(projectId)
@@ -1651,7 +1724,10 @@ async def get_project_github_issue(projectId: str, issueNumber: int):
     return {"success": True, "data": _map_gh_issue(issue_raw, repo_full_name)}
 
 
-@project_router.get("/issues/{issueNumber}/comments")
+@project_router.get(
+    "/issues/{issueNumber}/comments",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_project_github_issue_comments(projectId: str, issueNumber: int):
     """Get comments for a GitHub issue."""
     project_path = _resolve_project_path(projectId)
@@ -1702,7 +1778,10 @@ async def get_project_github_issue_comments(projectId: str, issueNumber: int):
     return {"success": True, "data": comments}
 
 
-@project_router.post("/issues/{issueNumber}/investigate")
+@project_router.post(
+    "/issues/{issueNumber}/investigate",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def investigate_github_issue(projectId: str, issueNumber: int, request: InvestigateRequest):
     """Investigate an issue using AI (supports GitHub, GitLab, Azure DevOps)."""
     try:
@@ -1842,7 +1921,10 @@ async def investigate_github_issue(projectId: str, issueNumber: int, request: In
         return {"success": False, "error": "Failed to investigate issue"}
 
 
-@project_router.post("/import")
+@project_router.post(
+    "/import",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def import_github_issues(projectId: str, request: ImportIssuesRequest):
     """Import GitHub issues as tasks."""
     project_path = _resolve_project_path(projectId)
@@ -1950,7 +2032,10 @@ async def import_github_issues(projectId: str, request: ImportIssuesRequest):
     }
 
 
-@project_router.post("/issues/{issueNumber}/close")
+@project_router.post(
+    "/issues/{issueNumber}/close",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def close_github_issue(projectId: str, issueNumber: int):
     """Close a GitHub issue."""
     project_path = _resolve_project_path(projectId)
@@ -1979,7 +2064,10 @@ async def close_github_issue(projectId: str, issueNumber: int):
     return {"success": True}
 
 
-@project_router.get("/prs")
+@project_router.get(
+    "/prs",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_project_github_prs(
     projectId: str,
     state: str | None = Query(None),
@@ -2013,7 +2101,10 @@ async def get_project_github_prs(
     return service.list_prs(project_path, state=state)
 
 
-@project_router.post("/prs/{prNumber}/review")
+@project_router.post(
+    "/prs/{prNumber}/review",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def trigger_pr_review(
     projectId: str,
     prNumber: int,
@@ -2086,7 +2177,10 @@ async def trigger_pr_review(
     )
 
 
-@project_router.get("/prs/{prNumber}/review")
+@project_router.get(
+    "/prs/{prNumber}/review",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_pr_review(projectId: str, prNumber: int):
     """Get stored PR review result.
 
@@ -2115,7 +2209,10 @@ async def get_pr_review(projectId: str, prNumber: int):
     return result
 
 
-@project_router.delete("/prs/{prNumber}/review")
+@project_router.delete(
+    "/prs/{prNumber}/review",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def delete_pr_review(projectId: str, prNumber: int):
     """Delete a stored PR review result.
 
@@ -2141,7 +2238,10 @@ async def delete_pr_review(projectId: str, prNumber: int):
     return result
 
 
-@project_router.post("/prs/{prNumber}/post-review")
+@project_router.post(
+    "/prs/{prNumber}/post-review",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def post_pr_review_to_github(
     projectId: str,
     prNumber: int,
@@ -2183,7 +2283,10 @@ async def post_pr_review_to_github(
     return result
 
 
-@project_router.post("/prs/{prNumber}/comment")
+@project_router.post(
+    "/prs/{prNumber}/comment",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def post_pr_comment(
     projectId: str,
     prNumber: int,
@@ -2221,7 +2324,10 @@ async def post_pr_comment(
     return result
 
 
-@project_router.post("/prs/{prNumber}/approve")
+@project_router.post(
+    "/prs/{prNumber}/approve",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def approve_pr(
     projectId: str,
     prNumber: int,
@@ -2263,13 +2369,25 @@ async def approve_pr(
     return result
 
 
-@project_router.post("/prs/{prNumber}/merge")
+@project_router.post(
+    "/prs/{prNumber}/merge",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def merge_pr(
     projectId: str,
     prNumber: int,
+    http_request: Request,
     request: MergePRRequest | None = None,
 ):
     """Merge a PR with configurable merge method (merge/squash/rebase)."""
+    principal = getattr(http_request.state, "user", None)
+    if (
+        isinstance(principal, dict)
+        and ("api_key_id" in principal or "scopes" in principal)
+        and not is_service_principal(principal)
+        and ROLE_LEVELS.get(scope_role_ceiling(principal) or "", -1) < ROLE_LEVELS["admin"]
+    ):
+        raise HTTPException(status_code=403, detail="Requires task:merge scope on project")
     project_path = _resolve_project_path(projectId)
     if not project_path:
         return JSONResponse(
@@ -2308,7 +2426,10 @@ async def merge_pr(
     return result
 
 
-@project_router.post("/prs/{prNumber}/assign")
+@project_router.post(
+    "/prs/{prNumber}/assign",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def assign_pr(
     projectId: str,
     prNumber: int,
@@ -2335,7 +2456,10 @@ async def assign_pr(
     return result
 
 
-@project_router.post("/prs/{prNumber}/cancel")
+@project_router.post(
+    "/prs/{prNumber}/cancel",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def cancel_pr_review(
     projectId: str,
     prNumber: int,
@@ -2369,7 +2493,10 @@ async def cancel_pr_review(
     return {"success": True, "data": {"cancelled": True}}
 
 
-@project_router.get("/prs/{prNumber}/new-commits")
+@project_router.get(
+    "/prs/{prNumber}/new-commits",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def check_pr_new_commits(projectId: str, prNumber: int):
     """Check if there are new commits since the last review.
 
@@ -2392,7 +2519,10 @@ async def check_pr_new_commits(projectId: str, prNumber: int):
     return service.check_new_commits(project_path, prNumber)
 
 
-@project_router.get("/prs/{prNumber}/logs")
+@project_router.get(
+    "/prs/{prNumber}/logs",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_pr_review_logs(projectId: str, prNumber: int):
     """Get PR review execution logs.
 
@@ -2422,7 +2552,10 @@ async def get_pr_review_logs(projectId: str, prNumber: int):
     return result
 
 
-@project_router.post("/releases")
+@project_router.post(
+    "/releases",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def create_github_release(projectId: str, request: CreateReleaseRequest):
     """Create a GitHub release."""
     project_path = _resolve_project_path(projectId)
@@ -2453,8 +2586,15 @@ async def create_github_release(projectId: str, request: CreateReleaseRequest):
 
 
 @router.get("/fork-info")
-async def get_fork_info(project_path: str = Query(..., description="Absolute path to the project")):
+async def get_fork_info(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    project_path: str = Query(..., description="Absolute path to the project"),
+):
     """Detect if repo is a fork and return origin + upstream info."""
+    await require_path_project_role(
+        getattr(request.state, "user", None), project_path, "viewer", db
+    )
     result = run_gh_command(
         ["repo", "view", "--json", "nameWithOwner,parent,isFork,defaultBranchRef"], cwd=project_path
     )
