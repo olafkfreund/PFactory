@@ -36,6 +36,7 @@ from server.jobstore import (  # noqa: E402
     lease_ttl_seconds,
     lifecycle_state_for,
 )
+from server.jobstore.lifecycle import IN_FLIGHT_LIFECYCLE  # noqa: E402
 from server.jobstore.models import JobState  # noqa: E402
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -82,6 +83,8 @@ def test_lifecycle_mapping_matches_taxonomy():
     assert lifecycle_state_for("reviewing") == "running"
     assert lifecycle_state_for("processed") == "review"
     assert lifecycle_state_for("approved") == "review"
+    assert lifecycle_state_for("needs_human") == "review"
+    assert lifecycle_state_for("needs_human") not in IN_FLIGHT_LIFECYCLE
     assert lifecycle_state_for("rejected") == "failed"
     assert lifecycle_state_for("emitted") == "done"
     # unknown / falsy -> running-fallback (never terminal)

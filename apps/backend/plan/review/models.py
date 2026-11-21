@@ -70,6 +70,13 @@ class HumanApproval(BaseModel):
 
     approved: bool = False
     approved_by: str = ""
+    user_id: str | None = None
+    auth_kind: str = "unknown"
+    provider: str | None = None
+    provider_user_id: int | None = None
+    username: str | None = None
+    pr_number: int | None = None
+    approved_head_sha: str | None = None
     approved_at: str = ""
     plan_hash: str = ""  # NormalizedPlan.content_hash at approval time
     valid: bool = False

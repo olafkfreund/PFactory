@@ -4,18 +4,23 @@
 (plan → execution → review_tier → verification → tfactory) into one contract.
 :func:`emit_contract` validates it, signs it (HMAC trusted_plan envelope), and —
 unless dry-run — POSTs it to AIFactory's ``/api/tasks/from-plan`` skip-planning
-endpoint, falling back to the legacy ``create-and-run`` requirements path if the
-fast-path is unavailable. Dry-run by default, honouring the no-automatic-pushes
+endpoint, with an opt-in legacy ``create-and-run`` fallback when
+``PFACTORY_EMIT_FALLBACK=1``. Dry-run by default, honouring the no-automatic-pushes
 policy.
 """
 
 from __future__ import annotations
 
 import binascii
+import json
 import logging
 import os
+import socket
+from collections.abc import Callable
 from datetime import UTC, datetime
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
+from urllib.error import HTTPError, URLError
 
 from plan.emit.access_block import attach_access
 from plan.emit.compliance_block import attach_compliance
@@ -134,6 +139,7 @@ def assemble_contract(
     spec_text: str = "",
     approvals: dict | None = None,
     tenant_id: str | None = None,
+    handoff: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compose the complete (unsigned) Task Contract from all #65 blocks.
 
@@ -143,7 +149,9 @@ def assemble_contract(
     curation so ``curated: true`` lands on the contract (#86). Both optional, so
     existing callers are unaffected.
     """
-    contract = build_task_contract(plan, epic, repo=repo, correlation_key=correlation_key)
+    contract = build_task_contract(
+        plan, epic, repo=repo, correlation_key=correlation_key, handoff=handoff
+    )
     # Multi-tenancy (#308): carry the tenant as OPTIONAL additive provenance
     # metadata (the hub schema's provenance allows additional properties), so
     # AIFactory can keep the PARR chain tenant-scoped. Omitted for the default
@@ -319,7 +327,7 @@ def _attach_pubkey_signature(contract: dict[str, Any]) -> None:
         logger.warning("Ed25519 contract signing skipped: %s", type(exc).__name__)
 
 
-def emit_contract(
+def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback exit independently
     plan: NormalizedPlan,
     epic: EpicPlan,
     review: PlanReview | None = None,
@@ -338,6 +346,8 @@ def emit_contract(
     max_retries: int = 2,
     dry_run: bool = True,
     tenant_id: str | None = None,
+    handoff: dict[str, Any] | None = None,
+    on_signed: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     """Assemble, validate, sign, and (unless dry-run) emit the contract.
 
@@ -348,7 +358,7 @@ def emit_contract(
     Returns a result dict: ``{ok, dry_run, signed, endpoint, contract, ...}``.
     On a validation failure ``ok`` is False and ``errors`` lists the problems —
     an incomplete contract is never POSTed. Live emit POSTs to ``/from-plan`` and
-    falls back to ``create-and-run`` (first child) if that raises.
+    falls back to ``create-and-run`` (first child) only when explicitly enabled.
 
     Validated handshake (#81): after a successful POST the ``task_id`` is read
     from the response. When the injected client exposes ``get`` AND
@@ -370,6 +380,7 @@ def emit_contract(
         spec_text=spec_text,
         approvals=approvals,
         tenant_id=tenant_id,
+        handoff=handoff,
     )
     errors = validate_contract(contract)
     if errors:
@@ -378,6 +389,8 @@ def emit_contract(
     # #401: key and kid resolve together. An explicit `key=` override signs the
     # legacy way (no kid) — only the environment knows which kid a key belongs to.
     signing_key, signing_kid = (key, None) if key else key_from_env("pfactory")
+    if handoff and not dry_run and not signing_key:
+        raise ValueError("staged contract handoff requires a signing key")
     signed = False
     if signing_key:
         attach_signature(
@@ -399,6 +412,9 @@ def emit_contract(
             "contract": contract,
         }
 
+    if on_signed and (cached := on_signed(contract)) is not None:
+        return cached
+
     if http is None:
         raise ValueError("live emit_contract requires an injected `http` client")
 
@@ -416,19 +432,47 @@ def emit_contract(
             max_retries=max_retries,
         )
     except Exception as exc:
-        # Fast-path unavailable — fall back to the legacy create-and-run path for
-        # the first child so the handoff still lands (AIFactory then plans).
+        # Fast-path unavailable; the legacy fallback is explicitly opt-in.
         # Factory#718: `exc` is whatever `_post_with_readback`'s transport call
         # raised -- urllib, TLS, or AIFactory's own response parsing -- and its
         # text was never reviewed for what it reveals (a host, a port, an
         # internal URL). Logged in full server-side; only the class name and a
         # static sentence cross into the response body below.
         logger.warning(
-            "emit_contract fast-path failed for spec_id=%s, falling back to create-and-run: %s",
+            "emit_contract fast-path failed for spec_id=%s: %s",
             spec_id,
             type(exc).__name__,
             exc_info=exc,
         )
+        if handoff or os.environ.get("PFACTORY_EMIT_FALLBACK") != "1":
+            result: dict[str, Any] = {
+                "ok": False,
+                "dry_run": False,
+                "endpoint": url,
+                "errors": ["from-plan failed; no task was confirmed"],
+                "aifactory_status": None,
+                "aifactory_detail": None,
+            }
+            if (
+                isinstance(exc, HTTPError)
+                and HTTPStatus.BAD_REQUEST <= exc.code < HTTPStatus.INTERNAL_SERVER_ERROR
+            ):
+                result["aifactory_status"] = exc.code
+                try:
+                    body = json.loads(exc.read().decode("utf-8"))
+                    detail = body.get("detail") if isinstance(body, dict) else None
+                    if isinstance(detail, (str, list, dict)):
+                        result["aifactory_detail"] = str(detail)[:500]
+                except (AttributeError, ValueError, UnicodeError, OSError):
+                    logger.debug("Ignoring unreadable AIFactory error detail", exc_info=True)
+            if isinstance(exc, (TimeoutError, socket.timeout)) or (
+                isinstance(exc, URLError) and isinstance(exc.reason, (TimeoutError, socket.timeout))
+            ):
+                result["outcome"] = "unknown"
+                result["errors"] = [
+                    "Task creation outcome unknown; check AIFactory for the task before retrying"
+                ]
+            return result
         from plan.emit.aifactory_handoff import build_requirements, trigger_api
 
         if not epic.children:

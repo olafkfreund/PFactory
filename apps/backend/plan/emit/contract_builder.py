@@ -194,13 +194,14 @@ def _workflow_type(plan: NormalizedPlan) -> str:
     return "feature"
 
 
-def build_task_contract(
+def build_task_contract(  # noqa: PLR0913 - handoff provenance joins existing contract inputs
     plan: NormalizedPlan,
     epic: EpicPlan,
     *,
     workflow_type: str | None = None,
     repo: str | None = None,
     correlation_key: str | None = None,
+    handoff: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the RFC-0002 Task Contract *plan* from a normalized plan + its epic.
 
@@ -231,6 +232,21 @@ def build_task_contract(
             provenance["base_ref"] = rm.base_ref
         if rm.commit:
             provenance["baseline_commit"] = rm.commit
+    if handoff:
+        provenance.update(
+            {
+                key: handoff[key]
+                for key in (
+                    "project_id",
+                    "provider",
+                    "repo",
+                    "base_ref",
+                    "source_branch",
+                    "approved_head_sha",
+                    "pr_number",
+                )
+            }
+        )
     contract: dict[str, Any] = {
         "contract_version": CONTRACT_VERSION,
         "feature": (epic.epic_title or plan.title).strip(),

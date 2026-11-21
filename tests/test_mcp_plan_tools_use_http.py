@@ -29,8 +29,7 @@ try:
     import claude_agent_sdk  # noqa: F401 — availability probe
 except ImportError:
     pytest.skip(
-        "claude_agent_sdk not installed in this venv — install with "
-        "'npm run install:backend'.",
+        "claude_agent_sdk not installed in this venv — install with 'npm run install:backend'.",
         allow_module_level=True,
     )
 
@@ -110,6 +109,7 @@ def test_ingest_without_text_or_path_is_rejected(tools_by_name, calls):
         ("plan_status", {"session_id": "001-x"}, ("GET", "/api/plan/sessions/001-x")),
         ("plan_list", {}, ("GET", "/api/plan/sessions")),
         ("plan_categories", {}, ("GET", "/api/plan/meta/categories")),
+        ("plan_emit", {"session_id": "001-x"}, ("POST", "/api/plan/sessions/001-x/emit-contract")),
         (
             "plan_approve",
             {"session_id": "001-x", "approver": "olaf"},
@@ -174,3 +174,32 @@ def test_a_server_error_surfaces_as_a_tool_error(tools_by_name, monkeypatch):
     result = _run(tools_by_name["plan_list"], {})
     assert result.get("is_error") is True
     assert "not reachable" in result["content"][0]["text"]
+
+
+def test_plan_emit_hides_unexpected_errors(tools_by_name, monkeypatch, caplog):
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("private transport detail")
+
+    monkeypatch.setattr(http_client, "request", boom)
+    result = _run(tools_by_name["plan_emit"], {"session_id": "001-x", "dry_run": False})
+    assert result["is_error"] is True
+    assert "private transport detail" not in result["content"][0]["text"]
+    assert "plan_emit failed" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "status",
+    [503, 409],
+)
+def test_plan_emit_hides_raw_http_errors(tools_by_name, monkeypatch, status):
+    async def boom(*_args, **_kwargs):
+        raise http_client.MCPHTTPError(
+            f"HTTP {status}: private upstream response",
+            status_code=status,
+        )
+
+    monkeypatch.setattr(http_client, "request", boom)
+    result = _run(tools_by_name["plan_emit"], {"session_id": "001-x", "dry_run": False})
+    assert result["is_error"] is True
+    assert f"HTTP {status}" in result["content"][0]["text"]
+    assert "private upstream response" not in result["content"][0]["text"]

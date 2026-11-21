@@ -73,6 +73,12 @@ class FakeSessionStore:
         if self.lease.get(session_id) == owner:
             del self.lease[session_id]
 
+    def delete_if_lease_owner(self, session_id: str, owner: str) -> bool:
+        if self.lease.get(session_id) != owner:
+            return False
+        del self.lease[session_id]
+        return self.delete(session_id)
+
     def is_ready(self) -> bool:
         return True
 
