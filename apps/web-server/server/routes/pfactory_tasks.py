@@ -829,7 +829,7 @@ async def merge_accepted_tests(  # noqa: PLR0912 - destination adds a guard bran
         + (f" + {n_flag} flagged" if n_flag else "")
         + " test(s)",
     )
-    result = write_tests_to_branch(request, dry_run=body.dry_run)
+    result = await asyncio.to_thread(write_tests_to_branch, request, dry_run=body.dry_run)
     return {
         "ok": result.ok,
         "dry_run": result.dry_run,

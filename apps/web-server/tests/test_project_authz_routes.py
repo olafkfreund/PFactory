@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import dis
 import inspect
+import textwrap
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -22,6 +25,7 @@ from server.database.models import Base, Organization, OrgMember, User
 from server.main import create_app
 from server.mcp_remote import tools as mcp_remote_tools
 from server.mcp_stdio import router as mcp_stdio_router
+from server.mcp_stdio.auth import MCP_READ_SCOPE, require_acw_scope
 from server.pty.access import may_use
 from server.rmux import bridge as rmux_bridge
 from server.routes import (
@@ -34,10 +38,11 @@ from server.routes import (
     tasks as tasks_routes,
 )
 from server.routes.pfactory_tasks import SpecAccessChecker
-from server.routes.project_authz import _AccessChecker
+from server.routes.project_authz import _AccessChecker, require_project_role
 from server.services import project_paths
 from server.websockets.events import _org_lookup_ok
 from server.websockets.task_access import AllTaskSocketAccess, TaskSocketAccess
+from tools import git_writer
 
 # Explicit allowlist of non-project-scoped (public, system, auth, org-admin,
 # user-settings, global diagnostics, or stateless parser) REST routes.
@@ -241,6 +246,7 @@ PUBLIC_SYSTEM_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
 )
 
 ACTUAL_GUARDS = (
+    project_authz.PlanAccessChecker,
     project_authz.require_project_role,
     project_authz.require_path_project_role,
     project_authz.require_repo_project_role,
@@ -262,8 +268,15 @@ def _calls_guard(fn: Any, seen: set[Any]) -> bool:
     if fn in seen or not inspect.isfunction(fn):
         return False
     seen.add(fn)
+    try:
+        calls = {
+            node.func.id for node in ast.walk(ast.parse(textwrap.dedent(inspect.getsource(fn))))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+    except (OSError, TypeError, SyntaxError):
+        return False
     for instruction in dis.get_instructions(fn):
-        if instruction.opname != "LOAD_GLOBAL":
+        if instruction.opname != "LOAD_GLOBAL" or instruction.argval not in calls:
             continue
         obj = fn.__globals__.get(instruction.argval)
         if (
@@ -282,11 +295,6 @@ def _route_has_project_guard(route: APIRoute) -> bool:
     for sub_dep in route.dependant.dependencies:
         if isinstance(sub_dep.call, (_AccessChecker, SpecAccessChecker)):
             return True
-        if route.path.startswith("/api/mcp-stdio/") and (
-            getattr(sub_dep.call, "__module__", "") == "server.mcp_stdio.auth"
-            and getattr(sub_dep.call, "__name__", "") == "_check"
-        ):
-            return True
     return _calls_guard(route.endpoint, set())
 
 
@@ -299,6 +307,21 @@ def test_route_guard_detection_ignores_source_text() -> None:
         return {"ok": True}
 
     route = next(r for r in app.routes if isinstance(r, APIRoute))
+    assert not _route_has_project_guard(route)
+
+    @app.get("/scope-only", dependencies=[Depends(require_acw_scope(MCP_READ_SCOPE))])
+    def scope_only() -> dict[str, bool]:
+        return {"ok": True}
+
+    route = next(r for r in app.routes if isinstance(r, APIRoute) and r.path == "/scope-only")
+    assert not _route_has_project_guard(route)
+
+    @app.get("/reference-only")
+    def reference_only() -> dict[str, bool]:
+        unused = require_project_role
+        return {"ok": bool(unused)}
+
+    route = next(r for r in app.routes if isinstance(r, APIRoute) and r.path == "/reference-only")
     assert not _route_has_project_guard(route)
 
 
@@ -347,6 +370,13 @@ def test_mcp_stdio_and_remote_tool_tables_enforce_project_authorization() -> Non
     tool_names = {d["name"] for d in tool_defs}
     assert tool_names == set(mcp_remote_tools._SCOPE_FOR_TOOL.keys())
     dispatch_globals = mcp_remote_tools.dispatch_tool_call.__globals__
+    dispatch_source = textwrap.dedent(inspect.getsource(mcp_remote_tools.dispatch_tool_call))
+    dispatch_calls = {
+        node.func.id
+        for node in ast.walk(ast.parse(dispatch_source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "_authorize_call" in dispatch_calls
     assert any(
         instruction.argval == "_authorize_call"
         and dispatch_globals["_authorize_call"] is mcp_remote_tools._authorize_call
@@ -493,6 +523,15 @@ def matrix_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
             "org_id": "org-b",
             "scopes": ("api",),
         },
+        "org-a-service-key": {
+            "id": None, "api_key_id": "k-service", "org_id": "org-a",
+            "scopes": ("project:write",),
+        },
+        "org-a-service-read": {
+            "id": None, "api_key_id": "k-service-read", "org_id": "org-a",
+            "scopes": ("project:read",),
+        },
+        "legacy": {"id": "default", "is_service": True},
     }
 
     @app.middleware("http")
@@ -712,6 +751,49 @@ def test_project_registration_requires_member_and_rejects_foreign_overlap(
     assert not (repo_b / "nested").exists()
     created = client.post("/api/projects", json=body, headers={"X-Principal": "member-a"})
     assert created.status_code == 201
+    nested = client.post(
+        "/api/projects", json={"path": str(repo_a / "package")},
+        headers={"X-Principal": "member-a"},
+    )
+    assert nested.status_code == 201
+    listed = client.get(
+        "/api/files/list", params={"path": str(repo_a)},
+        headers={"X-Principal": "member-a"},
+    )
+    assert "package" in {entry["name"] for entry in listed.json()["entries"]}
+    assert client.get(
+        "/api/projects/proj-a", headers={"X-Principal": "org-a-service-key"}
+    ).status_code == 200
+    assert client.get(
+        "/api/projects/proj-b", headers={"X-Principal": "org-a-service-key"}
+    ).status_code == 404
+    assert client.get(
+        "/api/projects/proj-a", headers={"X-Principal": "org-a-service-read"}
+    ).status_code == 200
+    assert client.post(
+        "/api/projects", json={"path": str(repo_a / "read-only")},
+        headers={"X-Principal": "org-a-service-read"},
+    ).status_code == 403
+
+
+def test_local_mode_can_register_nested_project_in_existing_checkout(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, repo_a, _ = matrix_env
+    local = SimpleNamespace(DISABLE_AUTH=True, RBAC_ENFORCE_TASK_ROUTES=True)
+    monkeypatch.setattr(project_authz, "get_settings", lambda: local)
+    monkeypatch.setattr(projects_routes, "get_settings", lambda: local)
+    monkeypatch.setattr(projects_routes, "confine_to_workspace", lambda p: Path(p).resolve())
+    response = client.post(
+        "/api/projects", json={"path": str(repo_a / "local-package")},
+        headers={"X-Principal": "legacy"},
+    )
+    assert response.status_code == 201
+    listed = client.get(
+        "/api/files/list", params={"path": str(repo_a)},
+        headers={"X-Principal": "legacy"},
+    )
+    assert "local-package" in {entry["name"] for entry in listed.json()["entries"]}
 
 
 def test_project_settings_redacted_for_viewer(
@@ -727,6 +809,63 @@ def test_project_settings_redacted_for_viewer(
     assert viewer.status_code == admin.status_code == 200
     assert "gitToken" not in viewer.json()["settings"]
     assert admin.json()["settings"]["gitToken"] == "sample-sensitive-value"
+
+
+def test_project_env_redacts_credentials_for_viewer(matrix_env: Any) -> None:
+    client, repo_a, _ = matrix_env
+    env = repo_a / ".pfactory" / ".env"
+    env.write_text("GIT_TOKEN=sample-sensitive-value\nOPENAI_API_KEY=sample-sensitive-value\n")
+    viewer = client.get("/api/projects/proj-a/env", headers={"X-Principal": "viewer-a"})
+    admin = client.get("/api/projects/proj-a/env", headers={"X-Principal": "admin-a"})
+    assert viewer.status_code == admin.status_code == 200
+    assert "gitToken" not in viewer.json()["data"]
+    assert "openaiApiKey" not in viewer.json()["data"]["graphitiProviderConfig"]
+    assert admin.json()["data"]["gitToken"] == "sample-sensitive-value"
+
+
+def test_project_update_hides_foreign_path_before_existence(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _, repo_b = matrix_env
+    monkeypatch.setattr(projects_routes, "confine_to_workspace", lambda p: Path(p).resolve())
+    for path in (repo_b / "present", repo_b / "missing"):
+        response = client.put(
+            "/api/projects/proj-a", json={"path": str(path)},
+            headers={"X-Principal": "admin-a"},
+        )
+        assert (response.status_code, response.json()) == (404, {"detail": "Project not found"})
+
+
+@pytest.mark.parametrize(
+    ("git_url", "settings"),
+    [
+        ("https://github.com/team/private.git", {"gitProvider": "github"}),
+        ("https://gitlab.example/team/private.git", {
+            "gitProvider": "gitlab", "gitBaseUrl": "https://gitlab.example",
+        }),
+    ],
+)
+def test_clone_rejects_foreign_repo_identity_before_git(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch,
+    git_url: str, settings: dict[str, str],
+) -> None:
+    client, _, _ = matrix_env
+    projects = project_paths.load_projects()
+    projects["repo-only"] = {
+        "path": "", "repo": "team/private", "org_id": "org-b",
+        "settings": settings,
+    }
+    monkeypatch.setattr(projects_routes, "load_projects", lambda: projects)
+
+    async def must_not_clone(**_kw: Any) -> None:
+        pytest.fail("clone reached before authorization")
+
+    monkeypatch.setattr(projects_routes, "clone_or_update", must_not_clone)
+    response = client.post(
+        "/api/projects", json={"git_url": git_url},
+        headers={"X-Principal": "member-a"},
+    )
+    assert (response.status_code, response.json()) == (404, {"detail": "Project not found"})
 
 
 def test_file_routes_hide_nested_project_and_env(
@@ -776,6 +915,35 @@ def test_spec_merge_rejects_foreign_repo_dir(matrix_env: Any, tmp_path: Path) ->
     assert response.status_code == 404
 
 
+def test_spec_merge_authorized_route_offloads_writer(
+    matrix_env: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, repo_a, _ = matrix_env
+    spec_dir = tmp_path / "pf_workspaces" / "workspaces" / "proj-a" / "specs" / "spec-a"
+    (spec_dir / "findings").mkdir()
+    (spec_dir / "tests").mkdir()
+    (spec_dir / "tests" / "test_demo.py").write_text("assert True\n")
+    (spec_dir / "findings" / "verdicts.json").write_text(
+        '{"verdicts":[{"verdict":"accept","test_file":"tests/test_demo.py"}]}'
+    )
+    seen: list[str] = []
+
+    def writer(_request: Any, *, dry_run: bool) -> Any:
+        seen.append(threading.current_thread().name)
+        return SimpleNamespace(
+            ok=True, dry_run=dry_run, committed_paths=(), commit_sha="", argv_log=(), error=None
+        )
+
+    monkeypatch.setattr(git_writer, "write_tests_to_branch", writer)
+    response = client.post(
+        "/api/pfactory/tasks/spec-a/merge",
+        json={"repo_dir": str(repo_a), "target_branch": "main"},
+        headers={"X-Principal": "member-a"},
+    )
+    assert response.status_code == 200
+    assert seen and seen[0].startswith("asyncio_")
+
+
 def test_plan_intake_hides_foreign_and_unknown_repo_equally(matrix_env: Any) -> None:
     client, _, _ = matrix_env
     responses = [
@@ -786,10 +954,100 @@ def test_plan_intake_hides_foreign_and_unknown_repo_equally(matrix_env: Any) -> 
         )
         for repo in ("org-b/repo-b", "unknown/new")
     ]
-    assert [(response.status_code, response.json()) for response in responses] == [
-        (404, {"detail": "Project not found"}),
-        (404, {"detail": "Project not found"}),
-    ]
+    assert (responses[0].status_code, responses[0].json()) == (
+        404, {"detail": "Project not found"}
+    )
+    assert responses[1].status_code == 400  # Intake reached content validation.
+
+
+def test_emit_binds_canonical_repo_and_allows_unbound_legacy_session(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _, _ = matrix_env
+    session = SimpleNamespace(
+        project_id=None, repo="github:org-a/repo-a", tenant_id=None,
+        model_dump=lambda: {"session_id": "plan-one"}, board_state=lambda: "approved",
+    )
+    emitted: list[str | None] = []
+
+    class Service:
+        def get(self, _id: str) -> Any:
+            return session
+
+        def emit(self, _id: str, **_kw: Any) -> Any:
+            emitted.append(_kw["repo"])
+            return session
+
+        def emit_contract(self, _id: str, **_kw: Any) -> Any:
+            return session
+
+    async def no_docs(*_args: Any) -> None:
+        return None
+
+    monkeypatch.setattr(plan_pipeline_routes, "SERVICE", Service())
+    monkeypatch.setattr(plan_pipeline_routes, "_session_org", lambda *_a: "org-a")
+    monkeypatch.setattr(plan_pipeline_routes, "_load_docs_connections", no_docs)
+    route = "/api/plan/sessions/plan-one"
+    assert client.post(
+        f"{route}/emit", json={"repo": "org-a/repo-a"},
+        headers={"X-Principal": "member-a"},
+    ).status_code == 200
+    assert client.post(
+        f"{route}/emit", json={"repo": "https://github.com/org-a/repo-a.git"},
+        headers={"X-Principal": "member-a"},
+    ).status_code == 200
+    assert emitted[-1] == "org-a/repo-a"
+    session.repo = None
+    assert client.post(
+        f"{route}/emit", json={"repo": "org-a/repo-a"},
+        headers={"X-Principal": "legacy"},
+    ).status_code == 200
+    session.project_id = "proj-a"
+    assert client.post(
+        f"{route}/emit-contract", json={"repo": "org-b/repo-b", "project_id": "proj-a"},
+        headers={"X-Principal": "legacy"},
+    ).status_code == 404
+    session.project_id = None
+    session.repo = "org-a/repo-a"
+    assert client.post(
+        f"{route}/emit-contract", json={"project_id": "proj-b"},
+        headers={"X-Principal": "legacy"},
+    ).status_code == 404
+
+
+@pytest.mark.parametrize("repo", ["group/proj", "gitlab:group/proj"])
+def test_from_issue_accepts_gitlab_repo_on_configured_host(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch, repo: str
+) -> None:
+    client, _, _ = matrix_env
+    projects = project_paths.load_projects()
+    projects["proj-a"]["repo"] = "group/proj"
+    projects["proj-a"]["settings"] = {
+        "gitProvider": "gitlab", "gitBaseUrl": "https://gitlab.example",
+    }
+    monkeypatch.setattr(project_paths, "load_projects", lambda: projects)
+    monkeypatch.setattr(projects_routes, "load_projects", lambda: projects)
+    response = client.post(
+        "/api/plan/sessions/from-issue",
+        json={
+            "provider": "gitlab", "repo": repo, "issue_number": 7,
+            "title": "Issue", "body": "# Issue\n## Acceptance Criteria\n- Works\n",
+            "auto_start_stage": False,
+        },
+        headers={"X-Principal": "member-a"},
+    )
+    assert response.status_code == 200, response.json()
+
+    mismatch = client.post(
+        "/api/plan/sessions/from-issue",
+        json={
+            "provider": "github", "repo": "https://gitlab.example/group/proj",
+            "issue_number": 8, "body": "# Issue\n## Acceptance Criteria\n- Works\n",
+            "auto_start_stage": False,
+        },
+        headers={"X-Principal": "member-a"},
+    )
+    assert mismatch.status_code == 400
 
 
 def test_git_init_unregistered_path_requires_org_member(
@@ -805,6 +1063,88 @@ def test_git_init_unregistered_path_requires_org_member(
     )
     assert response.status_code == 403
     assert not (unregistered / ".git").exists()
+
+
+def test_git_init_rejects_foreign_checkout_before_git(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, repo_a, repo_b = matrix_env
+    monkeypatch.setenv("PROJECT_WORKSPACE_ROOT", str(repo_a.parent))
+    monkeypatch.setattr(git_routes, "load_projects", project_paths.load_projects)
+
+    def must_not_run(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("git reached before authorization")
+
+    monkeypatch.setattr(git_routes, "run_git_command", must_not_run)
+    for path in (repo_b / "nested", repo_a.parent):
+        response = client.post(
+            "/api/git/init", json={"path": str(path)},
+            headers={"X-Principal": "member-a"},
+        )
+        assert (response.status_code, response.json()) == (404, {"detail": "Project not found"})
+
+
+def test_git_init_offloads_git_for_org_member(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, repo_a, _ = matrix_env
+    unregistered = repo_a.parent / "new-checkout"
+    unregistered.mkdir()
+    monkeypatch.setenv("PROJECT_WORKSPACE_ROOT", str(repo_a.parent))
+    monkeypatch.setattr(git_routes, "load_projects", project_paths.load_projects)
+    threads: list[str] = []
+
+    def git_command(_args: Any, _path: Any) -> dict[str, Any]:
+        threads.append(threading.current_thread().name)
+        return {"success": True}
+
+    monkeypatch.setattr(git_routes, "run_git_command", git_command)
+    response = client.post(
+        "/api/git/init", json={"path": str(unregistered)},
+        headers={"X-Principal": "member-a"},
+    )
+    assert response.status_code == 200
+    assert len(threads) == 3 and all(name.startswith("asyncio_") for name in threads)
+
+
+def test_scan_and_discover_hide_foreign_and_missing_roots(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _, repo_b = matrix_env
+    monkeypatch.setattr(projects_routes, "confine_to_workspace", lambda p: Path(p).resolve())
+    missing = repo_b.parent / "missing"
+    for path in (repo_b, missing):
+        scan = client.post(
+            "/api/projects/scan", json={"basePath": str(path)},
+            headers={"X-Principal": "member-a"},
+        )
+        discover = client.get(
+            "/api/files/discover", params={"base_path": str(path)},
+            headers={"X-Principal": "member-a"},
+        )
+        assert (scan.status_code, scan.json()) == (404, {"detail": "Project not found"})
+        assert (discover.status_code, discover.json()) == (404, {"detail": "Project not found"})
+
+
+def test_terminal_launcher_needs_project_admin(matrix_env: Any) -> None:
+    client, repo_a, _ = matrix_env
+    response = client.post(
+        "/api/tasks/worktree/open-in-terminal",
+        json={"worktreePath": str(repo_a), "terminal": "ghostty"},
+        headers={"X-Principal": "member-a"},
+    )
+    assert response.status_code == 403
+
+
+def test_insights_task_creation_passes_authorized_principal(matrix_env: Any) -> None:
+    client, _, _ = matrix_env
+    response = client.post(
+        "/api/projects/proj-a/insights/create-task",
+        json={"title": "New task", "description": "Do the work"},
+        headers={"X-Principal": "member-a"},
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is True
 
 
 def test_legacy_shared_token_full_access_toggle(

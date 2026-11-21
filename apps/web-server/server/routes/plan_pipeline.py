@@ -13,6 +13,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, cast
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import PlainTextResponse
@@ -29,6 +30,7 @@ from ..tenancy import multi_tenant_enabled, resolve_tenant
 from .project_authz import (
     authorize_plan_ingest,
     authorize_plan_session,
+    canonical_repo_ref,
     creator_org,
     plan_session_filter,
     require_plan_access,
@@ -42,7 +44,7 @@ if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from client_errors import client_error  # noqa: E402
-from plan.repo_ref import parse_repo_ref  # noqa: E402
+from plan.repo_ref import PROVIDER_GIT_HOST, parse_repo_ref, qualify_repo  # noqa: E402
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import (  # noqa: E402
     SERVICE,
@@ -245,11 +247,16 @@ def _session_org(
     return cast(PlanService, SERVICE).session_org(session, _resolve, stamps)
 
 
-async def _ingest_org(request: Request, repo: str | None, db: AsyncSession) -> str | None:
+async def _ingest_org(
+    request: Request, repo: str | None, db: AsyncSession, provider: str = "github"
+) -> str | None:
     """The org to stamp on a new session; refuses a cross-org ingest (#968)."""
     user = _user(request)
     if repo:
-        return (await require_repo_project_role(user, repo, "member", db, for_intake=True)).org_id
+        access = await require_repo_project_role(
+            user, repo, "member", db, for_intake=True, provider=provider
+        )
+        return access.org_id
     return await authorize_plan_ingest(user, _repo_org(repo, _projects_for(user)), db)
 
 
@@ -337,13 +344,25 @@ async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake 
     # The issue body IS the plan text. No title fallback: a bare title carries no
     # acceptance criteria, so it cannot parse either way — better a 400 naming
     # that than a session built from a one-line plan nobody can verify against.
-    org_id = await _ingest_org(request, body.repo, db)
+    org_id = await _ingest_org(request, body.repo, db, body.provider)
     repo_access = await require_repo_project_role(
-        _user(request), body.repo, "member", db, for_intake=True
+        _user(request), body.repo, "member", db, for_intake=True, provider=body.provider
     )
     parsed_repo = parse_repo_ref(body.repo)
-    if parsed_repo and parsed_repo[0] != body.provider:
+    if parsed_repo and parsed_repo[1] != body.repo and parsed_repo[0] != body.provider:
         raise HTTPException(status_code=400, detail="Repository provider mismatch")
+    registered = project_paths.load_projects().get(repo_access.project_id)
+    settings = (registered or {}).get("settings") or {}
+    if registered and settings.get("gitProvider", "github") != body.provider:
+        raise HTTPException(status_code=400, detail="Repository provider mismatch")
+    expected_host = (
+        urlsplit(settings.get("gitBaseUrl") or "").hostname
+        or PROVIDER_GIT_HOST.get(body.provider)
+    )
+    target = canonical_repo_ref(body.repo, body.provider)
+    if target is None or (("://" in body.repo or "@" in body.repo) and target[0] != expected_host):
+        raise HTTPException(status_code=400, detail="Repository provider mismatch")
+    repo_name = target[1]
     if body.project_id:
         if body.project_id != repo_access.project_id:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -357,7 +376,7 @@ async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake 
                 body.body or "",
                 title=body.title,
                 channel="github_issue",
-                repo=body.repo,
+                repo=qualify_repo(body.provider, repo_name),
                 autonomy_tier=body.autonomy_tier,
                 origin_issue_number=body.issue_number,
                 tenant_id=tenant,
@@ -369,13 +388,13 @@ async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake 
             raise HTTPException(status_code=400, detail=client_error(exc)) from exc
         from .projects import ensure_tracked_project
 
-        ensure_tracked_project(body.repo, await creator_org(_user(request), db))
+        ensure_tracked_project(qualify_repo(body.provider, repo_name), org_id)
         return _session_dict(session)
     start_stage = body.auto_start_stage
     try:
         find_existing = getattr(service, "find_active_issue_session", None)
         existing = (
-            find_existing(tenant, body.provider, body.repo, body.issue_number)
+            find_existing(tenant, body.provider, repo_name, body.issue_number)
             if find_existing is not None
             else None
         )
@@ -385,7 +404,7 @@ async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake 
 
             try:
                 effective_base_ref = await get_provider(
-                    body.provider, body.repo
+                    body.provider, repo_name
                 ).get_default_branch()
             except Exception as exc:
                 raise HTTPException(
@@ -396,7 +415,7 @@ async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake 
             session, created = await asyncio.to_thread(
                 ingest_issue,
                 body.body or "",
-                repo=body.repo,
+                repo=repo_name,
                 issue_number=body.issue_number,
                 title=body.title,
                 base_ref=effective_base_ref,
@@ -416,7 +435,7 @@ async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake 
                 body.body or "",
                 title=body.title,
                 channel="github_issue",
-                repo=body.repo,
+                repo=repo_name,
                 base_ref=effective_base_ref,
                 provider=body.provider,
                 project_id=body.project_id,
@@ -438,7 +457,7 @@ async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake 
     # W4 (#218): register the target repo as a tracked project (see ingest-text).
     from .projects import ensure_tracked_project
 
-    ensure_tracked_project(body.repo, await creator_org(_user(request), db))
+    ensure_tracked_project(qualify_repo(body.provider, repo_name), org_id)
     if (
         start_stage
         and session.issue_stage_requested
@@ -955,9 +974,16 @@ async def emit(
     )
     session = cast(PlanService, SERVICE).get(session_id)
     if (session.project_id and session.project_id != repo_access.project_id) or (
-        not session.project_id and session.repo != body.repo
+        session.repo and canonical_repo_ref(session.repo) != canonical_repo_ref(body.repo)
     ):
         raise HTTPException(status_code=404, detail="Project not found")
+    target = canonical_repo_ref(body.repo)
+    project = project_paths.load_projects().get(repo_access.project_id)
+    if not target or (
+        project and (project.get("settings") or {}).get("gitProvider", "github") != "github"
+    ):
+        raise HTTPException(status_code=400, detail="GitHub emit requires a GitHub repository")
+    job_repo = target[1] if target[0] == "github.com" else f"{target[0]}/{target[1]}"
     docs_connections = await _load_docs_connections(request, db)
     # #961: release the main-pool connection before the minutes-long emit thread.
     await db.close()
@@ -969,7 +995,7 @@ async def emit(
             await asyncio.to_thread(
                 SERVICE.emit,
                 session_id,
-                repo=body.repo,
+                repo=job_repo,
                 dry_run=body.dry_run,
                 docs_connections=docs_connections,
                 docs_selected=body.docs_targets,
@@ -1000,17 +1026,42 @@ async def emit_contract(
     (#758).
     """
     await _guard_session(session_id, request, db)
+    session = cast(PlanService, SERVICE).get(session_id)
+    repo_access = None
+    if body.repo:
+        repo_access = await require_repo_project_role(
+            _user(request), body.repo, "member", db, for_intake=True
+        )
     if body.project_id:
         await require_project_role(_user(request), body.project_id, "member", db=db)
-    if body.repo:
-        await require_repo_project_role(_user(request), body.repo, "member", db, for_intake=True)
+        if session.repo:
+            bound_repo = await require_repo_project_role(
+                _user(request), session.repo, "member", db, for_intake=True,
+                provider=getattr(session, "provider", None) or "github",
+            )
+            if bound_repo.project_id != body.project_id:
+                raise HTTPException(status_code=404, detail="Project not found")
+    target_id = body.project_id or (repo_access.project_id if repo_access else None)
+    if ((body.project_id and repo_access and body.project_id != repo_access.project_id)
+            or (session.project_id and target_id and target_id != session.project_id)
+            or (session.repo and body.repo
+                and canonical_repo_ref(session.repo) != canonical_repo_ref(body.repo))):
+        raise HTTPException(status_code=404, detail="Project not found")
+    job_repo = body.repo
+    if body.repo and repo_access:
+        target = canonical_repo_ref(body.repo)
+        project = project_paths.load_projects().get(repo_access.project_id)
+        provider = ((project or {}).get("settings") or {}).get("gitProvider")
+        parsed = parse_repo_ref(body.repo)
+        provider = provider or (parsed[0] if parsed else "github")
+        job_repo = qualify_repo(provider, target[1]) if target else None
     try:
         http = None if body.dry_run else _UrllibHttp()
         return _session_dict(
             await asyncio.to_thread(
                 SERVICE.emit_contract,
                 session_id,
-                repo=body.repo,
+                repo=job_repo,
                 project_id=body.project_id,
                 http=http,
                 dry_run=body.dry_run,

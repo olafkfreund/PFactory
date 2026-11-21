@@ -9,13 +9,15 @@ import os
 from pathlib import Path, PurePath
 from typing import Any
 
-from server.database import engine
 from server.config import get_settings
+from server.database import engine
 from server.routes.project_authz import authorize_project_for_user, is_service_principal
 from server.services import project_paths
 
 
-async def project_ok(user: dict[str, Any] | None, project_id: str | None, role: str = "viewer") -> bool:
+async def project_ok(
+    user: dict[str, Any] | None, project_id: str | None, role: str = "viewer"
+) -> bool:
     """Strict project authorization; denial or lookup failure is False."""
     try:
         async with engine.async_session_factory() as db:
@@ -26,9 +28,13 @@ async def project_ok(user: dict[str, Any] | None, project_id: str | None, role: 
 
 
 async def may_use(user: dict[str, Any] | None, session: Any) -> bool:
+    if get_settings().DISABLE_AUTH and (user or {}).get("id") == "default":
+        return True
     if session.owner_id is None:
-        return bool(session.project_id) and await project_ok(user, session.project_id, "admin")
-    if is_service_principal(user) or (get_settings().DISABLE_AUTH and (user or {}).get("id") == "default"):
+        return bool(session.project_id) and await project_ok(
+            user, session.project_id, "admin"
+        )
+    if is_service_principal(user):
         return True
     if not isinstance(user, dict) or not user.get("id"):
         return False
@@ -77,5 +83,7 @@ def path_in_project(path: str, project_id: str) -> bool:
         return False
     target = Path(path).resolve()
     return any(
-        _inside(target, root) for root in _roots(project_paths.load_projects().get(project_id)) if isinstance(root, Path)
+        _inside(target, root)
+        for root in _roots(project_paths.load_projects().get(project_id))
+        if isinstance(root, Path)
     )

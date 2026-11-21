@@ -338,6 +338,10 @@ def test_local_mode_websocket_uses_local_principal(sockets, monkeypatch):
     with sockets.client.websocket_connect("/ws/terminal/local") as ws:
         assert ws.receive_json()["type"] == "connected"
 
+    sockets.manager.create_session(session_id="old-local", owner_id=None)
+    with sockets.client.websocket_connect("/ws/terminal/old-local") as ws:
+        assert ws.receive_json()["type"] == "connected"
+
 
 def test_ws_membership_loss_closes_4003(sockets):
     with sockets.client.websocket_connect("/ws/terminal/t1") as ws:

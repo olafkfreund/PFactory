@@ -62,6 +62,7 @@ from server.routes.project_authz import (
     authorize_project,
     authorize_project_for_user,
     scope_role_ceiling,
+    visible_project_ids,
 )
 from server.routes.projects import ProjectCreate, create_project
 from server.services import project_paths
@@ -220,6 +221,7 @@ async def proxy_list_projects(
     from ..routes.projects import list_projects
 
     request.state.user = _principal(key)
+    await visible_project_ids(request.state.user, db)
     return await list_projects(request, db)
 
 
@@ -234,6 +236,10 @@ async def proxy_list_tasks(
     from server.routes.tasks import list_tasks
 
     request.state.user = _principal(key)
+    if project_id:
+        await _authorize_key(key, project_id, db)
+    else:
+        await visible_project_ids(request.state.user, db)
     return await list_tasks(request, db, project_id=project_id, status=status)  # type: ignore[arg-type]
 
 
@@ -246,6 +252,7 @@ async def proxy_get_running_tasks(
     from server.routes.execution import get_running_tasks
 
     request.state.user = _principal(key)
+    await visible_project_ids(request.state.user, db)
     return await get_running_tasks(request, db)
 
 
@@ -312,6 +319,7 @@ async def proxy_add_project(
     body = await _read_json_body(request)
     org_id = key.org_id if isinstance(key, AuthenticatedKey) else None  # #1036
     principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, None, db)
     grant = (await _member_roles(principal, db)).get(org_id or "", "")
     if isinstance(key, AuthenticatedKey) and (
         not org_id

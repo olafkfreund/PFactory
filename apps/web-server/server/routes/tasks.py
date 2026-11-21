@@ -29,6 +29,7 @@ from .project_authz import (
     is_service_principal,
     require_body_project_access,
     require_path_project_role,
+    require_project_role,
     require_task_access,
     scope_role_ceiling,
     visible_project_ids,
@@ -1195,8 +1196,15 @@ async def get_task(task_id: str):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_body_project_access("member"))],
 )
-async def create_task(task: TaskCreate):
+async def create_task(
+    http_request: Request,
+    task: TaskCreate,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
     """Create a new task (spec) in a project."""
+    await require_project_role(
+        getattr(http_request.state, "user", None), task.project_id, "member", db=db
+    )
     projects = load_projects()
 
     if task.project_id not in projects:
@@ -4477,7 +4485,7 @@ async def open_worktree_in_ide(
     """
     worktree_path = request.worktreePath
     await require_path_project_role(
-        getattr(http_request.state, "user", None), worktree_path, "member", db
+        getattr(http_request.state, "user", None), worktree_path, "admin", db
     )
     ide = request.ide
 
@@ -4536,7 +4544,7 @@ async def open_worktree_in_terminal(
     """
     worktree_path = request.worktreePath
     await require_path_project_role(
-        getattr(http_request.state, "user", None), worktree_path, "member", db
+        getattr(http_request.state, "user", None), worktree_path, "admin", db
     )
     terminal = request.terminal
 

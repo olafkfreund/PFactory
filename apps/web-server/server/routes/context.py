@@ -8,11 +8,13 @@ import logging
 import subprocess
 from pathlib import Path as FilePath
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 from pydantic import BaseModel, Field, SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
-from server.routes.project_authz import require_camel_project_access
+from server.database.engine import get_db
+from server.routes.project_authz import require_camel_project_access, visible_project_ids
 from server.services.project_paths import (
     load_projects,
     resolve_project_path_or_error,
@@ -389,7 +391,11 @@ def _extract_memory_summary(data: dict) -> str:
 
 
 @project_router.get("/env", dependencies=[Depends(require_camel_project_access("viewer"))])
-async def get_project_env(projectId: str = Path(...)):
+async def get_project_env(
+    request: Request,
+    projectId: str = Path(...),
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
     """Get project environment configuration."""
 
     project_path, error = _project_path(projectId)
@@ -504,6 +510,11 @@ async def get_project_env(projectId: str = Path(...)):
     except Exception:
         pass
 
+    admins = await visible_project_ids(getattr(request.state, "user", None), db, "admin")
+    if projectId not in admins:
+        config.pop("gitToken", None)
+        for key in ("openaiApiKey", "voyageApiKey", "googleApiKey", "azureOpenaiApiKey"):
+            graphiti_provider_config.pop(key, None)
     return {"success": True, "data": config}
 
 
@@ -788,7 +799,10 @@ async def invoke_claude_setup(projectId: str = Path(...)):
                     "The setup will open a browser for OAuth authentication",
                     "After completing setup, refresh this page to verify authentication",
                 ],
-                "note": "This is a one-time setup. Once authenticated, the credentials will be stored securely.",
+                "note": (
+                    "This is a one-time setup. Once authenticated, "
+                    "the credentials will be stored securely."
+                ),
             },
         }
 

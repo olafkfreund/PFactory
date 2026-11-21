@@ -2,6 +2,7 @@
 Git, Ollama, MCP, and utility routes.
 """
 
+import asyncio
 import logging
 import shlex
 import shutil
@@ -163,7 +164,7 @@ async def initialize_git(
     # Check if repo already has commits
     has_commits = False
     if is_git_repo:
-        commit_check = run_git_command(["rev-parse", "HEAD"], path)
+        commit_check = await asyncio.to_thread(run_git_command, ["rev-parse", "HEAD"], path)
         has_commits = commit_check["success"]
 
     # If already has commits, nothing to do
@@ -172,7 +173,7 @@ async def initialize_git(
 
     # Initialize git repo if not already
     if not is_git_repo:
-        result = run_git_command(["init"], path)
+        result = await asyncio.to_thread(run_git_command, ["init"], path)
         if not result["success"]:
             logger.warning(
                 "git init failed for %s: %s", sanitize_log(path), sanitize_log(result.get("error"))
@@ -200,8 +201,10 @@ async def initialize_git(
             pass  # Not critical if this fails
 
     # Stage all files and create initial commit (only if no commits yet)
-    run_git_command(["add", "-A"], path)
-    run_git_command(["commit", "-m", "Initial commit", "--allow-empty"], path)
+    await asyncio.to_thread(run_git_command, ["add", "-A"], path)
+    await asyncio.to_thread(
+        run_git_command, ["commit", "-m", "Initial commit", "--allow-empty"], path
+    )
 
     return {"success": True}
 

@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -16,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
+from plan.repo_ref import parse_repo_ref
 from server.config import get_settings
 from server.database.engine import get_db
 from server.error_ref import error_message
@@ -23,6 +25,7 @@ from server.pty.access import project_id_for_path
 from server.routes.organizations import ROLE_LEVELS
 from server.routes.project_authz import (
     _member_roles,
+    canonical_repo_ref,
     creator_org,
     is_service_principal,
     require_plan_access,
@@ -256,17 +259,18 @@ def ensure_tracked_project(repo: str, org_id: str | None = None) -> str | None:
     # tracked project came to read as gitProvider "github" whatever the tenant
     # declared, which is one of the ways a GitLab tenant's run ended up on
     # GitHub. An unqualified reference is GitHub, exactly as before.
-    from plan.repo_ref import parse_repo_ref
-
     provider, repo = parse_repo_ref(repo) or ("github", repo)
     try:
         projects = load_projects()
         # Reuse an existing project registered for this repo (don't overwrite a
         # real clone's record).
         for pid, pdata in projects.items():
-            if pdata.get("repo") == repo:
+            existing_provider = (pdata.get("settings") or {}).get("gitProvider", "github")
+            if canonical_repo_ref(pdata.get("repo"), existing_provider) == canonical_repo_ref(
+                repo, provider
+            ):
                 return pid
-        project_id = repo.replace("/", "-")
+        project_id = (f"{provider}-" if provider != "github" else "") + repo.replace("/", "-")
         if project_id not in projects:
             projects[project_id] = {
                 "name": repo.split("/")[-1],
@@ -488,13 +492,17 @@ async def scan_for_projects(
         visible = await visible_project_ids(getattr(http_request.state, "user", None), db)
         base_owner = project_id_for_path(str(base))
         if base_owner is not None and base_owner not in visible:
-            return []
+            raise HTTPException(status_code=404, detail="Project not found")
 
         if not base.exists():
-            return []
+            if get_settings().DISABLE_AUTH:
+                return []
+            raise HTTPException(status_code=404, detail="Project not found")
 
         if not base.is_dir():
-            return []
+            if get_settings().DISABLE_AUTH:
+                return []
+            raise HTTPException(status_code=404, detail="Project not found")
 
         projects = []
 
@@ -611,7 +619,7 @@ async def add_project(
     return await create_project(project, org_id)
 
 
-async def create_project(project: ProjectCreate, org_id: str | None = None) -> dict[str, Any]:
+async def create_project(project: ProjectCreate, org_id: str | None = None) -> dict[str, Any]:  # noqa: PLR0915 - registration has local and clone paths
     """Add a new project. Two paths (#82 PR-A):
 
     1. **Local path** (``path`` set) — register an existing directory
@@ -627,6 +635,20 @@ async def create_project(project: ProjectCreate, org_id: str | None = None) -> d
     created_directory = False
 
     _check_project_overlap(_project_candidate(project), org_id)
+    if project.gitUrl:
+        target = canonical_repo_ref(project.gitUrl)
+        for existing in load_projects().values():
+            settings = existing.get("settings") or {}
+            provider = urlsplit(settings.get("gitBaseUrl") or "").hostname or settings.get(
+                "gitProvider", "github"
+            )
+            if any(canonical_repo_ref(value, provider) == target for value in (
+                existing.get("repo"), existing.get("clonedFrom"), existing.get("gitUrl"),
+                settings.get("gitRepo"), settings.get("githubRepo"),
+            ) if value):
+                if existing.get("org_id") != org_id and not get_settings().DISABLE_AUTH:
+                    raise HTTPException(status_code=404, detail="Project not found")
+                raise HTTPException(status_code=409, detail="Project already registered")
 
     if project.gitUrl:
         # Clone mode — defer to project_workspace_service.
@@ -735,9 +757,10 @@ def _check_project_overlap(path: Path, org_id: str | None, exclude: str | None =
             continue
         root = Path(pdata["path"]).resolve()
         if path == root or path in root.parents or root in path.parents:
-            if pdata.get("org_id") != org_id:
+            if pdata.get("org_id") != org_id and not get_settings().DISABLE_AUTH:
                 raise HTTPException(status_code=404, detail="Project not found")
-            raise HTTPException(status_code=409, detail="Project already registered")
+            if path == root or path in root.parents:
+                raise HTTPException(status_code=409, detail="Project already registered")
 
 
 def _project_candidate(project: ProjectCreate) -> Path:
@@ -789,12 +812,12 @@ async def update_project(project_id: str, project: ProjectCreate):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="path outside the allowed workspace",
             )
+        _check_project_overlap(project_path.resolve(), project_data.get("org_id"), project_id)
         if not project_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Path does not exist: {project.path}",
             )
-        _check_project_overlap(project_path.resolve(), project_data.get("org_id"), project_id)
         project_data["path"] = str(project_path.resolve())
 
     if project.name:

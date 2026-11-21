@@ -37,6 +37,8 @@ def socket_app(monkeypatch):
         "jwt-b": {"id": "other"},
         "acw_a": {"id": "owner", "org_id": "A", "api_key_id": "key"},
         "shared": None,
+        "legacy": {"id": "default", "is_service": True},
+        "local": {"id": "default"},
     }
     memberships = {"owner": [("A",), ("B",)], "a-only": [("A",)], "other": [("B",)]}
     setting = SimpleNamespace(RBAC_ENFORCE_TASK_ROUTES=True, DISABLE_AUTH=False)
@@ -86,6 +88,19 @@ def test_project_events_reach_only_their_org(socket_app):
         # A sentinel proves A's event was not queued for B ahead of it.
         client.portal.call(events.send_to_org, "B", "sentinel", {})
         assert b.receive_json()["type"] == "sentinel"
+
+
+def test_legacy_and_local_events_keep_live_delivery(socket_app):
+    app, setting = socket_app
+    with TestClient(app) as client, _connect(client, "legacy") as legacy:
+        _emit(client, "orgless", {"taskId": "missing:001"})
+        assert legacy.receive_json()["type"] == "orgless"
+        _emit(client, "other-org", {"projectId": "p-b"})
+        assert legacy.receive_json()["type"] == "other-org"
+    setting.DISABLE_AUTH = True
+    with TestClient(app) as client, _connect(client, "local") as local:
+        _emit(client, "local-orgless", {"taskId": "missing:001"})
+        assert local.receive_json()["type"] == "local-orgless"
 
 
 def test_service_and_bound_key(socket_app):

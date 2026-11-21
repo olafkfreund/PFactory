@@ -16,6 +16,7 @@ Covered:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import types
@@ -853,7 +854,7 @@ def _make_evaluated_task(workspace_root: Path, *, spec_id: str = "001-x") -> Pat
 
 def test_merge_dry_run_returns_planned_files(workspace_root: Path) -> None:
     _make_evaluated_task(workspace_root)
-    out = merge_accepted_tests("001-x", MergeRequest(dry_run=True))
+    out = asyncio.run(merge_accepted_tests("001-x", MergeRequest(dry_run=True), None, None))
     assert out["ok"] is True and out["dry_run"] is True
     assert out["branch"] == "feat/x"
     assert out["files"] == ["tests/test_pricing.py"]  # only the accepted one
@@ -863,7 +864,9 @@ def test_merge_dry_run_returns_planned_files(workspace_root: Path) -> None:
 
 def test_merge_uses_target_branch_override(workspace_root: Path) -> None:
     _make_evaluated_task(workspace_root)
-    out = merge_accepted_tests("001-x", MergeRequest(dry_run=True, target_branch="release/1"))
+    out = asyncio.run(merge_accepted_tests(
+        "001-x", MergeRequest(dry_run=True, target_branch="release/1"), None, None
+    ))
     assert out["branch"] == "release/1"
 
 
@@ -877,21 +880,21 @@ def test_merge_no_accepts_is_400(workspace_root: Path) -> None:
         )
     )
     with pytest.raises(_HTTPException) as exc:
-        merge_accepted_tests("002-y", MergeRequest(dry_run=True))
+        asyncio.run(merge_accepted_tests("002-y", MergeRequest(dry_run=True), None, None))
     assert exc.value.status_code == 400
 
 
 def test_merge_no_verdicts_is_404(workspace_root: Path) -> None:
     _make_task(workspace_root, project_id="proj", spec_id="003-z")
     with pytest.raises(_HTTPException) as exc:
-        merge_accepted_tests("003-z", MergeRequest(dry_run=True))
+        asyncio.run(merge_accepted_tests("003-z", MergeRequest(dry_run=True), None, None))
     assert exc.value.status_code == 404
 
 
 def test_merge_real_run_requires_repo_dir(workspace_root: Path) -> None:
     _make_evaluated_task(workspace_root)
     with pytest.raises(_HTTPException) as exc:
-        merge_accepted_tests("001-x", MergeRequest(dry_run=False))
+        asyncio.run(merge_accepted_tests("001-x", MergeRequest(dry_run=False), None, None))
     assert exc.value.status_code == 400
 
 

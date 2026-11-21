@@ -172,7 +172,10 @@ async def _try_authenticate_personal_key(token: str) -> dict | None:
 
         # Require the general ``api`` scope for REST access.
         scopes = frozenset(s.strip() for s in (api_key.scopes or "").split(",") if s.strip())
-        scopes = await cap_by_owner_role(session, api_key, scopes)
+        if api_key.user_id:
+            scopes = await cap_by_owner_role(session, api_key, scopes)
+        elif not api_key.org_id:
+            return None
         if API_SCOPE not in scopes:
             return None
 
@@ -183,15 +186,17 @@ async def _try_authenticate_personal_key(token: str) -> dict | None:
         except Exception:  # noqa: BLE001 — last_used is non-critical telemetry
             await session.rollback()
 
-        owner = await session.execute(select(User).where(User.id == api_key.user_id))
-        user = owner.scalar_one_or_none()
-        if user is None or not user.is_active:
-            return None
+        user = None
+        if api_key.user_id:
+            owner = await session.execute(select(User).where(User.id == api_key.user_id))
+            user = owner.scalar_one_or_none()
+            if user is None or not user.is_active:
+                return None
 
         return {
-            "id": user.id,
-            "email": user.email,
-            "role": user.role,
+            "id": user.id if user else None,
+            "email": user.email if user else None,
+            "role": user.role if user else "service",
             "api_key_id": api_key.id,
             "org_id": api_key.org_id,
             "scopes": tuple(sorted(scopes)),
@@ -201,7 +206,7 @@ async def _try_authenticate_personal_key(token: str) -> dict | None:
 
 
 async def _ws_acw_principal(token: str) -> dict[str, object] | None:
-    # Same validator as REST; it requires an active owner, so no ownerless key reaches WS.
+    # Same scoped validator as REST, including org-bound ownerless keys.
     try:
         return await _try_authenticate_personal_key(token)
     except Exception as exc:  # noqa: BLE001 — validator failures deny WS auth

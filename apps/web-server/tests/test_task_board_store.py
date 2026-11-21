@@ -263,8 +263,13 @@ def test_created_task_reaches_remote_board(tmp_path: Path, monkeypatch: pytest.M
 
     async def go() -> None:
         project(monkeypatch, local)
+        async def allowed(*_args: Any, **_kwargs: Any) -> None:
+            return None
+
+        monkeypatch.setattr(tasks, "require_project_role", allowed)
+        request = SimpleNamespace(state=SimpleNamespace(user={"id": "owner"}))
         created = await tasks.create_task(
-            tasks.TaskCreate(project_id="proj", title="New", description="Work")
+            request, tasks.TaskCreate(project_id="proj", title="New", description="Work")
         )
         await asyncio.sleep(0.05)
         project(monkeypatch, remote)

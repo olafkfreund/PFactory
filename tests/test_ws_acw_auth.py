@@ -141,7 +141,9 @@ async def test_jwt_and_legacy_paths_unchanged(monkeypatch):
         "email": "jwt@example.test",
         "role": "admin",
     }
-    assert await auth.authenticate_websocket(_ws("shared")) is None
+    assert await auth.authenticate_websocket(_ws("shared")) == {
+        "id": "default", "is_service": True,
+    }
 
 
 def _stub_memberships(monkeypatch, rows):

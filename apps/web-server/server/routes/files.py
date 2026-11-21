@@ -170,13 +170,17 @@ async def discover_projects(
     visible = await visible_project_ids(getattr(request.state, "user", None), db)
     base_owner = project_id_for_path(str(base))
     if base_owner is not None and base_owner not in visible:
-        return []
+        raise HTTPException(status_code=404, detail="Project not found")
 
     if not base.exists():
-        return []
+        if get_settings().DISABLE_AUTH:
+            return []
+        raise HTTPException(status_code=404, detail="Project not found")
 
     if not base.is_dir():
-        return []
+        if get_settings().DISABLE_AUTH:
+            return []
+        raise HTTPException(status_code=404, detail="Project not found")
 
     projects = []
 
@@ -269,6 +273,7 @@ async def list_directory_direct(
     if not full_path.is_dir():
         return {"success": False, "error": "Path is not a directory", "data": None}
 
+    visible = await visible_project_ids(principal, db)
     entries = []
     try:
         for entry in sorted(full_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
@@ -278,7 +283,7 @@ async def list_directory_direct(
             resolved_entry = entry.resolve()
             if (
                 _is_secret_path(resolved_entry)
-                or project_id_for_path(str(resolved_entry)) != project_id
+                or project_id_for_path(str(resolved_entry)) not in visible
             ):
                 continue
 

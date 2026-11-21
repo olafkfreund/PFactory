@@ -332,7 +332,7 @@ def test_human_under_enforce_loses_orgless_sessions(env, monkeypatch):
     assert client.get("/api/plan/sessions", headers=headers).json()["sessions"] == []
 
 
-def test_org_key_cannot_ingest_unregistered_repo(env):
+def test_org_key_can_ingest_unregistered_repo(env):
     client, _, _, service, _, _, _ = env
     key_b = {"X-U": "key-b-user", "X-Key": "key-b", "X-Org": "B"}
     before = len(service.list_sessions())
@@ -341,8 +341,8 @@ def test_org_key_cannot_ingest_unregistered_repo(env):
         json={"text": _PLAN, "title": "Mine", "repo": "acme/new"},
         headers=key_b,
     )
-    assert resp.status_code == 404
-    assert len(service.list_sessions()) == before
+    assert resp.status_code == 200
+    assert len(service.list_sessions()) == before + 1
 
 
 def test_human_viewer_cannot_ingest_unregistered_repo(env):

@@ -12,10 +12,12 @@ Two routers, mounted at distinct prefixes by ``routes/projects.py``:
 import logging
 from pathlib import Path as FilePath
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
+from server.database.engine import get_db
 from server.error_ref import error_message
 from server.services import run_leases
 from server.services.project_paths import resolve_project_path
@@ -203,7 +205,12 @@ async def clear_insights_session(projectId: str = Path(...)):
 
 
 @router.post("/create-task", dependencies=[Depends(require_camel_project_access("member"))])
-async def create_task_from_insights(projectId: str = Path(...), request: CreateTaskRequest = ...):
+async def create_task_from_insights(
+    http_request: Request,
+    projectId: str = Path(...),
+    request: CreateTaskRequest = ...,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
     """Create a task from insights conversation."""
     from .tasks import TaskCreate, create_task
 
@@ -213,7 +220,7 @@ async def create_task_from_insights(projectId: str = Path(...), request: CreateT
             title=request.title,
             description=request.description,
         )
-        result = await create_task(task_request)
+        result = await create_task(http_request, task_request, db)
         return {"success": True, "data": result}
     except Exception:
         logger.exception(
