@@ -29,7 +29,7 @@ export function ProjectsPage({
   const [typedName, setTypedName] = useState('');
 
   return (
-    <main className="h-full overflow-y-auto"><div className="mx-auto max-w-5xl space-y-6 p-6 text-foreground">
+    <div className="h-full overflow-y-auto"><div className="mx-auto max-w-5xl space-y-6 p-6 text-foreground">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">{t('projectsPage.title')}</h1>
         <Button onClick={onAdd}>{t('projectsPage.add')}</Button>
@@ -96,6 +96,6 @@ export function ProjectsPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div></main>
+    </div></div>
   );
 }

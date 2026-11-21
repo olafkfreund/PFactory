@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { findProjectByRef, parseRoute, projectPath, projectSlugs, slugify } from '../project-route';
 import type { Project } from '../../shared/types';
 
 const proj = (id: string, name: string, createdAt: string, slug?: string): Project =>
   ({ id, name, slug, path: `/p/${id}`, createdAt: new Date(createdAt) }) as unknown as Project;
+beforeEach(() => localStorage.clear());
 
 describe('slugify', () => {
   it('normalizes and falls back to the id', () => {
@@ -14,10 +15,10 @@ describe('slugify', () => {
 });
 
 describe('projectSlugs', () => {
-  it('oldest keeps the plain slug; newcomers cannot steal it', () => {
+  it('suffixes every member of a collision group', () => {
     const a = proj('aaaaaaaa-1', 'Demo', '2026-01-01');
     const b = proj('bbbbbbbb-2', 'Demo', '2026-02-01');
-    expect(projectSlugs([b, a]).get(a.id)).toBe('demo');
+    expect(projectSlugs([b, a]).get(a.id)).toBe('demo-aaaaaaaa');
     expect(projectSlugs([b, a]).get(b.id)).toBe('demo-bbbbbbbb');
   });
   it('final slugs are unique even for adversarial names', () => {
@@ -29,17 +30,17 @@ describe('projectSlugs', () => {
     const slugs = [...projectSlugs(ps).values()];
     expect(new Set(slugs).size).toBe(3);
   });
-  it('backend slugs win and are reserved first', () => {
+  it('treats backend and derived slugs as one collision group', () => {
     const a = proj('a1', 'Demo', '2026-01-01');
     const b = proj('b2', 'Other', '2026-02-01', 'demo');
-    expect(projectSlugs([a, b]).get('b2')).toBe('demo');
+    expect(projectSlugs([a, b]).get('b2')).toBe('demo-b2');
     expect(projectSlugs([a, b]).get('a1')).not.toBe('demo');
   });
   it('uses id order for equal creation dates and retries a taken suffix', () => {
     const a = proj('aaaaaaaa-1', 'Demo', '2026-01-01');
     const b = proj('bbbbbbbb-2', 'Demo', '2026-01-01');
     const c = proj('c', 'Other', '2026-01-01', 'demo-bbbbbbbb');
-    expect(projectSlugs([b, c, a]).get(a.id)).toBe('demo');
+    expect(projectSlugs([b, c, a]).get(a.id)).toBe('demo-aaaaaaaa');
     expect(projectSlugs([b, c, a]).get(b.id)).toBe('demo-bbbbbbbb-2');
   });
 });
@@ -51,7 +52,7 @@ describe('findProjectByRef', () => {
     expect(findProjectByRef([a, b], 'alpha-app')?.id).toBe('id-a');
     expect(findProjectByRef([a, b], 'ID-A')?.id).toBe('id-a');
     expect(findProjectByRef([a, b], 'beta-x')?.id).toBe('id-b');
-    expect(findProjectByRef([a, b], 'beta')?.id).toBe('id-b'); // derived alias
+    expect(findProjectByRef([a, b], 'beta')).toBeUndefined();
     expect(findProjectByRef([a, b], 'nope')).toBeUndefined();
   });
 });
@@ -61,14 +62,15 @@ describe('findProjectByRef collision aliases', () => {
     const a = proj('aaaaaaaa-1', 'Demo', '2026-01-01');
     const b = proj('bbbbbbbb-2', 'Demo', '2026-02-01');
     expect(findProjectByRef([a, b], 'demo-bbbbbbbb')?.id).toBe(b.id);
-    expect(findProjectByRef([b], 'demo-bbbbbbbb')?.id).toBe(b.id); // now canonical 'demo'
+    expect(findProjectByRef([b], 'demo-bbbbbbbb')?.id).toBe(b.id);
+    expect(findProjectByRef([b], 'demo')).toBeUndefined();
   });
-  it('prefers a canonical slug over an id or derived alias', () => {
+  it('always accepts a project id even when it collides with a name', () => {
     const a = proj('id-a', 'Alpha', '2026-01-01');
     const b = proj('alpha', 'Beta', '2026-01-02');
     const c = proj('id-c', 'Other', '2026-01-03', 'beta');
-    expect(findProjectByRef([a, b], 'alpha')?.id).toBe(a.id);
-    expect(findProjectByRef([b, c], 'beta')?.id).toBe(c.id);
+    expect(findProjectByRef([a, b], 'alpha')?.id).toBe(b.id);
+    expect(findProjectByRef([b, c], 'beta')).toBeUndefined();
   });
 });
 

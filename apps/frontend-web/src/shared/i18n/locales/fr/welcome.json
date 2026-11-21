@@ -25,6 +25,8 @@
     "cancel": "Annuler",
     "confirm": "Retirer le projet",
     "notFound": "Projet introuvable : {{ref}}",
-    "backHome": "Retour à mes projets"
+    "backHome": "Retour à mes projets",
+    "choose": "Choisir un projet",
+    "retry": "Réessayer"
   }
 }

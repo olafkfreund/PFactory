@@ -459,7 +459,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   setError: (error) => set({ error }),
 
-  clearTasks: () => set({ tasks: [], selectedTaskId: null }),
+  clearTasks: () => { loadTasksRequestId++; set({ tasks: [], selectedTaskId: null, isLoading: false }); },
 
   getSelectedTask: () => {
     const state = get();

@@ -1,4 +1,3 @@
-// URL <-> project mapping for /p/:slug[/:view]. Pure: no store, no router.
 import type { Project } from '../shared/types';
 
 export const PROJECT_VIEWS = [
@@ -7,65 +6,67 @@ export const PROJECT_VIEWS = [
   'cloud', 'visual-reports',
 ] as const;
 export type ProjectView = (typeof PROJECT_VIEWS)[number];
-
 export type AppRoute =
   | { kind: 'project'; ref: string; view: ProjectView }
   | { kind: 'projects' }
+  | { kind: 'pfactory' }
   | { kind: 'home' };
 
 export function slugify(name: string, fallback: string): string {
-  const s = name
-    .normalize('NFKD')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return s || fallback;
+  return name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || fallback;
 }
 
-const created = (p: Project) => new Date(p.createdAt).getTime() || 0;
+const key = 'pfactory-project-slug-owners';
+const norm = (value: string) => value.toLowerCase();
+const base = (p: Project) => norm(p.slug || slugify(p.name, p.id));
 
-/** Canonical slug per project id. Backend slugs are reserved first; derived
- * ones go oldest-first so a new "Demo" never takes over an existing /p/demo. */
-export function projectSlugs(projects: Project[]): Map<string, string> {
-  const out = new Map<string, string>();
-  const used = new Set<string>();
-  for (const p of projects) {
-    if (p.slug) {
-      out.set(p.id, p.slug);
-      used.add(p.slug);
-    }
+function owners(): Record<string, string> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(key) || '{}');
+    return saved && typeof saved === 'object' && !Array.isArray(saved)
+      ? Object.assign(Object.create(null) as Record<string, string>, saved) : Object.create(null) as Record<string, string>;
   }
-  const derived = projects
-    .filter((p) => !p.slug)
-    .sort((a, b) => created(a) - created(b) || a.id.localeCompare(b.id));
-  for (const p of derived) {
-    const base = slugify(p.name, p.id);
-    const withId = `${base}-${p.id.slice(0, 8)}`;
-    let slug = used.has(base) ? withId : base;
-    for (let n = 2; used.has(slug); n++) slug = `${withId}-${String(n)}`;
-    used.add(slug);
+  catch { return {}; }
+}
+
+export function projectSlugs(projects: Project[]): Map<string, string> {
+  const reserved = owners();
+  const groups = new Map<string, Project[]>();
+  for (const p of projects) groups.set(base(p), [...(groups.get(base(p)) || []), p]);
+  const out = new Map<string, string>();
+  const used = new Set([...projects.map((p) => norm(p.id)), ...groups.keys()]);
+  for (const [root, group] of groups) reserved[root] ||= group.length > 1 ? '__collision__' : group[0].id;
+  for (const p of [...projects].sort((a, b) => a.id.localeCompare(b.id))) {
+    const root = base(p);
+    const plain = groups.get(root)?.length === 1 && reserved[root] === p.id &&
+      !projects.some((other) => other.id !== p.id && norm(other.id) === root);
+    const stem = plain ? root : `${root}-${p.id.slice(0, 8)}`;
+    let slug = stem;
+    for (let n = 2; (used.has(norm(slug)) && slug !== root) || (reserved[norm(slug)] && reserved[norm(slug)] !== p.id); n++) {
+      slug = `${stem}-${n}`;
+    }
+    used.add(norm(slug));
+    reserved[norm(slug)] = p.id;
     out.set(p.id, slug);
   }
+  try { localStorage.setItem(key, JSON.stringify(reserved)); } catch { /* private storage */ }
   return out;
 }
 
 export const projectSlug = (projects: Project[], p: Project): string =>
   projectSlugs(projects).get(p.id) ?? p.id;
 
-/** Canonical slug first, then id, then any alias (backend or derived slug). */
+export function collisionProjects(projects: Project[], ref: string): Project[] {
+  const matches = projects.filter((p) => base(p) === norm(ref));
+  return matches.length > 1 ? matches : [];
+}
+
 export function findProjectByRef(projects: Project[], ref: string): Project | undefined {
-  const r = ref.toLowerCase();
+  const r = norm(ref);
   const slugs = projectSlugs(projects);
-  return (
-    projects.find((p) => slugs.get(p.id)?.toLowerCase() === r) ??
-    projects.find((p) => p.id.toLowerCase() === r) ??
-    projects.find(
-      (p) =>
-        p.slug?.toLowerCase() === r ||
-        slugify(p.name, p.id) === r ||
-        `${slugify(p.name, p.id)}-${p.id.slice(0, 8)}`.toLowerCase() === r,
-    )
-  );
+  return projects.find((p) => norm(p.id) === r) ??
+    projects.find((p) => norm(slugs.get(p.id) || '') === r);
 }
 
 export function parseRoute(pathname: string): AppRoute {
@@ -77,6 +78,7 @@ export function parseRoute(pathname: string): AppRoute {
     return { kind: 'project', ref, view };
   }
   if (/^\/projects\/?$/.test(pathname)) return { kind: 'projects' };
+  if (/^\/pfactory\/?$/.test(pathname)) return { kind: 'pfactory' };
   return { kind: 'home' };
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Settings, HelpCircle, Sun, Moon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiRequest } from '../lib/api-client';
@@ -42,6 +42,8 @@ export function ProjectTabBar({
   onOpenOnboarding,
 }: ProjectTabBarProps) {
   const allProjects = useProjectStore((state) => state.projects);
+  const breadcrumbRoot = useRef<HTMLDivElement>(null);
+  const focusBreadcrumb = () => breadcrumbRoot.current?.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')?.focus();
   const slugs = projectSlugs(allProjects);
   const breadcrumbProjects = allProjects.map((p) => ({ slug: slugs.get(p.id) ?? p.id, name: p.name }));
   const theme = useSettingsStore((state) => state.settings.theme);
@@ -135,10 +137,9 @@ export function ProjectTabBar({
   return (
     <div className={cn(
       'flex items-center border-b border-border bg-background',
-      'overflow-x-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent',
       className
     )}>
-      <div className="flex items-center flex-1 min-w-0">
+      <div className="flex items-center flex-1 min-w-0 overflow-x-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {projects.map((project, index) => {
           const isActiveTab = activeProjectId === project.id;
           return (
@@ -167,15 +168,24 @@ export function ProjectTabBar({
           project={currentSlug ? { slug: currentSlug, portals: ['plan', 'build', 'test'] } : undefined}
         />
         <Separator orientation="vertical" className="h-4 mx-0.5" />
-        <ProjectBreadcrumb
+        <div ref={breadcrumbRoot} onKeyDownCapture={(event) => {
+          if (event.key !== 'Escape') return;
+          const trigger = breadcrumbRoot.current?.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]');
+          if (trigger?.getAttribute('aria-expanded') !== 'true') return;
+          event.preventDefault();
+          event.stopPropagation();
+          trigger.click();
+          trigger.focus();
+        }}><ProjectBreadcrumb
           projects={breadcrumbProjects}
           currentSlug={currentSlug}
           onSelect={(slug) => {
+            focusBreadcrumb();
             const p = allProjects.find((x) => slugs.get(x.id) === slug);
             if (p) onProjectSelect(p.id);
           }}
-          onViewAll={onViewAllProjects}
-        />
+          onViewAll={() => { focusBreadcrumb(); onViewAllProjects(); }}
+        /></div>
         <Separator orientation="vertical" className="h-4 mx-0.5" />
         {/* Provider / CLI health, grouped into one cohesive status cluster
             (each badge keeps its own hover tooltip). */}

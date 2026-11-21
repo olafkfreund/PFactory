@@ -55,6 +55,7 @@ import type { UseProjectSettingsReturn } from '../project-settings/hooks/useProj
 interface AppSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  projectId?: string | null;
   initialSection?: AppSection;
   initialProjectSection?: ProjectSettingsSection;
   onRerunWizard?: () => void;
@@ -94,7 +95,7 @@ const projectNavItemsConfig: NavItemConfig<ProjectSettingsSection>[] = [
  * Main application settings dialog container
  * Coordinates app and project settings sections
  */
-export function AppSettingsDialog({ open, onOpenChange, initialSection, initialProjectSection, onRerunWizard }: AppSettingsDialogProps) {
+export function AppSettingsDialog({ open, onOpenChange, projectId, initialSection, initialProjectSection, onRerunWizard }: AppSettingsDialogProps) {
   const { t } = useTranslation('settings');
   const { settings, setSettings, isSaving, error, saveSettings, revertTheme, commitTheme } = useSettings();
   const [version, setVersion] = useState<string>('');
@@ -119,8 +120,7 @@ export function AppSettingsDialog({ open, onOpenChange, initialSection, initialP
 
   // Project state
   const projects = useProjectStore((state) => state.projects);
-  const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
-  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const selectedProject = projects.find((p) => p.id === projectId);
 
   // Project settings hook state (lifted from child)
   const [projectSettingsHook, setProjectSettingsHook] = useState<UseProjectSettingsReturn | null>(null);
@@ -213,7 +213,7 @@ export function AppSettingsDialog({ open, onOpenChange, initialSection, initialP
   };
 
   // Determine if project nav items should be disabled
-  const projectNavDisabled = !selectedProjectId;
+  const projectNavDisabled = !selectedProject;
 
   return (
     <FullScreenDialog open={open} onOpenChange={(newOpen) => {

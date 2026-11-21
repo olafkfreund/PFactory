@@ -40,7 +40,7 @@ import { useSettingsStore, loadSettings } from './stores/settings-store';
 import { useAuthStore } from './stores/auth-store';
 import { useIpcListeners } from './hooks/useIpc';
 import { useEnsureProjects } from './hooks/useEnsureProjects';
-import { findProjectByRef, parseRoute, projectPath, projectSlugs } from './lib/project-route';
+import { collisionProjects, findProjectByRef, parseRoute, projectPath, projectSlugs } from './lib/project-route';
 import { UI_SCALE_MIN, UI_SCALE_MAX, UI_SCALE_DEFAULT } from './shared/constants';
 import type { Task, Project } from './shared/types';
 
@@ -59,13 +59,18 @@ function RedirectToLogin() {
 }
 
 function LegacyConsoleRedirect() {
+  const { t } = useTranslation('welcome');
   const { projectId, specId } = useParams<{ projectId: string; specId?: string }>();
+  const { search, hash } = useLocation();
   const ready = useEnsureProjects();
   const projects = useProjectStore((state) => state.projects);
+  const error = useProjectStore((state) => state.error);
   if (!ready) return null;
-  const project = projectId ? findProjectByRef(projects, projectId) : undefined;
-  const slug = project ? (projectSlugs(projects).get(project.id) ?? project.id) : projectId;
-  return <Navigate to={`/p/${encodeURIComponent(slug ?? '')}/console${specId ? `/${specId}` : ''}`} replace />;
+  if (error) return <div role="alert">{error} <button onClick={() => void loadProjects()}>{t('projectsPage.retry')}</button></div>;
+  const project = projects.find((p) => p.id.toLowerCase() === projectId?.toLowerCase());
+  if (!project) return <div role="alert">{t('projectsPage.notFound', { ref: projectId })}</div>;
+  const slug = projectSlugs(projects).get(project.id) ?? project.id;
+  return <Navigate to={`${projectPath(slug, 'console')}${specId ? `/${encodeURIComponent(specId)}` : ''}${search}${hash}`} replace />;
 }
 
 function AuthenticatedApp() {
@@ -76,6 +81,7 @@ function AuthenticatedApp() {
 
   // Stores
   const projects = useProjectStore((state) => state.projects);
+  const projectError = useProjectStore((state) => state.error);
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const openProjectIds = useProjectStore((state) => state.openProjectIds);
@@ -87,23 +93,23 @@ function AuthenticatedApp() {
   const slugs = useMemo(() => projectSlugs(projects), [projects]);
   const urlProject = route.kind === 'project' ? findProjectByRef(projects, route.ref) : undefined;
   const urlSlug = urlProject ? slugs.get(urlProject.id) : undefined;
-  const activeView: SidebarView = route.kind === 'project' ? route.view : 'planning';
+  const activeView: SidebarView = route.kind === 'project' ? route.view : route.kind === 'pfactory' ? 'pfactory' : 'planning';
   const urlProjectId = urlProject?.id;
   const inSync = !!urlProjectId && activeProjectId === urlProjectId && selectedProjectId === urlProjectId;
   const selectedProject = inSync ? urlProject : undefined;
-  const navProject = urlProject ?? projects.find((p) => p.id === (activeProjectId || selectedProjectId));
+  const navProject = urlProject;
   const goProject = useCallback((id: string, view?: SidebarView) => {
     void navigate(projectPath(slugs.get(id) ?? id, view));
   }, [navigate, slugs]);
   const setActiveView = useCallback((view: SidebarView) => {
+    if (view === 'pfactory') { void navigate('/pfactory'); return; }
     if (navProject) goProject(navProject.id, view);
-  }, [navProject, goProject]);
+  }, [navProject, goProject, navigate]);
 
   useEffect(() => {
     if (!projectsLoaded || !urlProjectId) return;
     const state = useProjectStore.getState();
     if (state.activeProjectId === urlProjectId && state.selectedProjectId === urlProjectId) return;
-    useTaskStore.getState().clearTasks();
     state.openProjectTab(urlProjectId);
     if (useProjectStore.getState().selectedProjectId !== urlProjectId) {
       useProjectStore.getState().selectProject(urlProjectId);
@@ -111,10 +117,14 @@ function AuthenticatedApp() {
   }, [projectsLoaded, urlProjectId, activeProjectId, selectedProjectId]);
 
   useEffect(() => {
+    if (route.kind === 'project' && route.view === 'pfactory' && projectsLoaded && urlProject) {
+      void navigate('/pfactory', { replace: true });
+      return;
+    }
     if (route.kind === 'project' && urlSlug && route.ref !== urlSlug) {
       void navigate(projectPath(urlSlug, route.view) + search, { replace: true });
     }
-  }, [route, urlSlug, search, navigate]);
+  }, [route, urlSlug, urlProject, projectsLoaded, search, navigate]);
 
   useEffect(() => {
     if (route.kind !== 'home' || pathname !== '/') return;
@@ -299,14 +309,15 @@ function AuthenticatedApp() {
 
   // Load tasks when project changes
   useEffect(() => {
-    const currentProjectId = activeProjectId || selectedProjectId;
+    const currentProjectId = urlProjectId;
     if (currentProjectId) {
+      useTaskStore.getState().clearTasks();
       loadTasks(currentProjectId);
       setSelectedTaskId(null);
     } else {
       useTaskStore.getState().clearTasks();
     }
-  }, [activeProjectId, selectedProjectId]);
+  }, [urlProjectId]);
 
   // Safety timeout: auto-clear stuck switching state after 10 seconds
   useEffect(() => {
@@ -415,6 +426,7 @@ function AuthenticatedApp() {
         <div className="flex h-screen bg-background">
           {/* Sidebar */}
           <Sidebar
+            projectId={urlProjectId ?? null}
             onSettingsClick={() => setIsSettingsDialogOpen(true)}
             onNewTaskClick={() => setIsNewTaskDialogOpen(true)}
             onOpenOnboarding={() => setIsOnboardingOpen(true)}
@@ -431,7 +443,7 @@ function AuthenticatedApp() {
                 ``openProjects`` is empty. */}
             <ProjectTabBar
               projects={openProjects}
-              activeProjectId={activeProjectId}
+              activeProjectId={urlProjectId ?? null}
               onProjectSelect={(projectId) => {
                 goProject(projectId, route.kind === 'project' ? route.view : undefined);
               }}
@@ -459,7 +471,13 @@ function AuthenticatedApp() {
                   />
                 </div>
               )}
-              {route.kind === 'project' && !urlProject && projectsLoaded && (
+              {route.kind === 'project' && !urlProject && projectsLoaded && projectError && (
+                <div role="alert">{projectError} <button onClick={() => void loadProjects()}>{t('welcome:projectsPage.retry')}</button></div>
+              )}
+              {route.kind === 'project' && !urlProject && projectsLoaded && !projectError && collisionProjects(projects, route.ref).length > 0 && (
+                <div><p>{t('welcome:projectsPage.choose')}</p>{collisionProjects(projects, route.ref).map((p) => <Link key={p.id} to={projectPath(slugs.get(p.id) ?? p.id)}>{p.name} ({p.id})</Link>)}</div>
+              )}
+              {route.kind === 'project' && !urlProject && projectsLoaded && !projectError && collisionProjects(projects, route.ref).length === 0 && (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
                   <p>{t('welcome:projectsPage.notFound', { ref: route.ref })}</p>
                   <Link to="/" className="text-sm underline">{t('welcome:projectsPage.backHome')}</Link>
@@ -476,12 +494,6 @@ function AuthenticatedApp() {
                         onNewTaskClick={() => { setIsNewTaskDialogOpen(true); }}
                         focusSessionId={selectedTaskId}
                       />
-                    </div>
-                  )}
-                  {activeView === 'pfactory' && (
-                    /* PFactory's own surface: the test-generation review queue. */
-                    <div className="h-full overflow-auto p-4">
-                      <PFactoryPortal />
                     </div>
                   )}
                   {activeView === 'editor' && (
@@ -526,7 +538,11 @@ function AuthenticatedApp() {
                   )}
                 </>
               )}
-              {route.kind === 'projects' && (
+              {route.kind === 'pfactory' && <div className="h-full overflow-auto p-4"><PFactoryPortal /></div>}
+              {route.kind === 'projects' && projectsLoaded && projectError && (
+                <div role="alert">{projectError} <button onClick={() => void loadProjects()}>{t('welcome:projectsPage.retry')}</button></div>
+              )}
+              {route.kind === 'projects' && !projectError && (
                 <ProjectsPage
                   projects={projects}
                   slugs={slugs}
@@ -587,19 +603,13 @@ function AuthenticatedApp() {
           <AppSettingsDialog
             open={isSettingsDialogOpen}
             onOpenChange={setIsSettingsDialogOpen}
+            projectId={urlProjectId ?? null}
           />
 
           {/* Task Creation Wizard */}
-          {/*
-            Fix: Use activeProjectId first, then fall back to selectedProjectId
-            This ensures the correct project path is resolved in multi-tab scenarios.
-            Without this, the Browse Files button wouldn't render because projectPath
-            lookup would fail when the wizard is opened from a different tab than
-            the one with selectedProjectId.
-          */}
-          {(activeProjectId || selectedProjectId) && (
+          {urlProjectId && (
             <TaskCreationWizard
-              projectId={(activeProjectId || selectedProjectId)!}
+              projectId={urlProjectId}
               open={isNewTaskDialogOpen}
               onOpenChange={setIsNewTaskDialogOpen}
               onCloudInfra={() => setIsCloudCheckOpen(true)}
@@ -611,8 +621,9 @@ function AuthenticatedApp() {
 
           {/* Task Detail Modal */}
           <TaskDetailModal
-            open={selectedTask !== null}
-            task={selectedTask}
+            open={!!urlProjectId && selectedTask?.projectId === urlProjectId}
+            task={selectedTask?.projectId === urlProjectId ? selectedTask : null}
+            projectPath={urlProject?.path}
             onOpenChange={(open) => {
               if (!open) setSelectedTaskId(null);
             }}

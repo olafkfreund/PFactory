@@ -24,3 +24,14 @@ it('ignores a superseded project task response', async () => {
   expect(useTaskStore.getState().tasks.map((task) => task.id)).toEqual(['new-task']);
   expect(useTaskStore.getState().isLoading).toBe(false);
 });
+
+it('clearTasks invalidates an in-flight load without a replacement', async () => {
+  let resolve!: (value: { success: true; data: Task[] }) => void;
+  vi.stubGlobal('API', { getTasks: () => new Promise((done) => { resolve = done; }) });
+  const load = loadTasks('old');
+  useTaskStore.getState().clearTasks();
+  resolve({ success: true, data: [{ id: 'stale' } as Task] });
+  await load;
+  expect(useTaskStore.getState().tasks).toEqual([]);
+  expect(useTaskStore.getState().isLoading).toBe(false);
+});

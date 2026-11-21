@@ -25,6 +25,8 @@
     "cancel": "Cancel",
     "confirm": "Unregister project",
     "notFound": "Project not found: {{ref}}",
-    "backHome": "Back to my projects"
+    "backHome": "Back to my projects",
+    "choose": "Choose a project",
+    "retry": "Retry"
   }
 }
