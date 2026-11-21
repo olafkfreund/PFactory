@@ -30,8 +30,11 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 _WEB_SERVER = Path(__file__).resolve().parents[1]
 if str(_WEB_SERVER) not in sys.path:
@@ -233,8 +236,8 @@ def test_plan_review_pr_body_leaks_nothing(
         github.plan_review_pr(
             7,
             github.PlanReviewPRRequest(repo="o/n", pr_number=7),
-            SimpleNamespace(state=SimpleNamespace(user={"id": "test"})),
-            None,
+            Request({"type": "http", "state": {"user": {"id": "test"}}}),
+            cast(AsyncSession, None),
         )
     )
     assert response.status_code == 400

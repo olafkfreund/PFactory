@@ -66,20 +66,23 @@ def project_id_for_path(path: str | None) -> str | None:
     if not PurePath(path).is_absolute():
         return None
     lexical = PurePath(os.path.normpath(path))
-    # CodeQL path alert: lexical containment gates the only user path resolution; resolved containment checks symlinks.
+    # Resolve only paths under registered roots; containment also checks symlinks.
     candidates = [
         (project_id, root)
         for project_id, project in projects.items()
         for lexical_root, root in _roots(project)
-        if lexical == lexical_root
+        if lexical in (lexical_root, root)
         or lexical_root in lexical.parents
-        or lexical == root
         or root in lexical.parents
     ]
     if not candidates:
         return None
     try:
-        target = Path(path).resolve()
+        from server.services.git_utils import (  # noqa: PLC0415 - git_utils imports this module
+            _confine,
+        )
+
+        target = _confine(path, [root for _, root in candidates], "path")
     except (OSError, RuntimeError, ValueError):
         return None
     matches = [
