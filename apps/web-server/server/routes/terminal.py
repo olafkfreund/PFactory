@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from factory_common.logsafe import sanitize_log
+from server.database.engine import async_session_factory
 from server.error_ref import error_message
 from server.pty.access import (
     may_use,
@@ -25,7 +26,7 @@ from server.pty.access import (
 )
 from server.pty.manager import DuplicateSessionError, get_pty_manager
 from server.pty.session import PTYSession
-from server.routes.project_authz import is_service_principal
+from server.routes.project_authz import is_service_principal, require_project_role
 from server.services.git_utils import (  # #335, #553
     confine_to_project,
     confine_to_workspace,
@@ -187,6 +188,11 @@ async def _owned(terminal_id: str, http_request: Request) -> PTYSession:
     return session
 
 
+async def _terminal_member(user: dict[str, Any] | None, project_id: str | None) -> None:
+    async with async_session_factory() as db:
+        await require_project_role(user, project_id, "member", db=db)
+
+
 async def _visible(http_request: Request) -> list[PTYSession]:
     user = _user(http_request)
     manager = get_pty_manager()
@@ -334,14 +340,18 @@ async def cleanup_terminals(http_request: Request):
 
 
 @router.post("/restore")
-async def restore_session(session: dict):
+async def restore_session(session: dict, http_request: Request):
     """Restore a terminal session."""
+    owned = await _owned(str(session.get("id", "")), http_request)
+    await _terminal_member(_user(http_request), owned.project_id)
     return {"success": False, "error": "Session restoration not yet implemented"}
 
 
 @router.post("/restore-date")
-async def restore_sessions_from_date(request: dict):
+async def restore_sessions_from_date(request: dict, http_request: Request):
     """Restore terminal sessions from a date."""
+    project_id = project_id_for_path(request.get("project"))
+    await _terminal_member(_user(http_request), project_id)
     return {"success": False, "error": "Session restoration not yet implemented"}
 
 
@@ -729,12 +739,16 @@ async def check_terminal_alive(terminal_id: str, http_request: Request):
 
 
 @router.post("/{terminal_id}/invoke-claude")
-async def invoke_claude_in_terminal(terminal_id: str, request: dict = None):
+async def invoke_claude_in_terminal(terminal_id: str, http_request: Request, request: dict = None):
     """Invoke Claude CLI in terminal."""
+    owned = await _owned(terminal_id, http_request)
+    await _terminal_member(_user(http_request), owned.project_id)
     return {"success": False, "error": "Claude invocation not yet implemented"}
 
 
 @router.post("/{terminal_id}/resume-claude")
-async def resume_claude_in_terminal(terminal_id: str, request: dict = None):
+async def resume_claude_in_terminal(terminal_id: str, http_request: Request, request: dict = None):
     """Resume Claude session in terminal."""
+    owned = await _owned(terminal_id, http_request)
+    await _terminal_member(_user(http_request), owned.project_id)
     return {"success": False, "error": "Claude resume not yet implemented"}

@@ -239,10 +239,9 @@ def test_flag_tracks_rest_dependency_on_open_socket(socket_app, monkeypatch):
     checker = project_authz.ProjectAccessChecker()
     with TestClient(app) as client, _connect(client, "jwt-a") as ws:
         setting.RBAC_ENFORCE_TASK_ROUTES = False
-        # An explicit org send stays members-only even in shadow mode.
+        # Both direct and broadcast events enforce organization membership.
         client.portal.call(events.send_to_org, "B", "explicit", {})
         _emit(client, "shadow", {"projectId": "p-b"})
-        assert ws.receive_json()["type"] == "shadow"
         with pytest.raises(HTTPException) as exc:
             client.portal.call(checker.__call__, "p-b", request, db)
         assert exc.value.status_code == 404

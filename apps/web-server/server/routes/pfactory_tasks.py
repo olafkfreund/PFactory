@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -34,9 +35,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # git_utils's own import already put apps/backend on sys.path.
 from agents.lane_progress import derive_lane_progress
 from client_errors import client_error
+from server.auth import WebSocketAuthError, authenticate_websocket
 from server.database.engine import get_db
 from server.error_ref import error_message
-from server.routes.project_authz import _AccessChecker, _project_decision
+from server.routes.project_authz import (
+    _AccessChecker,
+    _project_decision,
+    is_service_principal,
+    require_project_role,
+    scope_role_ceiling,
+    visible_project_ids,
+)
 from server.services.git_utils import safe_spec_component
 
 # Evidence artifact content-type map (mirrors agents.evidence.layout)
@@ -87,6 +96,9 @@ _TEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 # Artifact names: allow subdirectory prefix (e.g. "screenshots/0001.png")
 # but forbid path traversal sequences (.., absolute paths, null bytes).
 _ARTIFACT_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+_visible_specs: ContextVar[frozenset[str] | None] = ContextVar(
+    "visible_spec_projects", default=None
+)
 
 
 def _validate_spec_id(spec_id: str) -> None:
@@ -105,18 +117,14 @@ def _validate_spec_id(spec_id: str) -> None:
         ) from None
 
 
-def _find_spec_dir(root: Path, spec_id: str) -> Path | None:
-    """Locate the spec_dir for ``spec_id`` across all projects under root.
-
-    Returns the first match (spec_ids are unique within a project but
-    technically could collide across projects; production caller picks
-    the right project via list endpoint).
-    """
+def _find_spec_dir(root: Path, spec_id: str, visible: frozenset[str] | None = None) -> Path | None:
+    """Locate the first matching spec in the projects visible to this request."""
     workspaces = root / "workspaces"
     if not workspaces.exists():
         return None
+    allowed = _visible_specs.get() if visible is None else visible
     for project_dir in workspaces.iterdir():
-        if not project_dir.is_dir():
+        if not project_dir.is_dir() or (allowed is not None and project_dir.name not in allowed):
             continue
         candidate = project_dir / "specs" / spec_id
         if (candidate / "status.json").exists():
@@ -136,6 +144,7 @@ class SpecAccessChecker(_AccessChecker):
         except HTTPException:
             pass
         else:
+            _visible_specs.set(frozenset(await visible_project_ids(user, db)))
             spec_dir = _find_spec_dir(_resolve_workspace_root(), key or "")
         project_id = spec_dir.parent.parent.name if spec_dir else None
         await _project_decision(user, project_id, db, self.minimum_role, ctx)
@@ -144,6 +153,17 @@ class SpecAccessChecker(_AccessChecker):
         self, spec_id: str, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
     ) -> dict[str, Any] | None:
         return await self._authorize(spec_id, request, db)
+
+
+def _merge_scope(request: Request) -> None:
+    principal = getattr(request.state, "user", None)
+    if (
+        isinstance(principal, dict)
+        and ("api_key_id" in principal or "scopes" in principal)
+        and not is_service_principal(principal)
+        and scope_role_ceiling(principal) != "admin"
+    ):
+        raise HTTPException(status_code=403, detail="Requires task:merge scope on project")
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────
@@ -213,7 +233,14 @@ def _artefact_meta(spec_dir: Path) -> dict[str, dict]:
 
 
 @router.get("")
-def list_tasks() -> dict:
+async def list_tasks(
+    request: Request, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, Any]:
+    visible = await visible_project_ids(getattr(request.state, "user", None), db)
+    return _list_tasks(visible)
+
+
+def _list_tasks(visible: set[str] | None = None) -> dict[str, Any]:
     """List all PFactory tasks across all projects.
 
     Response shape:
@@ -230,15 +257,16 @@ def list_tasks() -> dict:
     """
     root = _resolve_workspace_root()
     workspaces = root / "workspaces"
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     if workspaces.exists():
         for status_path in workspaces.glob("*/specs/*/status.json"):
-            rows.append(_summary_row(status_path))
+            if visible is None or status_path.parent.parent.parent.name in visible:
+                rows.append(_summary_row(status_path))
     rows.sort(key=lambda r: r.get("updated_at", ""), reverse=True)
     return {"tasks": rows, "count": len(rows)}
 
 
-@router.get("/{spec_id}")
+@router.get("/{spec_id}", dependencies=[Depends(SpecAccessChecker("viewer"))])
 def get_task(spec_id: str) -> dict:
     """Fetch full status.json for a task + artefact-existence meta.
 
@@ -305,7 +333,7 @@ def _serve_artefact_file(
     return Response(content=content, media_type=media_type)
 
 
-@router.get("/{spec_id}/verdicts.json")
+@router.get("/{spec_id}/verdicts.json", dependencies=[Depends(SpecAccessChecker("viewer"))])
 def get_verdicts(spec_id: str) -> Response:
     """Stream the Evaluator's verdicts.json verbatim."""
     return _serve_artefact_file(
@@ -315,7 +343,7 @@ def get_verdicts(spec_id: str) -> Response:
     )
 
 
-@router.get("/{spec_id}/triage-report.json")
+@router.get("/{spec_id}/triage-report.json", dependencies=[Depends(SpecAccessChecker("viewer"))])
 def get_triage_report_json(spec_id: str) -> Response:
     """Stream the Triager's triage_report.json verbatim."""
     return _serve_artefact_file(
@@ -325,7 +353,7 @@ def get_triage_report_json(spec_id: str) -> Response:
     )
 
 
-@router.get("/{spec_id}/triage-report.md")
+@router.get("/{spec_id}/triage-report.md", dependencies=[Depends(SpecAccessChecker("viewer"))])
 def get_triage_report_md(spec_id: str) -> Response:
     """Stream the Triager's triage_report.md verbatim."""
     return _serve_artefact_file(
@@ -335,7 +363,7 @@ def get_triage_report_md(spec_id: str) -> Response:
     )
 
 
-@router.get("/{spec_id}/test-plan.json")
+@router.get("/{spec_id}/test-plan.json", dependencies=[Depends(SpecAccessChecker("viewer"))])
 def get_test_plan(spec_id: str) -> Response:
     """Stream the Planner's test_plan.json verbatim."""
     return _serve_artefact_file(
@@ -345,7 +373,7 @@ def get_test_plan(spec_id: str) -> Response:
     )
 
 
-@router.get("/{spec_id}/pr-comment-body.md")
+@router.get("/{spec_id}/pr-comment-body.md", dependencies=[Depends(SpecAccessChecker("viewer"))])
 def get_pr_comment_body(spec_id: str) -> Response:
     """Stream findings/pr_comment_body.md — present when the Triager
     skipped a real gh pr comment (no PR number in source.json)."""
@@ -457,6 +485,28 @@ async def websocket_logs(websocket: WebSocket, spec_id: str) -> None:
     reported by closing with code 4400 / 4404 so the frontend can
     distinguish them.
     """
+    try:
+        principal = await authenticate_websocket(websocket)
+    except WebSocketAuthError:
+        return
+    try:
+        async for db in get_db():
+            visible = frozenset(
+                await visible_project_ids(principal or {"id": "default", "is_service": True}, db)
+            )
+            _visible_specs.set(visible)
+            spec_dir = _find_spec_dir(_resolve_workspace_root(), spec_id, visible)
+            await require_project_role(
+                principal or {"id": "default", "is_service": True},
+                spec_dir.parent.parent.name if spec_dir else None,
+                db=db,
+            )
+            break
+    except HTTPException as exc:
+        await websocket.close(
+            code=4403 if exc.status_code == http_status.HTTP_403_FORBIDDEN else 4404
+        )
+        return
     await websocket.accept()
     try:
         try:
@@ -485,7 +535,7 @@ async def websocket_logs(websocket: WebSocket, spec_id: str) -> None:
 # ─── Catalog endpoint (Task 14 / #30) ──────────────────────────────────────
 
 
-@router.get("/{spec_id}/catalog")
+@router.get("/{spec_id}/catalog", dependencies=[Depends(SpecAccessChecker("viewer"))])
 def get_catalog(spec_id: str) -> Response:
     """Serve the spec's ``context/tests_catalog.json`` snapshot.
 
@@ -576,7 +626,10 @@ def _evidence_content_type(artifact: str) -> str:
     return _EVIDENCE_CONTENT_TYPES.get(suffix, "application/octet-stream")
 
 
-@router.get("/{spec_id}/evidence/{test_id}/{artifact:path}")
+@router.get(
+    "/{spec_id}/evidence/{test_id}/{artifact:path}",
+    dependencies=[Depends(SpecAccessChecker("viewer"))],
+)
 def get_evidence_artifact(spec_id: str, test_id: str, artifact: str) -> Response:
     """Serve a raw evidence artifact byte-for-byte.
 
@@ -688,7 +741,10 @@ class MergeRequest(BaseModel):
     include_flagged: bool = False
 
 
-@router.post("/{spec_id}/merge", dependencies=[Depends(SpecAccessChecker("member"))])
+@router.post(
+    "/{spec_id}/merge",
+    dependencies=[Depends(SpecAccessChecker("member")), Depends(_merge_scope)],
+)
 def merge_accepted_tests(spec_id: str, body: MergeRequest) -> dict[str, Any]:
     """Commit the accepted (and optionally flagged) tests to the feature
     branch via the Triager's git_writer. Dry-run by default — returns the
@@ -816,7 +872,7 @@ def _spec_dir_or_404(spec_id: str) -> Path:
     return spec_dir
 
 
-@router.get("/{spec_id}/visual-baselines")
+@router.get("/{spec_id}/visual-baselines", dependencies=[Depends(SpecAccessChecker("viewer"))])
 def list_visual_baselines(spec_id: str, target: str) -> dict:
     """List the stored visual baselines for a target (snapshot name + size)."""
     from agents.evidence import visual_baseline as vb
@@ -832,7 +888,10 @@ def list_visual_baselines(spec_id: str, target: str) -> dict:
     }
 
 
-@router.get("/{spec_id}/visual-baselines/{target}/{snapshot}")
+@router.get(
+    "/{spec_id}/visual-baselines/{target}/{snapshot}",
+    dependencies=[Depends(SpecAccessChecker("viewer"))],
+)
 def get_visual_baseline(spec_id: str, target: str, snapshot: str):
     """Serve one baseline image (PNG)."""
     from agents.evidence import visual_baseline as vb

@@ -158,7 +158,7 @@ def test_authenticated_key_has_scope():
 def _stub_project_authz(monkeypatch):
     tools_mod = importlib.import_module("server.mcp_remote.tools")
     monkeypatch.setattr(tools_mod, "_authorize_call", AsyncMock())
-    monkeypatch.setattr(tools_mod, "_visible_org_ids", AsyncMock(return_value=None))
+    monkeypatch.setattr(tools_mod, "_visible_project_ids", AsyncMock(return_value={"p1"}))
 
 
 @pytest.fixture
@@ -230,7 +230,8 @@ async def test_write_tool_blocked_with_only_read_scope(read_only_key):
 async def test_read_tools_hit_correct_endpoint(
     tool_name, args, expected_method, expected_path, read_only_key
 ):
-    mock_call = AsyncMock(return_value={"ok": True})
+    expected_payload = [{"id": "p1"}] if tool_name == "pfactory.list_projects" else {"ok": True}
+    mock_call = AsyncMock(return_value=expected_payload)
     with patch("server.mcp_remote.tools._call_internal", mock_call):
         result = await dispatch_tool_call(tool_name, args, read_only_key)
 
@@ -242,7 +243,7 @@ async def test_read_tools_hit_correct_endpoint(
     assert not result.get("isError")
     # Content is JSON-text envelope
     payload = json.loads(result["content"][0]["text"])
-    assert payload == {"ok": True}
+    assert payload == expected_payload
 
 
 @pytest.mark.parametrize(

@@ -280,11 +280,8 @@ def _jwt_strict() -> bool:
     return bool(get_settings().RBAC_ENFORCE_TASK_ROUTES)
 
 
-def _may_receive(client: ConnectedClient, org: str | None, shadow: bool = False) -> bool:
-    """``shadow`` marks a former broadcast: JWT sockets keep it until REST enforces.
-
-    Explicit ``send_to_org`` sends stay members-only in every mode, as before.
-    """
+def _may_receive(client: ConnectedClient, org: str | None, shadow: bool = False) -> bool:  # noqa: ARG001
+    """Authorize delivery for all broadcasts and direct organization events."""
     # Key rule first: an org-bound key with no owner must not pass as a service client.
     if client.key_org_id is not None:
         # Also needs live membership: a failed lookup or a removed owner gets nothing.
@@ -292,13 +289,7 @@ def _may_receive(client: ConnectedClient, org: str | None, shadow: bool = False)
     if client.user_id is None:
         return True
     strict_ok = org is not None and org in client.org_ids
-    if not shadow or _jwt_strict():
-        return strict_ok
-    if not strict_ok:
-        logger.debug(
-            "ws would drop %s for user %s", sanitize_log(org), sanitize_log(client.user_id)
-        )
-    return True
+    return strict_ok
 
 
 async def _deliver_local_broadcast(event_type: str, payload: dict[str, Any]) -> None:

@@ -9,7 +9,9 @@ import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -55,6 +57,7 @@ def project(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
     monkeypatch.setattr(tasks, "load_projects", loader)
     monkeypatch.setattr(projects, "load_projects", loader)
     monkeypatch.setattr(project_paths, "load_projects", loader)
+    monkeypatch.setattr(tasks, "visible_project_ids", AsyncMock(return_value={"proj"}))
 
 
 def make_spec(root: Path, name: str = SPEC) -> Path:
@@ -98,7 +101,12 @@ def test_remote_routes_and_local_precedence(
         detail = await tasks.get_task(TASK)
         assert detail["executionProgress"] == got[0]["executionProgress"]
         assert detail["metadata"]["archivedAt"] == "2026-10-23"
-        listing = await tasks.list_tasks(project_id="proj", status=None)
+        listing = await tasks.list_tasks(
+            SimpleNamespace(state=SimpleNamespace(user={"id": "test"})),
+            None,
+            project_id="proj",
+            status=None,
+        )
         assert listing.total == 1
         assert listing.tasks[0].status == "in_progress"
         assert listing.tasks[0].phase == "coding"
@@ -121,7 +129,14 @@ def test_store_off_uses_files_without_writes(
 
     async def go() -> None:
         assert len(await projects.list_project_tasks("proj")) == 1
-        assert (await tasks.list_tasks(project_id="proj", status=None)).total == 1
+        assert (
+            await tasks.list_tasks(
+                SimpleNamespace(state=SimpleNamespace(user={"id": "test"})),
+                None,
+                project_id="proj",
+                status=None,
+            )
+        ).total == 1
         await tasks.update_task_status(TASK, tasks.TaskStatusUpdate(status="human_review"))
         async with store() as session:
             assert (await session.scalar(select(func.count()).select_from(TaskBoardState))) == 0
@@ -259,9 +274,17 @@ def test_created_task_reaches_remote_board(tmp_path: Path, monkeypatch: pytest.M
         )
         await asyncio.sleep(0.05)
         project(monkeypatch, remote)
-        assert [t.id for t in (await tasks.list_tasks(project_id="proj", status=None)).tasks] == [
-            created.id
-        ]
+        assert [
+            t.id
+            for t in (
+                await tasks.list_tasks(
+                    SimpleNamespace(state=SimpleNamespace(user={"id": "test"})),
+                    None,
+                    project_id="proj",
+                    status=None,
+                )
+            ).tasks
+        ] == [created.id]
 
     asyncio.run(go())
 

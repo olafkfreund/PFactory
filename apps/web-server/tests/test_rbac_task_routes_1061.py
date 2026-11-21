@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi import HTTPException
@@ -13,14 +14,16 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from server import auth
 from server.database.models import Base, Organization, OrgMember, User
 from server.routes import project_authz
+from server.routes.tasks import _require_merge_scope
+from server.services import project_paths
 
 
 @pytest.fixture
-def authz(tmp_path, monkeypatch):
+def authz(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'authz.db'}")
     sessions = async_sessionmaker(engine, expire_on_commit=False)
 
-    async def setup():
+    async def setup() -> None:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         async with sessions() as db:
@@ -35,7 +38,7 @@ def authz(tmp_path, monkeypatch):
 
     asyncio.run(setup())
     monkeypatch.setattr(
-        project_authz.project_paths,
+        project_paths,
         "load_projects",
         lambda: {
             "known": {"org_id": "org", "repo": "example/repo", "path": str(tmp_path / "repo")},
@@ -44,24 +47,24 @@ def authz(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(project_authz, "get_settings", lambda: SimpleNamespace(DISABLE_AUTH=False))
 
-    async def audit(*_args, **_kwargs):
+    async def audit(*_args: Any, **_kwargs: Any) -> None:
         return None
 
     monkeypatch.setattr(project_authz, "_audit_denial", audit)
 
-    def run(principal, project_id="known", role="viewer"):
-        async def check():
+    def run(principal: Any, project_id: str = "known", role: str = "viewer") -> Any:
+        async def check() -> Any:
             async with sessions() as db:
                 return await project_authz.require_project_role(principal, project_id, role, db=db)
 
         return asyncio.run(check())
 
-    run.sessions = sessions
+    run.sessions = sessions  # type: ignore[attr-defined]
     yield run
     asyncio.run(engine.dispose())
 
 
-def test_project_role_contract(authz):
+def test_project_role_contract(authz: Any) -> None:
     assert authz({"id": "owner"}).role == "owner"
     assert authz({"id": "viewer"}).role == "viewer"
     assert (
@@ -95,7 +98,7 @@ def test_project_role_contract(authz):
         assert exc.value.status_code == expected
 
 
-def test_legacy_token_flag_warns_then_rejects(monkeypatch, caplog):
+def test_legacy_token_flag_warns_then_rejects(monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
     settings = SimpleNamespace(API_TOKEN="fixture-token", LEGACY_SHARED_TOKEN_FULL_ACCESS=True)  # noqa: S106 - fixture token
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
     monkeypatch.setattr(auth, "_try_decode_jwt", lambda _token: None)
@@ -109,8 +112,8 @@ def test_legacy_token_flag_warns_then_rejects(monkeypatch, caplog):
     assert exc.value.status_code == 401
 
 
-def test_visible_projects_and_indirect_resolution(authz, tmp_path):
-    async def check():
+def test_visible_projects_and_indirect_resolution(authz: Any, tmp_path: Any) -> None:
+    async def check() -> None:
         async with authz.sessions() as db:
             owner = {"id": "owner"}
             outsider = {"id": "outsider"}
@@ -143,8 +146,8 @@ def test_visible_projects_and_indirect_resolution(authz, tmp_path):
     asyncio.run(check())
 
 
-def test_plan_intake_requires_org_membership_and_role(authz):
-    async def check():
+def test_plan_intake_requires_org_membership_and_role(authz: Any) -> None:
+    async def check() -> None:
         async with authz.sessions() as db:
             assert await project_authz.authorize_plan_ingest({"id": "owner"}, None, db) == "org"
             for principal, expected in (({"id": "viewer"}, 403), ({"id": "outsider"}, 404)):
@@ -153,3 +156,10 @@ def test_plan_intake_requires_org_membership_and_role(authz):
                 assert exc.value.status_code == expected
 
     asyncio.run(check())
+
+
+def test_merge_token_needs_admin_scope_ceiling() -> None:
+    with pytest.raises(HTTPException) as exc:
+        _require_merge_scope({"id": "owner", "api_key_id": "key", "scopes": ("task:write",)})
+    assert exc.value.status_code == 403
+    _require_merge_scope({"id": "owner", "api_key_id": "key", "scopes": ("task:merge",)})

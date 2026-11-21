@@ -8,7 +8,6 @@ from typing import Any
 
 from fastapi import HTTPException, WebSocket
 
-from factory_common.logsafe import sanitize_log
 from server.auth import (
     WebSocketAuthError,
     _ws_acw_principal,
@@ -34,31 +33,26 @@ def _task_project_id(task_id: str) -> str | None:
     return project_id
 
 
-async def _authorize_project(user: dict[str, Any], project_id: str | None, *, strict: bool) -> bool:
+async def _project_denial_code(user: dict[str, Any], project_id: str | None) -> int | None:
     try:
         from server.database.engine import async_session_factory  # noqa: PLC0415
 
         async with async_session_factory() as db:
             await authorize_project_for_user(user, project_id, db)
-        return True
-    except HTTPException:
-        if strict:
-            return False
-        logger.warning(
-            "ws task access would deny project=%s user=%s",
-            sanitize_log(project_id),
-            sanitize_log(user.get("id")),
-        )
-        return True
-    except Exception:  # noqa: BLE001 — strict principals fail closed on any lookup error
-        if strict:
-            return False
-        logger.warning(
-            "ws task access check failed project=%s user=%s",
-            sanitize_log(project_id),
-            sanitize_log(user.get("id")),
-        )
-        return True
+        return None
+    except HTTPException as exc:
+        return 4403 if exc.status_code == 403 else 4404  # noqa: PLR2004
+    except Exception:  # noqa: BLE001 — failed lookup denies the socket
+        return 4404
+
+
+async def _authorize_project(
+    user: dict[str, Any],
+    project_id: str | None,
+    *,
+    strict: bool,  # noqa: ARG001
+) -> bool:
+    return await _project_denial_code(user, project_id) is None
 
 
 class TaskSocketAccess:
@@ -90,12 +84,12 @@ class TaskSocketAccess:
             return True
 
         if not self.project_id:
-            await self.websocket.close(code=4003)
+            await self.websocket.close(code=4404)
             return False
 
-        strict = bool(user.get("api_key_id")) or _jwt_strict()
-        if not await self._authorize(user, strict=strict):
-            await self.websocket.close(code=4003)
+        denial_code = await _project_denial_code(user, self.project_id)
+        if denial_code is not None:
+            await self.websocket.close(code=denial_code)
             return False
 
         self.user = user

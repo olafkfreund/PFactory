@@ -32,6 +32,8 @@ from .project_authz import (
     creator_org,
     plan_session_filter,
     require_plan_access,
+    require_project_role,
+    require_repo_project_role,
 )
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
@@ -245,6 +247,8 @@ def _session_org(
 async def _ingest_org(request: Request, repo: str | None, db: AsyncSession) -> str | None:
     """The org to stamp on a new session; refuses a cross-org ingest (#968)."""
     user = _user(request)
+    if repo:
+        return (await require_repo_project_role(user, repo, "member", db, for_intake=True)).org_id
     return await authorize_plan_ingest(user, _repo_org(repo, _projects_for(user)), db)
 
 
@@ -330,6 +334,8 @@ async def ingest_from_issue(
     # acceptance criteria, so it cannot parse either way — better a 400 naming
     # that than a session built from a one-line plan nobody can verify against.
     org_id = await _ingest_org(request, body.repo, db)
+    if body.project_id:
+        await require_project_role(_user(request), body.project_id, "member", db=db)
     tenant = resolve_tenant(request)
     service = cast(PlanService, SERVICE)
     if not get_settings().ISSUE_STAGES_ENABLED:
@@ -489,6 +495,8 @@ async def get_session(
     if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
         raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
     user = _user(request)
+    if getattr(session, "project_id", None):
+        await require_project_role(user, session.project_id, "viewer", db=db)
     await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
     return _session_dict(session)
 
@@ -513,6 +521,8 @@ async def audit_pack(
     except PlanServiceError as exc:
         raise HTTPException(status_code=404, detail=client_error(exc)) from exc
     user = _user(request)
+    if getattr(session, "project_id", None):
+        await require_project_role(user, session.project_id, "viewer", db=db)
     await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
     pack = build_audit_pack(session)
     if format == "markdown":
@@ -546,6 +556,8 @@ async def _guard_session(session_id: str, request: Request, db: AsyncSession) ->
     if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
         raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
     user = _user(request)
+    if getattr(session, "project_id", None):
+        await require_project_role(user, session.project_id, "member", db=db)
     await authorize_plan_session(
         user, session_id, lambda: _session_org(session, user), db, minimum_role="member"
     )
@@ -911,6 +923,7 @@ async def emit(
     Other failures, such as an unprocessed plan, stay 400 (#758).
     """
     await _guard_session(session_id, request, db)
+    await require_repo_project_role(_user(request), body.repo, "member", db, for_intake=True)
     docs_connections = await _load_docs_connections(request, db)
     # #961: release the main-pool connection before the minutes-long emit thread.
     await db.close()
@@ -953,6 +966,10 @@ async def emit_contract(
     (#758).
     """
     await _guard_session(session_id, request, db)
+    if body.project_id:
+        await require_project_role(_user(request), body.project_id, "member", db=db)
+    if body.repo:
+        await require_repo_project_role(_user(request), body.repo, "member", db, for_intake=True)
     try:
         http = None if body.dry_run else _UrllibHttp()
         return _session_dict(

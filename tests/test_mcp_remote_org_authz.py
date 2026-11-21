@@ -158,7 +158,6 @@ async def test_list_projects_hides_other_orgs(org_env):
     assert json.loads(res_svc["content"][0]["text"]) == [
         {"id": "pa"},
         {"id": "pb"},
-        {"id": "unassigned"},
     ]
 
 

@@ -209,36 +209,41 @@ async def _audit_mcp_write(
 
 
 @router.get("/projects")
-async def proxy_list_projects(key=Depends(require_acw_scope(MCP_READ_SCOPE))):
+async def proxy_list_projects(
+    request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
+):
     from ..routes.projects import list_projects
 
-    foreign = _foreign_projects(key)
-    projects = await list_projects()
-    return [p for p in projects if p.get("id") not in foreign]
+    request.state.user = _principal(key)
+    return await list_projects(request, db)
 
 
 @router.get("/tasks")
 async def proxy_list_tasks(
+    request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     project_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
     key=Depends(require_acw_scope(MCP_READ_SCOPE)),
 ):
-    from server.routes.tasks import TaskList, list_tasks
+    from server.routes.tasks import list_tasks
 
-    foreign = _foreign_projects(key)
-    result = await list_tasks(project_id=project_id, status=status)
-    tasks = [t for t in result.tasks if t.project_id not in foreign]
-    return TaskList(tasks=tasks, total=len(tasks))
+    request.state.user = _principal(key)
+    return await list_tasks(request, db, project_id=project_id, status=status)  # type: ignore[arg-type]
 
 
 @router.get("/tasks/running")
-async def proxy_get_running_tasks(key=Depends(require_acw_scope(MCP_READ_SCOPE))):
-    from server.routes.execution import RunningTasksResponse, get_running_tasks
+async def proxy_get_running_tasks(
+    request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
+):
+    from server.routes.execution import get_running_tasks
 
-    foreign = _foreign_projects(key)
-    result = await get_running_tasks()
-    tasks = [tid for tid in result.tasks if tid.split(":", 1)[0] not in foreign]
-    return RunningTasksResponse(tasks=tasks, count=len(tasks))
+    request.state.user = _principal(key)
+    return await get_running_tasks(request, db)
 
 
 @router.get("/tasks/{task_id}")
@@ -451,7 +456,10 @@ async def proxy_create_pr(
     from ..routes.tasks import CreatePRFromTaskOptions, create_pr_from_task
 
     body = await _read_json_body(request)
-    result = await create_pr_from_task(task_id, CreatePRFromTaskOptions(**body) if body else None)
+    request.state.user = _principal(key)
+    result = await create_pr_from_task(
+        task_id, request, CreatePRFromTaskOptions(**body) if body else None
+    )
     await _audit_mcp_write(
         key,
         ACTION_MCP_TASK_CREATE_PR,
@@ -473,7 +481,8 @@ async def proxy_merge_worktree(
     from ..routes.tasks import WorktreeMergeOptions, merge_worktree
 
     body = await _read_json_body(request)
-    result = await merge_worktree(task_id, WorktreeMergeOptions(**body) if body else None)
+    request.state.user = _principal(key)
+    result = await merge_worktree(task_id, request, WorktreeMergeOptions(**body) if body else None)
     await _audit_mcp_write(
         key,
         ACTION_MCP_TASK_MERGE,

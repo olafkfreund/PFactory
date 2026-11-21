@@ -4,9 +4,10 @@ import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -117,6 +118,24 @@ def test_owner_uses_own_terminal_and_the_other_user_gets_404(env):
     assert _as(env, "svc", "get", "/api/terminals").json()["count"] == 1
     assert _as(env, "svc", "delete", "/api/terminals/t1").status_code == 204
     assert env.manager.get_session("t1") is None
+
+
+def test_invoke_stub_requires_member_role(env, monkeypatch):
+    env.manager.create_session(session_id="t1", owner_id="alice", project_id="a")
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    guard = AsyncMock(side_effect=HTTPException(status_code=403, detail="Requires member role"))
+    monkeypatch.setattr(terminal, "async_session_factory", Session)
+    monkeypatch.setattr(terminal, "require_project_role", guard)
+    response = _as(env, "alice", "POST", "/api/terminals/t1/invoke-claude", json={})
+    assert response.status_code == 403
+    guard.assert_awaited_once()
 
 
 def test_create_requires_an_authorized_project_that_contains_the_directory(env):

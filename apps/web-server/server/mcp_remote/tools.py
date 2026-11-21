@@ -48,13 +48,10 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import select
 
 from server.config import get_settings
 from server.database.engine import get_db
-from server.database.models import OrgMember
-from server.routes.project_authz import _auth_disabled, authorize_project_for_user
-from server.services import project_paths
+from server.routes.project_authz import authorize_project_for_user, visible_project_ids
 
 from .auth import (
     MCP_READ_SCOPE,
@@ -127,32 +124,17 @@ async def _authorize_call(
     raise MCPAuthError("Authorization is temporarily unavailable")
 
 
-async def _visible_org_ids(key: AuthenticatedKey) -> set[str] | None:
-    """Org ids the key may list; ``None`` means all (service key / auth off)."""
-    if not key.user_id or _auth_disabled():
-        return None
-    if not key.org_id:
-        return set()
+async def _visible_project_ids(key: AuthenticatedKey) -> set[str]:
+    """Project ids visible to the key and its scopes."""
     async for db in get_db():
-        row = (
-            await db.execute(
-                select(OrgMember).where(
-                    OrgMember.org_id == key.org_id,
-                    OrgMember.user_id == key.user_id,
-                )
-            )
-        ).scalar_one_or_none()
-        return {key.org_id} if row is not None else set()
+        return await visible_project_ids(_principal(key), db)
     return set()
 
 
 async def _list_projects(key: AuthenticatedKey) -> list[dict[str, Any]]:
     listed: list[dict[str, Any]] = await _call_internal("GET", "/api/projects", key)
-    allowed = await _visible_org_ids(key)
-    if allowed is None:
-        return listed
-    projects = project_paths.load_projects()
-    return [p for p in listed if projects.get(p.get("id", ""), {}).get("org_id") in allowed]
+    allowed = await _visible_project_ids(key)
+    return [p for p in listed if p.get("id") in allowed]
 
 
 def _format_json(data: Any) -> dict[str, Any]:

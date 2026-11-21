@@ -18,11 +18,11 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 from server.routes import pfactory_tasks  # noqa: E402
-from server.routes import project_authz  # noqa: E402
+from server.services import project_paths  # noqa: E402
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     spec = tmp_path / "workspaces" / "proj1" / "specs" / "001-feat"
     spec.mkdir(parents=True)
     (spec / "status.json").write_text("{}")
@@ -31,7 +31,7 @@ def client(tmp_path, monkeypatch):
     (ev / "homepage-actual.png").write_bytes(b"\x89PNG\r\n\x1a\nCAPTURED")
     monkeypatch.setenv("PFACTORY_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setattr(
-        project_authz.project_paths,
+        project_paths,
         "load_projects",
         lambda: {"proj1": {"org_id": "default"}},
     )

@@ -35,7 +35,7 @@ from server.routes import (  # noqa: E402
     github as github_routes,
     insights as insights_routes,
 )
-from server.services import run_leases  # noqa: E402
+from server.services import project_paths, run_leases  # noqa: E402
 
 OTHER_POD = "pod-b:1"
 PROJECT = "proj"
@@ -85,10 +85,8 @@ def _stop_requested(db: async_sessionmaker, kind: str, key: str) -> bool:  # typ
 
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    from server.routes import project_authz
-
     monkeypatch.setattr(
-        project_authz.project_paths,
+        project_paths,
         "load_projects",
         lambda: {PROJECT: {"path": str(tmp_path), "org_id": "default"}},
     )
@@ -111,7 +109,7 @@ def client() -> TestClient:
     app.include_router(insights_routes.router, prefix="/api/projects/{projectId}/insights")
 
     @app.middleware("http")
-    async def _principal(request, call_next):
+    async def _principal(request: Any, call_next: Any) -> Any:
         request.state.user = {"id": "lease-test", "is_service": True}
         return await call_next(request)
 

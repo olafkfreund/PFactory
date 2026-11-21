@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -133,22 +132,22 @@ def test_member_and_service_allowed(task_ws_app, kind, token):
 @pytest.mark.parametrize("kind", ENDPOINTS)
 @pytest.mark.parametrize("task_id", ["p-a", "001-bare", "p-a:", ":001"])
 @pytest.mark.parametrize("token", ["jwt-a", "acw_a"])
-def test_bare_task_id_denied_4003_even_when_equal_to_accessible_project(
+def test_bare_task_id_denied_4404_even_when_equal_to_accessible_project(
     task_ws_app, kind, task_id, token
 ):
     app, *_ = task_ws_app
     with TestClient(app) as client:
-        _assert_close_code(client, kind, task_id, token, 4003)
+        _assert_close_code(client, kind, task_id, token, 4404)
 
 
 @pytest.mark.parametrize("kind", ENDPOINTS)
-def test_non_member_other_org_key_and_unknown_project_close_4003(task_ws_app, kind):
+def test_non_member_other_org_key_and_unknown_project_close_4404(task_ws_app, kind):
     app, *_ = task_ws_app
     with TestClient(app) as client:
-        _assert_close_code(client, kind, "p-b:001", "jwt-a", 4003)
-        _assert_close_code(client, kind, "p-a:001", "acw_b", 4003)
-        _assert_close_code(client, kind, "missing:001", "jwt-a", 4003)
-        _assert_close_code(client, kind, "missing:001", "acw_a", 4003)
+        _assert_close_code(client, kind, "p-b:001", "jwt-a", 4404)
+        _assert_close_code(client, kind, "p-a:001", "acw_b", 4404)
+        _assert_close_code(client, kind, "missing:001", "jwt-a", 4404)
+        _assert_close_code(client, kind, "missing:001", "acw_a", 4404)
 
 
 def _install_failure(monkeypatch, failure: str) -> None:
@@ -182,13 +181,13 @@ def _install_failure(monkeypatch, failure: str) -> None:
 @pytest.mark.parametrize("kind", ENDPOINTS)
 @pytest.mark.parametrize("failure", ["registry", "session", "query"])
 @pytest.mark.parametrize("token", ["jwt-a", "acw_a"])
-def test_lookup_exception_at_connect_closes_4003_when_strict(
+def test_lookup_exception_at_connect_closes_4404_when_strict(
     task_ws_app, monkeypatch, kind, failure, token
 ):
     app, *_ = task_ws_app
     _install_failure(monkeypatch, failure)
     with TestClient(app) as client:
-        _assert_close_code(client, kind, "p-a:001", token, 4003)
+        _assert_close_code(client, kind, "p-a:001", token, 4404)
 
 
 @pytest.mark.parametrize("kind", ENDPOINTS)
@@ -252,31 +251,14 @@ def test_key_recheck_validator_none_or_raising_closes_4001(task_ws_app, monkeypa
 
 
 @pytest.mark.parametrize("kind", ENDPOINTS)
-def test_shadow_flag_off_and_on_semantics(task_ws_app, monkeypatch, caplog, kind):
+def test_shadow_flag_off_and_on_semantics(task_ws_app, monkeypatch, kind):
     app, setting, *_ = task_ws_app
-    setting.RBAC_ENFORCE_TASK_ROUTES = False
-
     with TestClient(app) as client:
-        # Flag off: JWT non-member allowed and logged; key non-member still denied 4003.
-        with caplog.at_level(logging.WARNING), _connect(client, kind, "p-b:001", "jwt-a") as ws:
-            assert ws.receive_json()["type"] == "connected"
-        assert any("p-b" in r.message and "user-a" in r.message for r in caplog.records)
-        _assert_close_code(client, kind, "p-a:001", "acw_b", 4003)
+        for enforced in (False, True):
+            setting.RBAC_ENFORCE_TASK_ROUTES = enforced
+            _assert_close_code(client, kind, "p-b:001", "jwt-a", 4404)
+            _assert_close_code(client, kind, "p-a:001", "acw_b", 4404)
 
-        # Flag off: JWT with lookup exception allowed and logged; key denied 4003.
-        caplog.clear()
         _install_failure(monkeypatch, "registry")
-        with caplog.at_level(logging.WARNING), _connect(client, kind, "p-a:001", "jwt-a") as ws:
-            assert ws.receive_json()["type"] == "connected"
-        assert any("p-a" in r.message and "user-a" in r.message for r in caplog.records)
-        _assert_close_code(client, kind, "p-a:001", "acw_a", 4003)
-
-        # Flag on: JWT with exception closes 4003, and JWT non-member closes 4003.
-        setting.RBAC_ENFORCE_TASK_ROUTES = True
-        _assert_close_code(client, kind, "p-a:001", "jwt-a", 4003)
-        monkeypatch.setattr(
-            project_authz.project_paths,
-            "load_projects",
-            lambda: {"p-a": {"org_id": "A"}, "p-b": {"org_id": "B"}},
-        )
-        _assert_close_code(client, kind, "p-b:001", "jwt-a", 4003)
+        _assert_close_code(client, kind, "p-a:001", "jwt-a", 4404)
+        _assert_close_code(client, kind, "p-a:001", "acw_a", 4404)
