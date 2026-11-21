@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1104
 intent: intent/2026-11-21-1104-pf-project-view.md
 ---
