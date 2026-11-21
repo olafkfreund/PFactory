@@ -13,6 +13,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plan.repo_ref import PROVIDER_GIT_HOST, parse_repo_ref
 from server.config import get_settings
 from server.database.engine import get_db
 from server.database.models import OrgMember
@@ -60,7 +61,11 @@ def _auth_disabled() -> bool:
 
 def is_service_principal(user: dict[str, Any] | None) -> bool:
     """True for ``is_service`` principals only; a ``role`` claim never counts."""
-    return isinstance(user, dict) and bool(user.get("is_service"))
+    return (
+        isinstance(user, dict)
+        and bool(user.get("is_service"))
+        and not user.get("api_key_id")
+    )
 
 
 def _forbidden(detail: str) -> HTTPException:
@@ -115,10 +120,14 @@ def check_project_access(
         )
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    org_id = project.get("org_id") or ("default" if _auth_disabled() else None)
+    org_id = project.get("org_id") or (
+        "default" if _auth_disabled() or is_service_principal(user) else None
+    )
     if not org_id:
         raise HTTPException(status_code=404, detail="Project not found")
     if is_service_principal(user):
+        return
+    if _auth_disabled() and user.get("id") == "default":
         return
     if user.get("org_id") and user["org_id"] != org_id:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -141,9 +150,9 @@ async def require_project_role(
 ) -> ProjectAccess:
     """Authorize one registered project; hidden projects share the unknown-project 404."""
     project = project_paths.load_projects().get(project_id) if project_id else None
-    org_id = (
-        (project.get("org_id") or ("default" if _auth_disabled() else None)) if project else None
-    )
+    org_id = project.get("org_id") if project else None
+    if project and not org_id and (_auth_disabled() or is_service_principal(principal)):
+        org_id = "default"
     membership = None
     if principal and principal.get("id") and org_id and not is_service_principal(principal):
         membership = (
@@ -172,6 +181,7 @@ async def require_project_role(
     role = (
         "owner"
         if is_service_principal(principal)
+        or (_auth_disabled() and principal.get("id") == "default")
         else min(
             membership.role if membership else "owner",
             scope_role_ceiling(principal) or "viewer",
@@ -188,10 +198,8 @@ async def visible_project_ids(
     projects = project_paths.load_projects()
     if not principal:
         return set()
-    if is_service_principal(principal):
-        return {
-            pid for pid, project in projects.items() if project.get("org_id") or _auth_disabled()
-        }
+    if is_service_principal(principal) or (_auth_disabled() and principal.get("id") == "default"):
+        return set(projects)
     ceiling = scope_role_ceiling(principal)
     if ceiling is None or ROLE_LEVELS[ceiling] < ROLE_LEVELS[min_role]:
         return set()
@@ -223,23 +231,36 @@ async def require_repo_project_role(
 ) -> ProjectAccess:
     """Authorize a registered owner/repo, or an org-backed intake."""
 
-    def normalize(value: str) -> list[str] | None:
+    def normalize(value: str, provider: str = "github") -> tuple[str, str] | None:
+        parsed = parse_repo_ref(value)
+        if parsed and parsed[1] != value:
+            provider, value = parsed
         value = value.rstrip("/").removesuffix(".git")
         if "://" in value:
-            value = urlsplit(value).path
+            url = urlsplit(value)
+            provider = (url.hostname or "").lower()
+            value = url.path
         elif "@" in value and ":" in value:
-            value = value.split(":", 1)[1]
+            host, value = value.split(":", 1)
+            provider = host.rsplit("@", 1)[-1].lower()
         parts = value.strip("/").split("/")
-        return parts if len(parts) == 2 and all(parts) else None  # noqa: PLR2004 - owner/repo
+        host = PROVIDER_GIT_HOST.get(provider, provider)
+        return (host, "/".join(parts)) if len(parts) >= 2 and all(parts) else None  # noqa: PLR2004
 
     target = normalize(repo) if repo else None
     if target is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        projects = project_paths.load_projects()
+    except Exception:  # noqa: BLE001 - unreadable registry fails closed
+        raise HTTPException(status_code=503, detail="Project registry unavailable") from None
     matches = [
         pid
-        for pid, project in project_paths.load_projects().items()
+        for pid, project in projects.items()
         if any(
-            normalize(str(value)) == target
+            normalize(
+                str(value), (project.get("settings") or {}).get("gitProvider", "github")
+            ) == target
             for value in (
                 project.get("repo"),
                 project.get("github_repo"),
@@ -247,6 +268,7 @@ async def require_repo_project_role(
                 (project.get("settings") or {}).get("gitRepo"),
                 project.get("gitUrl"),
                 project.get("git_url"),
+                project.get("clonedFrom"),
             )
             if value
         )
@@ -255,16 +277,16 @@ async def require_repo_project_role(
     for pid in matches:
         if pid in visible:
             return await require_project_role(principal, pid, min_role, db=db)
+    if matches:
+        await _audit_denial(
+            audit_service.ACTION_AUTHZ_DENIED, principal, "repository", repo,
+            projects[matches[0]].get("org_id"), min_role, "Project not found",
+        )
     if not matches and for_intake and principal:
-        org_id = await creator_org(principal, db)
-        roles = await _member_roles(principal, db)
-        grant = roles.get(org_id or "")
-        ceiling = scope_role_ceiling(principal)
-        if grant and ceiling and org_id and repo and principal.get("id"):
-            effective = min(grant, ceiling, key=ROLE_LEVELS.__getitem__)
-            if ROLE_LEVELS[effective] < ROLE_LEVELS[min_role]:
-                raise _forbidden(f"Requires {min_role} role on project")
-            return ProjectAccess(repo, org_id, effective, principal["id"])
+        if is_service_principal(principal):
+            return ProjectAccess(repo or "", "default", "owner", principal["id"])
+        if _auth_disabled() and principal.get("id") == "default":
+            return ProjectAccess(repo or "", "default", "owner", "default")
     raise HTTPException(status_code=404, detail="Project not found")
 
 
@@ -528,7 +550,7 @@ def check_plan_session_access(
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if is_service_principal(user):
+    if is_service_principal(user) or (_auth_disabled() and user.get("id") == "default"):
         return None
     if not org_id:
         raise HTTPException(status_code=404, detail="Plan session not found")
@@ -568,7 +590,9 @@ async def authorize_plan_session(
     """
     if _auth_disabled() and user is None:
         user = {"id": "default"}
-    if is_service_principal(user):
+    if is_service_principal(user) or (
+        _auth_disabled() and user and user.get("id") == "default"
+    ):
         return None
     org_id = org_of()
     roles = await _member_roles(user, db) if org_id else {}
@@ -598,7 +622,9 @@ async def plan_session_filter(
     minimum_role: str = "viewer",
 ) -> Callable[[str | None], bool] | None:
     """Return an org_id filter predicate for list_sessions, or None when unfiltered (#968)."""
-    if is_service_principal(user):
+    if is_service_principal(user) or (
+        _auth_disabled() and user and user.get("id") == "default"
+    ):
         return None
     roles = await _member_roles(user, db)
 

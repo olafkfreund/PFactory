@@ -20,6 +20,7 @@ Workspace root resolution:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -38,6 +39,7 @@ from client_errors import client_error
 from server.auth import WebSocketAuthError, authenticate_websocket
 from server.database.engine import get_db
 from server.error_ref import error_message
+from server.pty.access import project_id_for_path
 from server.routes.project_authz import (
     _AccessChecker,
     _project_decision,
@@ -745,7 +747,12 @@ class MergeRequest(BaseModel):
     "/{spec_id}/merge",
     dependencies=[Depends(SpecAccessChecker("member")), Depends(_merge_scope)],
 )
-def merge_accepted_tests(spec_id: str, body: MergeRequest) -> dict[str, Any]:
+async def merge_accepted_tests(  # noqa: PLR0912 - destination adds a guard branch
+    spec_id: str,
+    body: MergeRequest,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
     """Commit the accepted (and optionally flagged) tests to the feature
     branch via the Triager's git_writer. Dry-run by default — returns the
     exact git argv + the files that would be committed, nothing written."""
@@ -798,7 +805,17 @@ def merge_accepted_tests(spec_id: str, body: MergeRequest) -> dict[str, Any]:
         raise HTTPException(
             status_code=400, detail="repo_dir is required for a real (non-dry-run) merge"
         )
-    repo_dir = Path(body.repo_dir) if body.repo_dir else spec_dir
+    repo_dir = (
+        await asyncio.to_thread(Path(body.repo_dir).resolve)
+        if body.repo_dir else spec_dir
+    )
+    if body.repo_dir:
+        destination = project_id_for_path(str(repo_dir))
+        if destination != spec_dir.parent.parent.name:
+            raise HTTPException(status_code=404, detail="Project not found")
+        await require_project_role(
+            getattr(request.state, "user", None), destination, "member", db=db
+        )
 
     from tools.git_writer import GitWriteRequest, write_tests_to_branch
 

@@ -11,8 +11,10 @@ Public paths (no auth required): /api/auth/*, /api/health, static assets, etc.
 import hashlib
 import hmac
 import logging
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from functools import lru_cache
+from typing import Any
 
 from fastapi import HTTPException, Request, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -22,6 +24,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from .config import get_settings
+
+MCP_INTERNAL_PRINCIPAL: ContextVar[dict[str, Any] | None] = ContextVar(
+    "mcp_internal_principal", default=None
+)
 
 
 @lru_cache(maxsize=1)
@@ -287,11 +293,15 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         "/api/mcp-stdio/",
     )
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):  # noqa: PLR0912
         path = request.url.path
 
         # Initialize user state to None for every request
         request.state.user = None
+
+        if (caller := MCP_INTERNAL_PRINCIPAL.get()) is not None:
+            request.state.user = caller
+            return await call_next(request)
 
         # Skip all auth when disabled (development mode).
         # Populate request.state.user with the default user so that routes
@@ -475,7 +485,7 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
     settings = get_settings()
 
     if settings.DISABLE_AUTH:
-        return None
+        return {"id": "default", "email": "default@localhost", "role": "admin"}
 
     # Prefer the Authorization header; fall back to the legacy ?token= query
     # param (with a deprecation warning) for backward compatibility (#555).
@@ -500,7 +510,7 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
     # Fall back to legacy token — no user info available
     if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
         logger.warning("DEPRECATED: legacy shared token used for WebSocket access")
-        return None
+        return {"id": "default", "is_service": True}
 
     if token.startswith(API_KEY_PREFIX):
         api_user = await _ws_acw_principal(token)

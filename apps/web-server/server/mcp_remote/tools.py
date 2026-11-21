@@ -3,10 +3,10 @@
 Each tool is a thin wrapper that:
   1. Checks the caller's scope (mcp:read or mcp:write) and authorizes the
      key's owner against the target project (#946), as stdio does (#939)
-  2. Calls the matching REST endpoint via loopback HTTP
+  2. Calls the matching REST endpoint through the app's ASGI transport
   3. Returns a JSON-RPC ``content[]`` envelope
 
-Why loopback HTTP rather than direct internal-function imports?
+Why an ASGI self-call rather than direct internal-function imports?
 - The MCP surface IS the existing REST surface — any drift in REST
   behaviour shows up identically through MCP, no hidden divergence.
 - The internal handlers are wrapped in FastAPI ``Depends(...)`` chains
@@ -49,7 +49,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
-from server.config import get_settings
+from server.auth import MCP_INTERNAL_PRINCIPAL
 from server.database.engine import get_db
 from server.routes.project_authz import authorize_project_for_user, visible_project_ids
 
@@ -80,8 +80,6 @@ _SAFE_ID = re.compile(r"[\w:-][\w.:-]*")
 
 
 def _principal(key: AuthenticatedKey) -> dict[str, Any]:
-    if not key.user_id:
-        return {"id": "default", "is_service": True}
     return {
         "id": key.user_id,
         "api_key_id": key.key_id,
@@ -98,9 +96,7 @@ async def _authorize_call(
 ) -> None:
     """Authorize the key's owner for the project the tool acts on (#946).
 
-    The loopback runs as the service principal, which REST never org-checks,
-    so this is the only org check a remote tool call gets. The target is the
-    argument the tool proxies, never any other one the caller sent.
+    The target is the argument the tool proxies, never another one the caller sent.
     """
     if tool_name == "pfactory.list_projects":
         return
@@ -151,22 +147,26 @@ def _format_error(message: str) -> dict[str, Any]:
 async def _call_internal(method: str, path: str, key: AuthenticatedKey, **kwargs: Any) -> Any:
     """Make a self-call against the web-server's own REST surface.
 
-    The legacy ``settings.API_TOKEN`` from the env carries the request
-    through ``TokenAuthMiddleware`` so the regular REST handlers run
-    unchanged. The ``X-MCP-Key-Id`` header is a tracer the audit code
-    can pick up to attribute the action to a specific MCP key.
+    The in-process ASGI call carries the scoped caller through
+    ``TokenAuthMiddleware``. ``X-MCP-Key-Id`` traces the audited action.
 
     Returns the parsed JSON body, raising on any HTTP error so the
     caller's ``dispatch_tool_call`` ``except`` block formats it.
     """
-    settings = get_settings()
+    from server.main import app  # noqa: PLC0415 - app is not ready during module import
+
     headers = dict(kwargs.pop("headers", {}) or {})
-    headers["Authorization"] = f"Bearer {settings.API_TOKEN}"
     headers["X-MCP-Key-Id"] = key.key_id
 
     base = _loopback_url()
-    async with httpx.AsyncClient(base_url=base, timeout=30.0) as client:
-        response = await client.request(method, path, headers=headers, **kwargs)
+    token = MCP_INTERNAL_PRINCIPAL.set(_principal(key))
+    try:
+        async with httpx.AsyncClient(
+            base_url=base, transport=httpx.ASGITransport(app=app), timeout=30.0
+        ) as client:
+            response = await client.request(method, path, headers=headers, **kwargs)
+    finally:
+        MCP_INTERNAL_PRINCIPAL.reset(token)
     response.raise_for_status()
     if not response.content:
         return {}
@@ -336,7 +336,7 @@ _SCOPE_FOR_TOOL: dict[str, str] = {
     "pfactory.start_task": MCP_WRITE_SCOPE,
     "pfactory.stop_task": MCP_WRITE_SCOPE,
     "pfactory.approve_plan": MCP_WRITE_SCOPE,
-    "pfactory.merge_pr": MCP_WRITE_SCOPE,
+    "pfactory.merge_pr": "task:merge",
     # V1.1
     "pfactory.get_qa_report": MCP_READ_SCOPE,
     "pfactory.tail_agent_console": MCP_READ_SCOPE,

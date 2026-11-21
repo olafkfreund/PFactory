@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
@@ -34,6 +34,7 @@ from .project_authz import (
     require_plan_access,
     require_project_role,
     require_repo_project_role,
+    visible_project_ids,
 )
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
@@ -266,8 +267,11 @@ async def list_sessions(
     keep: Callable[[PlanSession], bool] | None = None
     if allow is not None:
         projects = _projects_for(user)
+        visible = await visible_project_ids(user, db)
         stamps = cast(PlanService, SERVICE).org_stamps()
-        keep = lambda s: allow(_session_org(s, user, stamps, projects))  # noqa: E731
+        keep = lambda s: (not s.project_id or s.project_id in visible) and allow(  # noqa: E731
+            _session_org(s, user, stamps, projects)
+        )
     return {
         "sessions": SERVICE.list_sessions(
             tenant_id=tenant, include_discarded=include_discarded, keep=keep
@@ -317,7 +321,7 @@ async def ingest_text(
 
 
 @router.post("/from-issue", dependencies=[Depends(require_plan_access("member"))])
-async def ingest_from_issue(
+async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake checks
     body: FromIssueBody,
     request: Request,
     db: AsyncSession = Depends(get_db),  # noqa: B008
@@ -334,7 +338,15 @@ async def ingest_from_issue(
     # acceptance criteria, so it cannot parse either way — better a 400 naming
     # that than a session built from a one-line plan nobody can verify against.
     org_id = await _ingest_org(request, body.repo, db)
+    repo_access = await require_repo_project_role(
+        _user(request), body.repo, "member", db, for_intake=True
+    )
+    parsed_repo = parse_repo_ref(body.repo)
+    if parsed_repo and parsed_repo[0] != body.provider:
+        raise HTTPException(status_code=400, detail="Repository provider mismatch")
     if body.project_id:
+        if body.project_id != repo_access.project_id:
+            raise HTTPException(status_code=404, detail="Project not found")
         await require_project_role(_user(request), body.project_id, "member", db=db)
     tenant = resolve_tenant(request)
     service = cast(PlanService, SERVICE)
@@ -488,16 +500,21 @@ async def get_session(
 ) -> dict:
     try:
         session = SERVICE.get(session_id)
-    except PlanServiceError as exc:
-        raise HTTPException(status_code=404, detail=client_error(exc)) from exc
+    except PlanServiceError:
+        raise HTTPException(status_code=404, detail="Plan session not found") from None
     # Multi-tenancy (#308): another tenant's session is indistinguishable from a
     # missing one (404, not 403 — don't leak existence). Flag off => unchanged.
     if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
-        raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
+        raise HTTPException(status_code=404, detail="Plan session not found")
     user = _user(request)
-    if getattr(session, "project_id", None):
-        await require_project_role(user, session.project_id, "viewer", db=db)
-    await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
+    try:
+        if getattr(session, "project_id", None):
+            await require_project_role(user, session.project_id, "viewer", db=db)
+        await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(status_code=404, detail="Plan session not found") from None
+        raise
     return _session_dict(session)
 
 
@@ -518,12 +535,17 @@ async def audit_pack(
 
     try:
         session = SERVICE.get(session_id)
-    except PlanServiceError as exc:
-        raise HTTPException(status_code=404, detail=client_error(exc)) from exc
+    except PlanServiceError:
+        raise HTTPException(status_code=404, detail="Plan session not found") from None
     user = _user(request)
-    if getattr(session, "project_id", None):
-        await require_project_role(user, session.project_id, "viewer", db=db)
-    await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
+    try:
+        if getattr(session, "project_id", None):
+            await require_project_role(user, session.project_id, "viewer", db=db)
+        await authorize_plan_session(user, session_id, lambda: _session_org(session, user), db)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(status_code=404, detail="Plan session not found") from None
+        raise
     pack = build_audit_pack(session)
     if format == "markdown":
         return PlainTextResponse(render_markdown(pack), media_type="text/markdown")
@@ -552,15 +574,20 @@ async def _guard_session(session_id: str, request: Request, db: AsyncSession) ->
     try:
         session = cast(PlanService, SERVICE).get(session_id)
     except PlanServiceError:
-        return  # the route's own handler reports the missing session
+        raise HTTPException(status_code=404, detail="Plan session not found") from None
     if multi_tenant_enabled() and session.tenant_id != resolve_tenant(request):
-        raise HTTPException(status_code=404, detail=f"unknown session '{session_id}'")
+        raise HTTPException(status_code=404, detail="Plan session not found")
     user = _user(request)
-    if getattr(session, "project_id", None):
-        await require_project_role(user, session.project_id, "member", db=db)
-    await authorize_plan_session(
-        user, session_id, lambda: _session_org(session, user), db, minimum_role="member"
-    )
+    try:
+        if getattr(session, "project_id", None):
+            await require_project_role(user, session.project_id, "member", db=db)
+        await authorize_plan_session(
+            user, session_id, lambda: _session_org(session, user), db, minimum_role="member"
+        )
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(status_code=404, detail="Plan session not found") from None
+        raise
 
 
 @router.post("/{session_id}/process", dependencies=[Depends(require_plan_access("member"))])
@@ -923,7 +950,14 @@ async def emit(
     Other failures, such as an unprocessed plan, stay 400 (#758).
     """
     await _guard_session(session_id, request, db)
-    await require_repo_project_role(_user(request), body.repo, "member", db, for_intake=True)
+    repo_access = await require_repo_project_role(
+        _user(request), body.repo, "member", db, for_intake=True
+    )
+    session = cast(PlanService, SERVICE).get(session_id)
+    if (session.project_id and session.project_id != repo_access.project_id) or (
+        not session.project_id and session.repo != body.repo
+    ):
+        raise HTTPException(status_code=404, detail="Project not found")
     docs_connections = await _load_docs_connections(request, db)
     # #961: release the main-pool connection before the minutes-long emit thread.
     await db.close()

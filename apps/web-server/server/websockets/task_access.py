@@ -80,7 +80,10 @@ class TaskSocketAccess:
         except WebSocketAuthError:
             return False
 
-        if user is None or is_service_principal(user):
+        if user is None:
+            await self.websocket.close(code=4001)
+            return False
+        if is_service_principal(user):
             return True
 
         if not self.project_id:
@@ -102,15 +105,17 @@ class TaskSocketAccess:
 
     async def recheck(self) -> bool:
         """Re-validate an ``acw_`` personal key when the recheck interval elapses."""
-        if not self._key_token:
+        if self.user is None:
             return True
         if time.monotonic() - self._last_recheck < _KEY_RECHECK_SECONDS:
             return True
 
-        try:
-            principal = await _ws_acw_principal(self._key_token)
-        except Exception:  # noqa: BLE001 — validator failure fails closed
-            principal = None
+        principal: dict[str, Any] | None = self.user
+        if self._key_token:
+            try:
+                principal = await _ws_acw_principal(self._key_token)
+            except Exception:  # noqa: BLE001 — validator failure fails closed
+                principal = None
 
         if principal is None or not await self._authorize(principal, strict=True):
             await self.websocket.close(code=4001)
@@ -139,6 +144,10 @@ class AllTaskSocketAccess:
             await self.websocket.close(code=4003)
             return False
 
+        if self.user is None:
+            await self.websocket.close(code=4001)
+            return False
+
         if self.user and self.user.get("api_key_id"):
             token = _ws_extract_token(self.websocket)
             if token and token.startswith("acw_"):
@@ -161,7 +170,9 @@ class AllTaskSocketAccess:
         return True
 
     async def readable(self, task_ids: list[str]) -> set[str]:
-        if self.user is None or is_service_principal(self.user):
+        if self.user is None:
+            return set()
+        if is_service_principal(self.user):
             return set(task_ids)
         strict = bool(self.user.get("api_key_id")) or _jwt_strict()
         projects: dict[str, bool] = {}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dis
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,9 +22,11 @@ from server.database.models import Base, Organization, OrgMember, User
 from server.main import create_app
 from server.mcp_remote import tools as mcp_remote_tools
 from server.mcp_stdio import router as mcp_stdio_router
+from server.pty.access import may_use
 from server.rmux import bridge as rmux_bridge
 from server.routes import (
     files as files_routes,
+    git as git_routes,
     pfactory_tasks as pfactory_tasks_routes,
     plan_pipeline as plan_pipeline_routes,
     project_authz,
@@ -33,6 +36,8 @@ from server.routes import (
 from server.routes.pfactory_tasks import SpecAccessChecker
 from server.routes.project_authz import _AccessChecker
 from server.services import project_paths
+from server.websockets.events import _org_lookup_ok
+from server.websockets.task_access import AllTaskSocketAccess, TaskSocketAccess
 
 # Explicit allowlist of non-project-scoped (public, system, auth, org-admin,
 # user-settings, global diagnostics, or stateless parser) REST routes.
@@ -88,6 +93,14 @@ PUBLIC_SYSTEM_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/llm-endpoints"),
         ("POST", "/api/llm-endpoints"),
         ("POST", "/api/llm-endpoints/test"),
+        ("GET", "/api/llm-endpoints/{endpoint_id}"),
+        ("PUT", "/api/llm-endpoints/{endpoint_id}"),
+        ("DELETE", "/api/llm-endpoints/{endpoint_id}"),
+        ("POST", "/api/llm-endpoints/{endpoint_id}/test"),
+        ("GET", "/api/docs-targets/{target_id}"),
+        ("PUT", "/api/docs-targets/{target_id}"),
+        ("DELETE", "/api/docs-targets/{target_id}"),
+        ("POST", "/api/docs-targets/{target_id}/test"),
         ("GET", "/api/docs-targets"),
         ("POST", "/api/docs-targets"),
         ("POST", "/api/docs-targets/test"),
@@ -227,42 +240,39 @@ PUBLIC_SYSTEM_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
-INDIRECT_GUARD_MARKERS: tuple[str, ...] = (
-    "require_project_role",
-    "require_path_project_role",
-    "require_repo_project_role",
-    "visible_project_ids",
-    "authorize_project",
-    "authorize_project_for_user",
-    "authorize_plan_session",
-    "authorize_plan_ingest",
-    "plan_session_filter",
-    "_guard_session",
-    "_owned",
-    "_visible",
-    "_authorize_path",
-    "_terminal_member",
-    "may_use",
-    "project_id_for_path",
-    "creator_org",
-    "_authorize_key",
-    "PlanAccessChecker",
-    "list_projects",
-    "list_tasks",
-    "get_running_tasks",
-    "create_project",
-    "_resolve_state_or_404",
+ACTUAL_GUARDS = (
+    project_authz.require_project_role,
+    project_authz.require_path_project_role,
+    project_authz.require_repo_project_role,
+    project_authz.visible_project_ids,
+    project_authz.authorize_project,
+    project_authz.authorize_project_for_user,
+    project_authz.authorize_plan_session,
+    project_authz.authorize_plan_ingest,
+    project_authz.plan_session_filter,
+    TaskSocketAccess,
+    AllTaskSocketAccess,
+    may_use,
+    _org_lookup_ok,
 )
 
-WS_GUARD_MARKERS: tuple[str, ...] = (
-    "TaskSocketAccess",
-    "AllTaskSocketAccess",
-    "require_project_role",
-    "authorize_project",
-    "authorize_project_for_user",
-    "may_use",
-    "_org_lookup_ok",
-)
+def _calls_guard(fn: Any, seen: set[Any]) -> bool:
+    if any(fn is guard for guard in ACTUAL_GUARDS):
+        return True
+    if fn in seen or not inspect.isfunction(fn):
+        return False
+    seen.add(fn)
+    for instruction in dis.get_instructions(fn):
+        if instruction.opname != "LOAD_GLOBAL":
+            continue
+        obj = fn.__globals__.get(instruction.argval)
+        if (
+            (inspect.isfunction(obj) or inspect.isclass(obj))
+            and obj.__module__.startswith("server.")
+            and _calls_guard(obj, seen)
+        ):
+            return True
+    return False
 
 
 def _route_has_project_guard(route: APIRoute) -> bool:
@@ -272,8 +282,24 @@ def _route_has_project_guard(route: APIRoute) -> bool:
     for sub_dep in route.dependant.dependencies:
         if isinstance(sub_dep.call, (_AccessChecker, SpecAccessChecker)):
             return True
-    src = inspect.getsource(route.endpoint)
-    return any(marker in src for marker in INDIRECT_GUARD_MARKERS)
+        if route.path.startswith("/api/mcp-stdio/") and (
+            getattr(sub_dep.call, "__module__", "") == "server.mcp_stdio.auth"
+            and getattr(sub_dep.call, "__name__", "") == "_check"
+        ):
+            return True
+    return _calls_guard(route.endpoint, set())
+
+
+def test_route_guard_detection_ignores_source_text() -> None:
+    app = FastAPI()
+
+    @app.get("/unguarded")
+    def unguarded() -> dict[str, bool]:
+        # require_project_role is named here but never called.
+        return {"ok": True}
+
+    route = next(r for r in app.routes if isinstance(r, APIRoute))
+    assert not _route_has_project_guard(route)
 
 
 def test_every_non_public_route_and_websocket_wires_project_authorization() -> None:
@@ -298,8 +324,7 @@ def test_every_non_public_route_and_websocket_wires_project_authorization() -> N
                     unguarded_rest.append(key)
         elif isinstance(route, APIWebSocketRoute):
             ws_routes.append(route.path)
-            src = inspect.getsource(route.endpoint)
-            assert any(marker in src for marker in WS_GUARD_MARKERS), (
+            assert _calls_guard(route.endpoint, set()), (
                 f"WebSocket route {route.path} lacks project authorization guard"
             )
 
@@ -321,10 +346,13 @@ def test_mcp_stdio_and_remote_tool_tables_enforce_project_authorization() -> Non
     tool_defs = mcp_remote_tools.get_tool_definitions()
     tool_names = {d["name"] for d in tool_defs}
     assert tool_names == set(mcp_remote_tools._SCOPE_FOR_TOOL.keys())
-    dispatch_src = inspect.getsource(mcp_remote_tools.dispatch_tool_call)
-    assert "_authorize_call" in dispatch_src
-    assert "_list_projects" in dispatch_src
-    assert "visible_project_ids" in inspect.getsource(mcp_remote_tools._visible_project_ids)
+    dispatch_globals = mcp_remote_tools.dispatch_tool_call.__globals__
+    assert any(
+        instruction.argval == "_authorize_call"
+        and dispatch_globals["_authorize_call"] is mcp_remote_tools._authorize_call
+        for instruction in dis.get_instructions(mcp_remote_tools.dispatch_tool_call)
+    )
+    assert mcp_remote_tools._SCOPE_FOR_TOOL["pfactory.merge_pr"] == "task:merge"
 
     # 2. Stdio MCP proxy routes: every non-meta route in mcp_stdio.router must enforce
     # project / plan authorization and require an acw_ scope dependency.
@@ -334,6 +362,11 @@ def test_mcp_stdio_and_remote_tool_tables_enforce_project_authorization() -> Non
         if route.path == "/api/mcp-stdio/plan/meta/categories":
             continue
         assert _route_has_project_guard(route), f"MCP stdio route {route.path} lacks project guard"
+        assert any(
+            getattr(dep.call, "__module__", "") == "server.mcp_stdio.auth"
+            and getattr(dep.call, "__name__", "") == "_check"
+            for dep in route.dependant.dependencies
+        ), f"MCP stdio route {route.path} lacks scoped key dependency"
 
 
 def _seed_workspace_and_projects(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Any]]:
@@ -425,6 +458,7 @@ def matrix_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     app.include_router(projects_routes.router, prefix="/api/projects")
     app.include_router(tasks_routes.router, prefix="/api/tasks")
     app.include_router(files_routes.router, prefix="/api/files")
+    app.include_router(git_routes.router, prefix="/api/git")
     app.include_router(pfactory_tasks_routes.router, prefix="/api/pfactory/tasks")
     app.include_router(plan_pipeline_routes.router)
 
@@ -623,11 +657,15 @@ def test_filtered_lists_and_indirect_paths(
         model_dump=lambda: {"session_id": "plan-b", "repo": "org-b/repo-b"},
         board_state=lambda: "ingested",
     )
-    sessions_map = {"plan-a": s_a, "plan-b": s_b}
+    s_mismatched = SimpleNamespace(
+        session_id="plan-mismatched", repo="org-a/repo-a", project_id="proj-b",
+        tenant_id=None, model_dump=lambda: {"session_id": "plan-mismatched"},
+    )
+    sessions_map = {"plan-a": s_a, "plan-b": s_b, "plan-mismatched": s_mismatched}
 
     class _FakePlanService:
         def org_stamps(self) -> dict[str, str]:
-            return {"plan-a": "org-a", "plan-b": "org-b"}
+            return {"plan-a": "org-a", "plan-b": "org-b", "plan-mismatched": "org-a"}
 
         def session_org(
             self, session: Any, _resolve: Any, stamps: dict[str, str] | None = None
@@ -653,6 +691,120 @@ def test_filtered_lists_and_indirect_paths(
         client.get("/api/plan/sessions/plan-b", headers={"X-Principal": "viewer-a"}).status_code
         == 404
     )
+
+
+def test_project_registration_requires_member_and_rejects_foreign_overlap(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, repo_a, repo_b = matrix_env
+    monkeypatch.setattr(projects_routes, "confine_to_workspace", lambda p: Path(p).resolve())
+    fresh = repo_a.parent / "fresh"
+    body = {"path": str(fresh)}
+    for principal in ("viewer-a", "owner-a-mcp-read", "outsider"):
+        response = client.post("/api/projects", json=body, headers={"X-Principal": principal})
+        assert response.status_code == 403
+    assert not fresh.exists()
+    hidden = client.post(
+        "/api/projects", json={"path": str(repo_b / "nested")},
+        headers={"X-Principal": "member-a"},
+    )
+    assert hidden.status_code == 404
+    assert not (repo_b / "nested").exists()
+    created = client.post("/api/projects", json=body, headers={"X-Principal": "member-a"})
+    assert created.status_code == 201
+
+
+def test_project_settings_redacted_for_viewer(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _, _ = matrix_env
+    projects = project_paths.load_projects()
+    projects["proj-a"]["settings"] = {"gitToken": "sample-sensitive-value", "mainBranch": "dev"}
+    monkeypatch.setattr(project_paths, "load_projects", lambda: projects)
+    monkeypatch.setattr(projects_routes, "load_projects", lambda: projects)
+    viewer = client.get("/api/projects/proj-a", headers={"X-Principal": "viewer-a"})
+    admin = client.get("/api/projects/proj-a", headers={"X-Principal": "admin-a"})
+    assert viewer.status_code == admin.status_code == 200
+    assert "gitToken" not in viewer.json()["settings"]
+    assert admin.json()["settings"]["gitToken"] == "sample-sensitive-value"
+
+
+def test_file_routes_hide_nested_project_and_env(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, repo_a, _ = matrix_env
+    nested = repo_a / "nested"
+    nested.mkdir()
+    (nested / "private.txt").write_text("private", encoding="utf-8")
+    (repo_a / ".env").write_text("FAKE_VALUE=sample", encoding="utf-8")
+    projects = project_paths.load_projects()
+    projects["nested"] = {"path": str(nested), "org_id": "org-b"}
+    monkeypatch.setattr(project_paths, "load_projects", lambda: projects)
+    listed = client.get(
+        "/api/files/list", params={"path": str(repo_a), "show_hidden": "true"},
+        headers={"X-Principal": "viewer-a"},
+    )
+    assert listed.status_code == 200
+    assert {entry["name"] for entry in listed.json()["entries"]}.isdisjoint({"nested", ".env"})
+    hidden = client.get(
+        "/api/files/serve", params={"root": str(repo_a), "path": str(nested / "private.txt")},
+        headers={"X-Principal": "viewer-a"},
+    )
+    assert hidden.status_code == 404
+    secret = client.get(
+        "/api/files/read", params={"path": str(repo_a / ".env")},
+        headers={"X-Principal": "viewer-a"},
+    )
+    assert secret.status_code == 404
+
+
+def test_spec_merge_rejects_foreign_repo_dir(matrix_env: Any, tmp_path: Path) -> None:
+    client, _, repo_b = matrix_env
+    spec_dir = tmp_path / "pf_workspaces" / "workspaces" / "proj-a" / "specs" / "spec-a"
+    (spec_dir / "findings").mkdir()
+    (spec_dir / "tests").mkdir()
+    (spec_dir / "tests" / "test_demo.py").write_text("assert True\n", encoding="utf-8")
+    (spec_dir / "findings" / "verdicts.json").write_text(
+        '{"verdicts":[{"verdict":"accept","test_file":"tests/test_demo.py"}]}',
+        encoding="utf-8",
+    )
+    response = client.post(
+        "/api/pfactory/tasks/spec-a/merge",
+        json={"repo_dir": str(repo_b), "target_branch": "main"},
+        headers={"X-Principal": "owner-a"},
+    )
+    assert response.status_code == 404
+
+
+def test_plan_intake_hides_foreign_and_unknown_repo_equally(matrix_env: Any) -> None:
+    client, _, _ = matrix_env
+    responses = [
+        client.post(
+            "/api/plan/sessions/ingest-text",
+            json={"text": "sample", "repo": repo},
+            headers={"X-Principal": "member-a"},
+        )
+        for repo in ("org-b/repo-b", "unknown/new")
+    ]
+    assert [(response.status_code, response.json()) for response in responses] == [
+        (404, {"detail": "Project not found"}),
+        (404, {"detail": "Project not found"}),
+    ]
+
+
+def test_git_init_unregistered_path_requires_org_member(
+    matrix_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, repo_a, _ = matrix_env
+    monkeypatch.setenv("PROJECT_WORKSPACE_ROOT", str(repo_a.parent))
+    unregistered = repo_a.parent / "unregistered"
+    unregistered.mkdir()
+    response = client.post(
+        "/api/git/init", json={"path": str(unregistered)},
+        headers={"X-Principal": "viewer-a"},
+    )
+    assert response.status_code == 403
+    assert not (unregistered / ".git").exists()
 
 
 def test_legacy_shared_token_full_access_toggle(

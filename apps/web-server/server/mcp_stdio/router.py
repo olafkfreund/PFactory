@@ -41,6 +41,7 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database.engine import get_db
+from server.routes.organizations import ROLE_LEVELS
 from server.routes.plan_meta import categories as plan_categories
 from server.routes.plan_pipeline import (
     ApproveBody,
@@ -57,9 +58,12 @@ from server.routes.plan_pipeline import (
 )
 from server.routes.project_authz import (
     PlanAccessChecker,
+    _member_roles,
     authorize_project,
     authorize_project_for_user,
+    scope_role_ceiling,
 )
+from server.routes.projects import ProjectCreate, create_project
 from server.services import project_paths
 from server.services.audit_service import (
     ACTION_MCP_PLAN_APPROVE,
@@ -101,7 +105,6 @@ def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
             "api_key_id": key.key_id,
             "org_id": key.org_id,
             "scopes": tuple(key.scopes),
-            "is_service": getattr(key, "is_service", False),
         }
     return {"id": "default", "is_service": True}
 
@@ -303,12 +306,19 @@ async def proxy_get_worktree_diff(
 @router.post("/projects", status_code=201)
 async def proxy_add_project(
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(PROJECT_WRITE_SCOPE)),
 ):
-    from ..routes.projects import ProjectCreate, create_project
-
     body = await _read_json_body(request)
     org_id = key.org_id if isinstance(key, AuthenticatedKey) else None  # #1036
+    principal = _principal(key)
+    grant = (await _member_roles(principal, db)).get(org_id or "", "")
+    if isinstance(key, AuthenticatedKey) and (
+        not org_id
+        or ROLE_LEVELS.get(grant, -1) < ROLE_LEVELS["member"]
+        or ROLE_LEVELS.get(scope_role_ceiling(principal) or "", -1) < ROLE_LEVELS["member"]
+    ):
+        raise HTTPException(status_code=403, detail="Project membership required")
     result = await create_project(ProjectCreate(**body), org_id)
     # ``add_project`` returns the project dict with an ``id`` field.
     project_id = result.get("id") if isinstance(result, dict) else None

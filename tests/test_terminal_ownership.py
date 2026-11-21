@@ -36,7 +36,7 @@ def env(tmp_path, monkeypatch):
         "a": {"path": str(tmp_path / "a"), "org_id": "A"},
         "b": {"path": str(tmp_path / "b"), "org_id": "B"},
     }
-    state = {"members": {"alice": {"a"}, "bob": {"b"}}, "error": False}
+    state = {"members": {"alice": {"a"}, "bob": {"b"}}, "error": False, "viewers": set()}
     monkeypatch.setenv("PROJECT_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setattr(project_paths, "load_projects", lambda: projects)
     monkeypatch.setattr(git_utils, "load_projects", lambda: projects)
@@ -51,9 +51,9 @@ def env(tmp_path, monkeypatch):
         async def __aexit__(self, *_):
             pass
 
-    async def authorize(user, project_id, _db):
+    async def authorize(user, project_id, _db, minimum_role="viewer"):
         key_org = user.get("api_key_id") and user.get("org_id") != "A"
-        if project_id not in state["members"].get(user["id"], set()) or key_org:
+        if project_id not in state["members"].get(user["id"], set()) or key_org or (minimum_role == "admin" and user["id"] in state["viewers"]):
             raise PermissionError("not a member")
 
     monkeypatch.setattr(access.engine, "async_session_factory", Session)
@@ -120,6 +120,21 @@ def test_owner_uses_own_terminal_and_the_other_user_gets_404(env):
     assert env.manager.get_session("t1") is None
 
 
+def test_viewer_cannot_start_shell_or_use_existing_terminal(env):
+    assert _create(env, "alice", id="t1", projectId="a").status_code == 201
+    env.state["viewers"].add("alice")
+    assert _create(env, "alice", id="t2", projectId="a").status_code == 404
+    assert _as(env, "alice", "get", "/api/terminals/t1").status_code == 404
+
+
+def test_ownerless_terminal_requires_project_admin(env):
+    session = env.manager.create_session(session_id="legacy", owner_id=None, project_id="a")
+    assert asyncio.run(access.may_use(ALICE, session))
+    assert not asyncio.run(access.may_use(BOB, session))
+    env.state["viewers"].add("alice")
+    assert not asyncio.run(access.may_use(ALICE, session))
+
+
 def test_invoke_stub_requires_member_role(env, monkeypatch):
     env.manager.create_session(session_id="t1", owner_id="alice", project_id="a")
 
@@ -139,18 +154,18 @@ def test_invoke_stub_requires_member_role(env, monkeypatch):
 
 
 def test_create_requires_an_authorized_project_that_contains_the_directory(env):
-    assert _create(env, "alice", cwd=str(env.root / "b")).status_code == 403
-    assert _create(env, "alice", projectId="b").status_code == 403
+    assert _create(env, "alice", cwd=str(env.root / "b")).status_code == 404
+    assert _create(env, "alice", projectId="b").status_code == 404
     # project A's id cannot authorize project B's directory
-    assert _create(env, "alice", projectId="a", cwd=str(env.root / "b")).status_code == 403
+    assert _create(env, "alice", projectId="a", cwd=str(env.root / "b")).status_code == 404
     # projectless (home directory) terminals stay service-only
-    assert _create(env, "alice", cwd=str(env.root)).status_code == 403
-    assert _create(env, "root", cwd=str(env.root / "a")).status_code == 403
+    assert _create(env, "alice", cwd=str(env.root)).status_code == 404
+    assert _create(env, "root", cwd=str(env.root / "a")).status_code == 404
     assert _create(env, "alice", projectId="a").status_code == 201
     assert _create(env, "alice", projectPath=str(env.root / "a")).status_code == 201
     assert _create(env, "svc", cwd=str(env.root)).status_code == 201
     env.state["error"] = True
-    assert _create(env, "alice", projectId="a").status_code == 403
+    assert _create(env, "alice", projectId="a").status_code == 404
 
 
 def test_duplicate_id_never_spawns_and_only_the_owner_reconnects(env, monkeypatch):
@@ -238,7 +253,7 @@ def test_worktree_clear_and_cleanup_routes(env):
         ("delete", "/api/terminals/sessions", {}),
         ("post", "/api/terminals/cleanup", {}),
     ]:
-        assert _as(env, "alice", method, path, **kw).status_code == 403, (method, path)
+        assert _as(env, "alice", method, path, **kw).status_code == (403 if path == "/api/terminals/cleanup" or (path == "/api/terminals/sessions" and not kw) else 404), (method, path)
     assert _as(env, "svc", "post", "/api/terminals/cleanup").status_code == 200
     assert (
         _as(
@@ -306,9 +321,22 @@ def test_ws_owner_connects_others_get_4004(sockets):
 
 
 def test_ws_legacy_and_service_connect(sockets):
-    for user in (None, SERVICE):
-        sockets.principal["user"] = user
-        assert _first(sockets)["type"] == "connected"
+    sockets.principal["user"] = SERVICE
+    assert _first(sockets)["type"] == "connected"
+    sockets.principal["user"] = None
+    assert _first(sockets)["type"] == "error"
+
+
+def test_local_mode_websocket_uses_local_principal(sockets, monkeypatch):
+    from server import auth
+
+    local = SimpleNamespace(DISABLE_AUTH=True)
+    monkeypatch.setattr(auth, "get_settings", lambda: local)
+    monkeypatch.setattr(access, "get_settings", lambda: local)
+    monkeypatch.setattr(terminal_ws, "authenticate_websocket", auth.authenticate_websocket)
+    sockets.manager.create_session(session_id="local", owner_id="default")
+    with sockets.client.websocket_connect("/ws/terminal/local") as ws:
+        assert ws.receive_json()["type"] == "connected"
 
 
 def test_ws_membership_loss_closes_4003(sockets):

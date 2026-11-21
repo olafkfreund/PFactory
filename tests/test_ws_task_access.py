@@ -54,7 +54,7 @@ def task_ws_app(monkeypatch):
             "scopes": ("mcp:read",),
             "role": "user",
         },
-        "shared": None,
+        "shared": {"id": "default", "is_service": True},
     }
     memberships: dict[tuple[str, str], str] = {
         ("A", "user-a"): "viewer",

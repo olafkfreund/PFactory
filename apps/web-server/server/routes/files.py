@@ -100,6 +100,14 @@ def _is_app_internal_path(resolved_path: Path) -> bool:
     return True
 
 
+def _is_secret_path(path: Path) -> bool:
+    return (
+        path.name == ".env"
+        or path.name.startswith(".env.")
+        or path.name in {"secrets.json", "credentials.json"}
+    )
+
+
 def detect_language(path: str) -> str | None:
     """Detect programming language from file extension."""
     ext = Path(path).suffix.lower()
@@ -143,7 +151,7 @@ class DiscoveredProject(BaseModel):
     has_claude_md: bool = False
 
 
-@router.get("/discover", dependencies=[Depends(require_plan_access("viewer"))])
+@router.get("/discover", dependencies=[Depends(require_plan_access("member"))])
 async def discover_projects(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -159,15 +167,15 @@ async def discover_projects(
     except ValueError:
         return {"success": False, "error": "path outside the allowed workspace", "data": []}
 
-    if not base.exists():
-        return {"success": False, "error": f"Path does not exist: {base_path}", "data": []}
-
-    if not base.is_dir():
-        return {"success": False, "error": f"Path is not a directory: {base_path}", "data": []}
-
     visible = await visible_project_ids(getattr(request.state, "user", None), db)
     base_owner = project_id_for_path(str(base))
     if base_owner is not None and base_owner not in visible:
+        return []
+
+    if not base.exists():
+        return []
+
+    if not base.is_dir():
         return []
 
     projects = []
@@ -244,16 +252,13 @@ async def list_directory_direct(
 ):
     """List contents of a directory by absolute path."""
     principal = getattr(request.state, "user", None)
-    project_id = project_id_for_path(path)
-    await require_project_role(principal, project_id, "viewer", db=db)
-
     try:
         full_path = confine_to_workspace(path)  # #335
     except ValueError:
         return {"success": False, "error": "path outside the allowed workspace", "data": None}
 
-    if (resolved_pid := project_id_for_path(str(full_path))) != project_id:
-        await require_project_role(principal, resolved_pid, "viewer", db=db)
+    project_id = project_id_for_path(str(full_path))
+    await require_project_role(principal, project_id, "viewer", db=db)
 
     if _is_app_internal_path(full_path):
         return {"success": False, "error": "Access denied", "data": None}
@@ -269,6 +274,12 @@ async def list_directory_direct(
         for entry in sorted(full_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
             # Skip hidden files unless requested
             if entry.name.startswith(".") and not show_hidden:
+                continue
+            resolved_entry = entry.resolve()
+            if (
+                _is_secret_path(resolved_entry)
+                or project_id_for_path(str(resolved_entry)) != project_id
+            ):
                 continue
 
             try:
@@ -306,9 +317,6 @@ async def read_file_direct(
 ):
     """Read file contents by absolute path."""
     principal = getattr(request.state, "user", None)
-    project_id = project_id_for_path(path)
-    await require_project_role(principal, project_id, "viewer", db=db)
-
     try:
         # #553 strict tier: this returns file CONTENT, so the path must be
         # inside a REGISTERED project -- not merely under the workspace root,
@@ -317,8 +325,10 @@ async def read_file_direct(
     except ValueError:
         return {"success": False, "error": "path outside the allowed workspace", "data": None}
 
-    if (resolved_pid := project_id_for_path(str(full_path))) != project_id:
-        await require_project_role(principal, resolved_pid, "viewer", db=db)
+    await require_project_role(principal, project_id_for_path(str(full_path)), "viewer", db=db)
+
+    if _is_secret_path(full_path):
+        raise HTTPException(status_code=404, detail="File not found")
 
     if _is_app_internal_path(full_path):
         return {"success": False, "error": "Access denied", "data": None}
@@ -375,6 +385,7 @@ def _validate_serve_token(request: Request, token: str) -> bool:
         if _try_decode_jwt(header_token) is not None:
             return True
         if _is_legacy_api_token(header_token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+            logger.warning("DEPRECATED: legacy shared token used for file serving")
             return True
 
     # 2. Try query-param token (used by rewritten HTML asset URLs)
@@ -382,6 +393,7 @@ def _validate_serve_token(request: Request, token: str) -> bool:
         if _try_decode_jwt(token) is not None:
             return True
         if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+            logger.warning("DEPRECATED: legacy shared token used for file serving")
             return True
 
     return False
@@ -415,6 +427,7 @@ async def _resolve_serve_principal(request: Request, token: str) -> dict[str, An
                 "role": jwt_payload.get("role", "user"),
             }
         if _is_legacy_api_token(candidate) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+            logger.warning("DEPRECATED: legacy shared token used for file serving")
             return {
                 "id": "default",
                 "email": None,
@@ -447,9 +460,6 @@ async def serve_project_file(
     principal = await _resolve_serve_principal(request, token)
     if principal is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    project_id = project_id_for_path(root) or project_id_for_path(path)
-    await require_project_role(principal, project_id, "viewer", db=db)
-
     try:
         # #553 strict tier for `root`: the declared project root must be a
         # REGISTERED project. `path` is then confined to that root by the
@@ -459,8 +469,10 @@ async def serve_project_file(
     except ValueError:
         raise HTTPException(status_code=400, detail="path outside the allowed workspace")
 
-    if (resolved_pid := project_id_for_path(str(root_path))) != project_id:
-        await require_project_role(principal, resolved_pid, "viewer", db=db)
+    await require_project_role(principal, project_id_for_path(str(root_path)), "viewer", db=db)
+    await require_project_role(principal, project_id_for_path(str(file_path)), "viewer", db=db)
+    if _is_secret_path(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
 
     # Security: file must exist inside the declared project root
     if not root_path.is_dir():

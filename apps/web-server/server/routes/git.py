@@ -18,6 +18,7 @@ from factory_common.url_safety import assert_safe_outbound_url, build_no_redirec
 from server.database.engine import get_db
 from server.pty.access import project_id_for_path
 from server.routes.project_authz import (
+    PlanAccessChecker,
     require_camel_project_access,
     require_path_project_role,
     require_project_role,
@@ -138,17 +139,22 @@ async def initialize_git(
 ):
     """Initialize a new git repository with an initial commit (if needed)."""
     principal = getattr(http_request.state, "user", None)
-    project_id = project_id_for_path(request.path)
-    if project_id is not None:
-        await require_project_role(principal, project_id, "member", db=db)
-
     # #335: confine caller-supplied path before any filesystem/git access
     try:
         path = str(confine_to_workspace(request.path))
     except ValueError:
         return {"success": False, "error": "path outside the allowed workspace"}
-    if project_id is None and (resolved_id := project_id_for_path(path)) is not None:
-        await require_project_role(principal, resolved_id, "member", db=db)
+    project_id = project_id_for_path(path)
+    if project_id is not None:
+        await require_project_role(principal, project_id, "member", db=db)
+    else:
+        await PlanAccessChecker("member").check(principal, None, db)
+        if any(
+            Path(data["path"]).resolve().is_relative_to(Path(path))  # noqa: ASYNC240
+            for data in load_projects().values()
+            if data.get("path")
+        ):
+            raise HTTPException(status_code=404, detail="Project not found")
     git_dir = Path(path) / ".git"
 
     # Check if already a git repo

@@ -164,7 +164,7 @@ async def attach(
     so an investigator can answer "who attached when?" for any session.
     """
     await authorize_project(
-        getattr(request.state, "user", None), _project_of(spec_id), db, "member"
+        getattr(request.state, "user", None), _project_of(spec_id), db, "admin"
     )
     state = _resolve_state_or_404(spec_id, getattr(request.state, "user", None))
     cid = body.connection_id
