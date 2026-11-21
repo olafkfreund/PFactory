@@ -36,12 +36,13 @@ async def test_pull_on_poll_noop_for_local_path_projects(tmp_path):
         }
     }
 
-    with patch(
-        "server.routes.projects.load_projects", return_value=projects_fixture
-    ), patch(
-        "server.services.project_workspace_service.clone_or_update",
-        new=AsyncMock(),
-    ) as mock_clone:
+    with (
+        patch("server.routes.projects.load_projects", return_value=projects_fixture),
+        patch(
+            "server.services.project_workspace_service.clone_or_update",
+            new=AsyncMock(),
+        ) as mock_clone,
+    ):
         await auto_fix_service._pull_clone_if_any("proj-local")
 
     mock_clone.assert_not_awaited()
@@ -66,12 +67,13 @@ async def test_pull_on_poll_fast_forwards_cloned_projects(tmp_path):
         }
     }
 
-    with patch(
-        "server.routes.projects.load_projects", return_value=projects_fixture
-    ), patch(
-        "server.services.project_workspace_service.clone_or_update",
-        new=AsyncMock(return_value=project_path),
-    ) as mock_clone:
+    with (
+        patch("server.routes.projects.load_projects", return_value=projects_fixture),
+        patch(
+            "server.services.project_workspace_service.clone_or_update",
+            new=AsyncMock(return_value=project_path),
+        ) as mock_clone,
+    ):
         await auto_fix_service._pull_clone_if_any("proj-cloned")
 
     mock_clone.assert_awaited_once()
@@ -104,11 +106,12 @@ async def test_pull_on_poll_swallows_git_errors(tmp_path):
         }
     }
 
-    with patch(
-        "server.routes.projects.load_projects", return_value=projects_fixture
-    ), patch(
-        "server.services.project_workspace_service.clone_or_update",
-        new=AsyncMock(side_effect=GitOperationError("network unreachable")),
+    with (
+        patch("server.routes.projects.load_projects", return_value=projects_fixture),
+        patch(
+            "server.services.project_workspace_service.clone_or_update",
+            new=AsyncMock(side_effect=GitOperationError("network unreachable")),
+        ),
     ):
         # Must not raise.
         await auto_fix_service._pull_clone_if_any("proj-flaky")
@@ -128,12 +131,13 @@ async def test_pull_on_poll_skips_when_path_missing(tmp_path):
         }
     }
 
-    with patch(
-        "server.routes.projects.load_projects", return_value=projects_fixture
-    ), patch(
-        "server.services.project_workspace_service.clone_or_update",
-        new=AsyncMock(),
-    ) as mock_clone:
+    with (
+        patch("server.routes.projects.load_projects", return_value=projects_fixture),
+        patch(
+            "server.services.project_workspace_service.clone_or_update",
+            new=AsyncMock(),
+        ) as mock_clone,
+    ):
         await auto_fix_service._pull_clone_if_any("proj-gone")
 
     mock_clone.assert_not_awaited()
@@ -160,19 +164,11 @@ async def test_add_project_persists_cloned_from(tmp_path, monkeypatch):
         path.mkdir(exist_ok=True)
         return path
 
-    monkeypatch.setattr(
-        "server.routes.projects.load_projects", fake_load_projects
-    )
-    monkeypatch.setattr(
-        "server.routes.projects.save_projects", fake_save_projects
-    )
-    monkeypatch.setattr(
-        "server.services.project_workspace_service.clone_or_update", fake_clone
-    )
+    monkeypatch.setattr("server.routes.projects.load_projects", fake_load_projects)
+    monkeypatch.setattr("server.routes.projects.save_projects", fake_save_projects)
+    monkeypatch.setattr("server.routes.projects.clone_or_update", fake_clone)
 
-    project = ProjectCreate(
-        gitUrl="https://github.com/olaf/PFactory.git", branch="dev"
-    )
+    project = ProjectCreate(gitUrl="https://github.com/olaf/PFactory.git", branch="dev")
     await create_project(project)
 
     # Exactly one project should have been saved with clonedFrom set.

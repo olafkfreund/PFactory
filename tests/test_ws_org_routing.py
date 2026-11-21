@@ -37,6 +37,8 @@ def socket_app(monkeypatch):
         "jwt-b": {"id": "other"},
         "acw_a": {"id": "owner", "org_id": "A", "api_key_id": "key"},
         "shared": None,
+        "legacy": {"id": "default", "is_service": True},
+        "local": {"id": "default"},
     }
     memberships = {"owner": [("A",), ("B",)], "a-only": [("A",)], "other": [("B",)]}
     setting = SimpleNamespace(RBAC_ENFORCE_TASK_ROUTES=True, DISABLE_AUTH=False)
@@ -86,6 +88,19 @@ def test_project_events_reach_only_their_org(socket_app):
         # A sentinel proves A's event was not queued for B ahead of it.
         client.portal.call(events.send_to_org, "B", "sentinel", {})
         assert b.receive_json()["type"] == "sentinel"
+
+
+def test_legacy_and_local_events_keep_live_delivery(socket_app):
+    app, setting = socket_app
+    with TestClient(app) as client, _connect(client, "legacy") as legacy:
+        _emit(client, "orgless", {"taskId": "missing:001"})
+        assert legacy.receive_json()["type"] == "orgless"
+        _emit(client, "other-org", {"projectId": "p-b"})
+        assert legacy.receive_json()["type"] == "other-org"
+    setting.DISABLE_AUTH = True
+    with TestClient(app) as client, _connect(client, "local") as local:
+        _emit(client, "local-orgless", {"taskId": "missing:001"})
+        assert local.receive_json()["type"] == "local-orgless"
 
 
 def test_service_and_bound_key(socket_app):
@@ -239,18 +254,19 @@ def test_flag_tracks_rest_dependency_on_open_socket(socket_app, monkeypatch):
     checker = project_authz.ProjectAccessChecker()
     with TestClient(app) as client, _connect(client, "jwt-a") as ws:
         setting.RBAC_ENFORCE_TASK_ROUTES = False
-        # An explicit org send stays members-only even in shadow mode.
+        # Both direct and broadcast events enforce organization membership.
         client.portal.call(events.send_to_org, "B", "explicit", {})
         _emit(client, "shadow", {"projectId": "p-b"})
-        assert ws.receive_json()["type"] == "shadow"
-        client.portal.call(checker.__call__, "p-b", request, db)
+        with pytest.raises(HTTPException) as exc:
+            client.portal.call(checker.__call__, "p-b", request, db)
+        assert exc.value.status_code == 404
         setting.RBAC_ENFORCE_TASK_ROUTES = True
         _emit(client, "blocked", {"projectId": "p-b"})
         _emit(client, "allowed", {"projectId": "p-a"})
         assert ws.receive_json()["type"] == "allowed"
         with pytest.raises(HTTPException) as exc:
             client.portal.call(checker.__call__, "p-b", request, db)
-        assert exc.value.status_code == 403
+        assert exc.value.status_code == 404
 
 
 def test_event_org_cache_expiry_and_reassignment(monkeypatch):
@@ -393,7 +409,9 @@ def test_broadcast_relays_shadow_flag_and_dispatch_honours_it(socket_app):
         client.portal.call(_dispatch.dispatch, "ws:org", strict)
         lenient = {"org_id": "B", "event_type": "lenient", "payload": {}, "shadow": True}
         client.portal.call(_dispatch.dispatch, "ws:org", lenient)
-        assert ws.receive_json()["type"] == "lenient"
+        own = {"org_id": "A", "event_type": "own", "payload": {}, "shadow": True}
+        client.portal.call(_dispatch.dispatch, "ws:org", own)
+        assert ws.receive_json()["type"] == "own"
 
 
 def test_legacy_broadcast_reaches_jwt_sockets_only_in_shadow_mode(socket_app):
@@ -403,12 +421,14 @@ def test_legacy_broadcast_reaches_jwt_sockets_only_in_shadow_mode(socket_app):
         TestClient(app) as client,
         _connect(client, "acw_a") as key,
         _connect(client, "jwt-a") as jwt,
+        _connect(client, "shared") as service,
     ):
         client.portal.call(_dispatch.dispatch, "ws:broadcast", {"event_type": "old", "payload": {}})
-        assert jwt.receive_json()["type"] == "old"
+        assert service.receive_json()["type"] == "old"
         setting.RBAC_ENFORCE_TASK_ROUTES = True
         client.portal.call(_dispatch.dispatch, "ws:broadcast", {"event_type": "old", "payload": {}})
-        # Neither the strict JWT socket nor the key socket (in either mode) got one.
+        assert service.receive_json()["type"] == "old"
+        # Neither the JWT socket nor the key socket (in either mode) got one.
         client.portal.call(events.send_to_org, "A", "sentinel", {})
         assert jwt.receive_json()["type"] == "sentinel"
         assert key.receive_json()["type"] == "sentinel"

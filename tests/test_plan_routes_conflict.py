@@ -47,6 +47,9 @@ class _RaisingService:
         self._exc = exc
 
     def __getattr__(self, name: str):
+        if name == "get":
+            return lambda _session_id: SimpleNamespace(project_id=None, repo=None)
+
         def _raise(*_args, **_kwargs):
             raise self._exc
 
@@ -72,6 +75,13 @@ def _call(route: str):
 
 def _status(monkeypatch, route: str, exc: Exception) -> int:
     monkeypatch.setattr(pp, "SERVICE", _RaisingService(exc))
+
+    async def allow(*_args, **_kwargs):
+        return SimpleNamespace(project_id="o-r", org_id="default")
+
+    monkeypatch.setattr(pp, "_guard_session", allow)
+    monkeypatch.setattr(pp, "require_repo_project_role", allow)
+    monkeypatch.setattr(pp, "_load_docs_connections", allow)
     with pytest.raises(HTTPException) as info:
         _call(route)
     assert info.value.detail  # the curated message reaches the caller
@@ -90,6 +100,9 @@ def test_emit_releases_db_before_service_runs(monkeypatch):
     observed = []
 
     class _Service:
+        def get(self, _session_id):
+            return SimpleNamespace(project_id=None, repo=None)
+
         def emit(self, *_args, **_kwargs):
             observed.append(db.closed)
             return {"ok": True}
@@ -101,6 +114,12 @@ def test_emit_releases_db_before_service_runs(monkeypatch):
         pass
 
     monkeypatch.setattr(pp, "_guard_session", no_guard)
+
+    async def allow_repo(*_args, **_kwargs):
+        return SimpleNamespace(project_id="o-r", org_id="default")
+
+    monkeypatch.setattr(pp, "require_repo_project_role", allow_repo)
+    monkeypatch.setattr(pp, "_load_docs_connections", no_guard)
 
     result = asyncio.run(pp.emit("PLAN-1", pp.EmitBody(repo="o/r"), None, db))
     assert result == {"ok": True}
@@ -135,6 +154,9 @@ def test_mcp_emit_passes_server_side_approval_requirement(monkeypatch, auth_kind
     observed = {}
 
     class Service:
+        def get(self, _session_id):
+            return SimpleNamespace(project_id=None, repo=None)
+
         def emit_contract(self, *_args, **kwargs):
             observed.update(kwargs)
             if kwargs["require_user_approval"] and not dry_run and auth_kind != "user":

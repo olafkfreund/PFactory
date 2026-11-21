@@ -15,7 +15,8 @@ names, so callers that still reach for them there keep working.
 """
 
 import json
-from pathlib import Path
+import os
+from pathlib import Path, PurePath
 from typing import Any
 
 from fastapi import HTTPException
@@ -43,6 +44,57 @@ def save_projects(projects: dict[str, dict[str, Any]]) -> None:
     projects_file = get_projects_file()
     projects_file.parent.mkdir(parents=True, exist_ok=True)
     projects_file.write_text(json.dumps(projects, indent=2))
+
+
+def _roots(project: object) -> list[tuple[PurePath, Path]]:
+    if not isinstance(project, dict) or not project.get("path"):
+        return []
+    raw = str(project["path"])
+    try:
+        return [(PurePath(os.path.normpath(raw)), Path(raw).resolve())]
+    except (OSError, RuntimeError, ValueError):
+        return []
+
+
+def project_id_for_path(path: str | None) -> str | None:
+    """Find the longest registered project root containing a resolved path."""
+    if not path:
+        return None
+    projects = load_projects()
+    if path in projects:
+        return path
+    if not PurePath(path).is_absolute():
+        return None
+    lexical = PurePath(os.path.normpath(path))
+    # Resolve only paths under registered roots; containment also checks symlinks.
+    candidates = [
+        (project_id, root)
+        for project_id, project in projects.items()
+        for lexical_root, root in _roots(project)
+        if lexical in (lexical_root, root)
+        or lexical_root in lexical.parents
+        or root in lexical.parents
+    ]
+    if not candidates:
+        return None
+    try:
+        from server.services.git_utils import (  # noqa: PLC0415 - git_utils imports this module
+            _confine,
+        )
+
+        target = _confine(path, [root for _, root in candidates], "path")
+    except (OSError, RuntimeError, ValueError):
+        return None
+    matches = [
+        (len(root.parts), project_id)
+        for project_id, root in candidates
+        if target == root or root in target.parents
+    ]
+    return max(matches)[1] if matches else None
+
+
+def path_in_project(path: str, project_id: str) -> bool:
+    return PurePath(path).is_absolute() and project_id_for_path(path) == project_id
 
 
 #: Detail returned when a repo-only project is asked for a filesystem path.

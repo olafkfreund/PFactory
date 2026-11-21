@@ -30,8 +30,11 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 _WEB_SERVER = Path(__file__).resolve().parents[1]
 if str(_WEB_SERVER) not in sys.path:
@@ -224,8 +227,18 @@ def test_plan_review_pr_body_leaks_nothing(
 
     monkeypatch.setattr(SERVICE, "ingest_text", boom)
 
+    async def allow_repo(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(github, "require_repo_project_role", allow_repo)
+
     response = asyncio.run(
-        github.plan_review_pr(7, github.PlanReviewPRRequest(repo="o/n", pr_number=7))
+        github.plan_review_pr(
+            7,
+            github.PlanReviewPRRequest(repo="o/n", pr_number=7),
+            Request({"type": "http", "state": {"user": {"id": "test"}}}),
+            cast(AsyncSession, None),
+        )
     )
     assert response.status_code == 400
     body = json.loads(response.body)

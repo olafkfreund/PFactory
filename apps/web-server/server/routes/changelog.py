@@ -9,12 +9,13 @@ import json
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
 # git_utils's own import already put apps/backend on sys.path.
 from client_errors import client_error
 from factory_common.logsafe import sanitize_log
+from server.routes.project_authz import require_camel_project_access
 from server.services import run_leases
 from server.services.git_utils import assert_safe_git_ref, safe_spec_component  # #335
 from server.services.project_paths import (
@@ -164,7 +165,7 @@ class SaveImageRequest(BaseModel):
 # ============================================
 
 
-@router.post("/done-tasks")
+@router.post("/done-tasks", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def get_changelog_done_tasks(projectId: str = Path(...), request: DoneTasksRequest = ...):
     """Get completed tasks suitable for changelog."""
     # Filter tasks that are done
@@ -172,7 +173,7 @@ async def get_changelog_done_tasks(projectId: str = Path(...), request: DoneTask
     return {"success": True, "data": done_tasks}
 
 
-@router.post("/specs")
+@router.post("/specs", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest = ...):
     """Load spec details for tasks."""
     project_path, error = resolve_project_path_or_error(projectId)
@@ -237,7 +238,7 @@ async def load_task_specs(projectId: str = Path(...), request: LoadSpecsRequest 
     return {"success": True, "data": specs}
 
 
-@router.post("/generate")
+@router.post("/generate", dependencies=[Depends(require_camel_project_access("member"))])
 async def generate_changelog(projectId: str = Path(...), request: ChangelogGenerateRequest = ...):
     """Generate changelog using AI."""
     from ..services.changelog_service import get_changelog_service
@@ -295,7 +296,7 @@ async def generate_changelog(projectId: str = Path(...), request: ChangelogGener
     return {"success": True, "message": "Changelog generation started"}
 
 
-@router.post("/save")
+@router.post("/save", dependencies=[Depends(require_camel_project_access("member"))])
 async def save_changelog(projectId: str = Path(...), request: ChangelogSaveRequest = ...):
     """Save generated changelog and update project version files."""
     project_path, error = resolve_project_path_or_error(projectId)
@@ -398,7 +399,7 @@ async def save_changelog(projectId: str = Path(...), request: ChangelogSaveReque
         return {"success": False, "error": "Failed to save changelog"}
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def read_existing_changelog(projectId: str = Path(...)):
     """Read existing CHANGELOG.md from project.
 
@@ -434,7 +435,7 @@ async def read_existing_changelog(projectId: str = Path(...)):
         return {"success": True, "data": {"exists": True, "error": "Failed to read changelog"}}
 
 
-@router.post("/suggest-version")
+@router.post("/suggest-version", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def suggest_version(projectId: str = Path(...), request: SuggestVersionRequest = ...):
     """Suggest next version based on tasks."""
     return {
@@ -443,7 +444,10 @@ async def suggest_version(projectId: str = Path(...), request: SuggestVersionReq
     }
 
 
-@router.post("/suggest-version-commits")
+@router.post(
+    "/suggest-version-commits",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def suggest_version_from_commits(
     projectId: str = Path(...), request: SuggestVersionCommitsRequest = ...
 ):
@@ -454,7 +458,7 @@ async def suggest_version_from_commits(
     }
 
 
-@router.get("/branches")
+@router.get("/branches", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def get_changelog_branches(projectId: str = Path(...)):
     """Get git branches for changelog diff.
 
@@ -547,7 +551,7 @@ async def get_changelog_branches(projectId: str = Path(...)):
         return {"success": False, "error": "Failed to list git branches"}
 
 
-@router.get("/tags")
+@router.get("/tags", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def get_changelog_tags(projectId: str = Path(...)):
     """Get git tags for changelog diff.
 
@@ -614,7 +618,7 @@ async def get_changelog_tags(projectId: str = Path(...)):
         return {"success": False, "error": "Failed to list git tags"}
 
 
-@router.post("/commits-preview")
+@router.post("/commits-preview", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def get_commits_preview(projectId: str = Path(...), request: CommitsPreviewRequest = ...):
     """Get preview of commits for changelog."""
     import subprocess
@@ -707,7 +711,7 @@ async def get_commits_preview(projectId: str = Path(...), request: CommitsPrevie
         return {"success": False, "error": "Failed to get commits preview"}
 
 
-@router.post("/images")
+@router.post("/images", dependencies=[Depends(require_camel_project_access("member"))])
 async def save_changelog_image(projectId: str = Path(...), request: SaveImageRequest = ...):
     """
     Save a base64 encoded image to the project's assets directory.

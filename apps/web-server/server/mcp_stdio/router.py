@@ -41,6 +41,7 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database.engine import get_db
+from server.routes.organizations import ROLE_LEVELS
 from server.routes.plan_meta import categories as plan_categories
 from server.routes.plan_pipeline import (
     ApproveBody,
@@ -57,9 +58,13 @@ from server.routes.plan_pipeline import (
 )
 from server.routes.project_authz import (
     PlanAccessChecker,
+    _member_roles,
     authorize_project,
     authorize_project_for_user,
+    scope_role_ceiling,
+    visible_project_ids,
 )
+from server.routes.projects import ProjectCreate, create_project
 from server.services import project_paths
 from server.services.audit_service import (
     ACTION_MCP_PLAN_APPROVE,
@@ -100,7 +105,8 @@ def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
             "id": key.user_id,
             "api_key_id": key.key_id,
             "org_id": key.org_id,
-            "is_service": getattr(key, "is_service", False),
+            "scopes": tuple(key.scopes),
+            "is_service": bool(getattr(key, "is_service", False)),
         }
     return {"id": "default", "is_service": True}
 
@@ -208,36 +214,53 @@ async def _audit_mcp_write(
 
 
 @router.get("/projects")
-async def proxy_list_projects(key=Depends(require_acw_scope(MCP_READ_SCOPE))):
+async def proxy_list_projects(
+    request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
+):
     from ..routes.projects import list_projects
 
-    foreign = _foreign_projects(key)
-    projects = await list_projects()
-    return [p for p in projects if p.get("id") not in foreign]
+    request.state.user = _principal(key)
+    visible = await visible_project_ids(request.state.user, db)
+    return [project for project in await list_projects(request, db) if project["id"] in visible]
 
 
 @router.get("/tasks")
 async def proxy_list_tasks(
+    request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     project_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
     key=Depends(require_acw_scope(MCP_READ_SCOPE)),
 ):
-    from server.routes.tasks import TaskList, list_tasks
+    from server.routes.tasks import list_tasks
 
-    foreign = _foreign_projects(key)
-    result = await list_tasks(project_id=project_id, status=status)
-    tasks = [t for t in result.tasks if t.project_id not in foreign]
-    return TaskList(tasks=tasks, total=len(tasks))
+    request.state.user = _principal(key)
+    if project_id:
+        await _authorize_key(key, project_id, db)
+    else:
+        visible = await visible_project_ids(request.state.user, db)
+    result = await list_tasks(request, db, project_id=project_id, status=status)  # type: ignore[arg-type]
+    if not project_id:
+        tasks = [task for task in result.tasks if task.project_id in visible]
+        result = result.model_copy(update={"tasks": tasks, "total": len(tasks)})
+    return result
 
 
 @router.get("/tasks/running")
-async def proxy_get_running_tasks(key=Depends(require_acw_scope(MCP_READ_SCOPE))):
-    from server.routes.execution import RunningTasksResponse, get_running_tasks
+async def proxy_get_running_tasks(
+    request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key=Depends(require_acw_scope(MCP_READ_SCOPE)),
+):
+    from server.routes.execution import get_running_tasks
 
-    foreign = _foreign_projects(key)
-    result = await get_running_tasks()
-    tasks = [tid for tid in result.tasks if tid.split(":", 1)[0] not in foreign]
-    return RunningTasksResponse(tasks=tasks, count=len(tasks))
+    request.state.user = _principal(key)
+    visible = await visible_project_ids(request.state.user, db)
+    result = await get_running_tasks(request, db)
+    tasks = [task for task in result.tasks if task.split(":", 1)[0] in visible]
+    return result.model_copy(update={"tasks": tasks, "count": len(tasks)})
 
 
 @router.get("/tasks/{task_id}")
@@ -297,12 +320,20 @@ async def proxy_get_worktree_diff(
 @router.post("/projects", status_code=201)
 async def proxy_add_project(
     request: FastAPIRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
     key=Depends(require_acw_scope(PROJECT_WRITE_SCOPE)),
 ):
-    from ..routes.projects import ProjectCreate, create_project
-
     body = await _read_json_body(request)
     org_id = key.org_id if isinstance(key, AuthenticatedKey) else None  # #1036
+    principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, None, db)
+    grant = (await _member_roles(principal, db)).get(org_id or "", "")
+    if isinstance(key, AuthenticatedKey) and (
+        not org_id
+        or ROLE_LEVELS.get(grant, -1) < ROLE_LEVELS["member"]
+        or ROLE_LEVELS.get(scope_role_ceiling(principal) or "", -1) < ROLE_LEVELS["member"]
+    ):
+        raise HTTPException(status_code=403, detail="Project membership required")
     result = await create_project(ProjectCreate(**body), org_id)
     # ``add_project`` returns the project dict with an ``id`` field.
     project_id = result.get("id") if isinstance(result, dict) else None
@@ -450,7 +481,10 @@ async def proxy_create_pr(
     from ..routes.tasks import CreatePRFromTaskOptions, create_pr_from_task
 
     body = await _read_json_body(request)
-    result = await create_pr_from_task(task_id, CreatePRFromTaskOptions(**body) if body else None)
+    request.state.user = _principal(key)
+    result = await create_pr_from_task(
+        task_id, request, CreatePRFromTaskOptions(**body) if body else None
+    )
     await _audit_mcp_write(
         key,
         ACTION_MCP_TASK_CREATE_PR,
@@ -472,7 +506,8 @@ async def proxy_merge_worktree(
     from ..routes.tasks import WorktreeMergeOptions, merge_worktree
 
     body = await _read_json_body(request)
-    result = await merge_worktree(task_id, WorktreeMergeOptions(**body) if body else None)
+    request.state.user = _principal(key)
+    result = await merge_worktree(task_id, request, WorktreeMergeOptions(**body) if body else None)
     await _audit_mcp_write(
         key,
         ACTION_MCP_TASK_MERGE,

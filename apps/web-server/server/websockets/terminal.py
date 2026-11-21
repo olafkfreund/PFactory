@@ -70,8 +70,7 @@ async def terminal_websocket(websocket: WebSocket, terminal_id: str):
 
     manager = get_pty_manager()
     session = manager.get_session(terminal_id)
-    # user None: legacy token or auth disabled, unrestricted as on all-task sockets.
-    if session is not None and user is not None and not await may_use(user, session):
+    if session is not None and not await may_use(user, session):
         session = None  # another user's terminal reads as missing
 
     if session is None:

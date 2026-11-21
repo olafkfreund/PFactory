@@ -75,7 +75,8 @@ class SpecPathSanitizer extends PathInjection::Sanitizer {
     exists(DataFlow::CallCfgNode call, string name |
       name in [
           "safe_spec_component", "split_task_id", "get_next_spec_id",
-          "_safe_launch_path", "confine_to_workspace", "confine_to_project", "_confine"
+          "_safe_launch_path", "confine_to_workspace", "confine_to_project", "_confine",
+          "project_id_for_path"
         ] and
       (
         call.getFunction().asExpr().(Name).getId() = name or
@@ -88,7 +89,7 @@ class SpecPathSanitizer extends PathInjection::Sanitizer {
     // their first parameter so the resolve()/is_dir() probes inside the helper
     // do not re-fire the very alert the barrier exists to clear.
     exists(Function f |
-      f.getName() in ["_safe_launch_path", "confine_to_workspace", "confine_to_project", "_confine"] and
+      f.getName() in ["_safe_launch_path", "confine_to_workspace", "confine_to_project", "_confine", "project_id_for_path"] and
       this.(DataFlow::ParameterNode).getParameter() = f.getArg(0)
     )
   }

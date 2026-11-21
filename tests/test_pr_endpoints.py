@@ -37,6 +37,7 @@ if str(_ws) not in sys.path:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _reset_singletons():
     """Reset singleton service instances between tests."""
@@ -63,12 +64,15 @@ def project_dir(tmp_path: Path) -> Path:
 @pytest.fixture()
 def _mock_load_projects(project_dir: Path):
     """Patch load_projects so that 'test-proj' resolves to project_dir."""
-    projects_dict = {
-        "test-proj": {"path": str(project_dir), "name": "Test Project"}
-    }
-    with patch(
-        "server.routes.github._resolve_project_path",
-        side_effect=lambda pid: Path(projects_dict[pid]["path"]) if pid in projects_dict else None,
+    projects_dict = {"test-proj": {"path": str(project_dir), "name": "Test Project"}}
+    with (
+        patch(
+            "server.routes.github._resolve_project_path",
+            side_effect=lambda pid: (
+                Path(projects_dict[pid]["path"]) if pid in projects_dict else None
+            ),
+        ),
+        patch("server.services.project_paths.load_projects", return_value=projects_dict),
     ):
         yield
 
@@ -203,9 +207,8 @@ class TestListPRs:
     def test_list_prs_project_not_found(self, client):
         """Returns error for unknown project ID."""
         resp = client.get("/api/projects/nonexistent/github/prs")
-        data = resp.json()
-        assert data["success"] is False
-        assert "not found" in data.get("error", "").lower()
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
 
     def test_list_prs_empty_list(self, client, project_dir):
         """Returns empty array when no PRs exist."""
@@ -243,13 +246,16 @@ class TestTriggerPRReview:
     @pytest.mark.anyio
     def test_trigger_review_returns_202(self, client, project_dir):
         """Returns 202 Accepted when review starts."""
-        with patch(
-            "server.services.pr_review_service.PRReviewService.is_running",
-            return_value=False,
-        ), patch(
-            "server.services.pr_review_service.PRReviewService.start_review",
-            new_callable=AsyncMock,
-            return_value=True,
+        with (
+            patch(
+                "server.services.pr_review_service.PRReviewService.is_running",
+                return_value=False,
+            ),
+            patch(
+                "server.services.pr_review_service.PRReviewService.start_review",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             resp = client.post(
                 "/api/projects/test-proj/github/prs/42/review",
@@ -265,14 +271,17 @@ class TestTriggerPRReview:
     @pytest.mark.anyio
     def test_trigger_followup_review(self, client, project_dir):
         """Passes followup=True to service."""
-        with patch(
-            "server.services.pr_review_service.PRReviewService.is_running",
-            return_value=False,
-        ), patch(
-            "server.services.pr_review_service.PRReviewService.start_review",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock_start:
+        with (
+            patch(
+                "server.services.pr_review_service.PRReviewService.is_running",
+                return_value=False,
+            ),
+            patch(
+                "server.services.pr_review_service.PRReviewService.start_review",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_start,
+        ):
             resp = client.post(
                 "/api/projects/test-proj/github/prs/42/review",
                 json={"followup": True},
@@ -311,13 +320,16 @@ class TestTriggerPRReview:
     @pytest.mark.anyio
     def test_trigger_review_start_fails_returns_500(self, client, project_dir):
         """Returns 500 if the service fails to start."""
-        with patch(
-            "server.services.pr_review_service.PRReviewService.is_running",
-            return_value=False,
-        ), patch(
-            "server.services.pr_review_service.PRReviewService.start_review",
-            new_callable=AsyncMock,
-            return_value=False,
+        with (
+            patch(
+                "server.services.pr_review_service.PRReviewService.is_running",
+                return_value=False,
+            ),
+            patch(
+                "server.services.pr_review_service.PRReviewService.start_review",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
         ):
             resp = client.post(
                 "/api/projects/test-proj/github/prs/42/review",
@@ -411,12 +423,16 @@ class TestDeletePRReview:
         review_file.write_text(json.dumps(_SAMPLE_REVIEW))
 
         index_file = pr_dir / "index.json"
-        index_file.write_text(json.dumps({
-            "reviews": [
-                {"pr_number": 42, "status": "completed"},
-                {"pr_number": 99, "status": "completed"},
-            ]
-        }))
+        index_file.write_text(
+            json.dumps(
+                {
+                    "reviews": [
+                        {"pr_number": 42, "status": "completed"},
+                        {"pr_number": 99, "status": "completed"},
+                    ]
+                }
+            )
+        )
 
         resp = client.delete("/api/projects/test-proj/github/prs/42/review")
 
@@ -743,13 +759,16 @@ class TestCancelPRReview:
     @pytest.mark.anyio
     def test_cancel_running_review(self, client, project_dir):
         """Cancels a running review and returns success."""
-        with patch(
-            "server.services.pr_review_service.PRReviewService.is_running",
-            return_value=True,
-        ), patch(
-            "server.services.pr_review_service.PRReviewService.cancel_review",
-            new_callable=AsyncMock,
-            return_value=True,
+        with (
+            patch(
+                "server.services.pr_review_service.PRReviewService.is_running",
+                return_value=True,
+            ),
+            patch(
+                "server.services.pr_review_service.PRReviewService.cancel_review",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             resp = client.post("/api/projects/test-proj/github/prs/42/cancel")
 
@@ -773,13 +792,16 @@ class TestCancelPRReview:
     @pytest.mark.anyio
     def test_cancel_failure_returns_500(self, client, project_dir):
         """Returns 500 when cancel operation fails."""
-        with patch(
-            "server.services.pr_review_service.PRReviewService.is_running",
-            return_value=True,
-        ), patch(
-            "server.services.pr_review_service.PRReviewService.cancel_review",
-            new_callable=AsyncMock,
-            return_value=False,
+        with (
+            patch(
+                "server.services.pr_review_service.PRReviewService.is_running",
+                return_value=True,
+            ),
+            patch(
+                "server.services.pr_review_service.PRReviewService.cancel_review",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
         ):
             resp = client.post("/api/projects/test-proj/github/prs/42/cancel")
 

@@ -8,7 +8,6 @@ from typing import Any
 
 from fastapi import HTTPException, WebSocket
 
-from factory_common.logsafe import sanitize_log
 from server.auth import (
     WebSocketAuthError,
     _ws_acw_principal,
@@ -34,31 +33,26 @@ def _task_project_id(task_id: str) -> str | None:
     return project_id
 
 
-async def _authorize_project(user: dict[str, Any], project_id: str | None, *, strict: bool) -> bool:
+async def _project_denial_code(user: dict[str, Any], project_id: str | None) -> int | None:
     try:
         from server.database.engine import async_session_factory  # noqa: PLC0415
 
         async with async_session_factory() as db:
             await authorize_project_for_user(user, project_id, db)
-        return True
-    except HTTPException:
-        if strict:
-            return False
-        logger.warning(
-            "ws task access would deny project=%s user=%s",
-            sanitize_log(project_id),
-            sanitize_log(user.get("id")),
-        )
-        return True
-    except Exception:  # noqa: BLE001 — strict principals fail closed on any lookup error
-        if strict:
-            return False
-        logger.warning(
-            "ws task access check failed project=%s user=%s",
-            sanitize_log(project_id),
-            sanitize_log(user.get("id")),
-        )
-        return True
+        return None
+    except HTTPException as exc:
+        return 4403 if exc.status_code == 403 else 4404  # noqa: PLR2004
+    except Exception:  # noqa: BLE001 — failed lookup denies the socket
+        return 4404
+
+
+async def _authorize_project(
+    user: dict[str, Any],
+    project_id: str | None,
+    *,
+    strict: bool,  # noqa: ARG001
+) -> bool:
+    return await _project_denial_code(user, project_id) is None
 
 
 class TaskSocketAccess:
@@ -86,16 +80,19 @@ class TaskSocketAccess:
         except WebSocketAuthError:
             return False
 
-        if user is None or is_service_principal(user):
+        if user is None:
+            await self.websocket.close(code=4001)
+            return False
+        if is_service_principal(user):
             return True
 
         if not self.project_id:
-            await self.websocket.close(code=4003)
+            await self.websocket.close(code=4404)
             return False
 
-        strict = bool(user.get("api_key_id")) or _jwt_strict()
-        if not await self._authorize(user, strict=strict):
-            await self.websocket.close(code=4003)
+        denial_code = await _project_denial_code(user, self.project_id)
+        if denial_code is not None:
+            await self.websocket.close(code=denial_code)
             return False
 
         self.user = user
@@ -108,15 +105,17 @@ class TaskSocketAccess:
 
     async def recheck(self) -> bool:
         """Re-validate an ``acw_`` personal key when the recheck interval elapses."""
-        if not self._key_token:
+        if self.user is None:
             return True
         if time.monotonic() - self._last_recheck < _KEY_RECHECK_SECONDS:
             return True
 
-        try:
-            principal = await _ws_acw_principal(self._key_token)
-        except Exception:  # noqa: BLE001 — validator failure fails closed
-            principal = None
+        principal: dict[str, Any] | None = self.user
+        if self._key_token:
+            try:
+                principal = await _ws_acw_principal(self._key_token)
+            except Exception:  # noqa: BLE001 — validator failure fails closed
+                principal = None
 
         if principal is None or not await self._authorize(principal, strict=True):
             await self.websocket.close(code=4001)
@@ -145,6 +144,10 @@ class AllTaskSocketAccess:
             await self.websocket.close(code=4003)
             return False
 
+        if self.user is None:
+            await self.websocket.close(code=4001)
+            return False
+
         if self.user and self.user.get("api_key_id"):
             token = _ws_extract_token(self.websocket)
             if token and token.startswith("acw_"):
@@ -167,7 +170,9 @@ class AllTaskSocketAccess:
         return True
 
     async def readable(self, task_ids: list[str]) -> set[str]:
-        if self.user is None or is_service_principal(self.user):
+        if self.user is None:
+            return set()
+        if is_service_principal(self.user):
             return set(task_ids)
         strict = bool(self.user.get("api_key_id")) or _jwt_strict()
         projects: dict[str, bool] = {}

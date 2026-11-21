@@ -6,17 +6,20 @@ Handles starting, stopping, and monitoring task execution.
 
 import json
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
+from server.database.engine import get_db
 from server.error_ref import error_message
 from server.services import run_leases
 
 from ..services.agent_service import get_agent_service
 from ..websockets.events import emit_task_status
-from .project_authz import require_project_access, require_task_access
+from .project_authz import require_project_access, require_task_access, visible_project_ids
 from .projects import load_projects, resolve_project_path
 from .tasks import _refresh_board, split_task_id, sync_worktree_to_main_spec
 
@@ -75,14 +78,20 @@ class RunningTasksResponse(BaseModel):
 
 
 @router.get("/running", response_model=RunningTasksResponse)
-async def get_running_tasks():
+async def get_running_tasks(request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
     """Get list of all currently running tasks."""
     agent_service = get_agent_service()
     running = await agent_service.get_running_tasks_anywhere()  # #805: every replica
+    visible = await visible_project_ids(getattr(request.state, "user", None), db)
+    running = [task_id for task_id in running if task_id.partition(":")[0] in visible]
     return RunningTasksResponse(tasks=running, count=len(running))
 
 
-@router.get("/{task_id}/status", response_model=TaskExecutionStatus)
+@router.get(
+    "/{task_id}/status",
+    response_model=TaskExecutionStatus,
+    dependencies=[Depends(require_task_access("viewer"))],
+)
 async def get_task_status(task_id: str):
     """Get execution status for a specific task."""
     agent_service = get_agent_service()
@@ -94,7 +103,7 @@ async def get_task_status(task_id: str):
     )
 
 
-@router.get("/{task_id}/running")
+@router.get("/{task_id}/running", dependencies=[Depends(require_task_access("viewer"))])
 async def is_task_running(task_id: str):
     """Check if a specific task is currently running."""
     agent_service = get_agent_service()
