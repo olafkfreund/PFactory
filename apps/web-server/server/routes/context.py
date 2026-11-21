@@ -8,10 +8,11 @@ import logging
 import subprocess
 from pathlib import Path as FilePath
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field, SecretStr
 
 from factory_common.logsafe import sanitize_log
+from server.routes.project_authz import require_camel_project_access
 from server.services.project_paths import (
     load_projects,
     resolve_project_path_or_error,
@@ -90,7 +91,7 @@ def _project_path(project_id: str) -> tuple[FilePath | None, dict[str, object] |
     return resolve_project_path_or_error(project_id)
 
 
-@project_router.get("/context")
+@project_router.get("/context", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def get_project_context(projectId: str = Path(...)):
     """Get project context including index and memories."""
     import json
@@ -172,7 +173,10 @@ async def get_project_context(projectId: str = Path(...)):
     }
 
 
-@project_router.post("/context/refresh")
+@project_router.post(
+    "/context/refresh",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def refresh_project_index(projectId: str = Path(...)):
     """Refresh/regenerate project index."""
 
@@ -215,7 +219,10 @@ async def refresh_project_index(projectId: str = Path(...)):
         return {"success": False, "error": "Failed to refresh project index"}
 
 
-@project_router.get("/memory/status")
+@project_router.get(
+    "/memory/status",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_memory_status(projectId: str = Path(...)):
     """Get memory system status for project."""
 
@@ -249,7 +256,10 @@ async def get_memory_status(projectId: str = Path(...)):
     }
 
 
-@project_router.get("/memory/search")
+@project_router.get(
+    "/memory/search",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def search_memories(projectId: str = Path(...), q: str = Query(...)):
     """Search project memories."""
     import json
@@ -302,7 +312,10 @@ async def search_memories(projectId: str = Path(...), q: str = Query(...)):
     return {"success": True, "data": results[:20]}
 
 
-@project_router.get("/memory/recent")
+@project_router.get(
+    "/memory/recent",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_recent_memories(projectId: str = Path(...), limit: int = Query(10)):
     """Get recent memories for project."""
     import json
@@ -375,7 +388,7 @@ def _extract_memory_summary(data: dict) -> str:
     return " | ".join(parts) if parts else "Session completed"
 
 
-@project_router.get("/env")
+@project_router.get("/env", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def get_project_env(projectId: str = Path(...)):
     """Get project environment configuration."""
 
@@ -494,7 +507,7 @@ async def get_project_env(projectId: str = Path(...)):
     return {"success": True, "data": config}
 
 
-@project_router.patch("/env")
+@project_router.patch("/env", dependencies=[Depends(require_camel_project_access("admin"))])
 async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdate = ...):
     """
     Update project environment configuration.
@@ -690,13 +703,16 @@ async def update_project_env(projectId: str = Path(...), config: ProjectEnvUpdat
         return {"success": False, "error": "Failed to update environment configuration"}
 
 
-@project_router.get("/claude-auth")
+@project_router.get("/claude-auth", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def check_claude_auth(projectId: str = Path(...)):
     """Check Claude authentication status."""
     return {"success": True, "data": {"authenticated": False, "method": None}}
 
 
-@project_router.post("/claude-setup")
+@project_router.post(
+    "/claude-setup",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def invoke_claude_setup(projectId: str = Path(...)):
     """
     Check Claude CLI authentication status and provide setup instructions.

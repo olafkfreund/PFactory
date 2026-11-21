@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 # Add the backend dir to sys.path so the catalog + credential modules
 # resolve. Mirrors the pattern used by auto_fix.py et al.
@@ -26,6 +26,7 @@ if str(_BACKEND_DIR) not in sys.path:
 
 # Imported after the sys.path insert above, like everything else that reaches
 # backend. project_paths imports no route module, so this cannot cycle.
+from server.routes.project_authz import require_project_access  # noqa: E402
 from server.services.project_paths import (  # noqa: E402
     NO_LOCAL_CLONE_DETAIL,
     load_projects,
@@ -68,7 +69,7 @@ def _describe_marker_status(
     }
 
 
-@router.get("/{project_id}/mcp-status")
+@router.get("/{project_id}/mcp-status", dependencies=[Depends(require_project_access("viewer"))])
 async def get_mcp_status(project_id: str) -> dict[str, Any]:
     """Return the catalog × this project × credentials matrix.
 

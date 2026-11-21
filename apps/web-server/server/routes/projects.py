@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -18,7 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from factory_common.logsafe import sanitize_log
 from server.database.engine import get_db
 from server.error_ref import error_message
-from server.routes.project_authz import creator_org, require_project_access
+from server.pty.access import project_id_for_path
+from server.routes.project_authz import (
+    creator_org,
+    require_plan_access,
+    require_project_access,
+    visible_project_ids,
+)
 from server.services import task_log_store
 from server.services.git_utils import confine_to_workspace, git_run, safe_spec_component
 from server.services.project_paths import (
@@ -383,15 +389,18 @@ async def _resolve_git_credential(cred_id: str) -> tuple[str, str] | None:
 
 
 @router.get("")
-async def list_projects():
+async def list_projects(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """List all registered projects.
 
     Returns projects array directly (not wrapped) because
     the frontend api-client.ts adds the {success, data} wrapper automatically.
     """
     projects = load_projects()
-    project_list = [project_to_response(pid, pdata) for pid, pdata in projects.items()]
-    return project_list
+    visible = await visible_project_ids(getattr(request.state, "user", None), db)
+    return [project_to_response(pid, pdata) for pid, pdata in projects.items() if pid in visible]
 
 
 class DiscoveredProject(BaseModel):
@@ -413,8 +422,12 @@ class ScanProjectsRequest(BaseModel):
     maxDepth: int = Field(default=1, ge=1, le=5, description="Maximum scan depth (1-5, default 1)")
 
 
-@router.post("/scan")
-async def scan_for_projects(request: ScanProjectsRequest):
+@router.post("/scan", dependencies=[Depends(require_plan_access("viewer"))])
+async def scan_for_projects(
+    request: ScanProjectsRequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """
     Scan filesystem for PFactory projects.
 
@@ -459,6 +472,11 @@ async def scan_for_projects(request: ScanProjectsRequest):
                 detail=f"Path is not a directory: {request.basePath}",
             )
 
+        visible = await visible_project_ids(getattr(http_request.state, "user", None), db)
+        base_owner = project_id_for_path(str(base))
+        if base_owner is not None and base_owner not in visible:
+            return []
+
         projects = []
 
         def scan_directory(dir_path: Path, current_depth: int):
@@ -489,6 +507,10 @@ async def scan_for_projects(request: ScanProjectsRequest):
                         "htmlcov",
                         "coverage",
                     ):
+                        continue
+
+                    owner_pid = project_id_for_path(str(entry))
+                    if owner_pid is not None and owner_pid not in visible:
                         continue
 
                     # Check for project indicators
@@ -678,7 +700,7 @@ async def create_project(project: ProjectCreate, org_id: str | None = None) -> d
     return response
 
 
-@router.get("/{project_id}")
+@router.get("/{project_id}", dependencies=[Depends(require_project_access("viewer"))])
 async def get_project(project_id: str):
     """Get a specific project by ID."""
     projects = load_projects()
@@ -691,7 +713,7 @@ async def get_project(project_id: str):
     return project_to_response(project_id, projects[project_id])
 
 
-@router.put("/{project_id}")
+@router.put("/{project_id}", dependencies=[Depends(require_project_access("admin"))])
 async def update_project(project_id: str, project: ProjectCreate):
     """Update a project's metadata."""
     projects = load_projects()
@@ -731,7 +753,11 @@ async def update_project(project_id: str, project: ProjectCreate):
     return project_to_response(project_id, project_data)
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{project_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_project_access("admin"))],
+)
 async def remove_project(project_id: str):
     """Remove a project (unregister, does not delete files)."""
     projects = load_projects()
@@ -745,7 +771,7 @@ async def remove_project(project_id: str):
     save_projects(projects)
 
 
-@router.post("/{project_id}/initialize")
+@router.post("/{project_id}/initialize", dependencies=[Depends(require_project_access("member"))])
 async def initialize_project(project_id: str):
     """Initialize PFactory in a project (create .pfactory directory).
 
@@ -777,7 +803,7 @@ async def initialize_project(project_id: str):
         return {"success": False, "error": "Failed to initialize project."}
 
 
-@router.get("/{project_id}/version")
+@router.get("/{project_id}/version", dependencies=[Depends(require_project_access("viewer"))])
 async def check_project_version(project_id: str):
     """Check PFactory version info for a project."""
     project_path = resolve_project_path(project_id)
@@ -845,7 +871,7 @@ class ProjectSettingsUpdate(BaseModel):
         return v
 
 
-@router.patch("/{project_id}/settings")
+@router.patch("/{project_id}/settings", dependencies=[Depends(require_project_access("admin"))])
 async def update_project_settings(project_id: str, settings: ProjectSettingsUpdate):
     """Update project settings."""
     projects = load_projects()
@@ -957,7 +983,7 @@ async def update_project_settings(project_id: str, settings: ProjectSettingsUpda
         ) from e
 
 
-@router.get("/{project_id}/worktrees")
+@router.get("/{project_id}/worktrees", dependencies=[Depends(require_project_access("viewer"))])
 async def list_project_worktrees(project_id: str):
     """List worktrees for a project with detailed stats."""
     import re
@@ -1103,7 +1129,7 @@ async def list_project_worktrees(project_id: str):
         return {"worktrees": [], "error": "Failed to list worktrees."}
 
 
-@router.get("/{project_id}/tasks")
+@router.get("/{project_id}/tasks", dependencies=[Depends(require_project_access("viewer"))])
 async def list_project_tasks(project_id: str):
     """List all tasks for a specific project.
 
@@ -1275,7 +1301,10 @@ async def unwatch_project_task_logs(project_id: str, spec_id: str):
     return {"success": True, "message": "Log unwatching handled via WebSocket"}
 
 
-@router.get("/{project_id}/tasks/{spec_id}/logs")
+@router.get(
+    "/{project_id}/tasks/{spec_id}/logs",
+    dependencies=[Depends(require_project_access("viewer"))],
+)
 async def get_project_task_logs(project_id: str, spec_id: str):
     """Get logs for a task (delegates to tasks router)."""
     from . import tasks as tasks_module

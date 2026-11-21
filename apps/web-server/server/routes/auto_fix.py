@@ -61,7 +61,10 @@ class AutoFixConfigPayload(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{projectId}/auto-fix/config")
+@router.get(
+    "/{projectId}/auto-fix/config",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_auto_fix_config(projectId: str) -> dict[str, Any] | None:
     """Return AutoFixConfig for the project, or null if no project."""
     cfg = auto_fix_service.get_config(projectId)
@@ -83,7 +86,10 @@ async def save_auto_fix_config(projectId: str, payload: AutoFixConfigPayload) ->
     return {"success": True}
 
 
-@router.get("/{projectId}/auto-fix/queue")
+@router.get(
+    "/{projectId}/auto-fix/queue",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_auto_fix_queue(projectId: str) -> list[dict[str, Any]]:
     """Return the AutoFix queue items."""
     return auto_fix_service.get_queue(projectId)
