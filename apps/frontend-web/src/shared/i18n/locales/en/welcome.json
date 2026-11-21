@@ -12,5 +12,19 @@
     "empty": "No projects yet",
     "emptyDescription": "Create a new project or open an existing one to get started",
     "openFolder": "Open Folder"
+  },
+  "projectsPage": {
+    "title": "Projects",
+    "add": "Add project",
+    "empty": "No projects yet.",
+    "open": "Open",
+    "delete": "Delete",
+    "unregisterTitle": "Unregister project",
+    "unregisterBody": "This only unregisters the project from PFactory. Its files stay untouched. Type the project name \"{{name}}\" to confirm.",
+    "nameLabel": "Project name",
+    "cancel": "Cancel",
+    "confirm": "Unregister project",
+    "notFound": "Project not found: {{ref}}",
+    "backHome": "Back to my projects"
   }
 }

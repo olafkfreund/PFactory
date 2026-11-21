@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router';
+import { Routes, Route, Navigate, Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
@@ -32,6 +32,7 @@ import { ProjectSwitchLoadingModal } from './components/ProjectSwitchLoadingModa
 import { LoginPage } from './pages/LoginPage';
 import { EditorPage } from './pages/EditorPage';
 import { ConsolePage } from './pages/ConsolePage';
+import { ProjectsPage } from './pages/ProjectsPage';
 import { ViewStateProvider } from './contexts/ViewStateContext';
 import { useProjectStore, loadProjects } from './stores/project-store';
 import { useTaskStore, loadTasks } from './stores/task-store';
@@ -79,9 +80,7 @@ function AuthenticatedApp() {
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const openProjectIds = useProjectStore((state) => state.openProjectIds);
   const tabOrder = useProjectStore((state) => state.tabOrder);
-  const openProjectTab = useProjectStore((state) => state.openProjectTab);
   const closeProjectTab = useProjectStore((state) => state.closeProjectTab);
-  const setActiveProject = useProjectStore((state) => state.setActiveProject);
   const isSwitchingProject = useProjectStore((state) => state.isSwitchingProject);
   const tasks = useTaskStore((state) => state.tasks);
   const settings = useSettingsStore((state) => state.settings);
@@ -206,11 +205,23 @@ function AuthenticatedApp() {
       keywords: v.id,
       run: () => { setActiveView(v.id); },
     }));
+    const switchProject: PaletteCommand[] = projects.map((p) => ({
+      id: `project-${p.id}`,
+      group: 'Go to',
+      label: `Switch project: ${p.name}`,
+      keywords: `project switch ${slugs.get(p.id) ?? ''}`,
+      run: () => { goProject(p.id); },
+    }));
     const actions: PaletteCommand[] = [
       { id: 'act-settings', group: 'Actions', label: 'Open settings', keywords: 'preferences config theme', run: () => { setIsSettingsDialogOpen(true); } },
     ];
-    return [...nav, ...actions];
-  }, [setActiveView]);
+    return [...nav, ...switchProject, ...actions];
+  }, [projects, slugs, goProject, setActiveView]);
+
+  const paletteProjects = useMemo(
+    () => projects.map((p) => ({ slug: slugs.get(p.id) ?? p.id, name: p.name, path: p.path })),
+    [projects, slugs]
+  );
 
   // Federated fleet search (#149): the cockpit aggregates every portal's work
   // and exposes a ranked /api/search; this portal proxies it same-origin
@@ -279,10 +290,10 @@ function AuthenticatedApp() {
   }, [settings.onboardingCompleted]);
 
   // Sync i18n language with settings
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   useEffect(() => {
     if (settings.language && settings.language !== i18n.language) {
-      i18n.changeLanguage(settings.language);
+      void i18n.changeLanguage(settings.language);
     }
   }, [settings.language, i18n]);
 
@@ -382,7 +393,7 @@ function AuthenticatedApp() {
 
   const handleProjectAdded = (project: Project, needsInit: boolean) => {
     console.log('[Web] Project added:', project.name, 'needs init:', needsInit);
-    // Optionally navigate to the project or show init dialog
+    goProject(project.id);
   };
 
   // Handler for opening inbuilt terminal with specific working directory
@@ -422,57 +433,69 @@ function AuthenticatedApp() {
               projects={openProjects}
               activeProjectId={activeProjectId}
               onProjectSelect={(projectId) => {
-                setActiveProject(projectId);
-                // Also update selectedProjectId so components use the correct project context
-                useProjectStore.getState().selectProject(projectId);
+                goProject(projectId, route.kind === 'project' ? route.view : undefined);
               }}
-              onProjectClose={(projectId) => closeProjectTab(projectId)}
-              onAddProject={handleAddProject}
-              onProjectAdded={handleProjectAdded}
-              onSettingsClick={() => setIsSettingsDialogOpen(true)}
-              onOpenOnboarding={() => setIsOnboardingOpen(true)}
+              onProjectClose={(projectId) => {
+                if (urlProjectId === projectId) {
+                  const next = openProjects.find((p) => p.id !== projectId);
+                  void navigate(next ? projectPath(slugs.get(next.id) ?? next.id) : '/');
+                }
+                closeProjectTab(projectId);
+              }}
+              currentSlug={urlSlug}
+              onViewAllProjects={() => { void navigate('/projects'); }}
+              onSettingsClick={() => { setIsSettingsDialogOpen(true); }}
+              onOpenOnboarding={() => { setIsOnboardingOpen(true); }}
             />
 
             <main className="flex-1 overflow-hidden">
-              {activeView === 'planning' ? (
-                /* Planning Portal — project-aware. Board mode renders the
-                   animated KanbanBoard wired to the task-store (issue #82). */
-                <div className="h-full overflow-hidden">
-                  <PlanningView
-                    onTaskClick={handleTaskClick}
-                    onNewTaskClick={() => setIsNewTaskDialogOpen(true)}
-                    focusSessionId={selectedTaskId}
+              {route.kind === 'project' && urlProject && (
+                /* TerminalGrid stays mounted across project switches to preserve xterm instances and PTY connections */
+                <div className={activeView === 'terminals' ? 'h-full' : 'hidden'}>
+                  <TerminalGrid
+                    projectPath={urlProject.path}
+                    onNewTaskClick={() => { setIsNewTaskDialogOpen(true); }}
+                    isActive={activeView === 'terminals'}
                   />
                 </div>
-              ) : activeView === 'pfactory' ? (
-                /* PFactory's own surface: the test-generation review queue.
-                   Global (reads ~/.pfactory workspaces), so it renders with or
-                   without a selected project. */
-                <div className="h-full overflow-auto p-4">
-                  <PFactoryPortal />
+              )}
+              {route.kind === 'project' && !urlProject && projectsLoaded && (
+                <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                  <p>{t('welcome:projectsPage.notFound', { ref: route.ref })}</p>
+                  <Link to="/" className="text-sm underline">{t('welcome:projectsPage.backHome')}</Link>
                 </div>
-              ) : selectedProject ? (
+              )}
+              {selectedProject && (
                 <>
-                  {/* TerminalGrid stays mounted but hidden to preserve xterm instances and PTY connections */}
-                  <div className={activeView === 'terminals' ? 'h-full' : 'hidden'}>
-                    <TerminalGrid
-                      projectPath={selectedProject?.path}
-                      onNewTaskClick={() => setIsNewTaskDialogOpen(true)}
-                      isActive={activeView === 'terminals'}
-                    />
-                  </div>
+                  {activeView === 'planning' && (
+                    /* Planning Portal — project-aware. Board mode renders the
+                       animated KanbanBoard wired to the task-store (issue #82). */
+                    <div className="h-full overflow-hidden">
+                      <PlanningView
+                        onTaskClick={handleTaskClick}
+                        onNewTaskClick={() => { setIsNewTaskDialogOpen(true); }}
+                        focusSessionId={selectedTaskId}
+                      />
+                    </div>
+                  )}
+                  {activeView === 'pfactory' && (
+                    /* PFactory's own surface: the test-generation review queue. */
+                    <div className="h-full overflow-auto p-4">
+                      <PFactoryPortal />
+                    </div>
+                  )}
                   {activeView === 'editor' && (
-                    <EditorPage projectPath={selectedProject?.path} />
+                    <EditorPage projectPath={selectedProject.path} />
                   )}
                   {activeView === 'worktrees' && (
-                    <Worktrees projectId={selectedProject?.id || ''} />
+                    <Worktrees projectId={selectedProject.id} />
                   )}
                   {activeView === 'context' && (
-                    <Context projectId={selectedProject?.id || ''} />
+                    <Context projectId={selectedProject.id} />
                   )}
                   {activeView === 'github-issues' && (
                     <GitHubIssues
-                      onOpenSettings={() => setIsSettingsDialogOpen(true)}
+                      onOpenSettings={() => { setIsSettingsDialogOpen(true); }}
                       onNavigateToTask={(taskId) => {
                         setSelectedTaskId(taskId);
                         setActiveView('planning');
@@ -481,13 +504,13 @@ function AuthenticatedApp() {
                   )}
                   {activeView === 'github-prs' && (
                     <GitHubPRs
-                      onOpenSettings={() => setIsSettingsDialogOpen(true)}
+                      onOpenSettings={() => { setIsSettingsDialogOpen(true); }}
                       isActive={true}
                     />
                   )}
                   {activeView === 'changelog' && <Changelog />}
                   {activeView === 'insights' && (
-                    <Insights projectId={selectedProject?.id || ''} onNavigate={setActiveView} />
+                    <Insights projectId={selectedProject.id} onNavigate={setActiveView} />
                   )}
                   {activeView === 'agent-tools' && <AgentTools />}
                   {activeView === 'skills' && <SkillsPage />}
@@ -502,14 +525,21 @@ function AuthenticatedApp() {
                     </div>
                   )}
                 </>
-              ) : (
+              )}
+              {route.kind === 'projects' && (
+                <ProjectsPage
+                  projects={projects}
+                  slugs={slugs}
+                  onAdd={handleAddProject}
+                  onOpen={(p) => { goProject(p.id); }}
+                />
+              )}
+              {route.kind === 'home' && (
                 <WelcomeScreen
                   projects={projects}
                   onNewProject={handleAddProject}
                   onOpenProject={handleAddProject}
-                  onSelectProject={(projectId) => {
-                    openProjectTab(projectId);
-                  }}
+                  onSelectProject={(projectId) => { goProject(projectId); }}
                 />
               )}
             </main>
@@ -543,6 +573,10 @@ function AuthenticatedApp() {
             open={paletteOpen}
             onClose={() => { setPaletteOpen(false); }}
             commands={paletteCommands}
+            projects={paletteProjects}
+            onSwitchProject={(slug) => {
+              void navigate(projectPath(slug, route.kind === 'project' ? route.view : undefined));
+            }}
             onSearch={searchFleet}
             onOpenTask={(t) => {
               window.location.href = `${cockpitUrl}/?task=${encodeURIComponent(t.id)}`;

@@ -3,14 +3,16 @@ import { useParams, Link } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
 import { AgentConsole } from '../components/task-detail/AgentConsole';
 import { useProjectStore } from '../stores/project-store';
+import { useEnsureProjects } from '../hooks/useEnsureProjects';
+import { findProjectByRef, projectSlug } from '../lib/project-route';
 
 /**
  * Standalone deep-link page that drops you straight into the rmux Live
  * Agent Console for a given task, no portal chrome / kanban detour.
  *
- * URL pattern: ``/console/:projectId/:specId``
+ * URL pattern: ``/p/:slug/console/:specId`` (legacy ``/console/:projectId/:specId`` redirects here)
  *
- *   https://pfactory.example.com/console/ac62db91-.../001-gh1-add-healthz
+ *   https://pfactory.example.com/p/my-project/console/001-gh1-add-healthz
  *
  * Shareable to teammates over the LAN/VPN, openable from a phone
  * browser as a fullscreen terminal.  The "Copy console link" button in
@@ -21,10 +23,12 @@ import { useProjectStore } from '../stores/project-store';
  * /login first.
  */
 export function ConsolePage(): ReactNode {
-  const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
-  const project = useProjectStore((s) =>
-    s.projects.find((p) => p.id === projectId)
-  );
+  const { slug, specId } = useParams<{ slug: string; specId?: string }>();
+  useEnsureProjects();
+  const projects = useProjectStore((s) => s.projects);
+  const project = slug ? findProjectByRef(projects, slug) : undefined;
+  const projectId = project?.id ?? slug;
+  const slugOrRef = project ? projectSlug(projects, project) : slug;
 
   if (!projectId || !specId) {
     return (
@@ -32,7 +36,7 @@ export function ConsolePage(): ReactNode {
         <p>
           Invalid console URL. Expected{' '}
           <code className="text-xs bg-muted px-1 rounded">
-            /console/&lt;projectId&gt;/&lt;specId&gt;
+            /p/&lt;project&gt;/console/&lt;specId&gt;
           </code>
           .
         </p>
@@ -46,7 +50,7 @@ export function ConsolePage(): ReactNode {
     <div className="flex h-screen flex-col bg-background">
       <header className="flex items-center gap-3 border-b border-border px-4 py-2 text-sm">
         <Link
-          to={`/`}
+          to={project ? `/p/${slugOrRef}` : '/'}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
           title="Back to portal"
         >

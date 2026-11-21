@@ -12,5 +12,19 @@
     "empty": "Nenhum projeto ainda",
     "emptyDescription": "Crie um novo projeto ou abra um existente para começar",
     "openFolder": "Abrir Pasta"
+  },
+  "projectsPage": {
+    "title": "Projetos",
+    "add": "Adicionar projeto",
+    "empty": "Nenhum projeto ainda.",
+    "open": "Abrir",
+    "delete": "Excluir",
+    "unregisterTitle": "Remover projeto",
+    "unregisterBody": "Isso apenas remove o projeto do PFactory. Os arquivos não são alterados. Digite o nome do projeto \"{{name}}\" para confirmar.",
+    "nameLabel": "Nome do projeto",
+    "cancel": "Cancelar",
+    "confirm": "Remover projeto",
+    "notFound": "Projeto não encontrado: {{ref}}",
+    "backHome": "Voltar aos meus projetos"
   }
 }
