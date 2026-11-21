@@ -170,7 +170,7 @@ def read_only_key():
 def write_key():
     return AuthenticatedKey(
         key_id="key-w",
-        scopes=frozenset({MCP_READ_SCOPE, MCP_WRITE_SCOPE}),
+        scopes=frozenset({MCP_READ_SCOPE, MCP_WRITE_SCOPE, "task:merge"}),
         user_id="u1",
     )
 

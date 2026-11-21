@@ -22,6 +22,14 @@ from fastapi import HTTPException  # noqa: E402
 from server.routes import plan_pipeline as pp  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _approved_session(monkeypatch):
+    async def allow(*_args):
+        return None
+
+    monkeypatch.setattr(pp, "_guard_session", allow)
+
+
 def test_route_delegates_to_service(monkeypatch):
     seen = {}
 

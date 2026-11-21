@@ -86,11 +86,16 @@ def _register_client(ws: WebSocket, user_info: dict | None) -> ConnectedClient:
         websocket=ws,
         user_id=user_info["id"] if user_info else None,
         key_org_id=(user_info or {}).get("org_id"),
-        org_ids={user_info["org_id"]} if user_info and user_info.get("api_key_id")
-        and user_info.get("org_id") and not user_info.get("id") else set(),
-        local_service=bool((user_info or {}).get("is_service") or (
-            get_settings().DISABLE_AUTH and (user_info or {}).get("id") == "default"
-        )),
+        org_ids={user_info["org_id"]}
+        if user_info
+        and user_info.get("api_key_id")
+        and user_info.get("org_id")
+        and not user_info.get("id")
+        else set(),
+        local_service=bool(
+            (user_info or {}).get("is_service")
+            or (get_settings().DISABLE_AUTH and (user_info or {}).get("id") == "default")
+        ),
     )
     _clients[ws] = client
     active_connections.add(ws)

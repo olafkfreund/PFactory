@@ -358,7 +358,8 @@ def project_to_response(
     if not include_secrets:
         secret_keys = ("token", "secret", "password", "credential", "apikey", "api_key")
         saved_settings = {
-            k: v for k, v in saved_settings.items()
+            k: v
+            for k, v in saved_settings.items()
             if not any(word in k.lower() for word in secret_keys)
         }
     if saved_settings:
@@ -591,7 +592,8 @@ async def scan_for_projects(
 
 
 @router.post(
-    "", status_code=status.HTTP_201_CREATED,
+    "",
+    status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_plan_access("member"))],
 )
 async def add_project(
@@ -607,8 +609,12 @@ async def add_project(
     if not org_id and not is_service_principal(principal):
         raise HTTPException(status_code=403, detail="Project membership required")
     grant = (await _member_roles(principal, db)).get(org_id or "", "")
-    if (org_id and ROLE_LEVELS.get(grant, -1) < ROLE_LEVELS["member"]
-            and not is_service_principal(principal) and not get_settings().DISABLE_AUTH):
+    if (
+        org_id
+        and ROLE_LEVELS.get(grant, -1) < ROLE_LEVELS["member"]
+        and not is_service_principal(principal)
+        and not get_settings().DISABLE_AUTH
+    ):
         raise HTTPException(status_code=403, detail="Project membership required")
     ceiling = scope_role_ceiling(principal or {})
     if (
@@ -642,10 +648,17 @@ async def create_project(project: ProjectCreate, org_id: str | None = None) -> d
             provider = urlsplit(settings.get("gitBaseUrl") or "").hostname or settings.get(
                 "gitProvider", "github"
             )
-            if any(canonical_repo_ref(value, provider) == target for value in (
-                existing.get("repo"), existing.get("clonedFrom"), existing.get("gitUrl"),
-                settings.get("gitRepo"), settings.get("githubRepo"),
-            ) if value):
+            if any(
+                canonical_repo_ref(value, provider) == target
+                for value in (
+                    existing.get("repo"),
+                    existing.get("clonedFrom"),
+                    existing.get("gitUrl"),
+                    settings.get("gitRepo"),
+                    settings.get("githubRepo"),
+                )
+                if value
+            ):
                 if existing.get("org_id") != org_id and not get_settings().DISABLE_AUTH:
                     raise HTTPException(status_code=404, detail="Project not found")
                 raise HTTPException(status_code=409, detail="Project already registered")

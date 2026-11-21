@@ -136,7 +136,7 @@ def test_visible_projects_and_indirect_resolution(authz: Any, tmp_path: Any) -> 
                 await project_authz.require_repo_project_role(
                     {"id": "viewer"}, "example/new", "member", db, for_intake=True
                 )
-            assert exc.value.status_code == 403
+            assert exc.value.status_code == 404
             with pytest.raises(HTTPException) as exc:
                 await project_authz.require_repo_project_role(
                     outsider, "example/repo", "viewer", db

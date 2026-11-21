@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -1524,6 +1525,12 @@ async def test_from_issue_route_spawns_bootstrap_and_poll_stage_advances(monkeyp
     monkeypatch.setattr(pp, "_ingest_org", noop_async)
     monkeypatch.setattr(pp, "creator_org", noop_async)
     monkeypatch.setattr(pp, "_guard_session", noop_async)
+    monkeypatch.setattr(
+        pp,
+        "require_repo_project_role",
+        AsyncMock(return_value=SimpleNamespace(project_id="proj-1", org_id="org")),
+    )
+    monkeypatch.setattr(pp, "require_project_role", noop_async)
     monkeypatch.setattr("server.routes.projects.ensure_tracked_project", lambda *_a, **_k: None)
 
     real_spawn = bg_tasks.spawn

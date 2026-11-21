@@ -864,9 +864,11 @@ def test_merge_dry_run_returns_planned_files(workspace_root: Path) -> None:
 
 def test_merge_uses_target_branch_override(workspace_root: Path) -> None:
     _make_evaluated_task(workspace_root)
-    out = asyncio.run(merge_accepted_tests(
-        "001-x", MergeRequest(dry_run=True, target_branch="release/1"), None, None
-    ))
+    out = asyncio.run(
+        merge_accepted_tests(
+            "001-x", MergeRequest(dry_run=True, target_branch="release/1"), None, None
+        )
+    )
     assert out["branch"] == "release/1"
 
 

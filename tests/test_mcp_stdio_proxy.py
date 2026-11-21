@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -478,6 +479,9 @@ def test_headerless_proxy_live_emit_refuses_shared_token_without_approval(monkey
         pass
 
     class Service:
+        def get(self, _session_id):
+            return SimpleNamespace(project_id=None, repo=None)
+
         def emit_contract(self, *_args, **kwargs):
             assert kwargs["require_user_approval"] is True
             raise pp.UserApprovalRequiredError("private detail")

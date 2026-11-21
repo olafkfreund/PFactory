@@ -805,10 +805,7 @@ async def merge_accepted_tests(  # noqa: PLR0912 - destination adds a guard bran
         raise HTTPException(
             status_code=400, detail="repo_dir is required for a real (non-dry-run) merge"
         )
-    repo_dir = (
-        await asyncio.to_thread(Path(body.repo_dir).resolve)
-        if body.repo_dir else spec_dir
-    )
+    repo_dir = await asyncio.to_thread(Path(body.repo_dir).resolve) if body.repo_dir else spec_dir
     if body.repo_dir:
         destination = project_id_for_path(str(repo_dir))
         if destination != spec_dir.parent.parent.name:

@@ -61,11 +61,7 @@ def _auth_disabled() -> bool:
 
 def is_service_principal(user: dict[str, Any] | None) -> bool:
     """True for ``is_service`` principals only; a ``role`` claim never counts."""
-    return (
-        isinstance(user, dict)
-        and bool(user.get("is_service"))
-        and not user.get("api_key_id")
-    )
+    return isinstance(user, dict) and bool(user.get("is_service")) and not user.get("api_key_id")
 
 
 def _org_service_key(user: dict[str, Any] | None) -> bool:
@@ -158,12 +154,21 @@ async def require_project_role(
     db: AsyncSession,
 ) -> ProjectAccess:
     """Authorize one registered project; hidden projects share the unknown-project 404."""
-    project = project_paths.load_projects().get(project_id) if project_id else None
+    try:
+        project = project_paths.load_projects().get(project_id) if project_id else None
+    except Exception:  # noqa: BLE001 - an unreadable registry must fail closed
+        raise HTTPException(status_code=503, detail="Project registry unavailable") from None
     org_id = project.get("org_id") if project else None
     if project and not org_id and (_auth_disabled() or is_service_principal(principal)):
         org_id = "default"
     membership = None
-    if principal and principal.get("id") and org_id and not is_service_principal(principal):
+    if (
+        principal
+        and principal.get("id")
+        and org_id
+        and not is_service_principal(principal)
+        and not (_auth_disabled() and principal["id"] == "default")
+    ):
         membership = (
             await db.execute(
                 select(OrgMember).where(
@@ -191,7 +196,9 @@ async def require_project_role(
         "owner"
         if is_service_principal(principal)
         or (_auth_disabled() and principal.get("id") == "default")
-        else (scope_role_ceiling(principal) or "viewer") if _org_service_key(principal) else min(
+        else (scope_role_ceiling(principal) or "viewer")
+        if _org_service_key(principal)
+        else min(
             membership.role if membership else "owner",
             scope_role_ceiling(principal) or "viewer",
             key=ROLE_LEVELS.__getitem__,
@@ -204,7 +211,10 @@ async def visible_project_ids(
     principal: dict[str, Any] | None, db: AsyncSession, min_role: str = "viewer"
 ) -> set[str]:
     """Filter the registry with one membership query."""
-    projects = project_paths.load_projects()
+    try:
+        projects = project_paths.load_projects()
+    except Exception:  # noqa: BLE001 - an unreadable registry must fail closed
+        raise HTTPException(status_code=503, detail="Project registry unavailable") from None
     if not principal:
         return set()
     if is_service_principal(principal) or (_auth_disabled() and principal.get("id") == "default"):
@@ -214,8 +224,7 @@ async def visible_project_ids(
         return set()
     if _org_service_key(principal):
         return {
-            pid for pid, project in projects.items()
-            if project.get("org_id") == principal["org_id"]
+            pid for pid, project in projects.items() if project.get("org_id") == principal["org_id"]
         }
     roles = await _member_roles(principal, db)
     return {
@@ -230,9 +239,9 @@ async def visible_project_ids(
 async def require_path_project_role(
     principal: dict[str, Any] | None, path: str | None, min_role: str, db: AsyncSession
 ) -> ProjectAccess:
-    from server.pty.access import project_id_for_path  # noqa: PLC0415 - pty imports this module
-
-    return await require_project_role(principal, project_id_for_path(path), min_role, db=db)
+    return await require_project_role(
+        principal, project_paths.project_id_for_path(path), min_role, db=db
+    )
 
 
 async def require_repo_project_role(  # noqa: PLR0913 - provider is part of repository identity
@@ -260,36 +269,44 @@ async def require_repo_project_role(  # noqa: PLR0913 - provider is part of repo
         repo_value = repo or ""
         parsed = parse_repo_ref(repo_value)
         use_base = (
-            base_host and provider == project_provider and parsed
-            and parsed[0] == provider and "://" not in repo_value and "@" not in repo_value
+            base_host
+            and provider == project_provider
+            and parsed
+            and parsed[0] == provider
+            and "://" not in repo_value
+            and "@" not in repo_value
         )
         requested = (
-            canonical_repo_ref(parsed[1], base_host or provider)
-            if use_base and parsed else target
+            canonical_repo_ref(parsed[1], base_host or provider) if use_base and parsed else target
         )
         return any(
             canonical_repo_ref(str(value), base_host or project_provider) == requested
             for value in (
-                project.get("repo"), project.get("github_repo"), settings.get("githubRepo"),
-                settings.get("gitRepo"), project.get("gitUrl"), project.get("git_url"),
+                project.get("repo"),
+                project.get("github_repo"),
+                settings.get("githubRepo"),
+                settings.get("gitRepo"),
+                project.get("gitUrl"),
+                project.get("git_url"),
                 project.get("clonedFrom"),
             )
             if value
         )
 
-    matches = [
-        pid
-        for pid, project in projects.items()
-        if matches_project(project)
-    ]
+    matches = [pid for pid, project in projects.items() if matches_project(project)]
     visible = await visible_project_ids(principal, db)
     for pid in matches:
         if pid in visible:
             return await require_project_role(principal, pid, min_role, db=db)
     if matches:
         await _audit_denial(
-            audit_service.ACTION_AUTHZ_DENIED, principal, "repository", repo,
-            projects[matches[0]].get("org_id"), min_role, "Project not found",
+            audit_service.ACTION_AUTHZ_DENIED,
+            principal,
+            "repository",
+            repo,
+            projects[matches[0]].get("org_id"),
+            min_role,
+            "Project not found",
         )
     if not matches and for_intake and principal:
         if is_service_principal(principal):
@@ -299,9 +316,15 @@ async def require_repo_project_role(  # noqa: PLR0913 - provider is part of repo
         org_id = principal.get("org_id") or await creator_org(principal, db)
         roles = await _member_roles(principal, db)
         ceiling = scope_role_ceiling(principal)
-        if (org_id and ceiling and ROLE_LEVELS[ceiling] >= ROLE_LEVELS[min_role]
-                and (ROLE_LEVELS.get(roles.get(org_id, ""), -1) >= ROLE_LEVELS[min_role]
-                     or _org_service_key(principal))):
+        if (
+            org_id
+            and ceiling
+            and ROLE_LEVELS[ceiling] >= ROLE_LEVELS[min_role]
+            and (
+                ROLE_LEVELS.get(roles.get(org_id, ""), -1) >= ROLE_LEVELS[min_role]
+                or _org_service_key(principal)
+            )
+        ):
             return ProjectAccess(repo or "", org_id, min_role, principal.get("id") or "")
     raise HTTPException(status_code=404, detail="Project not found")
 
@@ -632,9 +655,7 @@ async def authorize_plan_session(
     """
     if _auth_disabled() and user is None:
         user = {"id": "default"}
-    if is_service_principal(user) or (
-        _auth_disabled() and user and user.get("id") == "default"
-    ):
+    if is_service_principal(user) or (_auth_disabled() and user and user.get("id") == "default"):
         return None
     org_id = org_of()
     roles = await _member_roles(user, db) if org_id else {}
@@ -664,9 +685,7 @@ async def plan_session_filter(
     minimum_role: str = "viewer",
 ) -> Callable[[str | None], bool] | None:
     """Return an org_id filter predicate for list_sessions, or None when unfiltered (#968)."""
-    if is_service_principal(user) or (
-        _auth_disabled() and user and user.get("id") == "default"
-    ):
+    if is_service_principal(user) or (_auth_disabled() and user and user.get("id") == "default"):
         return None
     roles = await _member_roles(user, db)
 

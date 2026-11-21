@@ -142,7 +142,8 @@ async def test_jwt_and_legacy_paths_unchanged(monkeypatch):
         "role": "admin",
     }
     assert await auth.authenticate_websocket(_ws("shared")) == {
-        "id": "default", "is_service": True,
+        "id": "default",
+        "is_service": True,
     }
 
 

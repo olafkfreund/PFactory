@@ -177,7 +177,8 @@ async def test_remote_internal_route_keeps_caller_when_legacy_disabled(org_env, 
 
     monkeypatch.setattr(main, "app", app)
     monkeypatch.setattr(
-        auth_middleware, "get_settings",
+        auth_middleware,
+        "get_settings",
         lambda: SimpleNamespace(DISABLE_AUTH=False, LEGACY_SHARED_TOKEN_FULL_ACCESS=False),
     )
     result = await REAL_CALL_INTERNAL("GET", "/api/projects", keys["member_a"])

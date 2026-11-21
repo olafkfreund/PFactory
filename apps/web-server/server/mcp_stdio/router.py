@@ -106,6 +106,7 @@ def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
             "api_key_id": key.key_id,
             "org_id": key.org_id,
             "scopes": tuple(key.scopes),
+            "is_service": bool(getattr(key, "is_service", False)),
         }
     return {"id": "default", "is_service": True}
 
@@ -221,8 +222,8 @@ async def proxy_list_projects(
     from ..routes.projects import list_projects
 
     request.state.user = _principal(key)
-    await visible_project_ids(request.state.user, db)
-    return await list_projects(request, db)
+    visible = await visible_project_ids(request.state.user, db)
+    return [project for project in await list_projects(request, db) if project["id"] in visible]
 
 
 @router.get("/tasks")
@@ -239,8 +240,12 @@ async def proxy_list_tasks(
     if project_id:
         await _authorize_key(key, project_id, db)
     else:
-        await visible_project_ids(request.state.user, db)
-    return await list_tasks(request, db, project_id=project_id, status=status)  # type: ignore[arg-type]
+        visible = await visible_project_ids(request.state.user, db)
+    result = await list_tasks(request, db, project_id=project_id, status=status)  # type: ignore[arg-type]
+    if not project_id:
+        tasks = [task for task in result.tasks if task.project_id in visible]
+        result = result.model_copy(update={"tasks": tasks, "total": len(tasks)})
+    return result
 
 
 @router.get("/tasks/running")
@@ -252,8 +257,10 @@ async def proxy_get_running_tasks(
     from server.routes.execution import get_running_tasks
 
     request.state.user = _principal(key)
-    await visible_project_ids(request.state.user, db)
-    return await get_running_tasks(request, db)
+    visible = await visible_project_ids(request.state.user, db)
+    result = await get_running_tasks(request, db)
+    tasks = [task for task in result.tasks if task.split(":", 1)[0] in visible]
+    return result.model_copy(update={"tasks": tasks, "count": len(tasks)})
 
 
 @router.get("/tasks/{task_id}")

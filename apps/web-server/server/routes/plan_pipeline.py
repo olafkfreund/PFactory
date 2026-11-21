@@ -276,9 +276,12 @@ async def list_sessions(
         projects = _projects_for(user)
         visible = await visible_project_ids(user, db)
         stamps = cast(PlanService, SERVICE).org_stamps()
-        keep = lambda s: (not s.project_id or s.project_id in visible) and allow(  # noqa: E731
-            _session_org(s, user, stamps, projects)
-        )
+
+        def keep(s: PlanSession) -> bool:
+            return (not s.project_id or s.project_id in visible) and allow(
+                _session_org(s, user, stamps, projects)
+            )
+
     return {
         "sessions": SERVICE.list_sessions(
             tenant_id=tenant, include_discarded=include_discarded, keep=keep
@@ -355,9 +358,8 @@ async def ingest_from_issue(  # noqa: PLR0912, PLR0915 - existing staged intake 
     settings = (registered or {}).get("settings") or {}
     if registered and settings.get("gitProvider", "github") != body.provider:
         raise HTTPException(status_code=400, detail="Repository provider mismatch")
-    expected_host = (
-        urlsplit(settings.get("gitBaseUrl") or "").hostname
-        or PROVIDER_GIT_HOST.get(body.provider)
+    expected_host = urlsplit(settings.get("gitBaseUrl") or "").hostname or PROVIDER_GIT_HOST.get(
+        body.provider
     )
     target = canonical_repo_ref(body.repo, body.provider)
     if target is None or (("://" in body.repo or "@" in body.repo) and target[0] != expected_host):
@@ -1036,16 +1038,25 @@ async def emit_contract(
         await require_project_role(_user(request), body.project_id, "member", db=db)
         if session.repo:
             bound_repo = await require_repo_project_role(
-                _user(request), session.repo, "member", db, for_intake=True,
+                _user(request),
+                session.repo,
+                "member",
+                db,
+                for_intake=True,
                 provider=getattr(session, "provider", None) or "github",
             )
             if bound_repo.project_id != body.project_id:
                 raise HTTPException(status_code=404, detail="Project not found")
     target_id = body.project_id or (repo_access.project_id if repo_access else None)
-    if ((body.project_id and repo_access and body.project_id != repo_access.project_id)
-            or (session.project_id and target_id and target_id != session.project_id)
-            or (session.repo and body.repo
-                and canonical_repo_ref(session.repo) != canonical_repo_ref(body.repo))):
+    if (
+        (body.project_id and repo_access and body.project_id != repo_access.project_id)
+        or (session.project_id and target_id and target_id != session.project_id)
+        or (
+            session.repo
+            and body.repo
+            and canonical_repo_ref(session.repo) != canonical_repo_ref(body.repo)
+        )
+    ):
         raise HTTPException(status_code=404, detail="Project not found")
     job_repo = body.repo
     if body.repo and repo_access:

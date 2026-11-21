@@ -164,7 +164,7 @@ def test_a_tracked_project_records_the_declared_host(monkeypatch):
     monkeypatch.setattr(projects_mod, "save_projects", lambda data: store.update(data))
 
     pid = projects_mod.ensure_tracked_project(_GL_REF)
-    assert pid == "platform-pipelines"
+    assert pid == "gitlab-platform-pipelines"
     assert store[pid]["repo"] == "platform/pipelines"
     assert store[pid]["settings"]["gitProvider"] == "gitlab"
 

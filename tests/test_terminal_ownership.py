@@ -53,7 +53,11 @@ def env(tmp_path, monkeypatch):
 
     async def authorize(user, project_id, _db, minimum_role="viewer"):
         key_org = user.get("api_key_id") and user.get("org_id") != "A"
-        if project_id not in state["members"].get(user["id"], set()) or key_org or (minimum_role == "admin" and user["id"] in state["viewers"]):
+        if (
+            project_id not in state["members"].get(user["id"], set())
+            or key_org
+            or (minimum_role == "admin" and user["id"] in state["viewers"])
+        ):
             raise PermissionError("not a member")
 
     monkeypatch.setattr(access.engine, "async_session_factory", Session)
@@ -199,6 +203,13 @@ def test_repo_only_project_path_is_not_the_cwd(env, monkeypatch):
     assert not access.path_in_project(str(env.root), "r")
 
 
+def test_project_path_symlink_cannot_escape_its_registered_root(env):
+    (env.root / "a" / "outside").symlink_to(env.root / "b", target_is_directory=True)
+    escaped = str(env.root / "a" / "outside" / "private.txt")
+    assert access.project_id_for_path(escaped) is None
+    assert not access.path_in_project(escaped, "a")
+
+
 def test_close_only_closes_the_authorized_session(env):
     first = env.manager.create_session(session_id="t1", owner_id="alice")
     assert env.manager.close_session("t1")
@@ -253,7 +264,11 @@ def test_worktree_clear_and_cleanup_routes(env):
         ("delete", "/api/terminals/sessions", {}),
         ("post", "/api/terminals/cleanup", {}),
     ]:
-        assert _as(env, "alice", method, path, **kw).status_code == (403 if path == "/api/terminals/cleanup" or (path == "/api/terminals/sessions" and not kw) else 404), (method, path)
+        assert _as(env, "alice", method, path, **kw).status_code == (
+            403
+            if path == "/api/terminals/cleanup" or (path == "/api/terminals/sessions" and not kw)
+            else 404
+        ), (method, path)
     assert _as(env, "svc", "post", "/api/terminals/cleanup").status_code == 200
     assert (
         _as(

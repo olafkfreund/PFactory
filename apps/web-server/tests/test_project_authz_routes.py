@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from plan.service import PlanServiceError
 from server import auth
+from server.config import get_settings
 from server.database.engine import get_db
 from server.database.models import Base, Organization, OrgMember, User
 from server.main import create_app
@@ -262,6 +263,7 @@ ACTUAL_GUARDS = (
     _org_lookup_ok,
 )
 
+
 def _calls_guard(fn: Any, seen: set[Any]) -> bool:
     if any(fn is guard for guard in ACTUAL_GUARDS):
         return True
@@ -270,7 +272,8 @@ def _calls_guard(fn: Any, seen: set[Any]) -> bool:
     seen.add(fn)
     try:
         calls = {
-            node.func.id for node in ast.walk(ast.parse(textwrap.dedent(inspect.getsource(fn))))
+            node.func.id
+            for node in ast.walk(ast.parse(textwrap.dedent(inspect.getsource(fn))))
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
     except (OSError, TypeError, SyntaxError):
@@ -440,6 +443,7 @@ def _seed_workspace_and_projects(tmp_path: Path) -> tuple[Path, Path, Path, dict
 
 @pytest.fixture
 def matrix_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(get_settings(), "DISABLE_AUTH", False)
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'matrix.db'}")
     session_local = async_sessionmaker(engine, expire_on_commit=False)
     repo_a, repo_b, ws_root, projects_data = _seed_workspace_and_projects(tmp_path)
@@ -524,11 +528,15 @@ def matrix_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
             "scopes": ("api",),
         },
         "org-a-service-key": {
-            "id": None, "api_key_id": "k-service", "org_id": "org-a",
+            "id": None,
+            "api_key_id": "k-service",
+            "org_id": "org-a",
             "scopes": ("project:write",),
         },
         "org-a-service-read": {
-            "id": None, "api_key_id": "k-service-read", "org_id": "org-a",
+            "id": None,
+            "api_key_id": "k-service-read",
+            "org_id": "org-a",
             "scopes": ("project:read",),
         },
         "legacy": {"id": "default", "is_service": True},
@@ -697,8 +705,11 @@ def test_filtered_lists_and_indirect_paths(
         board_state=lambda: "ingested",
     )
     s_mismatched = SimpleNamespace(
-        session_id="plan-mismatched", repo="org-a/repo-a", project_id="proj-b",
-        tenant_id=None, model_dump=lambda: {"session_id": "plan-mismatched"},
+        session_id="plan-mismatched",
+        repo="org-a/repo-a",
+        project_id="proj-b",
+        tenant_id=None,
+        model_dump=lambda: {"session_id": "plan-mismatched"},
     )
     sessions_map = {"plan-a": s_a, "plan-b": s_b, "plan-mismatched": s_mismatched}
 
@@ -744,7 +755,8 @@ def test_project_registration_requires_member_and_rejects_foreign_overlap(
         assert response.status_code == 403
     assert not fresh.exists()
     hidden = client.post(
-        "/api/projects", json={"path": str(repo_b / "nested")},
+        "/api/projects",
+        json={"path": str(repo_b / "nested")},
         headers={"X-Principal": "member-a"},
     )
     assert hidden.status_code == 404
@@ -752,28 +764,39 @@ def test_project_registration_requires_member_and_rejects_foreign_overlap(
     created = client.post("/api/projects", json=body, headers={"X-Principal": "member-a"})
     assert created.status_code == 201
     nested = client.post(
-        "/api/projects", json={"path": str(repo_a / "package")},
+        "/api/projects",
+        json={"path": str(repo_a / "package")},
         headers={"X-Principal": "member-a"},
     )
     assert nested.status_code == 201
     listed = client.get(
-        "/api/files/list", params={"path": str(repo_a)},
+        "/api/files/list",
+        params={"path": str(repo_a)},
         headers={"X-Principal": "member-a"},
     )
     assert "package" in {entry["name"] for entry in listed.json()["entries"]}
-    assert client.get(
-        "/api/projects/proj-a", headers={"X-Principal": "org-a-service-key"}
-    ).status_code == 200
-    assert client.get(
-        "/api/projects/proj-b", headers={"X-Principal": "org-a-service-key"}
-    ).status_code == 404
-    assert client.get(
-        "/api/projects/proj-a", headers={"X-Principal": "org-a-service-read"}
-    ).status_code == 200
-    assert client.post(
-        "/api/projects", json={"path": str(repo_a / "read-only")},
-        headers={"X-Principal": "org-a-service-read"},
-    ).status_code == 403
+    assert (
+        client.get("/api/projects/proj-a", headers={"X-Principal": "org-a-service-key"}).status_code
+        == 200
+    )
+    assert (
+        client.get("/api/projects/proj-b", headers={"X-Principal": "org-a-service-key"}).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            "/api/projects/proj-a", headers={"X-Principal": "org-a-service-read"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/projects",
+            json={"path": str(repo_a / "read-only")},
+            headers={"X-Principal": "org-a-service-read"},
+        ).status_code
+        == 403
+    )
 
 
 def test_local_mode_can_register_nested_project_in_existing_checkout(
@@ -785,12 +808,14 @@ def test_local_mode_can_register_nested_project_in_existing_checkout(
     monkeypatch.setattr(projects_routes, "get_settings", lambda: local)
     monkeypatch.setattr(projects_routes, "confine_to_workspace", lambda p: Path(p).resolve())
     response = client.post(
-        "/api/projects", json={"path": str(repo_a / "local-package")},
+        "/api/projects",
+        json={"path": str(repo_a / "local-package")},
         headers={"X-Principal": "legacy"},
     )
     assert response.status_code == 201
     listed = client.get(
-        "/api/files/list", params={"path": str(repo_a)},
+        "/api/files/list",
+        params={"path": str(repo_a)},
         headers={"X-Principal": "legacy"},
     )
     assert "local-package" in {entry["name"] for entry in listed.json()["entries"]}
@@ -830,7 +855,8 @@ def test_project_update_hides_foreign_path_before_existence(
     monkeypatch.setattr(projects_routes, "confine_to_workspace", lambda p: Path(p).resolve())
     for path in (repo_b / "present", repo_b / "missing"):
         response = client.put(
-            "/api/projects/proj-a", json={"path": str(path)},
+            "/api/projects/proj-a",
+            json={"path": str(path)},
             headers={"X-Principal": "admin-a"},
         )
         assert (response.status_code, response.json()) == (404, {"detail": "Project not found"})
@@ -840,19 +866,27 @@ def test_project_update_hides_foreign_path_before_existence(
     ("git_url", "settings"),
     [
         ("https://github.com/team/private.git", {"gitProvider": "github"}),
-        ("https://gitlab.example/team/private.git", {
-            "gitProvider": "gitlab", "gitBaseUrl": "https://gitlab.example",
-        }),
+        (
+            "https://gitlab.example/team/private.git",
+            {
+                "gitProvider": "gitlab",
+                "gitBaseUrl": "https://gitlab.example",
+            },
+        ),
     ],
 )
 def test_clone_rejects_foreign_repo_identity_before_git(
-    matrix_env: Any, monkeypatch: pytest.MonkeyPatch,
-    git_url: str, settings: dict[str, str],
+    matrix_env: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    git_url: str,
+    settings: dict[str, str],
 ) -> None:
     client, _, _ = matrix_env
     projects = project_paths.load_projects()
     projects["repo-only"] = {
-        "path": "", "repo": "team/private", "org_id": "org-b",
+        "path": "",
+        "repo": "team/private",
+        "org_id": "org-b",
         "settings": settings,
     }
     monkeypatch.setattr(projects_routes, "load_projects", lambda: projects)
@@ -862,7 +896,8 @@ def test_clone_rejects_foreign_repo_identity_before_git(
 
     monkeypatch.setattr(projects_routes, "clone_or_update", must_not_clone)
     response = client.post(
-        "/api/projects", json={"git_url": git_url},
+        "/api/projects",
+        json={"git_url": git_url},
         headers={"X-Principal": "member-a"},
     )
     assert (response.status_code, response.json()) == (404, {"detail": "Project not found"})
@@ -880,18 +915,21 @@ def test_file_routes_hide_nested_project_and_env(
     projects["nested"] = {"path": str(nested), "org_id": "org-b"}
     monkeypatch.setattr(project_paths, "load_projects", lambda: projects)
     listed = client.get(
-        "/api/files/list", params={"path": str(repo_a), "show_hidden": "true"},
+        "/api/files/list",
+        params={"path": str(repo_a), "show_hidden": "true"},
         headers={"X-Principal": "viewer-a"},
     )
     assert listed.status_code == 200
     assert {entry["name"] for entry in listed.json()["entries"]}.isdisjoint({"nested", ".env"})
     hidden = client.get(
-        "/api/files/serve", params={"root": str(repo_a), "path": str(nested / "private.txt")},
+        "/api/files/serve",
+        params={"root": str(repo_a), "path": str(nested / "private.txt")},
         headers={"X-Principal": "viewer-a"},
     )
     assert hidden.status_code == 404
     secret = client.get(
-        "/api/files/read", params={"path": str(repo_a / ".env")},
+        "/api/files/read",
+        params={"path": str(repo_a / ".env")},
         headers={"X-Principal": "viewer-a"},
     )
     assert secret.status_code == 404
@@ -954,9 +992,7 @@ def test_plan_intake_hides_foreign_and_unknown_repo_equally(matrix_env: Any) -> 
         )
         for repo in ("org-b/repo-b", "unknown/new")
     ]
-    assert (responses[0].status_code, responses[0].json()) == (
-        404, {"detail": "Project not found"}
-    )
+    assert (responses[0].status_code, responses[0].json()) == (404, {"detail": "Project not found"})
     assert responses[1].status_code == 400  # Intake reached content validation.
 
 
@@ -965,8 +1001,11 @@ def test_emit_binds_canonical_repo_and_allows_unbound_legacy_session(
 ) -> None:
     client, _, _ = matrix_env
     session = SimpleNamespace(
-        project_id=None, repo="github:org-a/repo-a", tenant_id=None,
-        model_dump=lambda: {"session_id": "plan-one"}, board_state=lambda: "approved",
+        project_id=None,
+        repo="github:org-a/repo-a",
+        tenant_id=None,
+        model_dump=lambda: {"session_id": "plan-one"},
+        board_state=lambda: "approved",
     )
     emitted: list[str | None] = []
 
@@ -988,31 +1027,51 @@ def test_emit_binds_canonical_repo_and_allows_unbound_legacy_session(
     monkeypatch.setattr(plan_pipeline_routes, "_session_org", lambda *_a: "org-a")
     monkeypatch.setattr(plan_pipeline_routes, "_load_docs_connections", no_docs)
     route = "/api/plan/sessions/plan-one"
-    assert client.post(
-        f"{route}/emit", json={"repo": "org-a/repo-a"},
-        headers={"X-Principal": "member-a"},
-    ).status_code == 200
-    assert client.post(
-        f"{route}/emit", json={"repo": "https://github.com/org-a/repo-a.git"},
-        headers={"X-Principal": "member-a"},
-    ).status_code == 200
+    assert (
+        client.post(
+            f"{route}/emit",
+            json={"repo": "org-a/repo-a"},
+            headers={"X-Principal": "member-a"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{route}/emit",
+            json={"repo": "https://github.com/org-a/repo-a.git"},
+            headers={"X-Principal": "member-a"},
+        ).status_code
+        == 200
+    )
     assert emitted[-1] == "org-a/repo-a"
     session.repo = None
-    assert client.post(
-        f"{route}/emit", json={"repo": "org-a/repo-a"},
-        headers={"X-Principal": "legacy"},
-    ).status_code == 200
+    assert (
+        client.post(
+            f"{route}/emit",
+            json={"repo": "org-a/repo-a"},
+            headers={"X-Principal": "legacy"},
+        ).status_code
+        == 200
+    )
     session.project_id = "proj-a"
-    assert client.post(
-        f"{route}/emit-contract", json={"repo": "org-b/repo-b", "project_id": "proj-a"},
-        headers={"X-Principal": "legacy"},
-    ).status_code == 404
+    assert (
+        client.post(
+            f"{route}/emit-contract",
+            json={"repo": "org-b/repo-b", "project_id": "proj-a"},
+            headers={"X-Principal": "legacy"},
+        ).status_code
+        == 404
+    )
     session.project_id = None
     session.repo = "org-a/repo-a"
-    assert client.post(
-        f"{route}/emit-contract", json={"project_id": "proj-b"},
-        headers={"X-Principal": "legacy"},
-    ).status_code == 404
+    assert (
+        client.post(
+            f"{route}/emit-contract",
+            json={"project_id": "proj-b"},
+            headers={"X-Principal": "legacy"},
+        ).status_code
+        == 404
+    )
 
 
 @pytest.mark.parametrize("repo", ["group/proj", "gitlab:group/proj"])
@@ -1023,15 +1082,19 @@ def test_from_issue_accepts_gitlab_repo_on_configured_host(
     projects = project_paths.load_projects()
     projects["proj-a"]["repo"] = "group/proj"
     projects["proj-a"]["settings"] = {
-        "gitProvider": "gitlab", "gitBaseUrl": "https://gitlab.example",
+        "gitProvider": "gitlab",
+        "gitBaseUrl": "https://gitlab.example",
     }
     monkeypatch.setattr(project_paths, "load_projects", lambda: projects)
     monkeypatch.setattr(projects_routes, "load_projects", lambda: projects)
     response = client.post(
         "/api/plan/sessions/from-issue",
         json={
-            "provider": "gitlab", "repo": repo, "issue_number": 7,
-            "title": "Issue", "body": "# Issue\n## Acceptance Criteria\n- Works\n",
+            "provider": "gitlab",
+            "repo": repo,
+            "issue_number": 7,
+            "title": "Issue",
+            "body": "# Issue\n## Acceptance Criteria\n- Works\n",
             "auto_start_stage": False,
         },
         headers={"X-Principal": "member-a"},
@@ -1041,8 +1104,10 @@ def test_from_issue_accepts_gitlab_repo_on_configured_host(
     mismatch = client.post(
         "/api/plan/sessions/from-issue",
         json={
-            "provider": "github", "repo": "https://gitlab.example/group/proj",
-            "issue_number": 8, "body": "# Issue\n## Acceptance Criteria\n- Works\n",
+            "provider": "github",
+            "repo": "https://gitlab.example/group/proj",
+            "issue_number": 8,
+            "body": "# Issue\n## Acceptance Criteria\n- Works\n",
             "auto_start_stage": False,
         },
         headers={"X-Principal": "member-a"},
@@ -1058,7 +1123,8 @@ def test_git_init_unregistered_path_requires_org_member(
     unregistered = repo_a.parent / "unregistered"
     unregistered.mkdir()
     response = client.post(
-        "/api/git/init", json={"path": str(unregistered)},
+        "/api/git/init",
+        json={"path": str(unregistered)},
         headers={"X-Principal": "viewer-a"},
     )
     assert response.status_code == 403
@@ -1078,7 +1144,8 @@ def test_git_init_rejects_foreign_checkout_before_git(
     monkeypatch.setattr(git_routes, "run_git_command", must_not_run)
     for path in (repo_b / "nested", repo_a.parent):
         response = client.post(
-            "/api/git/init", json={"path": str(path)},
+            "/api/git/init",
+            json={"path": str(path)},
             headers={"X-Principal": "member-a"},
         )
         assert (response.status_code, response.json()) == (404, {"detail": "Project not found"})
@@ -1100,7 +1167,8 @@ def test_git_init_offloads_git_for_org_member(
 
     monkeypatch.setattr(git_routes, "run_git_command", git_command)
     response = client.post(
-        "/api/git/init", json={"path": str(unregistered)},
+        "/api/git/init",
+        json={"path": str(unregistered)},
         headers={"X-Principal": "member-a"},
     )
     assert response.status_code == 200
@@ -1115,11 +1183,13 @@ def test_scan_and_discover_hide_foreign_and_missing_roots(
     missing = repo_b.parent / "missing"
     for path in (repo_b, missing):
         scan = client.post(
-            "/api/projects/scan", json={"basePath": str(path)},
+            "/api/projects/scan",
+            json={"basePath": str(path)},
             headers={"X-Principal": "member-a"},
         )
         discover = client.get(
-            "/api/files/discover", params={"base_path": str(path)},
+            "/api/files/discover",
+            params={"base_path": str(path)},
             headers={"X-Principal": "member-a"},
         )
         assert (scan.status_code, scan.json()) == (404, {"detail": "Project not found"})

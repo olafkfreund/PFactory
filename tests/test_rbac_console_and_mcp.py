@@ -42,6 +42,7 @@ def env(tmp_path, monkeypatch):
             await db.flush()
             db.add(models.OrgMember(org_id="A", user_id="viewer-a", role="viewer"))
             db.add(models.OrgMember(org_id="A", user_id="member-a", role="member"))
+            db.add(models.OrgMember(org_id="A", user_id="owner", role="owner"))
             await db.commit()
 
     asyncio.run(_init())
@@ -148,7 +149,7 @@ def test_console_rejects_cross_project_session(env, tmp_path, action):
         response = client.post(
             f"/api/tasks/{spec_id}/agent-console/{action}",
             json={"connection_id": "c1"},
-            headers={"X-U": "member-a"},
+            headers={"X-U": "owner"},
         )
         assert response.status_code == expected
 
@@ -406,6 +407,9 @@ def test_mcp_read_same_org_and_legacy_keys(mcp_env, path):
 
 def test_mcp_lists_filter_foreign_projects(mcp_env):
     client, _, _, selected, legacy, _, _, _, _ = mcp_env
+    selected["key"] = type(selected["key"])(
+        key_id="org-b-reader", scopes=frozenset({"mcp:read"}), user_id=None, org_id="B"
+    )
     assert client.get("/api/mcp-stdio/projects").json() == [{"id": "pB"}]
     assert [t["project_id"] for t in client.get("/api/mcp-stdio/tasks").json()["tasks"]] == ["pB"]
     assert client.get("/api/mcp-stdio/tasks").json()["total"] == 1
@@ -459,10 +463,10 @@ def test_console_attach_audit_carries_user_and_org(env, tmp_path, monkeypatch):
     response = client.post(
         "/api/tasks/p1:s1/agent-console/attach",
         json={"connection_id": "c1"},
-        headers={"X-U": "member-a", "X-Org": "A"},
+        headers={"X-U": "owner", "X-Org": "A"},
     )
     assert response.status_code == 200
-    assert captured["user_id"] == "member-a"
+    assert captured["user_id"] == "owner"
     assert captured["org_id"] == "A"
 
 

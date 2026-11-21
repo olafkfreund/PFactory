@@ -190,11 +190,9 @@ def test_decision_error_fails_closed(env, monkeypatch):
 
     monkeypatch.setattr(make.pa.project_paths, "load_projects", boom)
     client, path = make()
-    with pytest.raises(RuntimeError):
-        _post(client, path, user="viewer-a")
+    assert _post(client, path, user="viewer-a").status_code == 503
     enforce(True)
-    with pytest.raises(RuntimeError):
-        _post(client, path, user="viewer-a")
+    assert _post(client, path, user="viewer-a").status_code == 503
 
 
 @pytest.mark.parametrize(
@@ -385,7 +383,11 @@ def _guards(module, method, path):
     router = import_module(f"server.routes.{module}").router
     hits = [r for r in router.routes if method in getattr(r, "methods", ()) and r.path == path]
     assert len(hits) == 1, (module, method, path)
-    return [(type(d.dependency).__name__, d.dependency.minimum_role) for d in hits[0].dependencies]
+    return [
+        (type(d.dependency).__name__, d.dependency.minimum_role)
+        for d in hits[0].dependencies
+        if hasattr(d.dependency, "minimum_role")
+    ]
 
 
 def test_every_listed_route_carries_the_dependency():

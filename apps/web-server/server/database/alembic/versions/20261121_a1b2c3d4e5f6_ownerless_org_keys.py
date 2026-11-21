@@ -14,6 +14,8 @@ down_revision: str | Sequence[str] | None = "e5b8c3f1a9d7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+__all__ = ["branch_labels", "depends_on", "down_revision", "downgrade", "revision", "upgrade"]
+
 
 def upgrade() -> None:
     with op.batch_alter_table("api_keys") as batch:
@@ -21,9 +23,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    if op.get_bind().execute(
-        sa.text("SELECT count(*) FROM api_keys WHERE user_id IS NULL")
-    ).scalar_one():
+    if (
+        op.get_bind()
+        .execute(sa.text("SELECT count(*) FROM api_keys WHERE user_id IS NULL"))
+        .scalar_one()
+    ):
         raise RuntimeError("Ownerless API keys must be removed before downgrading")
     with op.batch_alter_table("api_keys") as batch:
         batch.alter_column("user_id", existing_type=sa.String(36), nullable=False)

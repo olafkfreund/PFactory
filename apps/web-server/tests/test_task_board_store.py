@@ -263,6 +263,7 @@ def test_created_task_reaches_remote_board(tmp_path: Path, monkeypatch: pytest.M
 
     async def go() -> None:
         project(monkeypatch, local)
+
         async def allowed(*_args: Any, **_kwargs: Any) -> None:
             return None
 

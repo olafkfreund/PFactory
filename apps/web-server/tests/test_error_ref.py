@@ -224,8 +224,18 @@ def test_plan_review_pr_body_leaks_nothing(
 
     monkeypatch.setattr(SERVICE, "ingest_text", boom)
 
+    async def allow_repo(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(github, "require_repo_project_role", allow_repo)
+
     response = asyncio.run(
-        github.plan_review_pr(7, github.PlanReviewPRRequest(repo="o/n", pr_number=7))
+        github.plan_review_pr(
+            7,
+            github.PlanReviewPRRequest(repo="o/n", pr_number=7),
+            SimpleNamespace(state=SimpleNamespace(user={"id": "test"})),
+            None,
+        )
     )
     assert response.status_code == 400
     body = json.loads(response.body)
