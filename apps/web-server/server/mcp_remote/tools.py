@@ -85,7 +85,12 @@ _SAFE_ID = re.compile(r"[\w:-][\w.:-]*")
 def _principal(key: AuthenticatedKey) -> dict[str, Any]:
     if not key.user_id:
         return {"id": "default", "is_service": True}
-    return {"id": key.user_id, "api_key_id": key.key_id, "org_id": key.org_id}
+    return {
+        "id": key.user_id,
+        "api_key_id": key.key_id,
+        "org_id": key.org_id,
+        "scopes": tuple(key.scopes),
+    }
 
 
 async def _authorize_call(

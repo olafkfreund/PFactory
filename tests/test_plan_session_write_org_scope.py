@@ -49,13 +49,15 @@ def env(tmp_path, monkeypatch):
         async with engine.begin() as conn:
             await conn.run_sync(models.Base.metadata.create_all)
         async with session_local() as db:
-            for uid in ("viewer-a", "owner"):
+            for uid in ("viewer-a", "member-a", "owner"):
                 db.add(models.User(id=uid, email=f"{uid}@x.test", password_hash=uid))
             await db.flush()
             db.add(models.Organization(id="A", name="A", slug="A", owner_id="owner"))
             db.add(models.Organization(id="B", name="B", slug="B", owner_id="owner"))
             await db.flush()
             db.add(models.OrgMember(org_id="A", user_id="viewer-a", role="viewer"))
+            db.add(models.OrgMember(org_id="B", user_id="viewer-a", role="member"))
+            db.add(models.OrgMember(org_id="A", user_id="member-a", role="member"))
             await db.commit()
 
     asyncio.run(_init())
@@ -95,6 +97,7 @@ def env(tmp_path, monkeypatch):
             user["org_id"] = request.headers["X-Org"]
         if "X-Key" in request.headers:
             user["api_key_id"] = request.headers["X-Key"]
+            user["scopes"] = ("plan:write",)
         request.state.user = user
         return await call_next(request)
 
@@ -144,7 +147,7 @@ def test_org_key_cannot_write_another_org_session(env, monkeypatch, route):
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == f"unknown session '{sid_a}'"
+    assert response.json()["detail"] == "Plan session not found"
     assert "Secret org A title" not in response.text
     after = service.get(sid_a)
     assert after.status == before.status
@@ -178,20 +181,19 @@ def test_org_key_reaches_own_session(env, monkeypatch, suffix, body, service_met
         ("/approve", {"approver": "x"}, "approve"),
     ],
 )
-def test_human_nonmember_shadows_then_enforces(env, monkeypatch, suffix, body, service_method):
+def test_human_nonmember_is_hidden_with_either_flag(env, monkeypatch, suffix, body, service_method):
     client, settings, audits, service, session_local, (_, sid_b) = env
     monkeypatch.setattr(service, service_method, _reached)
     path = f"/api/plan/sessions/{sid_b}{suffix}"
-    response = client.post(path, json=body, headers={"X-U": "viewer-a"})
-    assert response.status_code == 418
-    assert any(a["resource_id"] == sid_b and a["details"].get("shadow") is True for a in audits)
+    response = client.post(path, json=body, headers={"X-U": "member-a"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Plan session not found"
 
     settings.RBAC_ENFORCE_TASK_ROUTES = True
-    # The older route dependency returns 403 first; call the handler to check
-    # this step's per-session guard and its 404 translation.
+    # The per-session guard hides the session from a member of another org.
     pp = importlib.import_module("server.routes.plan_pipeline")
     request = Request({"type": "http"})
-    request.state.user = {"id": "viewer-a"}
+    request.state.user = {"id": "member-a"}
 
     async def _call():
         async with session_local() as db:
@@ -203,7 +205,7 @@ def test_human_nonmember_shadows_then_enforces(env, monkeypatch, suffix, body, s
     with pytest.raises(HTTPException) as caught:
         asyncio.run(_call())
     assert caught.value.status_code == 404
-    assert caught.value.detail == f"unknown session '{sid_b}'"
+    assert caught.value.detail == "Plan session not found"
 
 
 @pytest.mark.parametrize(
@@ -239,5 +241,5 @@ def test_mcp_org_key_cannot_write_another_org_session(
 
     response = TestClient(app).post(f"/api/mcp-stdio/plan/sessions/{sid_a}{suffix}", json=body)
     assert response.status_code == 404
-    assert response.json()["detail"] == f"unknown session '{sid_a}'"
+    assert response.json()["detail"] == "Plan session not found"
     assert "Secret org A title" not in response.text

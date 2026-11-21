@@ -188,7 +188,7 @@ async def _try_authenticate_personal_key(token: str) -> dict | None:
             "role": user.role,
             "api_key_id": api_key.id,
             "org_id": api_key.org_id,
-            "scopes": tuple(scopes),
+            "scopes": tuple(sorted(scopes)),
         }
 
     return None

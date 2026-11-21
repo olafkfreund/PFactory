@@ -503,17 +503,21 @@ def test_task_logs_proxy_returns_200_with_and_without_tail(monkeypatch, query):
     """#906: the proxy passed ``tail=`` to ``get_task_logs``, which takes none (500)."""
     from server import config
     from server.routes import tasks as tasks_routes
+    from server.routes import project_authz
 
     async def _logs(task_id):
         return {"task_id": task_id, "phases": {}}
 
     monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(
+        project_authz.project_paths, "load_projects", lambda: {"p1": {"org_id": "default"}}
+    )
     monkeypatch.setattr(tasks_routes, "get_task_logs", _logs)
     app = FastAPI()
     app.include_router(_proxy_module().router)
     r = TestClient(app).get(
-        f"/api/mcp-stdio/tasks/t1/logs{query}",
+        f"/api/mcp-stdio/tasks/p1:t1/logs{query}",
         headers={"Authorization": "Bearer legacy-secret-token-for-test"},
     )
     assert r.status_code == 200, r.text
-    assert r.json() == {"task_id": "t1", "phases": {}}
+    assert r.json() == {"task_id": "p1:t1", "phases": {}}

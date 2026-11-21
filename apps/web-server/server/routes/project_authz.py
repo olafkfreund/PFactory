@@ -457,6 +457,16 @@ class PlanAccessChecker(_AccessChecker):
         roles = (await db.execute(query)).scalars().all()
         ctx["member"] = bool(roles)
         if not roles:
+            await db.rollback()
+            await _audit_denial(
+                audit_service.ACTION_AUTHZ_DENIED,
+                user,
+                "plan_session",
+                None,
+                ctx.get("org_id"),
+                self.minimum_role,
+                "You do not have access to any organization",
+            )
             raise _forbidden("You do not have access to any organization")
         ceiling = scope_role_ceiling(user)
         if (
@@ -466,6 +476,16 @@ class PlanAccessChecker(_AccessChecker):
             )
             < ROLE_LEVELS[self.minimum_role]
         ):
+            await db.rollback()
+            await _audit_denial(
+                audit_service.ACTION_GATE_REJECTED,
+                user,
+                "plan_session",
+                None,
+                ctx.get("org_id"),
+                self.minimum_role,
+                f"Requires {self.minimum_role} role on project",
+            )
             raise _forbidden(f"Requires {self.minimum_role} role on project")
         return None
 

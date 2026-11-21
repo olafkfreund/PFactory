@@ -80,7 +80,9 @@ def _ws(token):
 @pytest.fixture(autouse=True)
 def auth_on(monkeypatch):
     shared = "shared"
-    settings = SimpleNamespace(DISABLE_AUTH=False, API_TOKEN=shared)
+    settings = SimpleNamespace(
+        DISABLE_AUTH=False, API_TOKEN=shared, LEGACY_SHARED_TOKEN_FULL_ACCESS=True
+    )
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
     monkeypatch.setattr(auth, "_try_decode_jwt", lambda _raw: None)
     return settings
@@ -98,6 +100,7 @@ async def test_owned_api_key_matches_rest_principal(monkeypatch):
         "role": "user",
         "api_key_id": "key-1",
         "org_id": "A",
+        "scopes": ("api",),
     }
     assert key.last_used_at is not None
 
@@ -247,9 +250,7 @@ async def test_recheck_membership_failure_closes_key_socket(monkeypatch):
     monkeypatch.setattr(
         events,
         "_ws_acw_principal",
-        AsyncMock(
-            return_value={"id": "user-1", "org_id": "A", "api_key_id": "key-1"}
-        ),
+        AsyncMock(return_value={"id": "user-1", "org_id": "A", "api_key_id": "key-1"}),
     )
     monkeypatch.setattr(relay, "publish", AsyncMock())
     ws = _EventsWebSocket()
@@ -260,9 +261,7 @@ async def test_recheck_membership_failure_closes_key_socket(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jwt_socket_stays_open_when_membership_fails(monkeypatch):
-    monkeypatch.setattr(
-        auth, "_try_decode_jwt", lambda raw: {"sub": "jwt-user", "email": "e"}
-    )
+    monkeypatch.setattr(auth, "_try_decode_jwt", lambda raw: {"sub": "jwt-user", "email": "e"})
     _stub_memberships(monkeypatch, RuntimeError("membership unavailable"))
     monkeypatch.setattr(relay, "publish", AsyncMock())
     ws = _EventsWebSocket()

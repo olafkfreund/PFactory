@@ -41,8 +41,20 @@ def task_ws_app(monkeypatch):
     principals = {
         "jwt-a": {"id": "user-a", "role": "user"},
         "jwt-b": {"id": "user-b", "role": "user"},
-        "acw_a": {"id": "owner", "org_id": "A", "api_key_id": "key-a", "role": "user"},
-        "acw_b": {"id": "owner", "org_id": "B", "api_key_id": "key-b", "role": "user"},
+        "acw_a": {
+            "id": "owner",
+            "org_id": "A",
+            "api_key_id": "key-a",
+            "scopes": ("mcp:read",),
+            "role": "user",
+        },
+        "acw_b": {
+            "id": "owner",
+            "org_id": "B",
+            "api_key_id": "key-b",
+            "scopes": ("mcp:read",),
+            "role": "user",
+        },
         "shared": None,
     }
     memberships: dict[tuple[str, str], str] = {

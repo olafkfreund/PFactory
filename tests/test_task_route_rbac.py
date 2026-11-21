@@ -1,4 +1,4 @@
-"""Org role checks on task and plan write routes, shadow mode first (PFactory#939)."""
+"""Org role checks on task and plan write routes (PFactory#939)."""
 
 from __future__ import annotations
 
@@ -118,7 +118,9 @@ def env(tmp_path, monkeypatch):  # noqa: PLR0915 - one fixture builds every rout
                 if "X-Svc" in request.headers:
                     request.state.user["is_service"] = True
                 if key_org := request.headers.get("X-Key-Org"):
-                    request.state.user.update(api_key_id="k1", org_id=key_org)
+                    request.state.user.update(
+                        api_key_id="k1", org_id=key_org, scopes=("task:write",)
+                    )
             return await call_next(request)
 
         return TestClient(app), path
@@ -143,8 +145,8 @@ def _post(client, path, project="p1", user="member-a", **headers):
     [
         ("viewer-a", {}, 403),
         ("member-a", {}, 200),
-        ("loner", {}, 403),  # JWT role=admin, no OrgMember row
-        ("member-a", {"X-Key-Org": "B"}, 403),  # acw_ key bound to another org
+        ("loner", {}, 404),  # JWT role=admin, no OrgMember row
+        ("member-a", {"X-Key-Org": "B"}, 404),  # acw_ key bound to another org
         ("member-a", {"X-Key-Org": "A"}, 200),
         ("loner", {"X-Svc": "1"}, 200),
     ],
@@ -154,33 +156,32 @@ def test_task_route_enforced(env, user, headers, expected):
     enforce(True)
     client, path = make()
     assert _post(client, path, user=user, **headers).status_code == expected
-    assert len(audits) == (expected == 403)
+    assert len(audits) == (expected in (403, 404))
     assert all("shadow" not in a["details"] for a in audits)
 
 
-def test_shadow_viewer_passes_and_audits_once(env):
+def test_viewer_denied_even_with_flag_off(env):
     make, enforce, audits = env
     enforce(False)
     client, path = make()
     r = _post(client, path, user="viewer-a")
-    assert (r.status_code, r.json()) == (200, {"ok": True})
+    assert r.status_code == 403
     assert len(audits) == 1
     assert audits[0]["action"] == "gate.rejected"
-    assert audits[0]["details"]["shadow"] is True
-    assert audits[0]["details"]["status"] == 403
+    assert "shadow" not in audits[0]["details"]
 
 
-def test_shadow_unknown_project_matches_unguarded_app(env):
+def test_unknown_project_is_hidden_with_flag_off(env):
     make, enforce, audits = env
     enforce(False)
     guarded, path = make()
     bare, _ = make(guarded=False)
     a, b = _post(guarded, path, project="nope"), _post(bare, path, project="nope")
-    assert (a.status_code, a.json()) == (b.status_code, b.json())
-    assert audits[0]["details"]["status"] == 404
+    assert (a.status_code, b.status_code) == (404, 200)
+    assert audits[0]["resource_id"] == "nope"
 
 
-def test_shadow_decision_error_allows(env, monkeypatch):
+def test_decision_error_fails_closed(env, monkeypatch):
     make, enforce, _ = env
     enforce(False)
 
@@ -189,9 +190,10 @@ def test_shadow_decision_error_allows(env, monkeypatch):
 
     monkeypatch.setattr(make.pa.project_paths, "load_projects", boom)
     client, path = make()
-    assert _post(client, path, user="viewer-a").status_code == 200
+    with pytest.raises(RuntimeError):
+        _post(client, path, user="viewer-a")
     enforce(True)
-    with pytest.raises(RuntimeError):  # enforce mode does not swallow it
+    with pytest.raises(RuntimeError):
         _post(client, path, user="viewer-a")
 
 
@@ -215,48 +217,49 @@ def test_plan_route(env, user, headers, expected):
     assert [a["resource_type"] for a in audits] == ["plan_session"] * (expected == 403)
 
 
-def test_plan_route_shadow_passes(env):
+def test_plan_route_enforced_with_flag_off(env):
     make, enforce, audits = env
     enforce(False)
     client, path = make(kind="plan")
-    assert _post(client, path, user="viewer-a").status_code == 200
-    assert audits[0]["details"]["shadow"] is True
+    assert _post(client, path, user="viewer-a").status_code == 403
+    assert "shadow" not in audits[0]["details"]
 
 
 @pytest.mark.parametrize("kind", ["task", "plan"])
-def test_shadow_releases_request_session_before_audit(env, kind):
-    # Two pooled connections per would-deny can stall the pool (AIFactory#1936).
+def test_denial_releases_request_session_before_audit(env, kind):
+    # Two pooled connections per denial can stall the pool (AIFactory#1936).
     make, enforce, _ = env
     enforce(False)
     client, path = make(kind=kind)
-    assert _post(client, path, user="viewer-a").status_code == 200
+    assert _post(client, path, user="viewer-a").status_code == 403
     assert make.events[:2] == ["rollback", "audit"]
 
 
-def test_plan_route_shadow_db_error_allows(env):
+def test_plan_route_db_error_fails_closed(env):
     make, enforce, audits = env
     enforce(False)
     client, path = make(kind="plan", broken_db=True)
-    assert _post(client, path, user="viewer-a").status_code == 200
+    with pytest.raises(RuntimeError):
+        _post(client, path, user="viewer-a")
     assert audits == []  # a lookup error is not a would-deny
-    assert "rollback" in make.events
+    assert "rollback" not in make.events
 
 
-def test_allowed_check_rolls_back_without_audit(env):
+def test_allowed_check_does_not_audit(env):
     make, enforce, audits = env
     enforce(True)
     client, path = make()
     assert _post(client, path).status_code == 200
-    assert make.events[-1] == "rollback"
+    assert make.events == []
     assert audits == []
 
 
-def test_authorize_project_uses_shadow_and_enforce(env):
+def test_authorize_project_enforces_with_either_flag(env):
     make, enforce, audits = env
     client, path = make(kind="direct")
-    assert _post(client, path, user="viewer-a").status_code == 200
+    assert _post(client, path, user="viewer-a").status_code == 403
     assert len(audits) == 1
-    assert audits[0]["details"]["shadow"] is True
+    assert "shadow" not in audits[0]["details"]
     enforce(True)
     assert _post(client, path, user="viewer-a").status_code == 403
     assert len(audits) == 2
@@ -280,9 +283,9 @@ def test_body_project_key_and_invalid_json(env):
         client.post(path, json={"project_id": "p1"}, headers={"X-U": "member-a"}).status_code == 200
     )
     assert audits == []
-    assert client.post(path, content="bad json", headers={"X-U": "member-a"}).status_code == 200
+    assert client.post(path, content="bad json", headers={"X-U": "member-a"}).status_code == 404
     assert len(audits) == 1
-    assert audits[0]["details"]["status"] == 404
+    assert audits[0]["resource_id"] is None
     assert audits[0]["resource_id"] is None
 
 
@@ -298,9 +301,9 @@ def test_spec_access_resolves_project_and_unknown_spec(env, tmp_path, monkeypatc
     unknown = path.replace("{spec_id}", "missing")
     assert client.post(known, headers={"X-U": "member-a"}).status_code == 200
     assert client.post(known, headers={"X-U": "viewer-a"}).status_code == 403
-    assert [(a["resource_id"], a["org_id"]) for a in audits] == [("s1", "A")]
+    assert [(a["resource_id"], a["org_id"]) for a in audits] == [("p1", "A")]
     assert client.post(unknown, headers={"X-U": "member-a"}).status_code == 404
-    assert len(audits) == 1  # enforce audits 403s only
+    assert len(audits) == 2  # both under-roling and invisibility are audited
 
 
 TASK_ROUTES = {
@@ -435,13 +438,11 @@ def test_every_listed_route_carries_the_dependency():
         ("/tasks/{task_id}/worktree/diff", "viewer"),
     ],
 )
-def test_worktree_routes_log_would_deny_in_shadow(env, caplog, path, role):
+def test_worktree_routes_hide_cross_org_project(env, path, role):
     make, enforce, audits = env
     enforce(False)
     client, route = make(path=path, role=role)
-    with caplog.at_level("WARNING"):
-        r = _post(client, route, user="member-a", **{"X-Key-Org": "B"})
-    assert r.status_code == 200
-    assert "rbac.would_deny" in caplog.text
+    r = _post(client, route, user="member-a", **{"X-Key-Org": "B"})
+    assert r.status_code == 404
     assert len(audits) == 1
-    assert audits[0]["details"]["shadow"] is True
+    assert "shadow" not in audits[0]["details"]

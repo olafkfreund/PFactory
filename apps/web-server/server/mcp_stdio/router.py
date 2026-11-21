@@ -100,6 +100,7 @@ def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
             "id": key.user_id,
             "api_key_id": key.key_id,
             "org_id": key.org_id,
+            "scopes": tuple(key.scopes),
             "is_service": getattr(key, "is_service", False),
         }
     return {"id": "default", "is_service": True}

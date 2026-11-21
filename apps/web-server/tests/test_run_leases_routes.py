@@ -85,6 +85,13 @@ def _stop_requested(db: async_sessionmaker, kind: str, key: str) -> bool:  # typ
 
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    from server.routes import project_authz
+
+    monkeypatch.setattr(
+        project_authz.project_paths,
+        "load_projects",
+        lambda: {PROJECT: {"path": str(tmp_path), "org_id": "default"}},
+    )
     spec_dir = tmp_path / ".pfactory" / "specs" / "001-demo"
     spec_dir.mkdir(parents=True)
     (spec_dir / "test_plan.json").write_text(json.dumps({"phases": [], "status": "in_progress"}))
@@ -102,6 +109,12 @@ def client() -> TestClient:
     app.include_router(github_routes.project_router, prefix="/api/projects/{projectId}/github")
     app.include_router(changelog_routes.router, prefix="/api/projects/{projectId}/changelog")
     app.include_router(insights_routes.router, prefix="/api/projects/{projectId}/insights")
+
+    @app.middleware("http")
+    async def _principal(request, call_next):
+        request.state.user = {"id": "lease-test", "is_service": True}
+        return await call_next(request)
+
     return TestClient(app, raise_server_exceptions=False)
 
 

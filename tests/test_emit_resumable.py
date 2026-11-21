@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -190,6 +191,7 @@ def test_a_second_emit_of_the_same_session_is_refused_while_one_runs():
 
 class _Request:
     headers: dict[str, str] = {}
+    state = SimpleNamespace(user={"id": "emit-test", "is_service": True})
 
 
 async def _ticks_while(coro) -> int:

@@ -243,14 +243,16 @@ def test_flag_tracks_rest_dependency_on_open_socket(socket_app, monkeypatch):
         client.portal.call(events.send_to_org, "B", "explicit", {})
         _emit(client, "shadow", {"projectId": "p-b"})
         assert ws.receive_json()["type"] == "shadow"
-        client.portal.call(checker.__call__, "p-b", request, db)
+        with pytest.raises(HTTPException) as exc:
+            client.portal.call(checker.__call__, "p-b", request, db)
+        assert exc.value.status_code == 404
         setting.RBAC_ENFORCE_TASK_ROUTES = True
         _emit(client, "blocked", {"projectId": "p-b"})
         _emit(client, "allowed", {"projectId": "p-a"})
         assert ws.receive_json()["type"] == "allowed"
         with pytest.raises(HTTPException) as exc:
             client.portal.call(checker.__call__, "p-b", request, db)
-        assert exc.value.status_code == 403
+        assert exc.value.status_code == 404
 
 
 def test_event_org_cache_expiry_and_reassignment(monkeypatch):
