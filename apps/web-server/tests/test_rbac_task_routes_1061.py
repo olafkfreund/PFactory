@@ -163,3 +163,21 @@ def test_merge_token_needs_admin_scope_ceiling() -> None:
         _require_merge_scope({"id": "owner", "api_key_id": "key", "scopes": ("task:write",)})
     assert exc.value.status_code == 403
     _require_merge_scope({"id": "owner", "api_key_id": "key", "scopes": ("task:merge",)})
+
+
+def test_task_access_checker_always_enforces_404_on_non_member(authz: Any) -> None:
+    checker = project_authz.require_task_access("member")
+
+    async def check() -> None:
+        async with authz.sessions() as db:
+            with pytest.raises(HTTPException) as exc_outsider:
+                await checker.check({"id": "outsider"}, "known", db)
+            assert exc_outsider.value.status_code == 404
+
+            with pytest.raises(HTTPException) as exc_viewer:
+                await checker.check({"id": "viewer"}, "known", db)
+            assert exc_viewer.value.status_code == 403
+
+            assert await checker.check({"id": "owner"}, "known", db) == {"id": "owner"}
+
+    asyncio.run(check())

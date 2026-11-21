@@ -60,6 +60,12 @@ def project(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
     monkeypatch.setattr(tasks, "visible_project_ids", AsyncMock(return_value={"proj"}))
 
 
+async def _list_tasks(project_id: str | None = "proj", status: str | None = None) -> Any:
+    req: Any = SimpleNamespace(state=SimpleNamespace(user={"id": "test"}))
+    db: Any = None
+    return await tasks.list_tasks(req, db, project_id=project_id, status=status)
+
+
 def make_spec(root: Path, name: str = SPEC) -> Path:
     spec = root / ".pfactory" / "specs" / name
     spec.mkdir(parents=True)
@@ -101,12 +107,7 @@ def test_remote_routes_and_local_precedence(
         detail = await tasks.get_task(TASK)
         assert detail["executionProgress"] == got[0]["executionProgress"]
         assert detail["metadata"]["archivedAt"] == "2026-10-23"
-        listing = await tasks.list_tasks(
-            SimpleNamespace(state=SimpleNamespace(user={"id": "test"})),
-            None,
-            project_id="proj",
-            status=None,
-        )
+        listing = await _list_tasks(project_id="proj", status=None)
         assert listing.total == 1
         assert listing.tasks[0].status == "in_progress"
         assert listing.tasks[0].phase == "coding"
@@ -129,14 +130,7 @@ def test_store_off_uses_files_without_writes(
 
     async def go() -> None:
         assert len(await projects.list_project_tasks("proj")) == 1
-        assert (
-            await tasks.list_tasks(
-                SimpleNamespace(state=SimpleNamespace(user={"id": "test"})),
-                None,
-                project_id="proj",
-                status=None,
-            )
-        ).total == 1
+        assert (await _list_tasks(project_id="proj", status=None)).total == 1
         await tasks.update_task_status(TASK, tasks.TaskStatusUpdate(status="human_review"))
         async with store() as session:
             assert (await session.scalar(select(func.count()).select_from(TaskBoardState))) == 0
@@ -274,17 +268,9 @@ def test_created_task_reaches_remote_board(tmp_path: Path, monkeypatch: pytest.M
         )
         await asyncio.sleep(0.05)
         project(monkeypatch, remote)
-        assert [
-            t.id
-            for t in (
-                await tasks.list_tasks(
-                    SimpleNamespace(state=SimpleNamespace(user={"id": "test"})),
-                    None,
-                    project_id="proj",
-                    status=None,
-                )
-            ).tasks
-        ] == [created.id]
+        assert [t.id for t in (await _list_tasks(project_id="proj", status=None)).tasks] == [
+            created.id
+        ]
 
     asyncio.run(go())
 

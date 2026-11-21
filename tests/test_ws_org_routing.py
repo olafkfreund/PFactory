@@ -394,7 +394,9 @@ def test_broadcast_relays_shadow_flag_and_dispatch_honours_it(socket_app):
         client.portal.call(_dispatch.dispatch, "ws:org", strict)
         lenient = {"org_id": "B", "event_type": "lenient", "payload": {}, "shadow": True}
         client.portal.call(_dispatch.dispatch, "ws:org", lenient)
-        assert ws.receive_json()["type"] == "lenient"
+        own = {"org_id": "A", "event_type": "own", "payload": {}, "shadow": True}
+        client.portal.call(_dispatch.dispatch, "ws:org", own)
+        assert ws.receive_json()["type"] == "own"
 
 
 def test_legacy_broadcast_reaches_jwt_sockets_only_in_shadow_mode(socket_app):
@@ -404,12 +406,14 @@ def test_legacy_broadcast_reaches_jwt_sockets_only_in_shadow_mode(socket_app):
         TestClient(app) as client,
         _connect(client, "acw_a") as key,
         _connect(client, "jwt-a") as jwt,
+        _connect(client, "shared") as service,
     ):
         client.portal.call(_dispatch.dispatch, "ws:broadcast", {"event_type": "old", "payload": {}})
-        assert jwt.receive_json()["type"] == "old"
+        assert service.receive_json()["type"] == "old"
         setting.RBAC_ENFORCE_TASK_ROUTES = True
         client.portal.call(_dispatch.dispatch, "ws:broadcast", {"event_type": "old", "payload": {}})
-        # Neither the strict JWT socket nor the key socket (in either mode) got one.
+        assert service.receive_json()["type"] == "old"
+        # Neither the JWT socket nor the key socket (in either mode) got one.
         client.portal.call(events.send_to_org, "A", "sentinel", {})
         assert jwt.receive_json()["type"] == "sentinel"
         assert key.receive_json()["type"] == "sentinel"
