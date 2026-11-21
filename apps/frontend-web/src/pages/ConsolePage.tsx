@@ -1,16 +1,19 @@
 import type { ReactNode } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, useLocation, Link, Navigate } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { AgentConsole } from '../components/task-detail/AgentConsole';
-import { useProjectStore } from '../stores/project-store';
+import { useProjectStore, loadProjects } from '../stores/project-store';
+import { useEnsureProjects } from '../hooks/useEnsureProjects';
+import { findProjectByRef, projectPath, projectSlug } from '../lib/project-route';
 
 /**
  * Standalone deep-link page that drops you straight into the rmux Live
  * Agent Console for a given task, no portal chrome / kanban detour.
  *
- * URL pattern: ``/console/:projectId/:specId``
+ * URL pattern: ``/p/:slug/console/:specId`` (legacy ``/console/:projectId/:specId`` redirects here)
  *
- *   https://pfactory.example.com/console/ac62db91-.../001-gh1-add-healthz
+ *   https://pfactory.example.com/p/my-project/console/001-gh1-add-healthz
  *
  * Shareable to teammates over the LAN/VPN, openable from a phone
  * browser as a fullscreen terminal.  The "Copy console link" button in
@@ -21,32 +24,27 @@ import { useProjectStore } from '../stores/project-store';
  * /login first.
  */
 export function ConsolePage(): ReactNode {
-  const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
-  const project = useProjectStore((s) =>
-    s.projects.find((p) => p.id === projectId)
-  );
+  const { t } = useTranslation('welcome');
+  const { slug, specId } = useParams<{ slug: string; specId?: string }>();
+  const { search, hash } = useLocation();
+  const ready = useEnsureProjects();
+  const projects = useProjectStore((s) => s.projects);
+  const error = useProjectStore((s) => s.error);
+  const project = slug ? findProjectByRef(projects, slug) : undefined;
+  const slugOrRef = project ? projectSlug(projects, project) : slug;
 
-  if (!projectId || !specId) {
-    return (
-      <div className="flex h-screen items-center justify-center text-muted-foreground">
-        <p>
-          Invalid console URL. Expected{' '}
-          <code className="text-xs bg-muted px-1 rounded">
-            /console/&lt;projectId&gt;/&lt;specId&gt;
-          </code>
-          .
-        </p>
-      </div>
-    );
-  }
+  if (!ready) return null;
+  if (error) return <div role="alert">{error} <button onClick={() => void loadProjects()}>{t('projectsPage.retry')}</button></div>;
+  if (!project) return <div role="alert">{t('projectsPage.notFound', { ref: slug })}</div>;
+  if (!specId) return <Navigate to={projectPath(slugOrRef!, 'terminals') + search + hash} replace />;
 
-  const taskId = `${projectId}:${specId}`;
+  const taskId = `${project.id}:${specId}`;
 
   return (
     <div className="flex h-screen flex-col bg-background">
       <header className="flex items-center gap-3 border-b border-border px-4 py-2 text-sm">
         <Link
-          to={`/`}
+          to={project ? `/p/${slugOrRef}` : '/'}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
           title="Back to portal"
         >
@@ -55,7 +53,7 @@ export function ConsolePage(): ReactNode {
         </Link>
         <span className="text-border">·</span>
         <span className="text-muted-foreground">
-          {project?.name ?? projectId.slice(0, 8)}
+          {project.name}
         </span>
         <span className="text-border">·</span>
         <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">

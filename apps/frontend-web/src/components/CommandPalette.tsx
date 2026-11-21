@@ -25,8 +25,9 @@ export interface PaletteTask {
 }
 
 type Row =
-  | { kind: 'cmd'; group: string; cmd: PaletteCommand }
-  | { kind: 'task'; group: string; task: PaletteTask };
+  | { kind: 'cmd'; group: string; cmd: PaletteCommand; keepOpen?: boolean }
+  | { kind: 'task'; group: string; task: PaletteTask }
+  | { kind: 'project'; group: string; project: { slug: string; name: string } };
 
 const has = (hay: string, q: string) => hay.toLowerCase().includes(q);
 
@@ -37,6 +38,8 @@ export function CommandPalette({
   tasks = [],
   onOpenTask,
   onSearch,
+  projects,
+  onSwitchProject,
 }: {
   open: boolean;
   onClose: () => void;
@@ -44,9 +47,12 @@ export function CommandPalette({
   tasks?: PaletteTask[];
   onOpenTask: (task: PaletteTask) => void;
   onSearch?: (q: string) => Promise<PaletteTask[]>;
+  projects?: { slug: string; name: string }[];
+  onSwitchProject?: (slug: string) => void;
 }) {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
+  const [projectMode, setProjectMode] = useState(false);
   const [results, setResults] = useState<PaletteTask[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -54,16 +60,22 @@ export function CommandPalette({
     if (open) {
       setQ('');
       setSel(0);
+      setProjectMode(false);
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
+
+  // Entering project mode unmounts the clicked "Switch project..." button: put focus back on the input.
+  useEffect(() => {
+    if (projectMode) inputRef.current?.focus();
+  }, [projectMode]);
 
   // Federated mode (#149): when the host supplies onSearch, debounce the query
   // and render its ranked results; a stale in-flight response is discarded so
   // the list always reflects the latest keystroke. No-op when onSearch is unset
   // (the palette then filters the local `tasks` list, unchanged).
   useEffect(() => {
-    if (!onSearch) return;
+    if (!onSearch || projectMode) return;
     const needle = q.trim();
     if (!open || !needle) {
       setResults([]);
@@ -83,13 +95,26 @@ export function CommandPalette({
       stale = true;
       clearTimeout(timer);
     };
-  }, [q, open, onSearch]);
+  }, [q, open, onSearch, projectMode]);
 
   const rows: Row[] = useMemo(() => {
     const needle = q.trim().toLowerCase();
+    if (projectMode) {
+      return (projects ?? [])
+        .filter((p) => has(p.name, needle) || has(p.slug, needle))
+        .map((p) => ({ kind: 'project', group: 'Projects', project: p }));
+    }
     const cmdRows: Row[] = commands
       .filter((c) => !needle || has(`${c.label} ${c.keywords ?? ''}`, needle))
       .map((c) => ({ kind: 'cmd', group: c.group, cmd: c }));
+    const switchCommand: PaletteCommand = {
+      id: 'switch-project', group: 'Actions', label: 'Switch project...',
+      keywords: 'project switch change',
+      run: () => { setQ(''); setSel(0); setProjectMode(true); },
+    };
+    if (projects && onSwitchProject && (!needle || has(`${switchCommand.label} ${switchCommand.keywords}`, needle))) {
+      cmdRows.push({ kind: 'cmd', group: 'Actions', cmd: switchCommand, keepOpen: true });
+    }
     const matched = onSearch
       ? results
       : tasks.filter((t) => has(t.title, needle)).slice(0, 8);
@@ -97,7 +122,7 @@ export function CommandPalette({
       ? []
       : matched.map((t) => ({ kind: 'task', group: 'Tasks', task: t }));
     return [...taskRows, ...cmdRows];
-  }, [q, commands, tasks, results, onSearch]);
+  }, [q, commands, tasks, results, onSearch, projects, onSwitchProject, projectMode]);
 
   useEffect(() => {
     setSel((s) => Math.max(0, Math.min(s, rows.length - 1)));
@@ -107,8 +132,11 @@ export function CommandPalette({
 
   const runRow = (row: Row | undefined) => {
     if (!row) return;
-    if (row.kind === 'cmd') row.cmd.run();
-    else onOpenTask(row.task);
+    if (row.kind === 'cmd') {
+      row.cmd.run();
+      if (row.keepOpen) return;
+    } else if (row.kind === 'task') onOpenTask(row.task);
+    else onSwitchProject?.(row.project.slug);
     onClose();
   };
 
@@ -149,7 +177,7 @@ export function CommandPalette({
             value={q}
             onChange={(e) => { setQ(e.target.value); }}
             onKeyDown={onKey}
-            placeholder="Search tasks, or jump to a view…"
+            placeholder={projectMode ? 'Switch to project…' : 'Search tasks, or jump to a view…'}
             className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground"
             role="combobox"
             aria-expanded
@@ -163,14 +191,14 @@ export function CommandPalette({
         <div id="cmdk-list" role="listbox" className="overflow-y-auto p-1.5">
           {rows.length === 0 && (
             <div className="px-3 py-5 text-center text-sm text-muted-foreground">
-              No matches — try a view, an action, or a task.
+              {projectMode ? 'No matching projects.' : 'No matches — try a view, an action, or a task.'}
             </div>
           )}
           {rows.map((row, i) => {
             const header = row.group !== lastGroup ? ((lastGroup = row.group), row.group) : null;
             const selected = i === sel;
             return (
-              <div key={row.kind === 'cmd' ? row.cmd.id : `t-${row.task.id}`}>
+              <div key={row.kind === 'cmd' ? row.cmd.id : row.kind === 'task' ? `t-${row.task.id}` : `p-${row.project.slug}`}>
                 {header && (
                   <div className="px-2 pb-1 pt-2 font-mono text-[0.62rem] uppercase tracking-wider text-muted-foreground">
                     {header}
@@ -189,7 +217,7 @@ export function CommandPalette({
                     {row.kind === 'cmd' && row.cmd.Icon ? <row.cmd.Icon className="h-4 w-4" /> : null}
                   </span>
                   <span className="min-w-0 flex-1 truncate">
-                    {row.kind === 'cmd' ? row.cmd.label : row.task.title}
+                    {row.kind === 'cmd' ? row.cmd.label : row.kind === 'task' ? row.task.title : row.project.name}
                   </span>
                   {row.kind === 'task' && row.task.hint && (
                     <span className="flex-none font-mono text-[0.62rem] uppercase tracking-wider text-muted-foreground">
