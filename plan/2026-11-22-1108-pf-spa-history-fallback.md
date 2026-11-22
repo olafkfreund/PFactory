@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1108
 spec: spec/2026-11-22-1108-pf-spa-history-fallback.md
 coders:
