@@ -108,6 +108,7 @@ async def test_api_scoped_key_authenticates_owner(monkeypatch):
         "role": "user",
         "api_key_id": "key-1",
         "org_id": "org-1",
+        "scopes": ("api", "mcp:read"),
     }
 
 
@@ -209,6 +210,7 @@ def _settings_with_api_token(api_token):
     return SimpleNamespace(
         DISABLE_AUTH=False,
         API_TOKEN=api_token,
+        LEGACY_SHARED_TOKEN_FULL_ACCESS=True,
         JWT_SECRET=_DUMMY_JWT,
         JWT_ALGORITHM="HS256",
     )

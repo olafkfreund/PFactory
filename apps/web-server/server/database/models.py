@@ -293,12 +293,12 @@ class Task(Base):
 
 
 class ApiKey(Base):
-    """API key for programmatic access, scoped to a user and organization."""
+    """API key for programmatic access, scoped to an organization."""
 
     __tablename__ = "api_keys"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -310,7 +310,7 @@ class ApiKey(Base):
     )
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="api_keys")
+    user: Mapped["User | None"] = relationship("User", back_populates="api_keys")
     organization: Mapped["Organization"] = relationship("Organization", back_populates="api_keys")
 
     def __repr__(self) -> str:

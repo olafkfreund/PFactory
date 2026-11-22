@@ -17,6 +17,7 @@ import asyncio
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -65,6 +66,7 @@ class _Request:
 
     def __init__(self, headers: dict | None = None) -> None:
         self.headers = headers or {}
+        self.state = SimpleNamespace(user={"id": "tenant-test", "is_service": True})
 
 
 @pytest.fixture(autouse=True)

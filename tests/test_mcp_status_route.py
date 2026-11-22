@@ -50,6 +50,7 @@ def client(tmp_path, monkeypatch):
     (tmp_path / "home").mkdir()
 
     from core import mcp_credentials
+
     mcp_credentials.reset_cache()
 
     # Build the FastAPI app and TestClient
@@ -66,6 +67,12 @@ def client(tmp_path, monkeypatch):
 
     app = FastAPI()
     app.include_router(mcp_route.router)
+
+    @app.middleware("http")
+    async def _principal(request, call_next):
+        request.state.user = {"id": "catalog-test", "is_service": True}
+        return await call_next(request)
+
     return TestClient(app), projects_dir
 
 
@@ -73,7 +80,9 @@ def _seed_project(projects_dir: Path, project_id: str, project_path: Path) -> No
     """Write the projects.json the loader expects."""
     projects_file = projects_dir / "projects.json"
     projects_file.write_text(
-        json.dumps({project_id: {"path": str(project_path), "name": "test-project"}})
+        json.dumps(
+            {project_id: {"path": str(project_path), "name": "test-project", "org_id": "default"}}
+        )
     )
 
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -53,6 +54,7 @@ class _Request:
 
     def __init__(self, tenant: str) -> None:
         self.headers = {"X-Tenant-Id": tenant}
+        self.state = SimpleNamespace(user={"id": "tenant-test", "is_service": True})
 
 
 @pytest.fixture

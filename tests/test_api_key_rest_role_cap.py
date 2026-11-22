@@ -95,3 +95,12 @@ def test_removed_member_key_is_rejected(env):
 def test_demoted_to_viewer_key_is_rejected(env):
     env(update(OrgMember).where(OrgMember.user_id == "u").values(role="viewer"))
     assert _auth() is None
+
+
+def test_ownerless_org_key_keeps_its_org_and_scope(env):
+    env(update(ApiKey).values(user_id=None, scopes="api,project:write"))
+    principal = _auth()
+    assert principal is not None
+    assert principal["id"] is None
+    assert principal["org_id"] == "org-1"
+    assert principal["scopes"] == ("api", "project:write")
