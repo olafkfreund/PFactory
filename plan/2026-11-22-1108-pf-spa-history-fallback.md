@@ -12,7 +12,9 @@ reviewers:
 
 # Plan: serve the SPA shell for client-side routes
 
-Approved decisions: port TFactory's #878 history fallback into PFactory's `SPAStaticFiles`; prefixes `/api`, `/ws`, `/assets`, `/openapi.json`, `/docs`, `/redoc` keep their 404; a path whose last segment has a `.` keeps its 404; otherwise a 404 GET serves `index.html`; existing cache headers unchanged.
+Approved decisions: port TFactory's #878 history fallback into PFactory's `SPAStaticFiles`; prefixes `/api`, `/ws`, `/assets`, `/openapi.json`, `/docs`, `/redoc` keep their 404;
+
+Deviation (review, agy): `/mcp`, `/.well-known` and `/metrics` are also server-owned top-level prefixes in `create_app()` and keep their 404 (MCP/OAuth discovery probes must not get HTML). a path whose last segment has a `.` keeps its 404; otherwise a 404 GET serves `index.html`; existing cache headers unchanged.
 
 ## Steps
 

@@ -42,7 +42,18 @@ def test_asset_keeps_immutable_cache(client: TestClient) -> None:
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
-@pytest.mark.parametrize("path", ["/assets/missing.js", "/api/nope", "/missing.ico", "/ws/nope"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/assets/missing.js",
+        "/api/nope",
+        "/missing.ico",
+        "/ws/nope",
+        "/mcp",
+        "/.well-known/oauth-protected-resource",
+        "/metrics/foo",
+    ],
+)
 def test_server_paths_and_missing_files_keep_404(client: TestClient, path: str) -> None:
     assert client.get(path).status_code == 404
 

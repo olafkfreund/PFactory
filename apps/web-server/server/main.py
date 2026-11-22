@@ -77,7 +77,18 @@ from .websockets import (
 logger = logging.getLogger(__name__)
 
 
-_NO_SPA_FALLBACK = ("/api", "/ws", "/assets", "/openapi.json", "/docs", "/redoc")
+# Every top-level server prefix in create_app() (MCP/OAuth clients probe /mcp and /.well-known).
+_NO_SPA_FALLBACK = (
+    "/api",
+    "/ws",
+    "/mcp",
+    "/.well-known",
+    "/metrics",
+    "/assets",
+    "/openapi.json",
+    "/docs",
+    "/redoc",
+)
 
 
 def _wants_spa_shell(path: str) -> bool:
