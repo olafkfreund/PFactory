@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.9.0 — per-project authorization and project in the URL (2026-11-22)
+
+### New Features
+
+- **Per-project authorization is enforced on every project path: require_project_role intersects token scopes with project grants (Factory#3857 phase 2, #1099, #1103).**
+- **The project lives in the URL: /p/:slug routes, a ProjectBreadcrumb replaces the project dropdown, and a My projects view (Factory#3857 phase 4, #1104, #1105).**
+
 ## 0.8.11 — trusted plan submit and issue stage machine (2026-11-20)
 
 ### New Features
