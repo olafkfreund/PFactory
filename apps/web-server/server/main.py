@@ -18,6 +18,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+from starlette.status import HTTP_404_NOT_FOUND
+from starlette.types import Receive, Scope, Send
 
 from . import env_bootstrap  # noqa: F401  — loads .env into os.environ first
 from .auth import TokenAuthMiddleware
@@ -73,6 +77,64 @@ from .websockets import (
 # stdlib-logging tests. Moving the call inside the factory means
 # importing this module is a pure operation.
 logger = logging.getLogger(__name__)
+
+
+# Every top-level server prefix in create_app() (MCP/OAuth clients probe /mcp and /.well-known).
+_NO_SPA_FALLBACK = (
+    "/api",
+    "/ws",
+    "/mcp",
+    "/.well-known",
+    "/metrics",
+    "/assets",
+    "/openapi.json",
+    "/docs",
+    "/redoc",
+)
+
+
+def _wants_spa_shell(path: str) -> bool:
+    """True when a 404 under the catch-all mount should serve ``index.html``.
+
+    The SPA owns its client-side routes. Before #1108, a direct GET returned
+    FastAPI's JSON 404, so a task link could not be shared, bookmarked, or
+    reloaded. A path is a client route when it is not a server-owned prefix
+    and its last segment carries no file extension.
+    """
+    if any(path == p or path.startswith(f"{p}/") for p in _NO_SPA_FALLBACK):
+        return False
+    return "." not in path.rsplit("/", 1)[-1]
+
+
+class SPAStaticFiles(StaticFiles):
+    """Serve SPA assets and client routes with the existing cache policy.
+
+    The shell must revalidate so browsers do not keep running an old bundle
+    after an upgrade (SSO fix); hashed assets may be cached indefinitely.
+    """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1000})
+            return
+        await super().__call__(scope, receive, send)
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != HTTP_404_NOT_FOUND or not _wants_spa_shell(
+                scope.get("path") or ""
+            ):
+                raise
+            response = await super().get_response("index.html", scope)
+        content_type = response.headers.get("content-type", "")
+        if content_type.startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        elif "/assets/" in (scope.get("path") or ""):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 async def _start_ws_relay() -> ModuleType:
@@ -581,24 +643,6 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=503 if held else 200, content={"held": held})
 
     # Mount static files for SPA (if build directory exists).
-    #
-    # Cache policy (SSO fix) — the SPA shell (index.html) MUST NOT be
-    # heuristically cached by the browser, or users keep running the previous
-    # build's JS after an upgrade (which is exactly how a fixed auth bug can
-    # look unfixed). Starlette's StaticFiles sends ETag/Last-Modified but no
-    # Cache-Control, which triggers browser heuristic caching of the shell.
-    # So: HTML responses → `no-cache` (store but always revalidate; cheap 304s);
-    # content-hashed assets under /assets/ → long-lived immutable cache.
-    class SPAStaticFiles(StaticFiles):
-        async def get_response(self, path, scope):
-            response = await super().get_response(path, scope)
-            content_type = response.headers.get("content-type", "")
-            if content_type.startswith("text/html"):
-                response.headers["Cache-Control"] = "no-cache, must-revalidate"
-            elif "/assets/" in (scope.get("path") or ""):
-                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-            return response
-
     static_dir = Path(__file__).parent.parent / "static"
     if static_dir.exists():
         app.mount("/", SPAStaticFiles(directory=str(static_dir), html=True), name="static")
