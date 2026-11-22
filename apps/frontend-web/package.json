@@ -1,6 +1,6 @@
 {
   "name": "pfactory-web",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "type": "module",
   "description": "Web UI for PFactory autonomous coding framework",
   "scripts": {
