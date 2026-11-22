@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.1 — SPA history fallback (2026-11-22)
+
+### Bug Fixes
+
+- **Client routes such as /p/<slug> and /settings load on reload and deep link instead of returning a JSON 404; API, MCP and well-known paths still 404 as before (#1108, #1109).**
+
 ## 0.9.0 — per-project authorization and project in the URL (2026-11-22)
 
 ### New Features
