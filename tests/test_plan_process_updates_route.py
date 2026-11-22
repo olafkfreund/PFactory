@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -35,6 +36,7 @@ class _Request:
     """`process` takes a Request now, for the tenant guard (#308)."""
 
     headers: dict[str, str] = {}
+    state = SimpleNamespace(user={"id": "route-test", "is_service": True})
 
 
 _PLAN = """# Refund API
@@ -146,6 +148,12 @@ def client(service):
 
     app = FastAPI()
     app.include_router(pp.router)
+
+    @app.middleware("http")
+    async def _principal(request, call_next):
+        request.state.user = {"id": "route-test", "is_service": True}
+        return await call_next(request)
+
     return TestClient(app)
 
 

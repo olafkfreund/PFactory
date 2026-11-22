@@ -42,7 +42,7 @@ def service(monkeypatch) -> PlanService:
     svc = PlanService()
     monkeypatch.setattr(pp, "SERVICE", svc)
 
-    async def _ingest_org(request, repo, db):
+    async def _ingest_org(request, repo, db, provider="github"):
         return None
 
     monkeypatch.setattr(pp, "_ingest_org", _ingest_org)
@@ -155,6 +155,11 @@ def test_issue_route_stamps_agent_only(service: PlanService, monkeypatch) -> Non
             return "main"
 
     monkeypatch.setattr("runners.github.providers.factory.get_provider", lambda *_args: Provider())
+
+    async def allow_repo(*_args, **_kwargs):
+        return SimpleNamespace(project_id="acme-widgets", org_id="o-1")
+
+    monkeypatch.setattr(pp, "require_repo_project_role", allow_repo)
     out = asyncio.run(
         pp.ingest_from_issue(
             pp.FromIssueBody(repo="acme/widgets", issue_number=996, body=_PLAN),

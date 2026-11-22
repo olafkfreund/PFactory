@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from factory_common.logsafe import sanitize_log
+from server.database.engine import async_session_factory
 from server.error_ref import error_message
 from server.pty.access import (
     may_use,
@@ -25,7 +26,7 @@ from server.pty.access import (
 )
 from server.pty.manager import DuplicateSessionError, get_pty_manager
 from server.pty.session import PTYSession
-from server.routes.project_authz import is_service_principal
+from server.routes.project_authz import is_service_principal, require_project_role
 from server.services.git_utils import (  # #335, #553
     confine_to_project,
     confine_to_workspace,
@@ -159,7 +160,11 @@ def _user(http_request: Request) -> dict[str, Any] | None:
 
 
 def _service_only(http_request: Request) -> None:
-    if not is_service_principal(_user(http_request)):
+    user = _user(http_request)
+    if not (
+        is_service_principal(user)
+        or (get_settings().DISABLE_AUTH and (user or {}).get("id") == "default")
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This operation is limited to the service principal",
@@ -169,12 +174,14 @@ def _service_only(http_request: Request) -> None:
 async def _authorize_path(user: dict[str, Any] | None, path: str | None) -> str | None:
     """Project id for `path`; non-service callers must be authorized for it."""
     project_id = project_id_for_path(path)
-    if is_service_principal(user):
+    if is_service_principal(user) or (
+        get_settings().DISABLE_AUTH and (user or {}).get("id") == "default"
+    ):
         return project_id
-    if project_id is None or not await project_ok(user, project_id):
+    if project_id is None or not await project_ok(user, project_id, "admin"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this project",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
         )
     return project_id
 
@@ -185,6 +192,11 @@ async def _owned(terminal_id: str, http_request: Request) -> PTYSession:
     if session is None or not await may_use(_user(http_request), session):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Terminal not found")
     return session
+
+
+async def _terminal_member(user: dict[str, Any] | None, project_id: str | None) -> None:
+    async with async_session_factory() as db:
+        await require_project_role(user, project_id, "admin", db=db)
 
 
 async def _visible(http_request: Request) -> list[PTYSession]:
@@ -245,13 +257,6 @@ async def create_terminal(request: CreateTerminalRequest, http_request: Request)
     if not cwd:
         cwd = str(Path.home())
 
-    # Validate cwd exists
-    if not Path(cwd).exists():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Directory does not exist: {cwd}",
-        )
-
     # The UI re-posts create on every remount of a live terminal: hand the
     # caller's own live session back instead of replacing or rejecting it.
     user = _user(http_request)
@@ -263,16 +268,20 @@ async def create_terminal(request: CreateTerminalRequest, http_request: Request)
 
     # Bind the session (#3740). Non-service callers must land inside a
     # registered project they are authorized for.
-    project_id = request.project_id or project_id_for_path(cwd)
-    if not is_service_principal(user) and (
+    project_id = project_id_for_path(cwd)
+    local = settings.DISABLE_AUTH and (user or {}).get("id") == "default"
+    if not (is_service_principal(user) or local) and (
         not project_id
         or not path_in_project(cwd, project_id)
-        or not await project_ok(user, project_id)
+        or not await project_ok(user, project_id, "admin")
     ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this project",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
         )
+
+    if not Path(cwd).exists():
+        raise HTTPException(status_code=400, detail=f"Directory does not exist: {cwd}")
 
     try:
         session = manager.create_session(
@@ -334,14 +343,18 @@ async def cleanup_terminals(http_request: Request):
 
 
 @router.post("/restore")
-async def restore_session(session: dict):
+async def restore_session(session: dict, http_request: Request):
     """Restore a terminal session."""
+    owned = await _owned(str(session.get("id", "")), http_request)
+    await _terminal_member(_user(http_request), owned.project_id)
     return {"success": False, "error": "Session restoration not yet implemented"}
 
 
 @router.post("/restore-date")
-async def restore_sessions_from_date(request: dict):
+async def restore_sessions_from_date(request: dict, http_request: Request):
     """Restore terminal sessions from a date."""
+    project_id = project_id_for_path(request.get("project"))
+    await _terminal_member(_user(http_request), project_id)
     return {"success": False, "error": "Session restoration not yet implemented"}
 
 
@@ -729,12 +742,16 @@ async def check_terminal_alive(terminal_id: str, http_request: Request):
 
 
 @router.post("/{terminal_id}/invoke-claude")
-async def invoke_claude_in_terminal(terminal_id: str, request: dict = None):
+async def invoke_claude_in_terminal(terminal_id: str, http_request: Request, request: dict = None):
     """Invoke Claude CLI in terminal."""
+    owned = await _owned(terminal_id, http_request)
+    await _terminal_member(_user(http_request), owned.project_id)
     return {"success": False, "error": "Claude invocation not yet implemented"}
 
 
 @router.post("/{terminal_id}/resume-claude")
-async def resume_claude_in_terminal(terminal_id: str, request: dict = None):
+async def resume_claude_in_terminal(terminal_id: str, http_request: Request, request: dict = None):
     """Resume Claude session in terminal."""
+    owned = await _owned(terminal_id, http_request)
+    await _terminal_member(_user(http_request), owned.project_id)
     return {"success": False, "error": "Claude resume not yet implemented"}

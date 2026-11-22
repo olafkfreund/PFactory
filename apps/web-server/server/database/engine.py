@@ -13,7 +13,7 @@ import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -239,11 +239,9 @@ async def init_db() -> None:
     # Ensure a default user exists when auth is disabled (settings already
     # resolved above for the autoApply gate).
     if settings.DISABLE_AUTH:
-        from .models import User
+        from .models import Organization, OrgMember, User  # noqa: PLC0415 - avoids import cycle
 
         async with async_session_factory() as session:
-            from sqlalchemy import select
-
             existing = await session.execute(select(User).where(User.id == "default"))
             if not existing.scalar_one_or_none():
                 session.add(
@@ -256,8 +254,22 @@ async def init_db() -> None:
                         is_active=True,
                     )
                 )
-                await session.commit()
                 logger.info("Created default user for auth-disabled mode")
+            if not await session.get(Organization, "default"):
+                session.add(
+                    Organization(id="default", name="Default", slug="default", owner_id="default")
+                )
+            member = await session.execute(
+                select(OrgMember).where(
+                    OrgMember.org_id == "default", OrgMember.user_id == "default"
+                )
+            )
+            existing_member = member.scalar_one_or_none()
+            if existing_member:
+                existing_member.role = "owner"
+            else:
+                session.add(OrgMember(org_id="default", user_id="default", role="owner"))
+            await session.commit()
 
     logger.info("Database initialization complete")
 

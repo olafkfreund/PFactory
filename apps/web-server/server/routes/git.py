@@ -2,18 +2,29 @@
 Git, Ollama, MCP, and utility routes.
 """
 
-import json
+import asyncio
 import logging
 import shlex
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
 from factory_common.url_safety import assert_safe_outbound_url, build_no_redirect_opener
+from server.database.engine import get_db
+from server.pty.access import project_id_for_path
+from server.routes.project_authz import (
+    PlanAccessChecker,
+    require_camel_project_access,
+    require_path_project_role,
+    require_project_role,
+)
+from server.services.project_paths import load_projects
 
 from ..services.git_utils import (  # #335
     confine_to_workspace,
@@ -33,8 +44,13 @@ router = APIRouter()
 
 
 @router.get("/branches")
-async def get_git_branches(path: str = Query(...)):
+async def get_git_branches(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    path: str = Query(...),
+):
     """Get all branches for a repository."""
+    await require_path_project_role(getattr(request.state, "user", None), path, "viewer", db)
     result = run_git_command(["branch", "--format=%(refname:short)"], path)
     if result["success"]:
         branches = [b.strip() for b in result["output"].split("\n") if b.strip()]
@@ -43,8 +59,13 @@ async def get_git_branches(path: str = Query(...)):
 
 
 @router.get("/current-branch")
-async def get_current_git_branch(path: str = Query(...)):
+async def get_current_git_branch(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    path: str = Query(...),
+):
     """Get current branch name."""
+    await require_path_project_role(getattr(request.state, "user", None), path, "viewer", db)
     result = run_git_command(["branch", "--show-current"], path)
     if result["success"]:
         return {"success": True, "data": result["output"]}
@@ -52,8 +73,13 @@ async def get_current_git_branch(path: str = Query(...)):
 
 
 @router.get("/main-branch")
-async def detect_main_branch(path: str = Query(...)):
+async def detect_main_branch(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    path: str = Query(...),
+):
     """Detect the main branch (main or master)."""
+    await require_path_project_role(getattr(request.state, "user", None), path, "viewer", db)
     # Check for main first
     result = run_git_command(["rev-parse", "--verify", "main"], path)
     if result["success"]:
@@ -68,8 +94,13 @@ async def detect_main_branch(path: str = Query(...)):
 
 
 @router.get("/status")
-async def check_git_status(path: str = Query(...)):
+async def check_git_status(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    path: str = Query(...),
+):
     """Check git status for a repository."""
+    await require_path_project_role(getattr(request.state, "user", None), path, "viewer", db)
     # #335: confine caller-supplied path before it touches the filesystem
     try:
         path = str(confine_to_workspace(path))
@@ -102,13 +133,29 @@ class InitGitRequest(BaseModel):
 
 
 @router.post("/init")
-async def initialize_git(request: InitGitRequest):
+async def initialize_git(
+    request: InitGitRequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """Initialize a new git repository with an initial commit (if needed)."""
+    principal = getattr(http_request.state, "user", None)
     # #335: confine caller-supplied path before any filesystem/git access
     try:
         path = str(confine_to_workspace(request.path))
     except ValueError:
         return {"success": False, "error": "path outside the allowed workspace"}
+    project_id = project_id_for_path(path)
+    if project_id is not None:
+        await require_project_role(principal, project_id, "member", db=db)
+    else:
+        await PlanAccessChecker("member").check(principal, None, db)
+        if any(
+            Path(data["path"]).resolve().is_relative_to(Path(path))  # noqa: ASYNC240
+            for data in load_projects().values()
+            if data.get("path")
+        ):
+            raise HTTPException(status_code=404, detail="Project not found")
     git_dir = Path(path) / ".git"
 
     # Check if already a git repo
@@ -117,7 +164,7 @@ async def initialize_git(request: InitGitRequest):
     # Check if repo already has commits
     has_commits = False
     if is_git_repo:
-        commit_check = run_git_command(["rev-parse", "HEAD"], path)
+        commit_check = await asyncio.to_thread(run_git_command, ["rev-parse", "HEAD"], path)
         has_commits = commit_check["success"]
 
     # If already has commits, nothing to do
@@ -126,7 +173,7 @@ async def initialize_git(request: InitGitRequest):
 
     # Initialize git repo if not already
     if not is_git_repo:
-        result = run_git_command(["init"], path)
+        result = await asyncio.to_thread(run_git_command, ["init"], path)
         if not result["success"]:
             logger.warning(
                 "git init failed for %s: %s", sanitize_log(path), sanitize_log(result.get("error"))
@@ -154,8 +201,10 @@ async def initialize_git(request: InitGitRequest):
             pass  # Not critical if this fails
 
     # Stage all files and create initial commit (only if no commits yet)
-    run_git_command(["add", "-A"], path)
-    run_git_command(["commit", "-m", "Initial commit", "--allow-empty"], path)
+    await asyncio.to_thread(run_git_command, ["add", "-A"], path)
+    await asyncio.to_thread(
+        run_git_command, ["commit", "-m", "Initial commit", "--allow-empty"], path
+    )
 
     return {"success": True}
 
@@ -1058,7 +1107,10 @@ async def get_source_version():
 releases_router = APIRouter()
 
 
-@releases_router.get("/versions")
+@releases_router.get(
+    "/versions",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def get_releaseable_versions(projectId: str):
     """Get versions that can be released."""
     return {"success": True, "data": []}
@@ -1078,7 +1130,10 @@ class SquashCommitsRequest(BaseModel):
     message: str | None = Field(None, description="Custom commit message for the squashed commit")
 
 
-@project_router.post("/{projectId}/git/squash")
+@project_router.post(
+    "/{projectId}/git/squash",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def squash_commits(projectId: str, request: SquashCommitsRequest):
     """Squash multiple commits into a single commit.
 
@@ -1098,28 +1153,9 @@ async def squash_commits(projectId: str, request: SquashCommitsRequest):
     Raises:
         HTTPException: If project not found or git operations fail
     """
-    from fastapi import HTTPException
-
     # Load projects to get project path
     try:
-        from ..config import get_settings
-
-        settings = get_settings()
-        projects_file = settings.projects_file
-
-        if not projects_file.exists():
-            raise HTTPException(status_code=404, detail=f"Project {projectId} not found")
-
-        with open(projects_file) as f:
-            projects_data = json.loads(f.read())
-
-        # Find project by ID
-        project = None
-        for proj in projects_data.get("projects", []):
-            if proj.get("id") == projectId:
-                project = proj
-                break
-
+        project = load_projects().get(projectId)
         if not project:
             raise HTTPException(status_code=404, detail=f"Project {projectId} not found")
 
@@ -1248,7 +1284,10 @@ class CreateWorktreeRequest(BaseModel):
     createBranch: bool = Field(True, description="Whether to create a new branch for the worktree")
 
 
-@project_router.post("/{projectId}/git/worktree")
+@project_router.post(
+    "/{projectId}/git/worktree",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     """Create a git worktree for parallel task work.
 
@@ -1272,28 +1311,9 @@ async def create_worktree(projectId: str, request: CreateWorktreeRequest):
     """
     import re
 
-    from fastapi import HTTPException
-
     # Load projects to get project path
     try:
-        from ..config import get_settings
-
-        settings = get_settings()
-        projects_file = settings.projects_file
-
-        if not projects_file.exists():
-            raise HTTPException(status_code=404, detail=f"Project {projectId} not found")
-
-        with open(projects_file) as f:
-            projects_data = json.loads(f.read())
-
-        # Find project by ID
-        project = None
-        for proj in projects_data.get("projects", []):
-            if proj.get("id") == projectId:
-                project = proj
-                break
-
+        project = load_projects().get(projectId)
         if not project:
             raise HTTPException(status_code=404, detail=f"Project {projectId} not found")
 
@@ -1412,7 +1432,10 @@ class PreflightRequest(BaseModel):
     version: str
 
 
-@releases_router.post("/preflight")
+@releases_router.post(
+    "/preflight",
+    dependencies=[Depends(require_camel_project_access("viewer"))],
+)
 async def run_release_preflight(projectId: str, request: PreflightRequest):
     """Run preflight checks for a release."""
     return {"success": True, "data": {"passed": True, "checks": []}}
@@ -1425,7 +1448,10 @@ class CreateReleaseRequest(BaseModel):
     platform: str = "github"
 
 
-@releases_router.post("")
+@releases_router.post(
+    "",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def create_release(projectId: str, request: CreateReleaseRequest):
     """Create a release using GitHub (gh) CLI.
 
@@ -1446,8 +1472,6 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
     Raises:
         HTTPException: If project not found or CLI command fails
     """
-    from fastapi import HTTPException
-
     # Validate platform
     platform = request.platform.lower()
     if platform != "github":
@@ -1468,24 +1492,7 @@ async def create_release(projectId: str, request: CreateReleaseRequest):
 
     # Load projects to get project path
     try:
-        from ..config import get_settings
-
-        settings = get_settings()
-        projects_file = settings.projects_file
-
-        if not projects_file.exists():
-            raise HTTPException(status_code=404, detail=f"Project {projectId} not found")
-
-        with open(projects_file) as f:
-            projects_data = json.loads(f.read())
-
-        # Find project by ID
-        project = None
-        for proj in projects_data.get("projects", []):
-            if proj.get("id") == projectId:
-                project = proj
-                break
-
+        project = load_projects().get(projectId)
         if not project:
             raise HTTPException(status_code=404, detail=f"Project {projectId} not found")
 

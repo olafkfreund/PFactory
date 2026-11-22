@@ -11,8 +11,10 @@ Public paths (no auth required): /api/auth/*, /api/health, static assets, etc.
 import hashlib
 import hmac
 import logging
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from functools import lru_cache
+from typing import Any
 
 from fastapi import HTTPException, Request, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -22,6 +24,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from .config import get_settings
+
+MCP_INTERNAL_PRINCIPAL: ContextVar[dict[str, Any] | None] = ContextVar(
+    "mcp_internal_principal", default=None
+)
 
 
 @lru_cache(maxsize=1)
@@ -166,7 +172,10 @@ async def _try_authenticate_personal_key(token: str) -> dict | None:
 
         # Require the general ``api`` scope for REST access.
         scopes = frozenset(s.strip() for s in (api_key.scopes or "").split(",") if s.strip())
-        scopes = await cap_by_owner_role(session, api_key, scopes)
+        if api_key.user_id:
+            scopes = await cap_by_owner_role(session, api_key, scopes)
+        elif not api_key.org_id:
+            return None
         if API_SCOPE not in scopes:
             return None
 
@@ -177,24 +186,27 @@ async def _try_authenticate_personal_key(token: str) -> dict | None:
         except Exception:  # noqa: BLE001 — last_used is non-critical telemetry
             await session.rollback()
 
-        owner = await session.execute(select(User).where(User.id == api_key.user_id))
-        user = owner.scalar_one_or_none()
-        if user is None or not user.is_active:
-            return None
+        user = None
+        if api_key.user_id:
+            owner = await session.execute(select(User).where(User.id == api_key.user_id))
+            user = owner.scalar_one_or_none()
+            if user is None or not user.is_active:
+                return None
 
         return {
-            "id": user.id,
-            "email": user.email,
-            "role": user.role,
+            "id": user.id if user else None,
+            "email": user.email if user else None,
+            "role": user.role if user else "service",
             "api_key_id": api_key.id,
             "org_id": api_key.org_id,
+            "scopes": tuple(sorted(scopes)),
         }
 
     return None
 
 
 async def _ws_acw_principal(token: str) -> dict[str, object] | None:
-    # Same validator as REST; it requires an active owner, so no ownerless key reaches WS.
+    # Same scoped validator as REST, including org-bound ownerless keys.
     try:
         return await _try_authenticate_personal_key(token)
     except Exception as exc:  # noqa: BLE001 — validator failures deny WS auth
@@ -286,11 +298,15 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         "/api/mcp-stdio/",
     )
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):  # noqa: PLR0912
         path = request.url.path
 
         # Initialize user state to None for every request
         request.state.user = None
+
+        if (caller := MCP_INTERNAL_PRINCIPAL.get()) is not None:
+            request.state.user = caller
+            return await call_next(request)
 
         # Skip all auth when disabled (development mode).
         # Populate request.state.user with the default user so that routes
@@ -302,7 +318,6 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 "id": "default",
                 "email": "default@localhost",
                 "role": "admin",
-                "is_service": True,
             }
             return await call_next(request)
 
@@ -361,7 +376,8 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         # was wiped on a cluster rebuild). Without this ordering an acw_-prefixed
         # shared token falls into Strategy 3, fails the DB lookup, and 401s
         # without ever reaching here.
-        if _is_legacy_api_token(token):
+        if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+            logger.warning("DEPRECATED: legacy shared token used for API access")
             # Legacy token — populate a default user so notifications still work
             request.state.user = {
                 "id": "default",
@@ -413,7 +429,8 @@ async def verify_token(
         return token
 
     # Accept legacy API token
-    if _is_legacy_api_token(token):
+    if _is_legacy_api_token(token) and get_settings().LEGACY_SHARED_TOKEN_FULL_ACCESS:
+        logger.warning("DEPRECATED: legacy shared token used for API access")
         return token
 
     raise HTTPException(
@@ -450,7 +467,8 @@ async def verify_websocket_token(websocket: WebSocket) -> bool:
         return True
 
     # Accept legacy API token
-    if _is_legacy_api_token(token):
+    if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+        logger.warning("DEPRECATED: legacy shared token used for WebSocket access")
         return True
 
     await websocket.close(code=4001, reason="Unauthorized")
@@ -472,7 +490,7 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
     settings = get_settings()
 
     if settings.DISABLE_AUTH:
-        return None
+        return {"id": "default", "email": "default@localhost", "role": "admin"}
 
     # Prefer the Authorization header; fall back to the legacy ?token= query
     # param (with a deprecation warning) for backward compatibility (#555).
@@ -495,8 +513,9 @@ async def authenticate_websocket(websocket: WebSocket) -> dict | None:
         }
 
     # Fall back to legacy token — no user info available
-    if _is_legacy_api_token(token):
-        return None
+    if _is_legacy_api_token(token) and settings.LEGACY_SHARED_TOKEN_FULL_ACCESS:
+        logger.warning("DEPRECATED: legacy shared token used for WebSocket access")
+        return {"id": "default", "is_service": True}
 
     if token.startswith(API_KEY_PREFIX):
         api_user = await _ws_acw_principal(token)

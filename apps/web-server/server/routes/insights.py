@@ -12,10 +12,12 @@ Two routers, mounted at distinct prefixes by ``routes/projects.py``:
 import logging
 from pathlib import Path as FilePath
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
+from server.database.engine import get_db
 from server.error_ref import error_message
 from server.services import run_leases
 from server.services.project_paths import resolve_project_path
@@ -71,7 +73,7 @@ class UpdateModelConfigRequest(BaseModel):
 # ============================================
 
 
-@router.get("/providers")
+@router.get("/providers", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def detect_insights_providers(projectId: str = Path(...)):
     """Detect all available LLM providers for insights chat."""
     from ..services.insights_providers import detect_all_providers
@@ -83,7 +85,7 @@ async def detect_insights_providers(projectId: str = Path(...)):
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def get_insights_session(projectId: str = Path(...)):
     """Get current insights session."""
     project_path = _get_project_path(projectId)
@@ -114,7 +116,7 @@ async def get_insights_session(projectId: str = Path(...)):
     }
 
 
-@router.post("/message")
+@router.post("/message", dependencies=[Depends(require_camel_project_access("member"))])
 async def send_insights_message(projectId: str = Path(...), request: InsightsMessageRequest = ...):
     """Send a message to insights AI."""
     project_path = _get_project_path(projectId)
@@ -131,7 +133,7 @@ async def send_insights_message(projectId: str = Path(...), request: InsightsMes
     return {"success": True}
 
 
-@router.post("/stop")
+@router.post("/stop", dependencies=[Depends(require_camel_project_access("member"))])
 async def stop_insights_message(projectId: str = Path(...)):
     """Stop the currently running insights chat for a project."""
     service = get_insights_service()
@@ -142,7 +144,7 @@ async def stop_insights_message(projectId: str = Path(...)):
     return {"success": True, "cancelled": cancelled}
 
 
-@router.delete("")
+@router.delete("", dependencies=[Depends(require_camel_project_access("member"))])
 async def clear_insights_session(projectId: str = Path(...)):
     """
     Clear current insights session and create a new one.
@@ -203,7 +205,12 @@ async def clear_insights_session(projectId: str = Path(...)):
 
 
 @router.post("/create-task", dependencies=[Depends(require_camel_project_access("member"))])
-async def create_task_from_insights(projectId: str = Path(...), request: CreateTaskRequest = ...):
+async def create_task_from_insights(
+    http_request: Request,
+    projectId: str = Path(...),
+    request: CreateTaskRequest = ...,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
     """Create a task from insights conversation."""
     from .tasks import TaskCreate, create_task
 
@@ -213,7 +220,7 @@ async def create_task_from_insights(projectId: str = Path(...), request: CreateT
             title=request.title,
             description=request.description,
         )
-        result = await create_task(task_request)
+        result = await create_task(http_request, task_request, db)
         return {"success": True, "data": result}
     except Exception:
         logger.exception(
@@ -222,7 +229,7 @@ async def create_task_from_insights(projectId: str = Path(...), request: CreateT
         return {"success": False, "error": "Failed to create task from insights."}
 
 
-@router.post("/generate-task")
+@router.post("/generate-task", dependencies=[Depends(require_camel_project_access("member"))])
 async def generate_task_from_chat(projectId: str = Path(...), request: GenerateTaskRequest = ...):
     """Generate a structured task (title + description) from the current chat session."""
     project_path = _get_project_path(projectId)
@@ -242,7 +249,7 @@ async def generate_task_from_chat(projectId: str = Path(...), request: GenerateT
         return {"success": False, "error": "Failed to generate task from chat."}
 
 
-@router.get("/sessions")
+@router.get("/sessions", dependencies=[Depends(require_camel_project_access("viewer"))])
 async def list_insights_sessions(projectId: str = Path(...)):
     """List all insights sessions."""
     project_path = _get_project_path(projectId)
@@ -251,7 +258,7 @@ async def list_insights_sessions(projectId: str = Path(...)):
     return {"success": True, "data": sessions}
 
 
-@router.post("/sessions")
+@router.post("/sessions", dependencies=[Depends(require_camel_project_access("member"))])
 async def new_insights_session(projectId: str = Path(...)):
     """Create a new insights session."""
     project_path = _get_project_path(projectId)
@@ -271,7 +278,10 @@ async def new_insights_session(projectId: str = Path(...)):
     }
 
 
-@router.post("/sessions/{sessionId}/switch")
+@router.post(
+    "/sessions/{sessionId}/switch",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def switch_insights_session(projectId: str = Path(...), sessionId: str = Path(...)):
     """Switch to a different insights session."""
     project_path = _get_project_path(projectId)
@@ -305,7 +315,10 @@ async def switch_insights_session(projectId: str = Path(...), sessionId: str = P
     }
 
 
-@router.delete("/sessions/{sessionId}")
+@router.delete(
+    "/sessions/{sessionId}",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def delete_insights_session(projectId: str = Path(...), sessionId: str = Path(...)):
     """Delete an insights session."""
     project_path = _get_project_path(projectId)
@@ -314,7 +327,10 @@ async def delete_insights_session(projectId: str = Path(...), sessionId: str = P
     return {"success": result["deleted"], "data": {"switchedTo": result.get("switchedTo")}}
 
 
-@router.patch("/sessions/{sessionId}")
+@router.patch(
+    "/sessions/{sessionId}",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def rename_insights_session(
     projectId: str = Path(...), sessionId: str = Path(...), request: RenameSessionRequest = ...
 ):
@@ -325,7 +341,10 @@ async def rename_insights_session(
     return {"success": success}
 
 
-@router.patch("/sessions/{sessionId}/model")
+@router.patch(
+    "/sessions/{sessionId}/model",
+    dependencies=[Depends(require_camel_project_access("member"))],
+)
 async def update_insights_model_config(
     projectId: str = Path(...), sessionId: str = Path(...), request: UpdateModelConfigRequest = ...
 ):
@@ -342,7 +361,7 @@ async def update_insights_model_config(
 # ============================================
 
 
-@files_router.delete("")
+@files_router.delete("", dependencies=[Depends(require_camel_project_access("member"))])
 async def clear_files_insights_session(projectId: str):
     """
     Clear current files insights session and create a new one.

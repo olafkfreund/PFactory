@@ -2392,7 +2392,7 @@ async def test_unregistered_clients_slow_state_is_not_resurrected(monkeypatch) -
     """
     monkeypatch.setattr(events, "_SEND_TIMEOUT", 0.05)
     wedged = _WedgedWebSocket()
-    events._register_client(wedged, {"id": "user-a"})
+    events._register_client(wedged, {"id": "user-a", "is_service": True})
     try:
         # Two timeouts — under the eviction threshold, still registered.
         await events._deliver_local_broadcast("task:test", {"x": 1})
@@ -2405,7 +2405,7 @@ async def test_unregistered_clients_slow_state_is_not_resurrected(monkeypatch) -
         # Re-register the SAME websocket object and time out ONCE — must
         # start counting from zero, not resume at 3 (which would evict this
         # otherwise-fresh client immediately on a single timeout).
-        events._register_client(wedged, {"id": "user-a"})
+        events._register_client(wedged, {"id": "user-a", "is_service": True})
         await events._deliver_local_broadcast("task:test", {"x": 1})
 
         assert wedged in events.active_connections, "stale count evicted a fresh client early"

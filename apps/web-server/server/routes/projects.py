@@ -8,7 +8,8 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -16,9 +17,22 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
+from plan.repo_ref import parse_repo_ref
+from server.config import get_settings
 from server.database.engine import get_db
 from server.error_ref import error_message
-from server.routes.project_authz import creator_org, require_project_access
+from server.pty.access import project_id_for_path
+from server.routes.organizations import ROLE_LEVELS
+from server.routes.project_authz import (
+    _member_roles,
+    canonical_repo_ref,
+    creator_org,
+    is_service_principal,
+    require_plan_access,
+    require_project_access,
+    scope_role_ceiling,
+    visible_project_ids,
+)
 from server.services import task_log_store
 from server.services.git_utils import confine_to_workspace, git_run, safe_spec_component
 from server.services.project_paths import (
@@ -28,6 +42,12 @@ from server.services.project_paths import (
     resolve_project_path,
     resolve_project_path_or_error,
     save_projects,
+)
+from server.services.project_workspace_service import (
+    GitOperationError,
+    clone_or_update,
+    slug_from_git_url,
+    workspace_root,
 )
 
 # The registry loader and the path resolver live in services/project_paths.py
@@ -239,17 +259,18 @@ def ensure_tracked_project(repo: str, org_id: str | None = None) -> str | None:
     # tracked project came to read as gitProvider "github" whatever the tenant
     # declared, which is one of the ways a GitLab tenant's run ended up on
     # GitHub. An unqualified reference is GitHub, exactly as before.
-    from plan.repo_ref import parse_repo_ref
-
     provider, repo = parse_repo_ref(repo) or ("github", repo)
     try:
         projects = load_projects()
         # Reuse an existing project registered for this repo (don't overwrite a
         # real clone's record).
         for pid, pdata in projects.items():
-            if pdata.get("repo") == repo:
+            existing_provider = (pdata.get("settings") or {}).get("gitProvider", "github")
+            if canonical_repo_ref(pdata.get("repo"), existing_provider) == canonical_repo_ref(
+                repo, provider
+            ):
                 return pid
-        project_id = repo.replace("/", "-")
+        project_id = (f"{provider}-" if provider != "github" else "") + repo.replace("/", "-")
         if project_id not in projects:
             projects[project_id] = {
                 "name": repo.split("/")[-1],
@@ -307,7 +328,9 @@ def analyze_project(path: str) -> dict:
     }
 
 
-def project_to_response(project_id: str, project_data: dict) -> dict:
+def project_to_response(
+    project_id: str, project_data: dict[str, Any], *, include_secrets: bool = False
+) -> dict[str, Any]:
     """Convert stored project data to response dict matching frontend expectations."""
     project_path_str = project_data.get("path") or ""
     analysis = analyze_project(project_path_str)
@@ -316,7 +339,7 @@ def project_to_response(project_id: str, project_data: dict) -> dict:
     auto_build_path = ".pfactory" if analysis["has_magestic_ai"] else ""
 
     # Build settings: start with defaults, then overlay saved settings
-    default_settings = {
+    default_settings: dict[str, Any] = {
         "model": "claude-sonnet-4-5-20250929",
         "memoryBackend": "file",
         "notifications": {
@@ -332,6 +355,13 @@ def project_to_response(project_id: str, project_data: dict) -> dict:
     }
     # Merge saved settings from projects.json (written by update_project_settings)
     saved_settings = project_data.get("settings", {})
+    if not include_secrets:
+        secret_keys = ("token", "secret", "password", "credential", "apikey", "api_key")
+        saved_settings = {
+            k: v
+            for k, v in saved_settings.items()
+            if not any(word in k.lower() for word in secret_keys)
+        }
     if saved_settings:
         # Merge notifications separately to preserve individual keys
         if "notifications" in saved_settings:
@@ -383,15 +413,24 @@ async def _resolve_git_credential(cred_id: str) -> tuple[str, str] | None:
 
 
 @router.get("")
-async def list_projects():
+async def list_projects(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """List all registered projects.
 
     Returns projects array directly (not wrapped) because
     the frontend api-client.ts adds the {success, data} wrapper automatically.
     """
     projects = load_projects()
-    project_list = [project_to_response(pid, pdata) for pid, pdata in projects.items()]
-    return project_list
+    principal = getattr(request.state, "user", None)
+    visible = await visible_project_ids(principal, db)
+    admins = await visible_project_ids(principal, db, "admin")
+    return [
+        project_to_response(pid, pdata, include_secrets=pid in admins)
+        for pid, pdata in projects.items()
+        if pid in visible
+    ]
 
 
 class DiscoveredProject(BaseModel):
@@ -413,8 +452,12 @@ class ScanProjectsRequest(BaseModel):
     maxDepth: int = Field(default=1, ge=1, le=5, description="Maximum scan depth (1-5, default 1)")
 
 
-@router.post("/scan")
-async def scan_for_projects(request: ScanProjectsRequest):
+@router.post("/scan", dependencies=[Depends(require_plan_access("member"))])
+async def scan_for_projects(
+    request: ScanProjectsRequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """
     Scan filesystem for PFactory projects.
 
@@ -447,17 +490,20 @@ async def scan_for_projects(request: ScanProjectsRequest):
                 detail="path outside the allowed workspace",
             )
 
+        visible = await visible_project_ids(getattr(http_request.state, "user", None), db)
+        base_owner = project_id_for_path(str(base))
+        if base_owner is not None and base_owner not in visible:
+            raise HTTPException(status_code=404, detail="Project not found")
+
         if not base.exists():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path does not exist: {request.basePath}",
-            )
+            if get_settings().DISABLE_AUTH:
+                return []
+            raise HTTPException(status_code=404, detail="Project not found")
 
         if not base.is_dir():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path is not a directory: {request.basePath}",
-            )
+            if get_settings().DISABLE_AUTH:
+                return []
+            raise HTTPException(status_code=404, detail="Project not found")
 
         projects = []
 
@@ -489,6 +535,10 @@ async def scan_for_projects(request: ScanProjectsRequest):
                         "htmlcov",
                         "coverage",
                     ):
+                        continue
+
+                    owner_pid = project_id_for_path(str(entry))
+                    if owner_pid is not None and owner_pid not in visible:
                         continue
 
                     # Check for project indicators
@@ -541,18 +591,41 @@ async def scan_for_projects(request: ScanProjectsRequest):
         ) from e
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_plan_access("member"))],
+)
 async def add_project(
     project: ProjectCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict[str, Any]:
     """Register a project, stamped with the creating principal's org (#1036)."""
-    org_id = await creator_org(getattr(request.state, "user", None), db)
+    principal = getattr(request.state, "user", None)
+    org_id = await creator_org(principal, db)
+    if is_service_principal(principal):
+        org_id = "default"
+    if not org_id and not is_service_principal(principal):
+        raise HTTPException(status_code=403, detail="Project membership required")
+    grant = (await _member_roles(principal, db)).get(org_id or "", "")
+    if (
+        org_id
+        and ROLE_LEVELS.get(grant, -1) < ROLE_LEVELS["member"]
+        and not is_service_principal(principal)
+        and not get_settings().DISABLE_AUTH
+    ):
+        raise HTTPException(status_code=403, detail="Project membership required")
+    ceiling = scope_role_ceiling(principal or {})
+    if (
+        not is_service_principal(principal)
+        and ROLE_LEVELS.get(ceiling or "", -1) < ROLE_LEVELS["member"]
+    ):
+        raise HTTPException(status_code=403, detail="Project member scope required")
     return await create_project(project, org_id)
 
 
-async def create_project(project: ProjectCreate, org_id: str | None = None) -> dict[str, Any]:
+async def create_project(project: ProjectCreate, org_id: str | None = None) -> dict[str, Any]:  # noqa: PLR0915 - registration has local and clone paths
     """Add a new project. Two paths (#82 PR-A):
 
     1. **Local path** (``path`` set) — register an existing directory
@@ -567,13 +640,31 @@ async def create_project(project: ProjectCreate, org_id: str | None = None) -> d
     """
     created_directory = False
 
+    _check_project_overlap(_project_candidate(project), org_id)
+    if project.gitUrl:
+        target = canonical_repo_ref(project.gitUrl)
+        for existing in load_projects().values():
+            settings = existing.get("settings") or {}
+            provider = urlsplit(settings.get("gitBaseUrl") or "").hostname or settings.get(
+                "gitProvider", "github"
+            )
+            if any(
+                canonical_repo_ref(value, provider) == target
+                for value in (
+                    existing.get("repo"),
+                    existing.get("clonedFrom"),
+                    existing.get("gitUrl"),
+                    settings.get("gitRepo"),
+                    settings.get("githubRepo"),
+                )
+                if value
+            ):
+                if existing.get("org_id") != org_id and not get_settings().DISABLE_AUTH:
+                    raise HTTPException(status_code=404, detail="Project not found")
+                raise HTTPException(status_code=409, detail="Project already registered")
+
     if project.gitUrl:
         # Clone mode — defer to project_workspace_service.
-        from ..services.project_workspace_service import (
-            GitOperationError,
-            clone_or_update,
-        )
-
         # Stored credential lookup (#82 PR-C). When the caller passes
         # gitCredentialId, fetch the (username, token) tuple from the
         # git_credentials table and pass it to the clone service.
@@ -643,12 +734,7 @@ async def create_project(project: ProjectCreate, org_id: str | None = None) -> d
 
     # Check if already registered
     projects = load_projects()
-    for pid, pdata in projects.items():
-        if pdata["path"] == str(project_path.resolve()):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Project already registered",
-            )
+    _check_project_overlap(project_path.resolve(), org_id)
 
     # Create project entry
     project_id = str(uuid4())
@@ -678,8 +764,31 @@ async def create_project(project: ProjectCreate, org_id: str | None = None) -> d
     return response
 
 
-@router.get("/{project_id}")
-async def get_project(project_id: str):
+def _check_project_overlap(path: Path, org_id: str | None, exclude: str | None = None) -> None:
+    for pid, pdata in load_projects().items():
+        if pid == exclude or not pdata.get("path"):
+            continue
+        root = Path(pdata["path"]).resolve()
+        if path == root or path in root.parents or root in path.parents:
+            if pdata.get("org_id") != org_id and not get_settings().DISABLE_AUTH:
+                raise HTTPException(status_code=404, detail="Project not found")
+            if path == root or path in root.parents:
+                raise HTTPException(status_code=409, detail="Project already registered")
+
+
+def _project_candidate(project: ProjectCreate) -> Path:
+    try:
+        if project.gitUrl:
+            return (workspace_root() / slug_from_git_url(project.gitUrl)).resolve()
+        return confine_to_workspace(project.path).resolve()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project destination") from None
+
+
+@router.get("/{project_id}", dependencies=[Depends(require_project_access("viewer"))])
+async def get_project(
+    project_id: str, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
+):
     """Get a specific project by ID."""
     projects = load_projects()
     if project_id not in projects:
@@ -688,10 +797,13 @@ async def get_project(project_id: str):
             detail="Project not found",
         )
 
-    return project_to_response(project_id, projects[project_id])
+    admins = await visible_project_ids(getattr(request.state, "user", None), db, "admin")
+    return project_to_response(
+        project_id, projects[project_id], include_secrets=project_id in admins
+    )
 
 
-@router.put("/{project_id}")
+@router.put("/{project_id}", dependencies=[Depends(require_project_access("admin"))])
 async def update_project(project_id: str, project: ProjectCreate):
     """Update a project's metadata."""
     projects = load_projects()
@@ -713,6 +825,7 @@ async def update_project(project_id: str, project: ProjectCreate):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="path outside the allowed workspace",
             )
+        _check_project_overlap(project_path.resolve(), project_data.get("org_id"), project_id)
         if not project_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -731,7 +844,11 @@ async def update_project(project_id: str, project: ProjectCreate):
     return project_to_response(project_id, project_data)
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{project_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_project_access("admin"))],
+)
 async def remove_project(project_id: str):
     """Remove a project (unregister, does not delete files)."""
     projects = load_projects()
@@ -745,7 +862,7 @@ async def remove_project(project_id: str):
     save_projects(projects)
 
 
-@router.post("/{project_id}/initialize")
+@router.post("/{project_id}/initialize", dependencies=[Depends(require_project_access("member"))])
 async def initialize_project(project_id: str):
     """Initialize PFactory in a project (create .pfactory directory).
 
@@ -777,7 +894,7 @@ async def initialize_project(project_id: str):
         return {"success": False, "error": "Failed to initialize project."}
 
 
-@router.get("/{project_id}/version")
+@router.get("/{project_id}/version", dependencies=[Depends(require_project_access("viewer"))])
 async def check_project_version(project_id: str):
     """Check PFactory version info for a project."""
     project_path = resolve_project_path(project_id)
@@ -845,7 +962,7 @@ class ProjectSettingsUpdate(BaseModel):
         return v
 
 
-@router.patch("/{project_id}/settings")
+@router.patch("/{project_id}/settings", dependencies=[Depends(require_project_access("admin"))])
 async def update_project_settings(project_id: str, settings: ProjectSettingsUpdate):
     """Update project settings."""
     projects = load_projects()
@@ -957,7 +1074,7 @@ async def update_project_settings(project_id: str, settings: ProjectSettingsUpda
         ) from e
 
 
-@router.get("/{project_id}/worktrees")
+@router.get("/{project_id}/worktrees", dependencies=[Depends(require_project_access("viewer"))])
 async def list_project_worktrees(project_id: str):
     """List worktrees for a project with detailed stats."""
     import re
@@ -1103,7 +1220,7 @@ async def list_project_worktrees(project_id: str):
         return {"worktrees": [], "error": "Failed to list worktrees."}
 
 
-@router.get("/{project_id}/tasks")
+@router.get("/{project_id}/tasks", dependencies=[Depends(require_project_access("viewer"))])
 async def list_project_tasks(project_id: str):
     """List all tasks for a specific project.
 
@@ -1275,7 +1392,10 @@ async def unwatch_project_task_logs(project_id: str, spec_id: str):
     return {"success": True, "message": "Log unwatching handled via WebSocket"}
 
 
-@router.get("/{project_id}/tasks/{spec_id}/logs")
+@router.get(
+    "/{project_id}/tasks/{spec_id}/logs",
+    dependencies=[Depends(require_project_access("viewer"))],
+)
 async def get_project_task_logs(project_id: str, spec_id: str):
     """Get logs for a task (delegates to tasks router)."""
     from . import tasks as tasks_module

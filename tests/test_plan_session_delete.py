@@ -52,7 +52,11 @@ class _Request:
 
     def __init__(self, headers: dict | None = None, user_id: str | None = None) -> None:
         self.headers = headers or {}
-        self.state = SimpleNamespace(user_id=user_id, org_id="acme-org" if user_id else None)
+        self.state = SimpleNamespace(
+            user_id=user_id,
+            org_id="acme-org" if user_id else None,
+            user={"id": user_id or "delete-test", "is_service": True},
+        )
         self.client = SimpleNamespace(host="203.0.113.7") if user_id else None
 
 

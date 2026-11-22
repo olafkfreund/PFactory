@@ -42,6 +42,7 @@ def env(tmp_path, monkeypatch):
             await db.flush()
             db.add(models.OrgMember(org_id="A", user_id="viewer-a", role="viewer"))
             db.add(models.OrgMember(org_id="A", user_id="member-a", role="member"))
+            db.add(models.OrgMember(org_id="A", user_id="owner", role="owner"))
             await db.commit()
 
     asyncio.run(_init())
@@ -97,9 +98,9 @@ def test_console_write_requires_member(env, action):
     client, settings, audits, _ = env
     path = f"/api/tasks/p1:s1/agent-console/{action}"
     response = client.post(path, json={"connection_id": "c1"}, headers={"X-U": "viewer-a"})
-    assert response.status_code == 404  # shadow reaches the unregistered-session handler
+    assert response.status_code == 403
     assert len(audits) == 1
-    assert audits[0]["details"]["shadow"] is True
+    assert "shadow" not in audits[0]["details"]
     settings.RBAC_ENFORCE_TASK_ROUTES = True
     response = client.post(path, json={"connection_id": "c1"}, headers={"X-U": "viewer-a"})
     assert response.status_code == 403
@@ -144,11 +145,11 @@ def test_console_rejects_cross_project_session(env, tmp_path, action):
         project_id="pB",
     )
     settings.RBAC_ENFORCE_TASK_ROUTES = True
-    for spec_id, expected in (("p1:sB", 404), ("pB:sB", 403)):
+    for spec_id, expected in (("p1:sB", 404), ("pB:sB", 404)):
         response = client.post(
             f"/api/tasks/{spec_id}/agent-console/{action}",
             json={"connection_id": "c1"},
-            headers={"X-U": "member-a"},
+            headers={"X-U": "owner"},
         )
         assert response.status_code == expected
 
@@ -296,19 +297,19 @@ def mcp_env(env, monkeypatch):
 def test_mcp_write_requires_member(mcp_env):
     client, settings, audits, selected, legacy, handler, plan_handler, _, key_cls = mcp_env
 
-    # Org-B key on org-A task write: always 403 even with flag off (Deviation).
+    # Org-B key cannot see an org-A task.
     settings.RBAC_ENFORCE_TASK_ROUTES = False
     response = client.post("/api/mcp-stdio/tasks/p1:s/start")
-    assert response.status_code == 403
+    assert response.status_code == 404
     handler.assert_not_awaited()
     assert len(audits) == 1
 
-    # Plan write with org-B key (user has no membership in B): shadow 200, enforce 403.
+    # Plan write with org-B key whose owner has no membership in B.
     response = client.post("/api/mcp-stdio/plan/sessions/s/process")
-    assert response.status_code == 200
-    plan_handler.assert_awaited_once()
+    assert response.status_code == 403
+    plan_handler.assert_not_awaited()
     assert len(audits) == 2
-    assert audits[1]["details"]["shadow"] is True
+    assert "shadow" not in audits[1]["details"]
 
     settings.RBAC_ENFORCE_TASK_ROUTES = True
     plan_handler.reset_mock()
@@ -317,7 +318,7 @@ def test_mcp_write_requires_member(mcp_env):
     plan_handler.assert_not_awaited()
     assert len(audits) == 3
 
-    # Same-org (org A) key whose user has no membership: shadow 200 + audit, enforce 403.
+    # Same-org key still needs its owner's membership.
     selected["key"] = key_cls(
         key_id="key-a-outsider",
         scopes=frozenset({"task:write", "plan:write"}),
@@ -325,16 +326,16 @@ def test_mcp_write_requires_member(mcp_env):
         org_id="A",
     )
     response = client.post("/api/mcp-stdio/tasks/p1:s/start")
-    assert response.status_code == 403
+    assert response.status_code == 404
     handler.assert_not_awaited()
     assert len(audits) == 4
 
     settings.RBAC_ENFORCE_TASK_ROUTES = False
     response = client.post("/api/mcp-stdio/tasks/p1:s/start")
-    assert response.status_code == 200
-    handler.assert_awaited_once()
+    assert response.status_code == 404
+    handler.assert_not_awaited()
     assert len(audits) == 5
-    assert audits[4]["details"]["shadow"] is True
+    assert "shadow" not in audits[4]["details"]
 
     selected["key"] = legacy
     for path in ("/api/mcp-stdio/tasks/p1:s/start", "/api/mcp-stdio/plan/sessions/s/process"):
@@ -353,7 +354,7 @@ def test_mcp_read_rejects_foreign_org_key_with_flag_off(mcp_env, path):
     client, settings, audits, _, _, _, _, read_handler, _ = mcp_env
     settings.RBAC_ENFORCE_TASK_ROUTES = False
     response = client.get(path)
-    assert response.status_code == 403
+    assert response.status_code == 404
     read_handler.assert_not_awaited()
     assert len(audits) == 1
 
@@ -387,14 +388,14 @@ def test_mcp_read_same_org_and_legacy_keys(mcp_env, path):
     )
     settings.RBAC_ENFORCE_TASK_ROUTES = False
     response = client.get(path)
-    assert response.status_code == 200
+    assert response.status_code == 404
     assert len(audits) == 1
-    assert audits[0]["details"]["shadow"] is True
+    assert "shadow" not in audits[0]["details"]
 
     settings.RBAC_ENFORCE_TASK_ROUTES = True
     read_handler.reset_mock()
     response = client.get(path)
-    assert response.status_code == 403
+    assert response.status_code == 404
     read_handler.assert_not_awaited()
     assert len(audits) == 2
 
@@ -406,6 +407,9 @@ def test_mcp_read_same_org_and_legacy_keys(mcp_env, path):
 
 def test_mcp_lists_filter_foreign_projects(mcp_env):
     client, _, _, selected, legacy, _, _, _, _ = mcp_env
+    selected["key"] = type(selected["key"])(
+        key_id="org-b-reader", scopes=frozenset({"mcp:read"}), user_id=None, org_id="B"
+    )
     assert client.get("/api/mcp-stdio/projects").json() == [{"id": "pB"}]
     assert [t["project_id"] for t in client.get("/api/mcp-stdio/tasks").json()["tasks"]] == ["pB"]
     assert client.get("/api/mcp-stdio/tasks").json()["total"] == 1
@@ -431,9 +435,9 @@ def test_mcp_lists_filter_foreign_projects(mcp_env):
 def test_mcp_plan_read_requires_viewer(mcp_env, path):
     client, settings, audits, _, _, _, _, read_handler, _ = mcp_env
     settings.RBAC_ENFORCE_TASK_ROUTES = False
-    assert client.get(path).status_code == 200
+    assert client.get(path).status_code == 403
     assert len(audits) == 1
-    assert audits[0]["details"]["shadow"] is True
+    assert "shadow" not in audits[0]["details"]
 
     settings.RBAC_ENFORCE_TASK_ROUTES = True
     read_handler.reset_mock()
@@ -459,10 +463,10 @@ def test_console_attach_audit_carries_user_and_org(env, tmp_path, monkeypatch):
     response = client.post(
         "/api/tasks/p1:s1/agent-console/attach",
         json={"connection_id": "c1"},
-        headers={"X-U": "member-a", "X-Org": "A"},
+        headers={"X-U": "owner", "X-Org": "A"},
     )
     assert response.status_code == 200
-    assert captured["user_id"] == "member-a"
+    assert captured["user_id"] == "owner"
     assert captured["org_id"] == "A"
 
 
