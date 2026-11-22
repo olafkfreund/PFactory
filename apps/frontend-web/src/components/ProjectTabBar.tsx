@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react';
-import { Plus, Settings, HelpCircle, Sun, Moon } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Settings, HelpCircle, Sun, Moon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiRequest } from '../lib/api-client';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import { SortableProjectTab } from './SortableProjectTab';
-import { ProjectSelector } from './settings/ProjectSelector';
+import { ProjectBreadcrumb } from './ProjectBreadcrumb';
 import { PortalSwitcher } from './PortalSwitcher';
 import { ClaudeCodeStatusBadge } from './ClaudeCodeStatusBadge';
 import { CLIToolStatusBadge } from './CLIToolStatusBadge';
 import { OpenAIEndpointsStatusBadge } from './OpenAIEndpointsStatusBadge';
 import { useProjectStore } from '../stores/project-store';
+import { projectSlugs } from '../lib/project-route';
 import { useSettingsStore, saveSettings } from '../stores/settings-store';
 import type { Project } from '../shared/types';
 
@@ -19,8 +20,10 @@ interface ProjectTabBarProps {
   activeProjectId: string | null;
   onProjectSelect: (projectId: string) => void;
   onProjectClose: (projectId: string) => void;
-  onAddProject: () => void;
-  onProjectAdded?: (project: Project, needsInit: boolean) => void;
+  /** Canonical slug of the project the URL shows */
+  currentSlug?: string;
+  /** Open the Projects page (add / delete live there) */
+  onViewAllProjects: () => void;
   className?: string;
   // Control props for active tab
   onSettingsClick?: () => void;
@@ -32,15 +35,17 @@ export function ProjectTabBar({
   activeProjectId,
   onProjectSelect,
   onProjectClose,
-  onAddProject,
-  onProjectAdded,
+  currentSlug,
+  onViewAllProjects,
   className,
   onSettingsClick,
   onOpenOnboarding,
 }: ProjectTabBarProps) {
   const allProjects = useProjectStore((state) => state.projects);
-  const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
-  const selectProject = useProjectStore((state) => state.selectProject);
+  const breadcrumbRoot = useRef<HTMLDivElement>(null);
+  const focusBreadcrumb = () => breadcrumbRoot.current?.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')?.focus();
+  const slugs = projectSlugs(allProjects);
+  const breadcrumbProjects = allProjects.map((p) => ({ slug: slugs.get(p.id) ?? p.id, name: p.name }));
   const theme = useSettingsStore((state) => state.settings.theme);
   const updateStoreSettings = useSettingsStore((state) => state.updateSettings);
   const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -132,10 +137,9 @@ export function ProjectTabBar({
   return (
     <div className={cn(
       'flex items-center border-b border-border bg-background',
-      'overflow-x-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent',
       className
     )}>
-      <div className="flex items-center flex-1 min-w-0">
+      <div className="flex items-center flex-1 min-w-0 overflow-x-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {projects.map((project, index) => {
           const isActiveTab = activeProjectId === project.id;
           return (
@@ -145,7 +149,7 @@ export function ProjectTabBar({
               isActive={isActiveTab}
               canClose={projects.length > 1}
               tabIndex={index}
-              onSelect={() => onProjectSelect(project.id)}
+              onSelect={() => { onProjectSelect(project.id); }}
               onClose={(e) => {
                 e.stopPropagation();
                 onProjectClose(project.id);
@@ -158,32 +162,30 @@ export function ProjectTabBar({
       </div>
 
       <div className="flex items-center gap-2 px-2 py-1">
-        <PortalSwitcher current="plan" needsCount={needsCount} />
+        <PortalSwitcher
+          current="plan"
+          needsCount={needsCount}
+          project={currentSlug ? { slug: currentSlug, portals: ['plan', 'build', 'test'] } : undefined}
+        />
         <Separator orientation="vertical" className="h-4 mx-0.5" />
-        <div className="w-48">
-          <ProjectSelector
-            selectedProjectId={selectedProjectId}
-            onProjectChange={(projectId) => {
-              if (projectId) {
-                selectProject(projectId);
-                const { openProjectTab } = useProjectStore.getState();
-                openProjectTab(projectId);
-                onProjectSelect(projectId);
-              }
-            }}
-            onProjectAdded={onProjectAdded}
-            showPath={false}
-          />
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={onAddProject}
-          title="Add Project"
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        <div ref={breadcrumbRoot} onKeyDownCapture={(event) => {
+          if (event.key !== 'Escape') return;
+          const trigger = breadcrumbRoot.current?.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]');
+          if (trigger?.getAttribute('aria-expanded') !== 'true') return;
+          event.preventDefault();
+          event.stopPropagation();
+          trigger.click();
+          trigger.focus();
+        }}><ProjectBreadcrumb
+          projects={breadcrumbProjects}
+          currentSlug={currentSlug}
+          onSelect={(slug) => {
+            focusBreadcrumb();
+            const p = allProjects.find((x) => slugs.get(x.id) === slug);
+            if (p) onProjectSelect(p.id);
+          }}
+          onViewAll={() => { focusBreadcrumb(); onViewAllProjects(); }}
+        /></div>
         <Separator orientation="vertical" className="h-4 mx-0.5" />
         {/* Provider / CLI health, grouped into one cohesive status cluster
             (each badge keeps its own hover tooltip). */}

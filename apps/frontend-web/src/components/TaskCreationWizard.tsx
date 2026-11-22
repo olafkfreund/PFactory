@@ -96,8 +96,7 @@ export function TaskCreationWizard({
 
   // Get project path from project store
   // Note: projectPath must be non-null for the Browse Files button to render.
-  // This depends on receiving the correct projectId prop from App.tsx,
-  // which should use (activeProjectId || selectedProjectId) for multi-tab support.
+  // App.tsx passes the project resolved from the URL.
   const projects = useProjectStore((state) => state.projects);
   const projectPath = useMemo(() => {
     const project = projects.find((p) => p.id === projectId);
