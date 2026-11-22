@@ -88,14 +88,14 @@ def test_ensure_tracked_project_stamps_org_and_is_visible_under_enforce(env):
     assert exc.value.status_code == 404
 
 
-def test_unstamped_project_is_403_for_non_service(env):
+def test_unstamped_project_is_404_for_non_service(env):
     from server.routes import projects
 
     pid = projects.ensure_tracked_project("acme/orphan")  # service caller: no org
     assert "org_id" not in projects.load_projects()[pid]
     with pytest.raises(HTTPException) as exc:
         env.run(lambda db: env.pa.authorize_project_for_user({"id": "solo"}, pid, db))
-    assert exc.value.status_code == 403
+    assert exc.value.status_code == 404
 
 
 def test_add_project_stamps_creator_org(env, tmp_path, monkeypatch):

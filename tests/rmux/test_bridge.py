@@ -27,6 +27,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from server.rmux import bridge
 from server.rmux.bridge import router
 from server.rmux.session import SessionRegistry, configure, reset_for_tests
 from server.rmux.wrapper import RmuxWrapper
@@ -45,7 +46,7 @@ def _reset_registry_between_tests():
 
 
 @pytest.fixture
-def app_with_bridge(tmp_path) -> tuple[FastAPI, SessionRegistry]:
+def app_with_bridge(tmp_path, monkeypatch) -> tuple[FastAPI, SessionRegistry]:
     """Minimal FastAPI app mounting the bridge router with auth + DB
     dependencies overridden so we can drive it via TestClient without
     booting the whole web-server."""
@@ -65,6 +66,14 @@ def app_with_bridge(tmp_path) -> tuple[FastAPI, SessionRegistry]:
     # the routes without needing a real database or token middleware.
     from server.auth import verify_websocket_token
     from server.database.engine import get_db
+    from server.routes import project_authz
+
+    monkeypatch.setattr(bridge, "_project_of", lambda _spec_id: "bridge-test")
+    monkeypatch.setattr(
+        project_authz.project_paths,
+        "load_projects",
+        lambda: {"bridge-test": {"org_id": "default"}},
+    )
 
     async def _no_op_db():
         yield None

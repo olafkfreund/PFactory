@@ -48,6 +48,7 @@ class ConnectedClient:
     user_id: str | None = None
     org_ids: set[str] = field(default_factory=set)
     key_org_id: str | None = None
+    local_service: bool = False
 
 
 # Active WebSocket connections — keyed by WebSocket object for fast lookup
@@ -85,6 +86,16 @@ def _register_client(ws: WebSocket, user_info: dict | None) -> ConnectedClient:
         websocket=ws,
         user_id=user_info["id"] if user_info else None,
         key_org_id=(user_info or {}).get("org_id"),
+        org_ids={user_info["org_id"]}
+        if user_info
+        and user_info.get("api_key_id")
+        and user_info.get("org_id")
+        and not user_info.get("id")
+        else set(),
+        local_service=bool(
+            (user_info or {}).get("is_service")
+            or (get_settings().DISABLE_AUTH and (user_info or {}).get("id") == "default")
+        ),
     )
     _clients[ws] = client
     active_connections.add(ws)
@@ -280,25 +291,18 @@ def _jwt_strict() -> bool:
     return bool(get_settings().RBAC_ENFORCE_TASK_ROUTES)
 
 
-def _may_receive(client: ConnectedClient, org: str | None, shadow: bool = False) -> bool:
-    """``shadow`` marks a former broadcast: JWT sockets keep it until REST enforces.
-
-    Explicit ``send_to_org`` sends stay members-only in every mode, as before.
-    """
+def _may_receive(client: ConnectedClient, org: str | None, shadow: bool = False) -> bool:  # noqa: ARG001
+    """Authorize delivery for all broadcasts and direct organization events."""
     # Key rule first: an org-bound key with no owner must not pass as a service client.
+    if client.local_service:
+        return True
     if client.key_org_id is not None:
         # Also needs live membership: a failed lookup or a removed owner gets nothing.
         return org is not None and org == client.key_org_id and org in client.org_ids
     if client.user_id is None:
         return True
     strict_ok = org is not None and org in client.org_ids
-    if not shadow or _jwt_strict():
-        return strict_ok
-    if not strict_ok:
-        logger.debug(
-            "ws would drop %s for user %s", sanitize_log(org), sanitize_log(client.user_id)
-        )
-    return True
+    return strict_ok
 
 
 async def _deliver_local_broadcast(event_type: str, payload: dict[str, Any]) -> None:
@@ -445,7 +449,7 @@ async def _load_org_ids(client: ConnectedClient, user_info: dict[str, Any] | Non
     Returns False only when the lookup raised (#312); success, an empty
     membership and the no-user case return True.
     """
-    if not (user_info and user_info.get("id")):
+    if client.local_service or not (user_info and user_info.get("id")):
         return True
     try:
         from sqlalchemy import select

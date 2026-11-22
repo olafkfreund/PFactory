@@ -459,7 +459,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   setError: (error) => set({ error }),
 
-  clearTasks: () => set({ tasks: [], selectedTaskId: null }),
+  clearTasks: () => { loadTasksRequestId++; set({ tasks: [], selectedTaskId: null, isLoading: false }); },
 
   getSelectedTask: () => {
     const state = get();
@@ -475,24 +475,31 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 /**
  * Load tasks for a project
  */
+let loadTasksRequestId = 0;
+
 export async function loadTasks(projectId: string): Promise<void> {
   const store = useTaskStore.getState();
+  const requestId = ++loadTasksRequestId;
   store.setLoading(true);
   store.setError(null);
 
   try {
     const result = await window.API.getTasks(projectId);
+    if (requestId !== loadTasksRequestId) return;
     if (result.success && result.data) {
       store.setTasks(result.data);
     } else {
       store.setError(result.error || 'Failed to load tasks');
     }
   } catch (error) {
+    if (requestId !== loadTasksRequestId) return;
     store.setError(error instanceof Error ? error.message : 'Unknown error');
   } finally {
-    store.setLoading(false);
-    // Clear project switching state
-    useProjectStore.getState().clearSwitchingState();
+    if (requestId === loadTasksRequestId) {
+      store.setLoading(false);
+      // Clear project switching state
+      useProjectStore.getState().clearSwitchingState();
+    }
   }
 }
 

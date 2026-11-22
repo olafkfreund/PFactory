@@ -5,6 +5,7 @@
 export interface Project {
   id: string;
   name: string;
+  slug?: string;
   path: string;
   autoBuildPath: string;
   settings: ProjectSettings;

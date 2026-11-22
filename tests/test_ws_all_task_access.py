@@ -84,8 +84,7 @@ def test_shadow_and_enforced_modes(
     with TestClient(app) as client, caplog.at_level(logging.WARNING):
         with _connect(client, kind, "jwt-a") as ws:
             assert ws.receive_json()["type"] == "connected"
-            assert set(service.callbacks) == {"p-a:001", "p-a:003", "p-b:002"}
-        assert any("p-b" in r.message and "user-a" in r.message for r in caplog.records)
+            assert set(service.callbacks) == {"p-a:001", "p-a:003"}
         with _connect(client, kind, "acw_a") as ws:
             assert ws.receive_json()["type"] == "connected"
             assert set(service.callbacks) == {"p-a:001", "p-a:003"}
@@ -112,7 +111,7 @@ def test_lookup_exception_fails_closed_for_strict_principal(
 
 
 @pytest.mark.parametrize("kind", ENDPOINTS)
-def test_shadow_lookup_exception_keeps_stream(
+def test_shadow_lookup_exception_fails_closed(
     all_ws: tuple[Any, Any, Service],
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -129,8 +128,7 @@ def test_shadow_lookup_exception_keeps_stream(
         _connect(client, kind, "jwt-a") as ws,
     ):
         assert ws.receive_json()["type"] == "connected"
-        assert set(service.callbacks) == {"p-a:001", "p-a:003", "p-b:002"}
-    assert any("check failed" in r.message and "user-a" in r.message for r in caplog.records)
+        assert service.callbacks == {}
 
 
 @pytest.mark.parametrize("kind", ENDPOINTS)

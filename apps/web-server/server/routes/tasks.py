@@ -11,19 +11,29 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_common.logsafe import sanitize_log
+from server.database.engine import get_db
 from server.error_ref import error_message
 from server.services import run_leases, task_log_store
 from server.services.git_utils import git_run, safe_spec_component
 
 from ..paths import get_data_dir, get_data_file
 from ..services.git_utils import run_git_command
-from .project_authz import require_body_project_access, require_task_access
+from .project_authz import (
+    is_service_principal,
+    require_body_project_access,
+    require_path_project_role,
+    require_project_role,
+    require_task_access,
+    scope_role_ceiling,
+    visible_project_ids,
+)
 from .projects import load_projects
 
 logger = logging.getLogger(__name__)
@@ -1080,24 +1090,37 @@ def task_to_dict(task: Task, board: dict[str, Any] | None = None) -> dict[str, A
 # --------------------------------------------------------------------------
 
 
+def _require_merge_scope(principal: dict[str, Any] | None) -> None:
+    if (
+        isinstance(principal, dict)
+        and ("api_key_id" in principal or "scopes" in principal)
+        and not is_service_principal(principal)
+        and scope_role_ceiling(principal) != "admin"
+    ):
+        raise HTTPException(status_code=403, detail="Requires task:merge scope on project")
+
+
 @router.get("", response_model=TaskList)
 async def list_tasks(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
     project_id: str | None = Query(None, description="Filter by project ID"),
     status: TaskStatus | None = Query(None, description="Filter by status"),
 ):
     """List all tasks, optionally filtered by project or status."""
     projects = load_projects()
+    visible = await visible_project_ids(getattr(request.state, "user", None), db)
 
     # Filter projects
     if project_id:
-        if project_id not in projects:
+        if project_id not in projects or project_id not in visible:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Project not found",
             )
         project_ids = [project_id]
     else:
-        project_ids = list(projects.keys())
+        project_ids = list(visible & projects.keys())
 
     # Collect tasks from all projects
     all_tasks = []
@@ -1122,7 +1145,7 @@ async def list_tasks(
     return TaskList(tasks=all_tasks, total=len(all_tasks))
 
 
-@router.get("/{task_id}")
+@router.get("/{task_id}", dependencies=[Depends(require_task_access("viewer"))])
 async def get_task(task_id: str):
     """Get a specific task by ID.
 
@@ -1173,8 +1196,15 @@ async def get_task(task_id: str):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_body_project_access("member"))],
 )
-async def create_task(task: TaskCreate):
+async def create_task(
+    http_request: Request,
+    task: TaskCreate,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
     """Create a new task (spec) in a project."""
+    await require_project_role(
+        getattr(http_request.state, "user", None), task.project_id, "member", db=db
+    )
     projects = load_projects()
 
     if task.project_id not in projects:
@@ -1848,7 +1878,7 @@ async def reject_plan(task_id: str, request: RejectPlanRequest = RejectPlanReque
     }
 
 
-@router.get("/{task_id}/qa-report")
+@router.get("/{task_id}/qa-report", dependencies=[Depends(require_task_access("viewer"))])
 async def get_qa_report(task_id: str):
     """Return the QA report markdown for a task.
 
@@ -1997,7 +2027,7 @@ async def stream_agent_console(task_id: str):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@router.get("/{task_id}/plan-html")
+@router.get("/{task_id}/plan-html", dependencies=[Depends(require_task_access("viewer"))])
 async def get_plan_html(task_id: str):
     """Generate and return HTML view of the implementation plan.
 
@@ -2063,7 +2093,7 @@ async def get_plan_html(task_id: str):
         )
 
 
-@router.get("/{task_id}/logs")
+@router.get("/{task_id}/logs", dependencies=[Depends(require_task_access("viewer"))])
 async def get_task_logs(task_id: str):
     """Get logs for a task.
 
@@ -3451,12 +3481,16 @@ async def abort_worktree_merge(task_id: str):
 
 
 @router.post("/{task_id}/worktree/create-pr", dependencies=[Depends(require_task_access("member"))])
-async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = None):
+async def create_pr_from_task(
+    task_id: str, http_request: Request, options: CreatePRFromTaskOptions | None = None
+):
     """
     Push the worktree branch and create a GitHub Pull Request.
     Does NOT delete the worktree or branch after PR creation.
     """
     import subprocess
+
+    _require_merge_scope(getattr(http_request.state, "user", None))
 
     if options is None:
         options = CreatePRFromTaskOptions()
@@ -3740,11 +3774,15 @@ async def create_pr_from_task(task_id: str, options: CreatePRFromTaskOptions = N
 
 
 @router.post("/{task_id}/worktree/merge", dependencies=[Depends(require_task_access("member"))])
-async def merge_worktree(task_id: str, options: WorktreeMergeOptions = None):
+async def merge_worktree(
+    task_id: str, http_request: Request, options: WorktreeMergeOptions | None = None
+):
     """
     Merge the worktree branch into the base branch.
     """
     import subprocess
+
+    _require_merge_scope(getattr(http_request.state, "user", None))
 
     if options is None:
         options = WorktreeMergeOptions()
@@ -4436,12 +4474,19 @@ def get_terminal_command(terminal: str, path: str) -> list[str]:
 
 
 @router.post("/worktree/open-in-ide")
-async def open_worktree_in_ide(request: OpenInIDERequest):
+async def open_worktree_in_ide(
+    request: OpenInIDERequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """
     Open a worktree path in the specified IDE.
     Used by the web UI to launch external IDE applications.
     """
     worktree_path = request.worktreePath
+    await require_path_project_role(
+        getattr(http_request.state, "user", None), worktree_path, "admin", db
+    )
     ide = request.ide
 
     # Validate the path exists. Resolve it first: the value still lands in the
@@ -4488,12 +4533,19 @@ async def open_worktree_in_ide(request: OpenInIDERequest):
 
 
 @router.post("/worktree/open-in-terminal")
-async def open_worktree_in_terminal(request: OpenInTerminalRequest):
+async def open_worktree_in_terminal(
+    request: OpenInTerminalRequest,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """
     Open a worktree path in the specified terminal emulator.
     Used by the web UI to launch external terminal applications.
     """
     worktree_path = request.worktreePath
+    await require_path_project_role(
+        getattr(http_request.state, "user", None), worktree_path, "admin", db
+    )
     terminal = request.terminal
 
     # Validate the path exists. Resolve it first: the value still lands in the

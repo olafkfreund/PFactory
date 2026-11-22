@@ -55,13 +55,15 @@ def env(tmp_path, monkeypatch):
         async with engine.begin() as conn:
             await conn.run_sync(models.Base.metadata.create_all)
         async with session_local() as db:
-            for uid in ("viewer-a", "owner"):
+            for uid in ("viewer-a", "key-b-user", "writer-a", "owner"):
                 db.add(models.User(id=uid, email=f"{uid}@x.test", password_hash=uid))
             await db.flush()
             db.add(models.Organization(id="A", name="A", slug="A", owner_id="owner"))
             db.add(models.Organization(id="B", name="B", slug="B", owner_id="owner"))
             await db.flush()
             db.add(models.OrgMember(org_id="A", user_id="viewer-a", role="viewer"))
+            db.add(models.OrgMember(org_id="B", user_id="key-b-user", role="member"))
+            db.add(models.OrgMember(org_id="A", user_id="writer-a", role="member"))
             await db.commit()
 
     asyncio.run(_init())
@@ -103,6 +105,7 @@ def env(tmp_path, monkeypatch):
             user["org_id"] = request.headers["X-Org"]
         if "X-Key" in request.headers:
             user["api_key_id"] = request.headers["X-Key"]
+            user["scopes"] = ("plan:write",) if user["api_key_id"] == "key-b" else ("mcp:read",)
         request.state.user = user
         return await call_next(request)
 
@@ -112,7 +115,7 @@ def env(tmp_path, monkeypatch):
 
 def test_rest_org_key_scopes_list_and_per_session_reads(env):
     client, _, _, _, _, _, (sid_a, sid_b, sid_u) = env
-    key_b = {"X-U": "viewer-a", "X-Key": "key-b", "X-Org": "B"}
+    key_b = {"X-U": "key-b-user", "X-Key": "key-b", "X-Org": "B"}
 
     listed = client.get("/api/plan/sessions", headers=key_b)
     assert listed.status_code == 200
@@ -122,7 +125,7 @@ def test_rest_org_key_scopes_list_and_per_session_reads(env):
         for suffix in ("", "/audit-pack"):
             resp = client.get(f"/api/plan/sessions/{sid}{suffix}", headers=key_b)
             assert resp.status_code == 404
-            assert resp.json()["detail"] == f"unknown session '{sid}'"
+            assert resp.json()["detail"] == "Plan session not found"
 
     for suffix in ("", "/audit-pack"):
         assert client.get(f"/api/plan/sessions/{sid_b}{suffix}", headers=key_b).status_code == 200
@@ -142,7 +145,7 @@ def test_mcp_org_key_and_legacy_key_on_real_plan_handlers(env):
     key_b = auth.AuthenticatedKey(
         key_id="key-b",
         scopes=frozenset({"mcp:read"}),
-        user_id="viewer-a",
+        user_id="key-b-user",
         org_id="B",
     )
     key_a = auth.AuthenticatedKey(
@@ -176,7 +179,7 @@ def test_mcp_org_key_and_legacy_key_on_real_plan_handlers(env):
         for suffix in ("", "/audit-pack"):
             resp = mcp.get(f"/api/mcp-stdio/plan/sessions/{sid}{suffix}")
             assert resp.status_code == 404
-            assert resp.json()["detail"] == f"unknown session '{sid}'"
+            assert resp.json()["detail"] == "Plan session not found"
 
     for suffix in ("", "/audit-pack"):
         assert mcp.get(f"/api/mcp-stdio/plan/sessions/{sid_b}{suffix}").status_code == 200
@@ -192,21 +195,14 @@ def test_mcp_org_key_and_legacy_key_on_real_plan_handlers(env):
         assert mcp.get(f"/api/mcp-stdio/plan/sessions/{sid}").status_code == 200
 
 
-def test_human_viewer_shadow_and_enforce_modes(env):
-    client, settings, audits, _, _, _, (sid_a, sid_b, sid_u) = env
+def test_human_viewer_sees_only_own_org(env):
+    client, settings, _, _, _, _, (sid_a, sid_b, sid_u) = env
     headers = {"X-U": "viewer-a"}
 
-    # Flag off: B session returns 200 with one shadow audit row; A and unknown have no audit.
-    assert client.get(f"/api/plan/sessions/{sid_b}", headers=headers).status_code == 200
-    assert len(audits) == 1
-    assert audits[0]["details"]["shadow"] is True
-    assert audits[0]["resource_id"] == sid_b
-
+    assert client.get(f"/api/plan/sessions/{sid_b}", headers=headers).status_code == 404
     assert client.get(f"/api/plan/sessions/{sid_a}", headers=headers).status_code == 200
-    assert client.get(f"/api/plan/sessions/{sid_u}", headers=headers).status_code == 200
-    assert len(audits) == 1
+    assert client.get(f"/api/plan/sessions/{sid_u}", headers=headers).status_code == 404
 
-    # Flag on: B and unknown return 404, A returns 200, and the list holds only A.
     settings.RBAC_ENFORCE_TASK_ROUTES = True
     assert client.get(f"/api/plan/sessions/{sid_b}", headers=headers).status_code == 404
     assert client.get(f"/api/plan/sessions/{sid_b}/audit-pack", headers=headers).status_code == 404
@@ -230,7 +226,7 @@ def test_rule2_lazy_stamp_persists_once_and_never_reresolves(env, monkeypatch):
         "load_projects",
         lambda: {"pa": {"repo": "acme/a", "org_id": "B"}, "pb": {"repo": "acme/b", "org_id": "B"}},
     )
-    key_b = {"X-U": "viewer-a", "X-Key": "key-b", "X-Org": "B"}
+    key_b = {"X-U": "key-b-user", "X-Key": "key-b", "X-Org": "B"}
     assert client.get(f"/api/plan/sessions/{sid_a}", headers=key_b).status_code == 404
 
     settings.RBAC_ENFORCE_TASK_ROUTES = True
@@ -257,10 +253,8 @@ def test_rule3_unmapped_ambiguous_or_orgless_repo_is_unknown(env, monkeypatch, p
     assert client.get("/api/plan/sessions", headers=key_a).json()["sessions"] == []
 
     audits.clear()
-    assert client.get(f"/api/plan/sessions/{sid_a}", headers={"X-U": "viewer-a"}).status_code == 200
-    assert audits == []
+    assert client.get(f"/api/plan/sessions/{sid_a}", headers={"X-U": "viewer-a"}).status_code == 404
     assert sid_a not in service.org_stamps()
-    # Checked last, so on dev the HTTP assertions above are what fail.
     pp = importlib.import_module("server.routes.plan_pipeline")
     assert pp._repo_org("acme/a", projects) is None
 
@@ -310,6 +304,7 @@ def test_ingest_text_stamps_org_from_repo(env):
     resp = client.post(
         "/api/plan/sessions/ingest-text",
         json={"text": _PLAN, "title": "Ingested", "repo": "acme/a"},
+        headers={"X-U": "writer-a"},
     )
     assert resp.status_code == 200
     assert resp.json()["org_id"] == "A"
@@ -323,7 +318,7 @@ def test_registry_error_with_org_key_on_unstamped_session_returns_503(env, monke
         raise RuntimeError("projects.json unreadable")
 
     monkeypatch.setattr(registry, "load_projects", _boom)
-    key_b = {"X-U": "viewer-a", "X-Key": "key-b", "X-Org": "B"}
+    key_b = {"X-U": "key-b-user", "X-Key": "key-b", "X-Org": "B"}
     assert client.get(f"/api/plan/sessions/{sid_a}", headers=key_b).status_code == 503
     assert client.get(f"/api/plan/sessions/{sid_a}/audit-pack", headers=key_b).status_code == 503
 
@@ -337,60 +332,52 @@ def test_human_under_enforce_loses_orgless_sessions(env, monkeypatch):
     assert client.get("/api/plan/sessions", headers=headers).json()["sessions"] == []
 
 
-def test_org_key_ingest_of_unregistered_repo_stamps_key_org(env):
+def test_org_key_can_ingest_unregistered_repo(env):
     client, _, _, service, _, _, _ = env
-    key_b = {"X-U": "viewer-a", "X-Key": "key-b", "X-Org": "B"}
+    key_b = {"X-U": "key-b-user", "X-Key": "key-b", "X-Org": "B"}
+    before = len(service.list_sessions())
     resp = client.post(
         "/api/plan/sessions/ingest-text",
         json={"text": _PLAN, "title": "Mine", "repo": "acme/new"},
         headers=key_b,
     )
     assert resp.status_code == 200
-    sid = resp.json()["session_id"]
-    assert service.get(sid).org_id == "B"
-    # The key reads its own session back, and sees it in its list.
-    assert client.get(f"/api/plan/sessions/{sid}", headers=key_b).status_code == 200
-    listed = client.get("/api/plan/sessions", headers=key_b).json()["sessions"]
-    assert sid in {s["session_id"] for s in listed}
+    assert len(service.list_sessions()) == before + 1
 
 
-def test_human_ingest_of_unregistered_repo_stamps_no_org(env):
+def test_human_viewer_cannot_ingest_unregistered_repo(env):
     client, _, _, service, _, _, _ = env
+    before = {s["session_id"] for s in service.list_sessions()}
     resp = client.post(
         "/api/plan/sessions/ingest-text",
         json={"text": _PLAN, "title": "Theirs", "repo": "acme/new"},
         headers={"X-U": "viewer-a"},
     )
-    assert resp.status_code == 200
-    assert service.get(resp.json()["session_id"]).org_id is None
+    assert resp.status_code == 403
+    assert {s["session_id"] for s in service.list_sessions()} == before
 
 
 def test_org_key_cross_org_ingest_is_refused_with_flag_off(env):
     client, settings, audits, service, _, _, _ = env
     assert settings.RBAC_ENFORCE_TASK_ROUTES is False
     before = {s["session_id"] for s in service.list_sessions()}
-    key_b = {"X-U": "viewer-a", "X-Key": "key-b", "X-Org": "B"}
+    key_b = {"X-U": "key-b-user", "X-Key": "key-b", "X-Org": "B"}
     resp = client.post(
         "/api/plan/sessions/ingest-text",
         json={"text": _PLAN, "title": "Theirs", "repo": "acme/a"},
         headers=key_b,
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
     assert {s["session_id"] for s in service.list_sessions()} == before
-    # One enforced (non-shadow) denial, on org A. The route's PlanAccessChecker may
-    # add its own shadow row: viewer-a holds no role in the key's org B.
-    enforced = [a for a in audits if not a["details"].get("shadow")]
-    assert [a["org_id"] for a in enforced] == ["A"]
+    assert [a["org_id"] for a in audits] == ["A"]
 
 
-def test_human_cross_org_ingest_shadow_then_enforce(env):
-    client, settings, audits, service, _, _, _ = env
+def test_human_cross_org_ingest_denied_with_either_flag(env):
+    client, settings, _, service, _, _, _ = env
     # viewer-a is only a viewer in A; ingest needs member in the repo's org (B here).
     body = {"text": _PLAN, "title": "Cross", "repo": "acme/b"}
     resp = client.post("/api/plan/sessions/ingest-text", json=body, headers={"X-U": "viewer-a"})
-    assert resp.status_code == 200
-    assert service.get(resp.json()["session_id"]).org_id == "B"
-    assert [a["details"].get("shadow") for a in audits if a["org_id"] == "B"] == [True]
+    assert resp.status_code == 403
 
     settings.RBAC_ENFORCE_TASK_ROUTES = True
     resp = client.post("/api/plan/sessions/ingest-text", json=body, headers={"X-U": "viewer-a"})
@@ -402,7 +389,7 @@ def test_mcp_ingest_registry_error_with_org_key_returns_503(env, monkeypatch):
     proxy = importlib.import_module("server.mcp_stdio.router")
     auth = importlib.import_module("server.mcp_remote.auth")
     key_b = auth.AuthenticatedKey(
-        key_id="key-b", scopes=frozenset({"plan:write"}), user_id="viewer-a", org_id="B"
+        key_id="key-b", scopes=frozenset({"plan:write"}), user_id="key-b-user", org_id="B"
     )
     app = FastAPI()
     app.include_router(proxy.router)

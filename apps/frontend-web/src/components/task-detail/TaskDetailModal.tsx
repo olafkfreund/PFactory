@@ -34,7 +34,6 @@ import {
 import { cn } from '../../lib/utils';
 import { calculateProgress } from '../../lib/utils';
 import { startTask, stopTask, submitReview, recoverStuckTask, deleteTask, persistTaskStatus } from '../../stores/task-store';
-import { useProjectStore } from '../../stores/project-store';
 import { TASK_STATUS_LABELS } from '../../shared/constants';
 import { TaskEditDialog } from '../TaskEditDialog';
 import { useTaskDetail } from './hooks/useTaskDetail';
@@ -52,12 +51,13 @@ import type { Task } from '../../shared/types';
 interface TaskDetailModalProps {
   open: boolean;
   task: Task | null;
+  projectPath?: string;
   onOpenChange: (open: boolean) => void;
   onSwitchToTerminals?: () => void;
   onOpenInbuiltTerminal?: (id: string, cwd: string) => void;
 }
 
-export function TaskDetailModal({ open, task, onOpenChange, onSwitchToTerminals, onOpenInbuiltTerminal }: TaskDetailModalProps) {
+export function TaskDetailModal({ open, task, projectPath, onOpenChange, onSwitchToTerminals, onOpenInbuiltTerminal }: TaskDetailModalProps) {
   // Don't render anything if no task
   if (!task) {
     return null;
@@ -67,6 +67,7 @@ export function TaskDetailModal({ open, task, onOpenChange, onSwitchToTerminals,
     <TaskDetailModalContent
       open={open}
       task={task}
+      projectPath={projectPath}
       onOpenChange={onOpenChange}
       onSwitchToTerminals={onSwitchToTerminals}
       onOpenInbuiltTerminal={onOpenInbuiltTerminal}
@@ -81,7 +82,7 @@ const isFilesTabEnabled = () => {
 };
 
 // Separate component to use hooks only when task exists
-function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals, onOpenInbuiltTerminal }: { open: boolean; task: Task; onOpenChange: (open: boolean) => void; onSwitchToTerminals?: () => void; onOpenInbuiltTerminal?: (id: string, cwd: string) => void }) {
+function TaskDetailModalContent({ open, task, projectPath, onOpenChange, onSwitchToTerminals, onOpenInbuiltTerminal }: { open: boolean; task: Task; projectPath?: string; onOpenChange: (open: boolean) => void; onSwitchToTerminals?: () => void; onOpenInbuiltTerminal?: (id: string, cwd: string) => void }) {
   const { t } = useTranslation(['tasks']);
   const state = useTaskDetail({ task });
   const showFilesTab = isFilesTabEnabled();
@@ -288,7 +289,6 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
 
   const [isCreatingPR, setIsCreatingPR] = useState(false);
   const [showCreatePRDialog, setShowCreatePRDialog] = useState(false);
-  const selectedProject = useProjectStore((s) => s.getSelectedProject());
 
   const handleCreatePR = () => {
     setShowCreatePRDialog(true);
@@ -697,11 +697,11 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
       />
 
       {/* Create PR Dialog */}
-      {selectedProject && (
+      {projectPath && (
         <CreatePRDialog
           open={showCreatePRDialog}
           task={task}
-          projectPath={selectedProject.path}
+          projectPath={projectPath}
           onOpenChange={setShowCreatePRDialog}
           onSuccess={() => {
             setIsCreatingPR(false);

@@ -20,19 +20,31 @@ for p in (str(_ROOT / "apps" / "backend"), str(_ROOT / "apps" / "web-server")):
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from server.routes import github as gh_routes  # noqa: E402
+
+from server.routes import github as gh_routes, project_authz  # noqa: E402
 
 _PR_JSON = (
     '{"title": "Add OIDC SSO", "body": "Implement single sign-on.\\n\\n'
-    "## Acceptance Criteria\\n- Users can log in via OIDC\\n- Sessions persist\"}"
+    '## Acceptance Criteria\\n- Users can log in via OIDC\\n- Sessions persist"}'
 )
 
 
 @pytest.fixture()
 def client(monkeypatch):
     monkeypatch.delenv("PFACTORY_PLAN_REVIEW_COMMENT", raising=False)
+    monkeypatch.setattr(
+        project_authz.project_paths,
+        "load_projects",
+        lambda: {"review": {"repo": "owner/repo", "org_id": "default"}},
+    )
     app = FastAPI()
     app.include_router(gh_routes.router, prefix="/api/github")
+
+    @app.middleware("http")
+    async def _principal(request, call_next):
+        request.state.user = {"id": "plan-review-test", "is_service": True}
+        return await call_next(request)
+
     return TestClient(app)
 
 

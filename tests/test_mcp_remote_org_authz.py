@@ -11,11 +11,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import FastAPI, Request
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 _WEB_SERVER_DIR = Path(__file__).parent.parent / "apps" / "web-server"
 if str(_WEB_SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(_WEB_SERVER_DIR))
+REAL_CALL_INTERNAL = importlib.import_module("server.mcp_remote.tools")._call_internal
 
 READ_TASK_TOOLS = (
     "pfactory.get_task",
@@ -108,9 +110,9 @@ async def test_member_a_denied_every_task_tool_on_org_b(org_env, tool_name):
     tools, keys, call_internal, audits = org_env
     result = await tools.dispatch_tool_call(tool_name, {"task_id": "pb:001"}, keys["member_a"])
     assert result.get("isError") is True
-    assert "denied" in result["content"][0]["text"]
+    assert "denied" in result["content"][0]["text"] or "scope" in result["content"][0]["text"]
     call_internal.assert_not_awaited()
-    assert len(audits) == 1
+    assert len(audits) == (0 if tool_name == "pfactory.merge_pr" else 1)
 
 
 async def test_member_a_denied_list_tasks_on_org_b(org_env):
@@ -128,6 +130,10 @@ async def test_member_a_denied_list_tasks_on_org_b(org_env):
 async def test_member_a_allowed_every_task_tool_on_org_a(org_env, tool_name):
     tools, keys, call_internal, audits = org_env
     result = await tools.dispatch_tool_call(tool_name, {"task_id": "pa:001"}, keys["member_a"])
+    if tool_name == "pfactory.merge_pr":
+        assert result.get("isError") and "task:merge" in result["content"][0]["text"]
+        call_internal.assert_not_awaited()
+        return
     assert not result.get("isError")
     if tool_name != "pfactory.tail_agent_console":
         call_internal.assert_awaited_once()
@@ -155,11 +161,29 @@ async def test_list_projects_hides_other_orgs(org_env):
     assert json.loads(res_out["content"][0]["text"]) == []
 
     res_svc = await tools.dispatch_tool_call("pfactory.list_projects", {}, keys["service"])
-    assert json.loads(res_svc["content"][0]["text"]) == [
-        {"id": "pa"},
-        {"id": "pb"},
-        {"id": "unassigned"},
-    ]
+    assert json.loads(res_svc["content"][0]["text"]) == []
+
+
+async def test_remote_internal_route_keeps_caller_when_legacy_disabled(org_env, monkeypatch):
+    _, keys, _, _ = org_env
+    main = importlib.import_module("server.main")
+    auth_middleware = importlib.import_module("server.auth")
+    app = FastAPI()
+    app.add_middleware(auth_middleware.TokenAuthMiddleware)
+
+    @app.get("/api/projects")
+    async def projects_route(request: Request):
+        return {"id": request.state.user["id"], "scopes": request.state.user["scopes"]}
+
+    monkeypatch.setattr(main, "app", app)
+    monkeypatch.setattr(
+        auth_middleware,
+        "get_settings",
+        lambda: SimpleNamespace(DISABLE_AUTH=False, LEGACY_SHARED_TOKEN_FULL_ACCESS=False),
+    )
+    result = await REAL_CALL_INTERNAL("GET", "/api/projects", keys["member_a"])
+    assert result["id"] == "member-a"
+    assert "mcp:write" in result["scopes"]
 
 
 @pytest.mark.parametrize("tool_name", WRITE_TASK_TOOLS)
@@ -167,9 +191,9 @@ async def test_viewer_with_write_scope_denied_write_tools(org_env, tool_name):
     tools, keys, call_internal, audits = org_env
     result = await tools.dispatch_tool_call(tool_name, {"task_id": "pa:001"}, keys["viewer_a"])
     assert result.get("isError") is True
-    assert "denied" in result["content"][0]["text"]
+    assert "denied" in result["content"][0]["text"] or "scope" in result["content"][0]["text"]
     call_internal.assert_not_awaited()
-    assert len(audits) == 1
+    assert len(audits) == (0 if tool_name == "pfactory.merge_pr" else 1)
 
 
 @pytest.mark.parametrize("tool_name", READ_TASK_TOOLS)

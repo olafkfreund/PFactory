@@ -27,6 +27,7 @@ synthetic legacy key) so handlers can record key_id in audit logs.
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,8 +35,11 @@ from pathlib import Path
 from fastapi import HTTPException, Request, status
 
 from server.auth import _is_legacy_api_token
+from server.config import get_settings
 
 from ..mcp_remote import auth as mcp_remote_auth
+
+logger = logging.getLogger(__name__)
 
 _BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
@@ -121,7 +125,8 @@ def require_acw_scope(scope: str):
         # Legacy admin token = wildcard. Matched constant-time via the
         # shared helper, which also refuses to authenticate anything when
         # API_TOKEN is unset (Factory#324 M1).
-        if _is_legacy_api_token(token):
+        if _is_legacy_api_token(token) and get_settings().LEGACY_SHARED_TOKEN_FULL_ACCESS:
+            logger.warning("DEPRECATED: legacy shared token used for MCP stdio access")
             return _LegacyAdminKey()
 
         try:

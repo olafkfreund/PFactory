@@ -2,8 +2,8 @@
 // byte-identical into each portal (see README.md). Renders the four Factory
 // portals as one product in the topbar: the `current` portal is a static active
 // chip, the others link out with their per-service accent dot. Which portal is
-// "current" is the host's only per-portal input — pass it as a prop so this file
-// stays identical everywhere. Sibling hosts are build-time overridable via
+// "current" is passed by the host; optional `project` keeps its slug on named
+// siblings. Sibling hosts are build-time overridable via
 // VITE_*_URL, defaulting to the live portals.
 //
 // Optional `needsCount` (#148/#149) renders a small badge on the Cockpit chip —
@@ -29,9 +29,11 @@ const ITEM = 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-mono te
 export function PortalSwitcher({
   current,
   needsCount,
+  project,
 }: {
   current: FactoryPortal;
   needsCount?: number;
+  project?: { slug: string; portals: FactoryPortal[] };
 }) {
   return (
     <nav
@@ -64,7 +66,7 @@ export function PortalSwitcher({
         ) : (
           <a
             key={p.key}
-            href={p.url}
+            href={project?.portals.includes(p.key) ? `${p.url.replace(/\/+$/, '')}/p/${encodeURIComponent(project.slug)}` : p.url}
             rel="noopener"
             title={`Open the ${p.label} portal`}
             className={`${ITEM} text-muted-foreground transition-colors hover:bg-muted hover:text-foreground`}
