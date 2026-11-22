@@ -19,7 +19,9 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
 from starlette.status import HTTP_404_NOT_FOUND
+from starlette.types import Receive, Scope, Send
 
 from . import env_bootstrap  # noqa: F401  — loads .env into os.environ first
 from .auth import TokenAuthMiddleware
@@ -111,14 +113,14 @@ class SPAStaticFiles(StaticFiles):
     after an upgrade (SSO fix); hashed assets may be cached indefinitely.
     """
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 1000})
             return
         await super().__call__(scope, receive, send)
 
-    async def get_response(self, path, scope):
+    async def get_response(self, path: str, scope: Scope) -> Response:
         try:
             response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
