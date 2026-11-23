@@ -4,6 +4,7 @@
     "tools": "Ferramentas"
   },
   "items": {
+    "tests": "Testes",
     "kanban": "Tarefas",
     "terminals": "Terminais de Agentes",
     "editor": "Editor de Arquivos",

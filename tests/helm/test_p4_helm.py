@@ -17,8 +17,10 @@ Coverage:
 from __future__ import annotations
 
 import os
+import subprocess
 
 import pytest
+import yaml
 
 
 @pytest.mark.helm
@@ -439,3 +441,57 @@ def test_prestop_drain_on_by_default_and_toggleable(helm_available, chart_dir) -
     off = render("drain.enabled=false")
     assert off.returncode == 0, off.stderr[-1500:]
     assert "preStop" not in off.stdout
+
+
+@pytest.mark.helm
+def test_persistence_data_volume_modes(helm_available, chart_dir) -> None:
+    """#1116 B2c. pfactory-data uses emptyDir when disabled, a chart-created PVC
+    when enabled without existingClaim, and existingClaim without emitting a PVC
+    when existingClaim is provided.
+    """
+    def render(*sets: str) -> list[dict]:
+        argv = ["helm", "template", "pfactory", str(chart_dir)]
+        for s in sets:
+            argv += ["--set", s]
+        res = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+        assert res.returncode == 0, res.stderr[-1500:]
+        return [d for d in yaml.safe_load_all(res.stdout) if d]
+
+    # 1. Disabled (default): no data PVC, pfactory-data is emptyDir.
+    docs_disabled = render()
+    pvcs_disabled = [d for d in docs_disabled if d.get("kind") == "PersistentVolumeClaim"]
+    assert not pvcs_disabled
+    dep_disabled = next(d for d in docs_disabled if d["kind"] == "Deployment")
+    vol_disabled = next(
+        v for v in dep_disabled["spec"]["template"]["spec"]["volumes"] if v["name"] == "pfactory-data"
+    )
+    assert "emptyDir" in vol_disabled
+    assert "persistentVolumeClaim" not in vol_disabled
+
+    # 2. Enabled with chart-created claim: emits pfactory-data PVC and mounts it.
+    docs_created = render("persistence.data.enabled=true")
+    pvcs_created = [d for d in docs_created if d.get("kind") == "PersistentVolumeClaim"]
+    assert len(pvcs_created) == 1
+    assert pvcs_created[0]["metadata"]["name"] == "pfactory-data"
+    assert pvcs_created[0]["spec"]["resources"]["requests"]["storage"] == "1Gi"
+    dep_created = next(d for d in docs_created if d["kind"] == "Deployment")
+    vol_created = next(
+        v for v in dep_created["spec"]["template"]["spec"]["volumes"] if v["name"] == "pfactory-data"
+    )
+    assert vol_created.get("persistentVolumeClaim") == {"claimName": "pfactory-data"}
+
+    # 3. Enabled with existingClaim: no chart PVC emitted, deployment uses existingClaim.
+    docs_existing = render(
+        "persistence.data.enabled=true",
+        "persistence.data.existingClaim=preexisting-pfactory-data",
+    )
+    pvcs_existing = [d for d in docs_existing if d.get("kind") == "PersistentVolumeClaim"]
+    assert not pvcs_existing
+    dep_existing = next(d for d in docs_existing if d["kind"] == "Deployment")
+    vol_existing = next(
+        v for v in dep_existing["spec"]["template"]["spec"]["volumes"] if v["name"] == "pfactory-data"
+    )
+    assert vol_existing.get("persistentVolumeClaim") == {
+        "claimName": "preexisting-pfactory-data"
+    }
+

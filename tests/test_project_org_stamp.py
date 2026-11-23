@@ -8,12 +8,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import delete
 
 _WEB_SERVER_DIR = Path(__file__).parent.parent / "apps" / "web-server"
 if str(_WEB_SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(_WEB_SERVER_DIR))
 
 from fastapi import HTTPException  # noqa: E402
+
+from server.database.models import Organization, OrgMember  # noqa: E402
+from server.routes import projects  # noqa: E402
 
 # user id -> memberships: solo (member of A only), multi (A and B).
 MEMBERS = [("solo", "A", "member"), ("multi", "A", "member"), ("multi", "B", "member")]
@@ -23,7 +27,7 @@ MEMBERS = [("solo", "A", "member"), ("multi", "A", "member"), ("multi", "B", "me
 def env(tmp_path, monkeypatch):
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from server.database.models import Base, Organization, OrgMember, User
+    from server.database.models import Base, User
     from server.routes import project_authz as pa
     from server.services import project_paths
 
@@ -34,7 +38,7 @@ def env(tmp_path, monkeypatch):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         async with session_local() as db:
-            for uid in ("solo", "multi", "owner"):
+            for uid in ("solo", "multi", "owner", "outsider"):
                 db.add(User(id=uid, email=f"{uid}@x.test", password_hash="x"))
             await db.flush()
             for oid in ("A", "B"):
@@ -42,6 +46,7 @@ def env(tmp_path, monkeypatch):
             await db.flush()
             for uid, oid, role in MEMBERS:
                 db.add(OrgMember(org_id=oid, user_id=uid, role=role))
+            db.add(OrgMember(org_id="B", user_id="outsider", role="member"))
             await db.commit()
 
     asyncio.run(_init())
@@ -61,7 +66,7 @@ def env(tmp_path, monkeypatch):
 
         return asyncio.run(_go())
 
-    return SimpleNamespace(run=run, pa=pa)
+    return SimpleNamespace(run=run, pa=pa, session_local=session_local)
 
 
 def test_creator_org_by_principal(env):
@@ -77,15 +82,46 @@ def test_creator_org_by_principal(env):
 
 
 def test_ensure_tracked_project_stamps_org_and_is_visible_under_enforce(env):
-    from server.routes import projects
-
     pid = projects.ensure_tracked_project("acme/app", "A")
     assert projects.load_projects()[pid]["org_id"] == "A"
     user = {"id": "solo"}
     env.run(lambda db: env.pa.authorize_project_for_user(user, pid, db))  # no 403
+    with pytest.raises(HTTPException) as outsider:
+        env.run(lambda db: env.pa.authorize_project_for_user({"id": "outsider"}, pid, db))
     with pytest.raises(HTTPException) as exc:
         env.run(lambda db: env.pa.authorize_project_for_user({"id": "multi"}, "nope", db))
-    assert exc.value.status_code == 404
+    assert outsider.value.status_code == exc.value.status_code == 404
+    assert outsider.value.detail == exc.value.detail
+
+
+def test_backfill_only_single_org_and_idempotent(env, monkeypatch):
+    from server import main  # noqa: PLC0415 - defer app initialization until test execution
+
+    monkeypatch.setattr(main, "async_session_factory", env.session_local)
+    pid = projects.ensure_tracked_project("acme/legacy")
+    assert env.run(env.pa.resolve_default_org_id) is None
+    service = {"id": "default", "is_service": True}
+    assert env.run(
+        lambda db: env.pa.require_repo_project_role(service, "acme/new", "member", db, for_intake=True)
+    ).org_id is None
+    asyncio.run(main.backfill_project_orgs())
+    assert "org_id" not in projects.load_projects()[pid]
+
+    async def remove_second_org(db):
+        await db.execute(delete(OrgMember).where(OrgMember.org_id == "B"))
+        await db.execute(delete(Organization).where(Organization.id == "B"))
+        await db.commit()
+
+    env.run(remove_second_org)
+    assert env.run(env.pa.resolve_default_org_id) == "A"
+    assert env.run(
+        lambda db: env.pa.require_repo_project_role(service, "acme/new", "member", db, for_intake=True)
+    ).org_id == "A"
+    asyncio.run(main.backfill_project_orgs())
+    assert projects.load_projects()[pid]["org_id"] == "A"
+    before = projects.load_projects()
+    asyncio.run(main.backfill_project_orgs())
+    assert projects.load_projects() == before
 
 
 def test_unstamped_project_is_404_for_non_service(env):

@@ -92,7 +92,7 @@ describe('<PFactoryTaskList> loading state', () => {
     const fetchFn = makeFetch({ jsonBody: { tasks: [], count: 0 }, delay: 100 });
     render(<PFactoryTaskList fetchFn={fetchFn} />);
     expect(screen.getByRole('status')).toBeInTheDocument();
-    expect(screen.getByText(/Loading tasks/i)).toBeInTheDocument();
+    expect(screen.getByText(/Loading test runs/i)).toBeInTheDocument();
   });
 });
 

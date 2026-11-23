@@ -57,6 +57,8 @@
   "addProject": {
     "title": "Ajouter un projet",
     "description": "Choisissez comment vous souhaitez ajouter un projet",
+    "descriptionClone": "Clonez un dépôt Git dans l'espace de travail du portail.",
+    "descriptionLocal": "Sélectionnez un projet depuis votre dossier de projets ou saisissez un chemin personnalisé.",
     "modeLocal": "Dossier local",
     "modeClone": "Cloner depuis une URL Git",
     "gitUrlLabel": "URL du dépôt Git",

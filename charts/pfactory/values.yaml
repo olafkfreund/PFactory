@@ -339,6 +339,28 @@ rmux:
   rmuxEmptyDirSizeLimit: 10Mi
 
 # ---------------------------------------------------------------------------
+# App state persistence (~/.pfactory on the web-server pod, #1116 B2c).
+#
+# Holds the file-backed project registry (projects.json), settings, and
+# local state under /home/nonroot/.pfactory. Disabled by default so existing
+# helm template snapshots and ephemeral POC installs keep using emptyDir;
+# enable in persistent environments so registered projects survive restarts.
+#
+# Upgrading an existing install from emptyDir to a PVC:
+#   Mounting a new empty PVC at /home/nonroot/.pfactory hides the running
+#   pod's emptyDir contents. Before enabling persistence.data.enabled on a
+#   live deployment, copy /home/nonroot/.pfactory/projects.json (and any
+#   other state files under ~/.pfactory) out of the running pod with
+#   `kubectl cp`, enable the PVC, and copy the files back into the volume.
+persistence:
+  data:
+    enabled: false
+    existingClaim: ""
+    size: 1Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+# ---------------------------------------------------------------------------
 # Portal-managed project workspaces (epic #82).
 #
 # When PFactory accepts a Git URL via ``POST /api/projects {gitUrl}``

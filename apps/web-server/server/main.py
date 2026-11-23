@@ -8,10 +8,15 @@ Main entry point for the web server that provides:
 """
 
 import asyncio
+import fcntl
+import json
 import logging
+import os
+import tempfile
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +32,7 @@ from . import env_bootstrap  # noqa: F401  — loads .env into os.environ first
 from .auth import TokenAuthMiddleware
 from .config import get_settings
 from .crypto.kms import enforce_kms_safety
-from .database.engine import init_db
+from .database.engine import async_session_factory, init_db
 from .logging_config import setup_logging
 from .routes import (
     api_keys,
@@ -62,6 +67,8 @@ from .routes import (
     visual_inspection,
     well_known,
 )
+from .routes.project_authz import resolve_default_org_id
+from .services import project_paths
 from .services.skills_service import init_skills_service
 from .websockets import (
     events as events_ws,
@@ -77,6 +84,48 @@ from .websockets import (
 # stdlib-logging tests. Moving the call inside the factory means
 # importing this module is a pure operation.
 logger = logging.getLogger(__name__)
+
+
+def _write_project_registry(path: Path, projects: dict[str, dict[str, Any]]) -> None:
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w") as output:
+            json.dump(projects, output, indent=2)
+            output.flush()
+            os.fsync(output.fileno())
+        Path(tmp).replace(path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _stamp_legacy_projects(org_id: str | None) -> None:
+    """Repair the file registry once, serialized across startup replicas."""
+    path = project_paths.get_projects_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(".json.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not path.exists():
+            return
+        projects = json.loads(path.read_text())
+        unstamped = [pid for pid, project in projects.items() if not project.get("org_id")]
+        if not org_id:
+            for pid in unstamped:
+                logger.warning("project.org_unassigned project_id=%s", pid)
+            return
+        if not unstamped:
+            return
+        for pid in unstamped:
+            projects[pid]["org_id"] = org_id
+        _write_project_registry(path, projects)
+        for pid in unstamped:
+            logger.info("project.org_backfilled project_id=%s org_id=%s", pid, org_id)
+
+
+async def backfill_project_orgs() -> None:
+    async with async_session_factory() as db:
+        org_id = await resolve_default_org_id(db)
+    await asyncio.to_thread(_stamp_legacy_projects, org_id)
 
 
 # Every top-level server prefix in create_app() (MCP/OAuth clients probe /mcp and /.well-known).
@@ -203,6 +252,7 @@ async def lifespan(app: FastAPI):  # noqa: PLR0915 - startup and shutdown own th
 
     # Initialize database (creates tables if needed)
     await init_db()
+    await backfill_project_orgs()
 
     # #774: SERVICE was built when the routes were imported, before the
     # migrations above; give it the shared session store now, in this boot.
