@@ -371,6 +371,7 @@ def test_artifact_emit_ignores_overrides_and_qualifies_gitlab(monkeypatch) -> No
     assert dry.contract_result["ok"]
     assert dry.contract_result["contract"]["provenance"]["repo"] == "gitlab:Owner/Repo"
     assert session.provider == "gitlab" and session.repo == "Owner/Repo"
+    session = service.get(session.session_id)
     session.project_id = None
     service._save(session)
     with pytest.raises(ArtifactProjectError):
