@@ -3,7 +3,13 @@
  * Provides clean import paths for settings components
  */
 
-export { AppSettingsDialog, type AppSection } from './AppSettings';
+export {
+  ProjectSettingsPage,
+  PreferencesPage,
+  type AppSection,
+  type ProjectSettingsPageProps,
+  type PreferencesPageProps,
+} from './AppSettings';
 export { ThemeSettings } from './ThemeSettings';
 export { ThemeSelector } from './ThemeSelector';
 export { GeneralSettings } from './GeneralSettings';

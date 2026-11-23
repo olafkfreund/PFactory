@@ -12,7 +12,8 @@
  * Mounted from App.tsx via activeView === 'planning'.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Package, LayoutTemplate, Cpu, List, Columns } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
@@ -24,7 +25,6 @@ import {
 } from '../ui/dialog';
 import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
-import { KanbanBoard } from '../KanbanBoard';
 import { PlanBoard } from './PlanBoard';
 import { cn } from '../../lib/utils';
 import { PlanUploadForm } from './PlanUploadForm';
@@ -32,7 +32,7 @@ import { RegistryPanel } from './RegistryPanel';
 import { TemplatesPanel } from './TemplatesPanel';
 import { ProvidersPanel } from './ProvidersPanel';
 import { usePlanStore } from '../../stores/plan-store';
-import { useTaskStore, loadTasks } from '../../stores/task-store';
+import { loadTasks } from '../../stores/task-store';
 import { useProjectStore } from '../../stores/project-store';
 import type { PlanSession } from '../../shared/types/plan';
 import type { Task } from '../../shared/types';
@@ -50,9 +50,11 @@ interface Props {
    * When set, the matching session's detail opens in the List pane.
    */
   focusSessionId?: string | null;
+  onShowBoard?: () => void;
 }
 
-export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessionId }: Props) {
+export function PlanningView({ fetchFn, focusSessionId, onShowBoard }: Props) {
+  const { t } = useTranslation('tasks');
   const store = usePlanStore();
 
   // Wire fetchFn into store if provided (for testing)
@@ -60,20 +62,19 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
     store.setFetchFn(fetchFn);
   }
 
-  // Task-store wiring for Board mode (mirrors the old App.tsx 'kanban' branch).
-  const tasks = useTaskStore((state) => state.tasks);
-  const projects = useProjectStore((state) => state.projects);
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
-  const selectedProject = projects.find(
-    (p) => p.id === (activeProjectId || selectedProjectId),
-  );
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [showNewPlanDialog, setShowNewPlanDialog] = useState(false);
   // Default to the animated Board so the ring rail + stage medallions + animated
   // cards are the first thing you see on Planning (List is one toggle away).
   const [viewMode, setViewMode] = useState<'list' | 'board'>('board');
+  const revealBoard = useCallback(() => {
+    setViewMode('board');
+    setSelectedSessionId(null);
+    onShowBoard?.();
+  }, [onShowBoard]);
 
   // Keep the session list loaded so the board has data even when the list pane
   // isn't mounted (board mode hides the left sidebar).
@@ -126,18 +127,6 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
     setSelectedSessionId(session.session_id);
   };
 
-  // Stable callback wrappers so KanbanBoard's memo comparisons stay stable.
-  const handleTaskClick = useCallback(
-    (task: Task) => {
-      onTaskClick?.(task);
-    },
-    [onTaskClick],
-  );
-
-  const handleNewTaskClick = useCallback(() => {
-    onNewTaskClick?.();
-  }, [onNewTaskClick]);
-
   return (
     <div className="flex flex-col h-full" data-testid="planning-view">
       {/* Top header */}
@@ -145,7 +134,7 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
         <div>
           <h1 className="text-xl font-semibold text-foreground">Planning Portal</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Ingest, process, review and emit product plans.
+            {t('pipeline.fleetDescription')}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -188,19 +177,22 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
       {/* Board mode: kanban of the SAME planning sessions the List view shows
           (global plan-store, bucketed by board_state). List and Board are two
           layouts over one data source — selecting a card opens its detail in
-          the List pane. */}
-      {viewMode === 'board' ? (
-        <div className="flex-1 overflow-y-auto p-4" data-testid="plan-board-view">
-          <PlanBoard
-            sessions={store.sessions}
-            selectedId={selectedSessionId}
-            onSelect={(id) => {
-              setSelectedSessionId(id);
-              setViewMode('list');
-            }}
-          />
-        </div>
-      ) : (
+          the List pane. Kept mounted so PipelineStrip stays populated across
+          board/list toggles. */}
+      <div className={viewMode === 'board' ? 'flex-1 overflow-y-auto p-4' : 'hidden'} data-testid="plan-board-view">
+        <PlanBoard
+          sessions={store.sessions}
+          selectedId={selectedSessionId}
+          projectId={activeProjectId || selectedProjectId || undefined}
+          fetchFn={fetchFn}
+          onRevealBoard={revealBoard}
+          onSelect={(id) => {
+            setSelectedSessionId(id);
+            setViewMode('list');
+          }}
+        />
+      </div>
+      {viewMode !== 'board' && (
       /* Main content: two-pane layout + meta tabs at bottom */
       <div className="flex flex-1 overflow-hidden">
         {/* Left pane: session list */}

@@ -1,0 +1,88 @@
+/* @factory/ui — Tailwind v4 bridge to tokens.css.
+   Maps shadcn utility names, font stacks, type scale and radius to --f-* tokens.
+   Vendored byte-identical into each Tailwind portal (see README.md). */
+
+@theme inline {
+  /* Core surfaces & text */
+  --color-background: var(--f-bg);
+  --color-foreground: var(--f-text);
+  --color-card: var(--f-surface-1);
+  --color-card-foreground: var(--f-text);
+  --color-popover: var(--f-surface-2);
+  --color-popover-foreground: var(--f-text);
+  --color-muted: var(--f-surface-2);
+  --color-muted-foreground: var(--f-text-muted);
+  --color-secondary: var(--f-surface-3);
+  --color-secondary-foreground: var(--f-text);
+  --color-accent: var(--f-surface-2);
+  --color-accent-foreground: var(--f-text);
+
+  /* Borders, inputs & focus */
+  --color-border: var(--f-border-subtle);
+  --color-input: var(--f-border-strong);
+  --color-ring: var(--f-accent);
+
+  /* Primary & semantic status */
+  --color-primary: var(--f-accent);
+  --color-primary-foreground: var(--f-on-accent);
+  --color-destructive: var(--f-danger);
+  --color-destructive-foreground: var(--f-on-accent);
+  --color-success: var(--f-success);
+  --color-success-foreground: var(--f-on-accent);
+  --color-warning: var(--f-warning);
+  --color-warning-foreground: var(--f-on-accent);
+  --color-info: var(--f-info);
+  --color-info-foreground: var(--f-on-accent);
+
+  /* Sidebar */
+  --color-sidebar: var(--f-bg);
+  --color-sidebar-foreground: var(--f-text);
+  --color-sidebar-primary: var(--f-accent);
+  --color-sidebar-primary-foreground: var(--f-on-accent);
+  --color-sidebar-accent: var(--f-surface-2);
+  --color-sidebar-accent-foreground: var(--f-text);
+  --color-sidebar-border: var(--f-border-subtle);
+  --color-sidebar-ring: var(--f-accent);
+
+  /* Type scale */
+  --text-xs: var(--f-text-caption);
+  --text-xs--line-height: var(--f-leading-caption);
+  --text-sm: var(--f-text-body);
+  --text-sm--line-height: var(--f-leading-body);
+  --text-base: var(--f-text-body-lg);
+  --text-base--line-height: var(--f-leading-body-lg);
+  --text-lg: var(--f-text-title);
+  --text-lg--line-height: var(--f-leading-title);
+  --text-xl: var(--f-text-page);
+  --text-xl--line-height: var(--f-leading-page);
+  --text-3xl: var(--f-text-stat);
+  --text-3xl--line-height: var(--f-leading-stat);
+  --text-caption: var(--f-text-caption);
+  --text-caption--line-height: var(--f-leading-caption);
+  --text-data: var(--f-text-data);
+  --text-data--line-height: var(--f-leading-data);
+  --text-body: var(--f-text-body);
+  --text-body--line-height: var(--f-leading-body);
+  --text-body-lg: var(--f-text-body-lg);
+  --text-body-lg--line-height: var(--f-leading-body-lg);
+  --text-title: var(--f-text-title);
+  --text-title--line-height: var(--f-leading-title);
+  --text-page: var(--f-text-page);
+  --text-page--line-height: var(--f-leading-page);
+  --text-stat: var(--f-text-stat);
+  --text-stat--line-height: var(--f-leading-stat);
+
+}
+
+@theme {
+  /* Font stacks */
+  --font-sans: var(--f-font-sans);
+  --font-display: 'Archivo', 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--f-font-mono);
+
+  /* Radius */
+  --radius-sm: var(--f-radius-badge);
+  --radius-md: var(--f-radius-control);
+  --radius-lg: var(--f-radius-card);
+  --radius-xl: var(--f-radius-dialog);
+}

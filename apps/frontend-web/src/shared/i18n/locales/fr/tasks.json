@@ -1,4 +1,16 @@
 {
+  "pipeline": {
+    "failed": "Échecs ({{count}})",
+    "showMore": "Afficher {{count}} de plus",
+    "rerun": "Relancer",
+    "dismiss": "Écarter",
+    "fleetScope": "Planification de tous les projets",
+    "fleetDescription": "Importer, traiter, réviser et publier les plans de tous les projets.",
+    "project": "Projet : {{id}}",
+    "unassignedProject": "Projet non attribué",
+    "unassigned": "Non attribué",
+    "dismissUnavailable": "Ce plan ne peut plus être écarté."
+  },
   "status": {
     "backlog": "Plans prêts",
     "todo": "À faire",

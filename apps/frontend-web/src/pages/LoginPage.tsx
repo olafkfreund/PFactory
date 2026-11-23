@@ -64,7 +64,7 @@ export function LoginPage() {
           className="absolute inset-0 opacity-[0.035]"
           style={{
             backgroundImage:
-              'linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)',
+              'linear-gradient(var(--color-foreground) 1px, transparent 1px), linear-gradient(90deg, var(--color-foreground) 1px, transparent 1px)',
             backgroundSize: '46px 46px',
           }}
         />

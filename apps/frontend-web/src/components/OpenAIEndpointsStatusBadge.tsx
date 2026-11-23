@@ -67,8 +67,8 @@ function EndpointPopover({
   const dotColor = !probed
     ? 'bg-muted-foreground/40'
     : ok
-      ? 'bg-green-500'
-      : 'bg-red-500';
+      ? 'bg-success'
+      : 'bg-destructive';
 
   const statusType: 'ok' | 'failed' | 'unprobed' = !probed
     ? 'unprobed'
@@ -118,8 +118,8 @@ function EndpointPopover({
             <div className="min-w-0">
               <h4 className="text-sm font-medium truncate">{endpoint.label}</h4>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
-                {statusType === 'ok' && <Check className="h-3 w-3 text-green-600" />}
-                {statusType === 'failed' && <X className="h-3 w-3 text-red-600" />}
+                {statusType === 'ok' && <Check className="h-3 w-3 text-success" />}
+                {statusType === 'failed' && <X className="h-3 w-3 text-destructive" />}
                 {statusType === 'ok'
                   ? t('settings:openaiEndpoints.testSuccess', 'Connection successful')
                   : statusType === 'failed'
@@ -165,7 +165,7 @@ function EndpointPopover({
 
           {/* Test error */}
           {statusType === 'failed' && status?.error && (
-            <div className="text-xs p-2 rounded-md bg-red-500/10 text-red-700 dark:text-red-400 flex items-start gap-2">
+            <div className="text-xs p-2 rounded-md bg-destructive/10 text-destructive flex items-start gap-2">
               <X className="h-3.5 w-3.5 shrink-0 mt-0.5" />
               <span className="break-all">{status.error}</span>
             </div>
@@ -173,7 +173,7 @@ function EndpointPopover({
 
           {/* Available models on success */}
           {statusType === 'ok' && status && status.models.length > 0 && (
-            <div className="text-xs p-2 rounded-md bg-green-500/10 text-green-700 dark:text-green-400">
+            <div className="text-xs p-2 rounded-md bg-success/10 text-success">
               <div className="font-medium mb-1">
                 {t('settings:openaiEndpoints.modelsFound', '{{count}} models', {
                   count: status.models.length,

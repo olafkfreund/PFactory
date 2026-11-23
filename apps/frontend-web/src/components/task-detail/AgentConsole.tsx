@@ -87,6 +87,11 @@ export function AgentConsole({ taskId }: AgentConsoleProps) {
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const rootStyle = getComputedStyle(document.documentElement);
+    const readColor = (token: string, fallback: string) =>
+      rootStyle.getPropertyValue(token).trim() || fallback;
+    const cursorColor = readColor('--color-primary', '#D6D876');
+
     const xterm = new XTerm({
       cursorBlink: true,
       cursorStyle: 'block',
@@ -94,10 +99,10 @@ export function AgentConsole({ taskId }: AgentConsoleProps) {
       fontFamily: 'var(--font-mono), Menlo, Monaco, "Courier New", monospace',
       scrollback: 10000,
       theme: {
-        background: '#0B0B0F',
-        foreground: '#E8E6E3',
-        cursor: '#D6D876',
-        selectionBackground: '#D6D87640',
+        background: readColor('--color-background', '#0B0B0F'),
+        foreground: readColor('--color-foreground', '#E8E6E3'),
+        cursor: cursorColor,
+        selectionBackground: cursorColor.startsWith('#') ? `${cursorColor}40` : cursorColor,
       },
       allowProposedApi: true,
     });
@@ -305,7 +310,7 @@ export function AgentConsole({ taskId }: AgentConsoleProps) {
       </div>
 
       {/* xterm canvas */}
-      <div className="flex-1 min-h-0 bg-[#0B0B0F] p-2" ref={containerRef} />
+      <div className="flex-1 min-h-0 bg-background p-2" ref={containerRef} />
 
       {/* Attach confirmation */}
       <AlertDialog open={showAttachConfirm} onOpenChange={setShowAttachConfirm}>

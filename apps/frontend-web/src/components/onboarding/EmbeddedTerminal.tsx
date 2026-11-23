@@ -3,6 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import { getTerminalTheme } from '../terminal/terminalTheme';
 
 interface EmbeddedTerminalProps {
   /** Command to run after the terminal shell is ready */
@@ -77,29 +78,7 @@ export function EmbeddedTerminal({ initialCommand, onExit, onUrlDetected, onToke
       fontSize: 11,
       fontFamily: '"Ubuntu Mono", "DejaVu Sans Mono", "Liberation Mono", monospace',
       lineHeight: 1.2,
-      theme: {
-        background: '#0B0B0F',
-        foreground: '#E8E6E3',
-        cursor: '#D6D876',
-        cursorAccent: '#0B0B0F',
-        selectionBackground: '#D6D87640',
-        black: '#1A1A1F',
-        red: '#FF6B6B',
-        green: '#87D687',
-        yellow: '#D6D876',
-        blue: '#6BB3FF',
-        magenta: '#C792EA',
-        cyan: '#89DDFF',
-        white: '#E8E6E3',
-        brightBlack: '#4A4A50',
-        brightRed: '#FF8A8A',
-        brightGreen: '#A5E6A5',
-        brightYellow: '#E8E87A',
-        brightBlue: '#8AC4FF',
-        brightMagenta: '#DEB3FF',
-        brightCyan: '#A6E8FF',
-        brightWhite: '#FFFFFF',
-      },
+      theme: getTerminalTheme(),
       allowProposedApi: true,
       scrollback: 5000,
     });

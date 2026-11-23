@@ -137,6 +137,12 @@ def test_summary_carries_the_per_lens_verdict():
     assert lenses["clarity"]["findings"] == []
 
 
+def test_summary_identifies_owning_project():
+    session = _blocked_session()
+    session.project_id = "alpha"
+    assert session.summary()["project_id"] == "alpha"
+
+
 def test_summary_aggregate_is_carried_but_is_not_the_verdict():
     """The aggregate clears the threshold while the plan is still blocked.
 

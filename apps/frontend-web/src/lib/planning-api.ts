@@ -248,6 +248,20 @@ export function rejectSession(
   return _post<PlanSession>(`${PLAN_PREFIX}/sessions/${sessionId}/reject`, body, options);
 }
 
+export interface DiscardRequest {
+  actor: string;
+  reason: string;
+}
+
+/** POST /api/plan/sessions/{id}/discard — abandon/dismiss the session (#360). */
+export function discardSession(
+  sessionId: string,
+  body: DiscardRequest = { actor: 'operator', reason: 'dismissed from board' },
+  options: FetchOptions = {},
+): Promise<PlanSession> {
+  return _post<PlanSession>(`${PLAN_PREFIX}/sessions/${sessionId}/discard`, body, options);
+}
+
 export interface EmitRequest {
   repo: string;
   dry_run?: boolean;

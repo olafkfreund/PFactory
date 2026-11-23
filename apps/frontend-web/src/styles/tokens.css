@@ -1,0 +1,122 @@
+/* @factory/ui — Canonical design tokens for the five Factory portals.
+   Plain CSS, no Tailwind syntax. Light on :root, dark on .dark.
+   Vendored byte-identical into each portal (see README.md). */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces & borders */
+  --f-bg: oklch(0.955 0.020 92); /* #f5f0e1 */
+  --f-surface-1: oklch(0.982 0.012 95); /* #fbf9f0 */
+  --f-surface-2: oklch(0.925 0.024 90); /* #ece6d5 */
+  --f-surface-3: oklch(0.892 0.028 88); /* #e3dbc7 */
+  --f-border-subtle: oklch(0.835 0.032 85); /* #d3c8b2 */
+  --f-border-strong: oklch(0.575 0.030 70); /* #857666 */
+
+  /* Text */
+  --f-text: oklch(0.285 0.008 60); /* #2d2926 */
+  --f-text-secondary: oklch(0.400 0.015 60); /* #4e4640 */
+  --f-text-muted: oklch(0.465 0.020 62); /* #62574e */
+
+  /* Per-portal accents */
+  --f-plan: oklch(0.460 0.124 345); /* #863668 */
+  --f-build: oklch(0.475 0.097 75); /* #7c5308 */
+  --f-test: oklch(0.470 0.096 108); /* #605e0d */
+  --f-cockpit: oklch(0.460 0.074 200); /* #0f6468 */
+  --f-meet: oklch(0.480 0.150 40); /* #9f3501 */
+
+  /* Status & foreground on accent/status fills */
+  --f-success: oklch(0.460 0.090 150); /* #2e663c */
+  --f-warning: oklch(0.475 0.097 75); /* #7c5308 */
+  --f-danger: oklch(0.437 0.179 28.3); /* #9d0006 */
+  --f-info: oklch(0.455 0.105 245); /* #135b8d */
+  --f-on-accent: oklch(0.982 0.012 95); /* #fbf9f0 */
+
+  /* Active portal accent (defaults to build) */
+  --f-accent: var(--f-build);
+
+  /* Typography */
+  --f-font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --f-font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+
+  --f-text-caption: 0.75rem; /* 12px */
+  --f-leading-caption: 1rem; /* 16px */
+  --f-text-data: 0.8125rem; /* 13px */
+  --f-leading-data: 1.125rem; /* 18px */
+  --f-text-body: 0.875rem; /* 14px */
+  --f-leading-body: 1.25rem; /* 20px */
+  --f-text-body-lg: 1rem; /* 16px */
+  --f-leading-body-lg: 1.5rem; /* 24px */
+  --f-text-title: 1.125rem; /* 18px */
+  --f-leading-title: 1.5rem; /* 24px */
+  --f-text-page: 1.25rem; /* 20px */
+  --f-leading-page: 1.75rem; /* 28px */
+  --f-text-stat: 1.75rem; /* 28px */
+  --f-leading-stat: 2rem; /* 32px */
+
+  /* Radius */
+  --f-radius-badge: 4px;
+  --f-radius-control: 6px;
+  --f-radius-card: 8px;
+  --f-radius-dialog: 8px;
+
+  /* Spacing (4px grid) */
+  --f-space-unit: 4px;
+  --f-space-1: 4px;
+  --f-space-2: 8px;
+  --f-space-3: 12px;
+  --f-space-4: 16px;
+  --f-space-6: 24px;
+  --f-space-8: 32px;
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Surfaces & borders */
+  --f-bg: oklch(0.240 0.004 80); /* #201f1d */
+  --f-surface-1: oklch(0.277 0.004 80); /* #292826 */
+  --f-surface-2: oklch(0.313 0.006 70); /* #33312e */
+  --f-surface-3: oklch(0.352 0.008 65); /* #3e3a37 */
+  --f-border-subtle: oklch(0.420 0.012 60); /* #524c47 */
+  --f-border-strong: oklch(0.650 0.028 68); /* #9b8c7d */
+
+  /* Text */
+  --f-text: oklch(0.894 0.057 89.2); /* #ebdbb2 */
+  --f-text-secondary: oklch(0.810 0.045 85); /* #cebfa0 */
+  --f-text-muted: oklch(0.735 0.036 80); /* #b5a790 */
+
+  /* Per-portal accents */
+  --f-plan: oklch(0.765 0.095 358); /* #e499b2 */
+  --f-build: oklch(0.832 0.159 83); /* #fabd30 */
+  --f-test: oklch(0.775 0.158 110.8); /* #bbbe2b */
+  --f-cockpit: oklch(0.765 0.075 190); /* #78c2bd */
+  --f-meet: oklch(0.765 0.150 55); /* #fa964b */
+
+  /* Status & foreground on accent/status fills */
+  --f-success: oklch(0.765 0.108 140); /* #8dc482 */
+  --f-warning: oklch(0.832 0.159 83); /* #fabd30 */
+  --f-danger: oklch(0.745 0.150 28); /* #fd8476 */
+  --f-info: oklch(0.765 0.085 238); /* #7ebbe3 */
+  --f-on-accent: oklch(0.220 0.004 80); /* #1c1a19 */
+}
+
+:root[data-portal="plan"] {
+  --f-accent: var(--f-plan);
+}
+
+:root[data-portal="build"] {
+  --f-accent: var(--f-build);
+}
+
+:root[data-portal="test"] {
+  --f-accent: var(--f-test);
+}
+
+:root[data-portal="cockpit"] {
+  --f-accent: var(--f-cockpit);
+}
+
+:root[data-portal="meet"] {
+  --f-accent: var(--f-meet);
+}
