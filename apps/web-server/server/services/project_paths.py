@@ -18,6 +18,7 @@ import fcntl
 import json
 import os
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path, PurePath
 from typing import Any
@@ -50,7 +51,7 @@ def save_projects(projects: dict[str, dict[str, Any]]) -> None:
 
 
 @contextmanager
-def locked_projects_file(path: Path):
+def locked_projects_file(path: Path) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True)
     # flock is per-node; the chart keeps this registry on one RWO volume.
     with path.with_suffix(".json.lock").open("a") as lock:
