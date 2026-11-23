@@ -30,6 +30,7 @@ from server.routes.project_authz import (
     is_service_principal,
     require_plan_access,
     require_project_access,
+    resolve_default_org_id,
     scope_role_ceiling,
     visible_project_ids,
 )
@@ -605,7 +606,7 @@ async def add_project(
     principal = getattr(request.state, "user", None)
     org_id = await creator_org(principal, db)
     if is_service_principal(principal):
-        org_id = "default"
+        org_id = await resolve_default_org_id(db)
     if not org_id and not is_service_principal(principal):
         raise HTTPException(status_code=403, detail="Project membership required")
     grant = (await _member_roles(principal, db)).get(org_id or "", "")

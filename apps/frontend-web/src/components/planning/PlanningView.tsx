@@ -12,27 +12,21 @@
  * Mounted from App.tsx via activeView === 'planning'.
  */
 
-import { useEffect, useState, useCallback } from 'react';
-import { Plus, Package, LayoutTemplate, Cpu, List, Columns } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Plus, List, Columns } from 'lucide-react';
 import { Button } from '../ui/button';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
-import { SessionList } from './SessionList';
-import { SessionDetail } from './SessionDetail';
-import { KanbanBoard } from '../KanbanBoard';
 import { PlanBoard } from './PlanBoard';
 import { cn } from '../../lib/utils';
 import { PlanUploadForm } from './PlanUploadForm';
-import { RegistryPanel } from './RegistryPanel';
-import { TemplatesPanel } from './TemplatesPanel';
-import { ProvidersPanel } from './ProvidersPanel';
 import { usePlanStore } from '../../stores/plan-store';
-import { useTaskStore, loadTasks } from '../../stores/task-store';
+import { loadTasks } from '../../stores/task-store';
 import { useProjectStore } from '../../stores/project-store';
 import type { PlanSession } from '../../shared/types/plan';
 import type { Task } from '../../shared/types';
@@ -50,9 +44,11 @@ interface Props {
    * When set, the matching session's detail opens in the List pane.
    */
   focusSessionId?: string | null;
+  onShowBoard?: () => void;
 }
 
-export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessionId }: Props) {
+export function PlanningView({ fetchFn, focusSessionId, onShowBoard }: Props) {
+  const { t } = useTranslation('tasks');
   const store = usePlanStore();
 
   // Wire fetchFn into store if provided (for testing)
@@ -60,20 +56,15 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
     store.setFetchFn(fetchFn);
   }
 
-  // Task-store wiring for Board mode (mirrors the old App.tsx 'kanban' branch).
-  const tasks = useTaskStore((state) => state.tasks);
-  const projects = useProjectStore((state) => state.projects);
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
-  const selectedProject = projects.find(
-    (p) => p.id === (activeProjectId || selectedProjectId),
-  );
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [showNewPlanDialog, setShowNewPlanDialog] = useState(false);
-  // Default to the animated Board so the ring rail + stage medallions + animated
-  // cards are the first thing you see on Planning (List is one toggle away).
   const [viewMode, setViewMode] = useState<'list' | 'board'>('board');
+  const revealBoard = useCallback(() => {
+    onShowBoard?.();
+  }, [onShowBoard]);
 
   // Keep the session list loaded so the board has data even when the list pane
   // isn't mounted (board mode hides the left sidebar).
@@ -107,36 +98,24 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
   }, [activeProjectId, selectedProjectId]);
 
   // Deep-link: when arriving with a focusSessionId (e.g. "View Plan" from a
-  // GitHub issue), open that session's detail in the List pane. Guarded on the
+  // GitHub issue), open that session's detail in the active view. Guarded on the
   // id actually being a loaded plan session so a stale/foreign id is ignored,
   // and it waits for the session list to load before focusing.
   useEffect(() => {
     if (focusSessionId && store.sessions.some((s) => s.session_id === focusSessionId)) {
       setSelectedSessionId(focusSessionId);
-      setViewMode('list');
     }
   }, [focusSessionId, store.sessions]);
 
-  const handleSessionSelect = (sessionId: string) => {
-    setSelectedSessionId(sessionId);
-  };
+  const handleSessionSelect = useCallback((sessionId: string) => {
+    setSelectedSessionId((prev) => (prev === sessionId ? null : sessionId));
+  }, []);
+  const handleCloseDetail = useCallback(() => setSelectedSessionId(null), []);
 
   const handleNewPlanSuccess = (session: PlanSession) => {
     setShowNewPlanDialog(false);
     setSelectedSessionId(session.session_id);
   };
-
-  // Stable callback wrappers so KanbanBoard's memo comparisons stay stable.
-  const handleTaskClick = useCallback(
-    (task: Task) => {
-      onTaskClick?.(task);
-    },
-    [onTaskClick],
-  );
-
-  const handleNewTaskClick = useCallback(() => {
-    onNewTaskClick?.();
-  }, [onNewTaskClick]);
 
   return (
     <div className="flex flex-col h-full" data-testid="planning-view">
@@ -145,7 +124,7 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
         <div>
           <h1 className="text-xl font-semibold text-foreground">Planning Portal</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Ingest, process, review and emit product plans.
+            {t('pipeline.fleetDescription')}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -164,7 +143,7 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
             </button>
             <button
               type="button"
-              onClick={() => { setViewMode('board'); setSelectedSessionId(null); }}
+              onClick={() => { setViewMode('board'); }}
               aria-pressed={viewMode === 'board'}
               className={cn(
                 'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
@@ -185,94 +164,22 @@ export function PlanningView({ fetchFn, onTaskClick, onNewTaskClick, focusSessio
         </div>
       </header>
 
-      {/* Board mode: kanban of the SAME planning sessions the List view shows
-          (global plan-store, bucketed by board_state). List and Board are two
-          layouts over one data source — selecting a card opens its detail in
-          the List pane. */}
-      {viewMode === 'board' ? (
-        <div className="flex-1 overflow-y-auto p-4" data-testid="plan-board-view">
-          <PlanBoard
-            sessions={store.sessions}
-            selectedId={selectedSessionId}
-            onSelect={(id) => {
-              setSelectedSessionId(id);
-              setViewMode('list');
-            }}
-          />
-        </div>
-      ) : (
-      /* Main content: two-pane layout + meta tabs at bottom */
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left pane: session list */}
-        <aside
-          className="w-72 shrink-0 border-r border-border flex flex-col overflow-hidden p-4"
-          aria-label="Sessions sidebar"
-        >
-          <SessionList
-            selectedId={selectedSessionId}
-            onSelect={handleSessionSelect}
-          />
-        </aside>
-
-        {/* Right pane: detail or empty state */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {selectedSessionId ? (
-            <SessionDetail
-              sessionId={selectedSessionId}
-              onBack={() => setSelectedSessionId(null)}
-            />
-          ) : (
-            <div className="flex flex-col gap-8">
-              {/* Empty state */}
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
-                <div className="h-14 w-14 rounded-2xl bg-muted/50 flex items-center justify-center">
-                  <Plus className="h-7 w-7 opacity-40" aria-hidden />
-                </div>
-                <p className="text-sm font-medium">Select a session or create a new plan</p>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowNewPlanDialog(true)}
-                  aria-label="Create new plan"
-                >
-                  <Plus className="mr-2 h-4 w-4" aria-hidden />
-                  New plan
-                </Button>
-              </div>
-
-              {/* Management tabs */}
-              <div className="rounded-xl border border-border/60 bg-card/30 p-4">
-                <h2 className="text-sm font-semibold text-foreground mb-4">Configuration</h2>
-                <Tabs defaultValue="registry">
-                  <TabsList>
-                    <TabsTrigger value="registry">
-                      <Package className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-                      Registry
-                    </TabsTrigger>
-                    <TabsTrigger value="templates">
-                      <LayoutTemplate className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-                      Templates
-                    </TabsTrigger>
-                    <TabsTrigger value="providers">
-                      <Cpu className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-                      Providers
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="registry" className="mt-4">
-                    <RegistryPanel fetchFn={fetchFn} />
-                  </TabsContent>
-                  <TabsContent value="templates" className="mt-4">
-                    <TemplatesPanel fetchFn={fetchFn} />
-                  </TabsContent>
-                  <TabsContent value="providers" className="mt-4">
-                    <ProvidersPanel fetchFn={fetchFn} />
-                  </TabsContent>
-                </Tabs>
-              </div>
-            </div>
-          )}
-        </main>
+      <div className="flex-1 overflow-y-auto p-4" data-testid="plan-board-view">
+        <PlanBoard
+          sessions={store.sessions}
+          loading={store.loading}
+          error={store.error}
+          sessionsLoaded={store.sessionsLoaded}
+          selectedId={selectedSessionId}
+          viewMode={viewMode}
+          projectId={activeProjectId || selectedProjectId || undefined}
+          fetchFn={fetchFn}
+          onRevealBoard={revealBoard}
+          onSelect={handleSessionSelect}
+          onCloseDetail={handleCloseDetail}
+          onNewPlan={() => setShowNewPlanDialog(true)}
+        />
       </div>
-      )}
 
       {/* New plan dialog */}
       <Dialog open={showNewPlanDialog} onOpenChange={setShowNewPlanDialog}>

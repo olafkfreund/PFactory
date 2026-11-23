@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { terminalBufferManager } from '../../lib/terminal-buffer-manager';
+import { getTerminalTheme } from './terminalTheme';
 
 interface UseXtermOptions {
   terminalId: string;
@@ -19,6 +20,14 @@ export function useXterm({ terminalId, onCommandEnter, onResize }: UseXtermOptio
   const commandBufferRef = useRef<string>('');
   const isDisposedRef = useRef<boolean>(false);
 
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      if (xtermRef.current) xtermRef.current.options.theme = getTerminalTheme();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
+    return () => observer.disconnect();
+  }, []);
+
   // Initialize xterm.js UI
   useEffect(() => {
     if (!terminalRef.current || xtermRef.current) return;
@@ -30,30 +39,7 @@ export function useXterm({ terminalId, onCommandEnter, onResize }: UseXtermOptio
       fontFamily: 'var(--font-mono), "JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
       lineHeight: 2,
       letterSpacing: 0,
-      theme: {
-        background: '#0B0B0F',
-        foreground: '#E8E6E3',
-        cursor: '#D6D876',
-        cursorAccent: '#0B0B0F',
-        selectionBackground: '#D6D87640',
-        selectionForeground: '#E8E6E3',
-        black: '#1A1A1F',
-        red: '#FF6B6B',
-        green: '#87D687',
-        yellow: '#D6D876',
-        blue: '#6BB3FF',
-        magenta: '#C792EA',
-        cyan: '#89DDFF',
-        white: '#E8E6E3',
-        brightBlack: '#4A4A50',
-        brightRed: '#FF8A8A',
-        brightGreen: '#A5E6A5',
-        brightYellow: '#E8E87A',
-        brightBlue: '#8AC4FF',
-        brightMagenta: '#DEB3FF',
-        brightCyan: '#A6E8FF',
-        brightWhite: '#FFFFFF',
-      },
+      theme: getTerminalTheme(),
       allowProposedApi: true,
       scrollback: 10000,
     });

@@ -284,6 +284,13 @@
       "integrationTitle": "Memória",
       "integrationDescription": "Configure memória persistente entre sessões para agentes",
       "syncDescription": "Configurar memória persistente"
+    },
+    "planSources": {
+      "title": "Fontes de planos",
+      "description": "Entradas de registro, modelos de plano e adaptadores de provedor",
+      "registry": "Registro",
+      "templates": "Modelos",
+      "providers": "Provedores"
     }
   },
   "agentProfile": {

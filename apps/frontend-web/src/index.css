@@ -1,147 +1,21 @@
 @import 'tailwindcss';
+@import './styles/tokens.css';
+@import './styles/tailwind-theme.css';
+@import './styles/shell.css';
 @import './styles/syntax-highlighting.css';
 
 @plugin '@tailwindcss/typography';
 
-/* ============================================
-   Tailwind Theme Configuration (v4)
-   ============================================ */
-@theme {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-success: hsl(var(--success));
-  --color-success-foreground: hsl(var(--success-foreground));
-  --color-warning: hsl(var(--warning));
-  --color-warning-foreground: hsl(var(--warning-foreground));
-  --color-info: hsl(var(--info));
-  --color-info-foreground: hsl(var(--info-foreground));
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  /* Factory design language — shared across all Factory portals (see
-     TFactory/docs/design-system.md): Hanken Grotesk for UI prose, Archivo for
-     display headings, JetBrains Mono for the data plane. */
-  --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-display: 'Archivo', 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
-}
-
-/* ============================================
-   Theme CSS Variables
-   ============================================ */
-
-/* Default Theme - Light Mode */
 :root {
-  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  /* Gruvbox — light mode (bg0 #fbf1c7 · fg #3c3836) */
-  --background: 48 87% 88%;          /* bg0   #fbf1c7 */
-  --foreground: 20 5% 22%;           /* fg1   #3c3836 */
-  --card: 46 80% 92%;                /* cream */
-  --card-foreground: 20 5% 22%;
-  --popover: 46 80% 92%;
-  --popover-foreground: 20 5% 22%;
-  --primary: 323 39% 40%;             /* purple #8f3f71 */
-  --primary-foreground: 48 87% 92%;
-  --secondary: 43 36% 81%;           /* bg1   #ebdbb2 */
-  --secondary-foreground: 20 5% 22%;
-  --muted: 43 36% 81%;
-  --muted-foreground: 26 10% 44%;
-  --accent: 18 96% 35%;              /* orange #af3a03 */
-  --accent-foreground: 48 87% 92%;
-  --destructive: 2 99% 31%;          /* red    #9d0006 */
-  --destructive-foreground: 48 87% 92%;
-  --success: 146 30% 37%;            /* aqua   #427b58 */
-  --success-foreground: 48 87% 92%;
-  --warning: 36 80% 39%;             /* yellow #b57614 */
-  --warning-foreground: 48 87% 92%;
-  --info: 189 90% 25%;               /* blue   #076678 */
-  --info-foreground: 48 87% 92%;
-  --border: 40 33% 73%;              /* bg2   #d5c4a1 */
-  --input: 40 33% 73%;
-  --ring: 323 39% 40%;
-  --radius: 0.5rem;
-
-  color-scheme: light;
-  color: hsl(var(--foreground));
-  background-color: hsl(var(--background));
-}
-
-/* Gruvbox — dark mode (bg0 #282828 · fg #ebdbb2) */
-.dark {
-  --background: 0 0% 16%;            /* bg0  #282828 */
-  --foreground: 43 36% 81%;         /* fg1  #ebdbb2 */
-  --card: 20 5% 22%;                /* bg1  #3c3836 */
-  --card-foreground: 43 36% 81%;
-  --popover: 24 7% 29%;             /* bg2  #504945 */
-  --popover-foreground: 43 36% 81%;
-  --primary: 344 47% 68%;            /* purple #d3869b */
-  --primary-foreground: 0 0% 12%;
-  --secondary: 24 7% 29%;           /* bg2 */
-  --secondary-foreground: 43 36% 81%;
-  --muted: 24 7% 29%;
-  --muted-foreground: 40 14% 59%;   /* fg4  #a89984 */
-  --accent: 27 99% 55%;             /* orange #fe8019 */
-  --accent-foreground: 0 0% 12%;
-  --destructive: 6 96% 59%;         /* red    #fb4934 */
-  --destructive-foreground: 0 0% 12%;
-  --success: 110 33% 62%;           /* aqua   #8ec07c */
-  --success-foreground: 0 0% 12%;
-  --warning: 42 95% 58%;            /* yellow #fabd2f */
-  --warning-foreground: 0 0% 12%;
-  --info: 155 16% 58%;              /* blue   #83a598 */
-  --info-foreground: 0 0% 12%;
-  --border: 24 7% 29%;              /* bg2 */
-  --input: 24 7% 29%;
-  --ring: 344 47% 68%;
-
-  color-scheme: dark;
-  color: hsl(var(--foreground));
-  background-color: hsl(var(--background));
-}
-
-/* ============================================
-   Gruvbox Color Theme
-   ============================================ */
-
-[data-theme="gruvbox"] {
-  --primary: 323 39% 40%;             /* purple #8f3f71 */
-  --primary-foreground: 48 87% 92%;
-  --accent: 18 96% 35%;              /* orange #af3a03 */
-  --accent-foreground: 48 87% 92%;
-  --ring: 323 39% 40%;
-}
-[data-theme="gruvbox"].dark, .dark[data-theme="gruvbox"] {
-  --background: 0 0% 16%;            /* bg0  #282828 */
-  --card: 20 5% 22%;                /* bg1  #3c3836 */
-  --popover: 24 7% 29%;             /* bg2  #504945 */
-  --border: 24 7% 29%;
-  --primary: 344 47% 68%;            /* purple #d3869b */
-  --accent: 27 99% 55%;             /* orange #fe8019 */
+  color: var(--color-foreground);
+  background-color: var(--color-background);
 }
 
 body {
@@ -162,16 +36,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: hsl(var(--background));
+  background: var(--color-background);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
+  background: var(--color-border);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground));
+  background: var(--color-muted-foreground);
 }
 
 /* Accessibility: respect the user's reduced-motion preference (a11y) */
@@ -210,814 +84,17 @@ body {
 }
 
 /* ============================================
-   Kanban stage medallions (animated empty states)
-   Each column's empty state shows a glowing accent ring + stage icon with a
-   motion that conveys the stage. Accent driven by --mc (Gruvbox hex set in
-   KanbanBoard.tsx). Honours prefers-reduced-motion.
-   ============================================ */
-.stage-medallion {
-  position: relative;
-  width: 60px;
-  height: 60px;
-  display: grid;
-  place-items: center;
-  color: var(--mc, hsl(var(--muted-foreground)));
-}
-.stage-medallion__ring {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  transform-origin: 50% 50%;
-}
-.stage-medallion__track {
-  fill: none;
-  stroke: color-mix(in srgb, var(--mc) 20%, transparent);
-  stroke-width: 3;
-}
-.stage-medallion__arc {
-  fill: none;
-  stroke: var(--mc);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-dasharray: 54 120;
-  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--mc) 45%, transparent));
-}
-.stage-medallion__icon {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--mc) 13%, transparent);
-  border: 1px solid color-mix(in srgb, var(--mc) 30%, transparent);
-}
-.stage-medallion__icon > svg { width: 20px; height: 20px; }
-
-/* in_progress — the ring spins; icon spins (Loader2) */
-.medallion--spin .stage-medallion__ring { animation: med-rotate 2.6s linear infinite; }
-/* ai_review — ring sweeps the other way (scanning) + the bot bobs */
-.medallion--scan .stage-medallion__ring { animation: med-rotate 3.4s linear infinite reverse; }
-.medallion--scan .stage-medallion__icon > svg { animation: med-bob 2s ease-in-out infinite; }
-/* human_review — calm breathing: awaiting your approval */
-.medallion--pulse { animation: med-breathe 2.6s ease-in-out infinite; }
-/* done — full settled ring with a soft glow pulse + a one-time check pop */
-.medallion--done .stage-medallion__arc {
-  stroke-dasharray: 999;
-  animation: med-glow 2.8s ease-in-out infinite;
-}
-.medallion--done .stage-medallion__icon > svg { animation: med-pop 600ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-/* backlog — static, calm (intentionally un-animated) */
-
-@keyframes med-rotate { to { transform: rotate(360deg); } }
-@keyframes med-breathe {
-  0%, 100% { transform: scale(1); opacity: 0.82; }
-  50% { transform: scale(1.06); opacity: 1; }
-}
-@keyframes med-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-@keyframes med-glow {
-  0%, 100% { filter: drop-shadow(0 0 2px color-mix(in srgb, var(--mc) 30%, transparent)); }
-  50% { filter: drop-shadow(0 0 9px color-mix(in srgb, var(--mc) 60%, transparent)); }
-}
-@keyframes med-pop {
-  0% { transform: scale(0.4); opacity: 0; }
-  60% { transform: scale(1.18); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stage-medallion__ring,
-  .medallion--pulse,
-  .medallion--scan .stage-medallion__icon > svg,
-  .medallion--done .stage-medallion__arc,
-  .medallion--done .stage-medallion__icon > svg { animation: none; }
-  .medallion--done .stage-medallion__arc { stroke-dasharray: 999; }
-}
-
-/* ============================================
-   Pipeline Rail — cockpit-style stage overview (issue #78, phase 1)
-   Rendered above the kanban board. Gruvbox palette; JetBrains Mono for
-   numbers. Per-ring accent driven by CSS custom property --rc (set inline
-   in PipelineRail.tsx per status). Honours prefers-reduced-motion.
-   ============================================ */
-
-/* ── Outer panel ── */
-.rail-panel {
-  position: relative;
-  margin: 0 0 2px;
-  padding: 22px 24px 24px;
-  background:
-    radial-gradient(120% 160% at 0% 0%,   rgba(184,187,38,  0.05), transparent 55%),
-    radial-gradient(120% 160% at 100% 100%, rgba(254,128, 25, 0.05), transparent 55%),
-    hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 14px;
-  overflow: hidden;
-}
-
-/* Brand sweep hairline along the top edge (mirrors the fsuite section) */
-.rail-panel-sweep {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, #b8bb26, #8ec07c, #83a598, #fabd2f, #fe8019);
-  opacity: 0.8;
-  border-radius: 14px 14px 0 0;
-  pointer-events: none;
-}
-
-/* ── Horizontal flow row ── */
-.rail-flow {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-around;
-  gap: 0;
-  flex-wrap: nowrap;
-}
-
-/* Each flow item = one ring; sits ABOVE the connector line + flying documents
-   (which are absolutely positioned at z-index 0) so a document slips behind the
-   circle as it travels the rail. */
-.rail-flow-item {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  justify-content: center;
-  flex: 1 1 0;
-  min-width: 0;
-}
-
-/* ── Individual stage block ── */
-.rail-stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  /* --rc is set inline per status in PipelineRail.tsx */
-}
-
-/* ── Ring wrapper — relative container for badge + halo + ring + icon ── */
-.rail-ring-wrap {
-  position: relative;
-  width: 104px;
-  height: 104px;
-  flex-shrink: 0;
-}
-/* Opaque card-coloured disc filling the ring interior — occludes the flying
-   document while it passes behind the circle (it reappears in the gaps). */
-.rail-ring-wrap::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  background: hsl(var(--card));
-}
-
-/* ── Count badge — top-right of the ring ── */
-.rail-count {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  z-index: 10;
-  min-width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border-radius: 999px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  transition: color 200ms, background 200ms, border-color 200ms, box-shadow 200ms;
-}
-.rail-count--active {
-  color: var(--rc);
-  background: color-mix(in srgb, var(--rc) 14%, hsl(var(--card)));
-  border-color: color-mix(in srgb, var(--rc) 40%, transparent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--rc) 30%, transparent);
-}
-
-/* ── Rotating dashed halo (shown only when the ring is active) ── */
-.rail-halo {
-  position: absolute;
-  inset: -5px;
-  width: calc(100% + 10px);
-  height: calc(100% + 10px);
-  animation: rail-halo-spin 8s linear infinite;
-  pointer-events: none;
-}
-
-/* ── Main ring SVG (track + arc) ── */
-.rail-ring-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-  pointer-events: none;
-}
-.rail-ring-track {
-  fill: none;
-  stroke: color-mix(in srgb, var(--rc) 18%, transparent);
-  stroke-width: 4;
-}
-.rail-ring-arc {
-  fill: none;
-  stroke: color-mix(in srgb, var(--rc) 35%, hsl(var(--border)));
-  stroke-width: 4;
-  stroke-linecap: round;
-  stroke-dasharray: 70 194;
-  transition: stroke 300ms, filter 300ms;
-}
-.rail-ring-arc--active {
-  stroke: var(--rc);
-  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--rc) 45%, transparent));
-  animation: rail-arc-spin 2.8s linear infinite;
-}
-
-/* ── Icon pill centred inside the ring ── */
-.rail-icon {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.rail-icon > div,
-.rail-icon-svg {
-  /* Inner pill */
-}
-/* We render the icon directly, so style the svg wrapper */
-.rail-icon {
-  color: color-mix(in srgb, var(--rc) 55%, hsl(var(--muted-foreground)));
-  transition: color 300ms;
-}
-.rail-icon--active {
-  color: var(--rc);
-}
-.rail-icon-svg {
-  width: 40px;
-  height: 40px;
-  /* background pill */
-  padding: 9px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--rc) 12%, hsl(var(--card)));
-  border: 1px solid color-mix(in srgb, var(--rc) 28%, transparent);
-  box-sizing: content-box;
-  transition: background 300ms, border-color 300ms, box-shadow 300ms;
-}
-.rail-icon--active .rail-icon-svg {
-  box-shadow: 0 0 10px color-mix(in srgb, var(--rc) 35%, transparent);
-}
-
-/* ── Labels beneath the ring ── */
-.rail-label {
-  margin: 2px 0 0;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  /* Stage-accent colour — the signature factory-cockpit look (matches the
-     count badge + icon for that stage). */
-  color: var(--rc);
-  text-align: center;
-  white-space: nowrap;
-}
-.rail-sublabel {
-  margin: 0;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-  text-align: center;
-  white-space: nowrap;
-  letter-spacing: 0.06em;
-}
-
-/* ── Continuous connector line — runs BEHIND the rings (z-index 0) across the
-   whole rail, at the 104px ring's vertical midpoint (52px). ── */
-.rail-track {
-  position: absolute;
-  top: 52px;
-  left: 9%;
-  right: 9%;
-  height: 2px;
-  transform: translateY(-1px);
-  z-index: 0;
-  border-radius: 2px;
-  background-image: repeating-linear-gradient(
-    90deg,
-    color-mix(in srgb, hsl(var(--muted-foreground)) 50%, transparent) 0 6px,
-    transparent 6px 14px
-  );
-  animation: rail-march 0.9s linear infinite;
-  pointer-events: none;
-}
-
-/* ── Flying plan document — travels the full rail along the track, slipping
-   behind each ring (the document is passed from one lane to the next). Two
-   staggered instances keep the pipeline feeling alive even when idle. ── */
-.rail-doc {
-  position: absolute;
-  top: 52px;
-  z-index: 0;
-  width: 24px;
-  height: 24px;
-  margin-top: -12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fabd2f; /* Gruvbox yellow */
-  filter: drop-shadow(0 0 6px rgba(250, 189, 47, 0.5));
-  opacity: 0;
-  pointer-events: none;
-  animation: rail-doc-fly 5.5s cubic-bezier(0.55, 0, 0.45, 1) infinite;
-}
-.rail-doc > svg { width: 18px; height: 18px; }
-.rail-doc--2 {
-  color: #83a598; /* Gruvbox blue */
-  filter: drop-shadow(0 0 6px rgba(131, 165, 152, 0.5));
-  animation-delay: 2.75s;
-}
-
-/* ── Keyframes ── */
-@keyframes rail-arc-spin  { to { stroke-dashoffset: -264; } }
-@keyframes rail-halo-spin { to { transform: rotate(360deg); } }
-@keyframes rail-march     { to { background-position: 10px 0; } }
-/* Document travels the full rail (left edge → right edge of the track),
-   slipping behind each ring on the way. */
-@keyframes rail-doc-fly {
-  0%   { left: 9%;  opacity: 0;   transform: scale(0.7); }
-  6%   { opacity: 1; transform: scale(1); }
-  92%  { left: 91%; opacity: 1;   transform: scale(1); }
-  100% { left: 91%; opacity: 0;   transform: scale(0.7); }
-}
-
-/* ── prefers-reduced-motion ── */
-@media (prefers-reduced-motion: reduce) {
-  .rail-ring-arc--active,
-  .rail-halo,
-  .rail-track,
-  .rail-doc { animation: none !important; }
-
-  /* Show a static near-full arc instead of animating */
-  .rail-ring-arc--active { stroke-dasharray: 200 64; }
-  /* Park the halo at 0° with reduced opacity */
-  .rail-halo { opacity: 0.3; }
-  /* Park one document mid-rail so users know it exists */
-  .rail-doc--1 { opacity: 0.85; left: 50%; }
-  .rail-doc--2 { display: none; }
-}
-
-/* ============================================
-   Card Phase Strip — per-card execution pipeline chips (issue #78, phase 2)
-   Renders a row of small phase chips at the bottom of a TaskCard.
-   Per-chip accent driven by CSS custom property --cp (set inline per phase).
-   Gruvbox palette. Honours prefers-reduced-motion globally via the block above.
-   ============================================ */
-
-/* ── Strip container ── */
-.cardphase-strip {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding-top: 10px;
-  margin-top: 6px;
-  border-top: 1px solid hsl(var(--border));
-  overflow: hidden;
-}
-
-/* Each strip item = chip + optional separator dot */
-.cardphase-strip-item {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  flex: 1;
-  min-width: 0;
-}
-
-/* ── Single phase chip ── */
-.cardphase-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 5px 2px 4px;
-  border-radius: 4px;
-  border: 1px solid transparent;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-  transition: color 200ms, background 200ms, border-color 200ms;
-  /* --cp is set inline per chip in CardPhaseStrip.tsx */
-}
-
-/* Dot / icon wrapper */
-.cardphase-dot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  flex-shrink: 0;
-  transition: background 200ms;
-}
-
-/* Tiny check/x icon inside the dot */
-.cardphase-icon {
-  width: 7px;
-  height: 7px;
-}
-
-/* Short text label */
-.cardphase-label {
-  line-height: 1;
-  opacity: 0.9;
-}
-
-/* Separator dot between chips */
-.cardphase-sep {
-  display: inline-block;
-  width: 3px;
-  height: 3px;
-  border-radius: 999px;
-  background: hsl(var(--border));
-  flex-shrink: 0;
-  margin: 0 3px;
-}
-
-/* ── State: pending ── */
-.cardphase-chip--pending {
-  color: hsl(var(--muted-foreground));
-  opacity: 0.55;
-}
-.cardphase-chip--pending .cardphase-dot {
-  background: hsl(var(--border));
-}
-
-/* ── State: done ── */
-.cardphase-chip--done {
-  color: var(--cp, #b8bb26);
-  background: color-mix(in srgb, var(--cp, #b8bb26) 10%, transparent);
-  border-color: color-mix(in srgb, var(--cp, #b8bb26) 25%, transparent);
-}
-.cardphase-chip--done .cardphase-dot {
-  background: color-mix(in srgb, var(--cp, #b8bb26) 30%, transparent);
-  color: var(--cp, #b8bb26);
-}
-
-/* ── State: active — glowing halo pulse ── */
-.cardphase-chip--active {
-  color: var(--cp, #fe8019);
-  background: color-mix(in srgb, var(--cp, #fe8019) 12%, transparent);
-  border-color: color-mix(in srgb, var(--cp, #fe8019) 40%, transparent);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--cp, #fe8019) 30%, transparent);
-}
-.cardphase-chip--active .cardphase-dot {
-  background: color-mix(in srgb, var(--cp, #fe8019) 25%, transparent);
-  color: var(--cp, #fe8019);
-  animation: cardphase-dot-pulse 1.6s ease-in-out infinite;
-}
-
-/* Glowing halo ring — absolutely positioned behind the chip */
-.cardphase-pulse-ring {
-  position: absolute;
-  inset: -3px;
-  border-radius: 6px;
-  border: 1.5px solid color-mix(in srgb, var(--cp, #fe8019) 55%, transparent);
-  animation: cardphase-halo-pulse 1.6s ease-in-out infinite;
-  pointer-events: none;
-}
-
-/* ── State: failed ── */
-.cardphase-chip--failed {
-  color: #fb4934;
-  background: color-mix(in srgb, #fb4934 10%, transparent);
-  border-color: color-mix(in srgb, #fb4934 30%, transparent);
-}
-.cardphase-chip--failed .cardphase-dot {
-  background: color-mix(in srgb, #fb4934 22%, transparent);
-  color: #fb4934;
-}
-
-/* ── Keyframes ── */
-@keyframes cardphase-dot-pulse {
-  0%, 100% { transform: scale(1);    opacity: 0.85; }
-  50%       { transform: scale(1.25); opacity: 1; }
-}
-@keyframes cardphase-halo-pulse {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50%       { opacity: 0.9; transform: scale(1.05); }
-}
-
-/* ── prefers-reduced-motion ── */
-@media (prefers-reduced-motion: reduce) {
-  .cardphase-chip--active .cardphase-dot,
-  .cardphase-pulse-ring { animation: none !important; }
-  /* Keep the glow visible even without animation */
-  .cardphase-pulse-ring { opacity: 0.6; }
-}
-
-/* ============================================
-   Card Status Sticker — robot success/failure overlay (issue #78, phase 2)
-   Absolutely positioned in the top-right corner of TaskCard.
-   Success: Bot + ThumbsUp in Gruvbox green, pop-in animation.
-   Failure: Bot + ThumbsDown in Gruvbox red + semi-transparent ✗ stamp.
-   Honours prefers-reduced-motion globally.
-   ============================================ */
-
-/* ── Sticker wrapper — corner overlay ── */
-.cardsticker {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px 5px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  backdrop-filter: blur(2px);
-  z-index: 5;
-  /* Pop-in on mount */
-  animation: cardsticker-pop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-
-/* Bot icon */
-.cardsticker-bot {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-/* Thumb icon */
-.cardsticker-thumb {
-  width: 11px;
-  height: 11px;
-  flex-shrink: 0;
-}
-
-/* Semi-transparent ✗ stamp (failure only) */
-.cardsticker-stamp {
-  position: absolute;
-  bottom: -4px;
-  right: -2px;
-  font-size: 20px;
-  line-height: 1;
-  font-weight: 900;
-  color: #fb4934;
-  opacity: 0.22;
-  pointer-events: none;
-  user-select: none;
-  animation: cardsticker-stamp-in 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-/* ── Success variant ── */
-.cardsticker--success {
-  color: #b8bb26;
-  background: color-mix(in srgb, #b8bb26 12%, hsl(var(--card)));
-  border-color: color-mix(in srgb, #b8bb26 30%, transparent);
-  box-shadow: 0 0 8px color-mix(in srgb, #b8bb26 20%, transparent);
-}
-
-/* ── Failure variant ── */
-.cardsticker--failure {
-  color: #fb4934;
-  background: color-mix(in srgb, #fb4934 10%, hsl(var(--card)));
-  border-color: color-mix(in srgb, #fb4934 28%, transparent);
-  box-shadow: 0 0 6px color-mix(in srgb, #fb4934 18%, transparent);
-}
-
-/* ── Keyframes ── */
-@keyframes cardsticker-pop {
-  0%   { transform: scale(0.4) rotate(-12deg); opacity: 0; }
-  65%  { transform: scale(1.12) rotate(4deg);  opacity: 1; }
-  100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
-}
-@keyframes cardsticker-stamp-in {
-  0%   { transform: scale(2.5) rotate(-20deg); opacity: 0; }
-  100% { transform: scale(1)   rotate(-6deg);  opacity: 0.22; }
-}
-
-/* ── prefers-reduced-motion ── */
-@media (prefers-reduced-motion: reduce) {
-  .cardsticker,
-  .cardsticker-stamp { animation: none !important; }
-}
-
-/* ============================================
-   CardLogDrawer — in-card live agent log view (issue #78, phase 3)
-   A compact expandable drawer that streams the last N agent log lines
-   directly inside a running TaskCard. Gruvbox palette; JetBrains Mono.
-   Honours prefers-reduced-motion globally (live-dot pulse via separate class).
-   ============================================ */
-
-/* ── Outer wrapper — sits between CardPhaseStrip and card footer ── */
-.card-log-drawer {
-  margin-top: 8px;
-}
-
-/* ── Toggle button (terminal icon + live dot + label) ── */
-.card-log-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px 3px 6px;
-  border-radius: 5px;
-  border: 1px solid color-mix(in srgb, #fe8019 35%, transparent);
-  background: color-mix(in srgb, #fe8019 8%, transparent);
-  color: #fe8019;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: background 150ms, border-color 150ms, color 150ms;
-  user-select: none;
-}
-.card-log-toggle:hover {
-  background: color-mix(in srgb, #fe8019 14%, transparent);
-  border-color: color-mix(in srgb, #fe8019 50%, transparent);
-}
-.card-log-toggle:focus-visible {
-  outline: 2px solid #fe8019;
-  outline-offset: 2px;
-}
-
-/* Terminal icon inside the toggle */
-.card-log-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  transition: color 150ms;
-}
-.card-log-icon--open {
-  color: #fabd2f;
-}
-
-/* Pulsing "live" dot */
-.card-log-live-dot {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: #b8bb26;
-  flex-shrink: 0;
-}
-/* The animation class is separate so reduced-motion can target it */
-.card-log-live-dot--motion {
-  animation: card-log-dot-pulse 1.4s ease-in-out infinite;
-}
-
-/* Short "live" label text */
-.card-log-toggle-label {
-  line-height: 1;
-}
-
-/* ── Inline drawer panel ── */
-.card-log-panel {
-  margin-top: 6px;
-  border-radius: 6px;
-  border: 1px solid hsl(var(--border));
-  /* Gruvbox bg0: #282828 dark / #fbf1c7 light — set via CSS var or fallback */
-  background: color-mix(in srgb, hsl(var(--background)) 60%, #1d2021);
-  overflow: hidden;
-}
-
-/* Scroll area — fixed height, auto-scrolls to bottom */
-.card-log-scroll {
-  max-height: 160px;
-  overflow-y: auto;
-  padding: 6px 8px;
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
-  /* Prevent card DnD from intercepting scroll events inside the drawer */
-  overscroll-behavior: contain;
-}
-.card-log-scroll::-webkit-scrollbar        { width: 4px; }
-.card-log-scroll::-webkit-scrollbar-track  { background: transparent; }
-.card-log-scroll::-webkit-scrollbar-thumb  { background: hsl(var(--border)); border-radius: 2px; }
-
-/* Empty / loading state */
-.card-log-empty {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 9px;
-  color: hsl(var(--muted-foreground));
-  padding: 8px 0;
-}
-.card-log-empty-icon {
-  width: 11px;
-  height: 11px;
-  flex-shrink: 0;
-}
-
-/* ── Single log line ── */
-.card-log-line {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 9px;
-  line-height: 1.45;
-  color: hsl(var(--foreground));
-  min-width: 0;
-}
-.card-log-line + .card-log-line {
-  margin-top: 1px;
-}
-
-/* Timestamp */
-.card-log-ts {
-  color: hsl(var(--muted-foreground));
-  opacity: 0.65;
-  flex-shrink: 0;
-  font-size: 8px;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Content — wraps long lines */
-.card-log-content {
-  flex: 1;
-  min-width: 0;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-/* Tool lines — coloured via --tool-color custom prop */
-.card-log-line--tool {
-  color: var(--tool-color, #a89984);
-  opacity: 0.85;
-}
-.card-log-verb {
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-.card-log-tool-name {
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.card-log-tool-input {
-  flex: 1;
-  min-width: 0;
-  opacity: 0.65;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Error lines — Gruvbox red */
-.card-log-line--error {
-  color: #fb4934;
-}
-
-/* Success lines — Gruvbox green */
-.card-log-line--success {
-  color: #b8bb26;
-}
-
-/* Phase marker lines — Gruvbox yellow */
-.card-log-line--phase {
-  color: #fabd2f;
-  font-weight: 600;
-  opacity: 0.9;
-}
-
-/* ── Keyframes ── */
-@keyframes card-log-dot-pulse {
-  0%, 100% { opacity: 1;    transform: scale(1); }
-  50%       { opacity: 0.35; transform: scale(0.75); }
-}
-
-/* ── prefers-reduced-motion — disable the live dot pulse ── */
-@media (prefers-reduced-motion: reduce) {
-  .card-log-live-dot--motion { animation: none !important; }
-}
-
-/* ============================================
    Floating chat assistant (FAB → popup)
-   Mirrors CFactory/TFactory's Copilot popup so the Factory portals share one
-   chat UX. z-50 (not higher) so Radix overlays opened inside it (model picker,
-   Custom modal) — which portal to the end of <body> — render above the popup.
+   Mirrors CFactory's Copilot popup so the Factory portals share one chat UX.
    ============================================ */
 .chat-fab {
   position: fixed;
   right: 1.5rem;
   bottom: 1.5rem;
+  /* z-50 (not higher): the popup floats above page content but stays below
+     Radix overlays (dialogs/dropdowns/tooltips, also z-50) which portal to the
+     end of <body> — so the model picker + Custom modal opened inside the popup
+     render above it. Toasts (z-100) also stay on top. */
   z-index: 50;
   width: 54px;
   height: 54px;
@@ -1027,17 +104,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: hsl(var(--primary-foreground));
-  background: hsl(var(--primary));
-  box-shadow: 0 8px 24px color-mix(in srgb, hsl(var(--primary)) 38%, transparent),
+  color: var(--color-primary-foreground);
+  background: var(--color-primary);
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--color-primary) 38%, transparent),
               0 2px 8px rgba(0, 0, 0, 0.45);
   transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 .chat-fab:hover { transform: translateY(-2px) scale(1.05); }
-.chat-fab:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+.chat-fab:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .chat-fab--open {
-  background: hsl(var(--card));
-  color: hsl(var(--primary));
+  background: var(--color-card);
+  color: var(--color-primary);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
@@ -1052,8 +129,8 @@ body {
   max-height: 660px;
   display: flex;
   flex-direction: column;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   box-shadow: 0 18px 52px rgba(0, 0, 0, 0.55);
   overflow: hidden;
@@ -1068,8 +145,8 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0.7rem 0.9rem;
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--secondary));
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-secondary);
 }
 .chat-pop__title {
   display: flex;
@@ -1079,19 +156,19 @@ body {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: hsl(var(--primary));
+  color: var(--color-primary);
   font-family: var(--font-mono);
 }
 .chat-pop__x {
   background: none;
   border: none;
-  color: hsl(var(--muted-foreground));
+  color: var(--color-muted-foreground);
   line-height: 1;
   cursor: pointer;
   padding: 0.15rem;
   display: flex;
 }
-.chat-pop__x:hover { color: hsl(var(--foreground)); }
+.chat-pop__x:hover { color: var(--color-foreground); }
 .chat-pop__body {
   flex: 1;
   min-height: 0;

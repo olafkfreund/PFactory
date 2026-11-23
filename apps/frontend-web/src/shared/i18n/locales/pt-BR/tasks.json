@@ -1,4 +1,13 @@
 {
+  "pipeline": {
+    "failed": "Falhas ({{count}})",
+    "showMore": "Mostrar mais {{count}}",
+    "rerun": "Executar novamente",
+    "dismiss": "Dispensar",
+    "emptyPlans": "Nenhum plano ainda",
+    "newPlan": "Novo plano",
+    "plansColumn": "Planos"
+  },
   "status": {
     "backlog": "Planos prontos",
     "todo": "A Fazer",

@@ -25,6 +25,7 @@ import {
   approveSession,
   rejectSession,
   emitSession,
+  discardSession,
   type FetchOptions,
   type IngestTextRequest,
   type ApproveRequest,
@@ -41,7 +42,10 @@ interface PlanState {
 
   // UI state
   loading: boolean;
+  sessionsLoaded: boolean;
   sessionLoading: boolean;
+  actionBusy: string | null;
+  actionError: string | null;
   error: string | null;
 
   // Injectable fetch for testing
@@ -68,6 +72,7 @@ interface PlanState {
   rejectCurrentSession: (body: RejectRequest) => Promise<void>;
   emitCurrentSession: (body: EmitRequest) => Promise<void>;
   refreshCurrentSession: () => Promise<void>;
+  actOnSession: (sessionId: string, action: 'process' | 'rerun' | 'dismiss') => Promise<void>;
   clearError: () => void;
 }
 
@@ -77,7 +82,10 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   sessions: [],
   currentSession: null,
   loading: false,
+  sessionsLoaded: false,
   sessionLoading: false,
+  actionBusy: null,
+  actionError: null,
   error: null,
   fetchFn: undefined,
 
@@ -94,7 +102,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const result = await listSessions(opts);
-      set({ sessions: result.sessions, loading: false });
+      set({ sessions: result.sessions, loading: false, sessionsLoaded: true });
     } catch (err) {
       set({
         loading: false,
@@ -113,6 +121,39 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       set({ sessions: result.sessions });
     } catch {
       // Swallow: a momentary blip shouldn't clear what the user is looking at.
+    }
+  },
+
+  async actOnSession(sessionId, action) {
+    if (get().actionBusy) return;
+    const opts: FetchOptions = { fetchFn: get().fetchFn };
+    set({ actionBusy: sessionId, actionError: null });
+    try {
+      if (action === 'dismiss') {
+        const latest = await getSession(sessionId, opts);
+        if (latest.status !== 'failed' && latest.status !== 'rejected' && latest.review?.gates_passed !== false) {
+          throw new Error('dismissUnavailable');
+        }
+        await discardSession(sessionId, { actor: 'operator', reason: 'dismissed from board' }, opts);
+      } else {
+        const updated = await processSession(sessionId, opts);
+        set((state) => ({
+          currentSession: state.currentSession?.session_id === sessionId ? updated : state.currentSession,
+          sessions: state.sessions.map((s) => s.session_id === sessionId ? {
+            ...s,
+            status: updated.status,
+            board_state: updated.board_state,
+            gates_passed: updated.review?.gates_passed ?? null,
+            children: updated.epic?.children?.length ?? s.children,
+          } : s),
+        }));
+      }
+      await get().refreshSessions();
+    } catch (err) {
+      set({ actionError: err instanceof Error ? err.message : String(err) });
+      await get().refreshSessions();
+    } finally {
+      set({ actionBusy: null });
     }
   },
 
@@ -226,15 +267,16 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   async processCurrentSession(updates?: UpdateAndProcessRequest) {
     const { currentSession, fetchFn } = get();
-    if (!currentSession) return;
+    if (!currentSession || get().actionBusy) return;
     const opts: FetchOptions = { fetchFn };
-    set({ sessionLoading: true, error: null });
+    set({ sessionLoading: true, actionBusy: currentSession.session_id, error: null });
     try {
       const updated = updates
         ? await updateAndProcess(currentSession.session_id, updates, opts)
         : await processSession(currentSession.session_id, opts);
       set((state) => ({
         sessionLoading: false,
+        actionBusy: null,
         currentSession: updated,
         sessions: state.sessions.map((s) =>
           s.session_id === updated.session_id
@@ -250,6 +292,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     } catch (err) {
       set({
         sessionLoading: false,
+        actionBusy: null,
         error: err instanceof Error ? err.message : String(err),
       });
     }

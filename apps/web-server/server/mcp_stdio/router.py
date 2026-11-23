@@ -67,6 +67,7 @@ from server.routes.project_authz import (
     authorize_project,
     authorize_project_for_user,
     require_repo_project_role,
+    resolve_default_org_id,
     scope_role_ceiling,
     visible_project_ids,
 )
@@ -335,7 +336,7 @@ async def proxy_add_project(
     key=Depends(require_acw_scope(PROJECT_WRITE_SCOPE)),
 ):
     body = await _read_json_body(request)
-    org_id = key.org_id if isinstance(key, AuthenticatedKey) else None  # #1036
+    org_id = key.org_id if isinstance(key, AuthenticatedKey) else await resolve_default_org_id(db)
     principal = _principal(key)
     await PlanAccessChecker("member").check(principal, None, db)
     grant = (await _member_roles(principal, db)).get(org_id or "", "")

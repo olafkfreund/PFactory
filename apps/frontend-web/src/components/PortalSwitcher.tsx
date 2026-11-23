@@ -1,5 +1,5 @@
 // @factory/ui — Portal switcher. Canonical shared component; vendored
-// byte-identical into each portal (see README.md). Renders the four Factory
+// byte-identical into each portal (see README.md). Renders the five Factory
 // portals as one product in the topbar: the `current` portal is a static active
 // chip, the others link out with their per-service accent dot. Which portal is
 // "current" is passed by the host; optional `project` keeps its slug on named
@@ -8,51 +8,54 @@
 //
 // Optional `needsCount` (#148/#149) renders a small badge on the Cockpit chip —
 // the fleet count of work items blocked on a human — so every portal's top bar
-// shows the same "N need you" nudge toward the cockpit inbox. Omit it and the
-// component renders exactly as before (byte-identical for hosts that don't wire
-// the count).
-export type FactoryPortal = 'plan' | 'build' | 'test' | 'cockpit';
+// shows the same "N need you" nudge toward the cockpit inbox.
+export type FactoryPortal = 'plan' | 'build' | 'test' | 'cockpit' | 'meet';
 
 // import.meta.env values are typed loosely; keep the URLs strictly string.
 const envUrl = (v: unknown, fallback: string): string =>
   typeof v === 'string' && v ? v : fallback;
 
 const PORTALS: { key: FactoryPortal; label: string; dot: string; url: string }[] = [
-  { key: 'plan', label: 'Plan', dot: '#d3869b', url: envUrl(import.meta.env.VITE_PFACTORY_URL, 'https://pfactory.freundcloud.org.uk') },
-  { key: 'build', label: 'Build', dot: '#fabd2f', url: envUrl(import.meta.env.VITE_AIFACTORY_URL, 'https://aifactory.freundcloud.org.uk') },
-  { key: 'test', label: 'Test', dot: '#b8bb26', url: envUrl(import.meta.env.VITE_TFACTORY_URL, 'https://tfactory.freundcloud.org.uk') },
-  { key: 'cockpit', label: 'Cockpit', dot: '#83a598', url: envUrl(import.meta.env.VITE_CFACTORY_URL, 'https://cfactory.freundcloud.org.uk') },
+  { key: 'plan', label: 'Plan', dot: 'var(--f-plan)', url: envUrl(import.meta.env.VITE_PFACTORY_URL, 'https://pfactory.freundcloud.org.uk') },
+  { key: 'build', label: 'Build', dot: 'var(--f-build)', url: envUrl(import.meta.env.VITE_AIFACTORY_URL, 'https://aifactory.freundcloud.org.uk') },
+  { key: 'test', label: 'Test', dot: 'var(--f-test)', url: envUrl(import.meta.env.VITE_TFACTORY_URL, 'https://tfactory.freundcloud.org.uk') },
+  { key: 'cockpit', label: 'Cockpit', dot: 'var(--f-cockpit)', url: envUrl(import.meta.env.VITE_CFACTORY_URL, 'https://cfactory.freundcloud.org.uk') },
+  { key: 'meet', label: 'Meet', dot: 'var(--f-meet)', url: envUrl(import.meta.env.VITE_RFACTORY_URL, 'https://rfactory.freundcloud.org.uk') },
 ];
-
-const ITEM = 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-xs';
 
 export function PortalSwitcher({
   current,
   needsCount,
   project,
+  labels,
+  ariaLabel,
 }: {
   current: FactoryPortal;
-  needsCount?: number;
-  project?: { slug: string; portals: FactoryPortal[] };
+  needsCount?: number | undefined;
+  project?: { slug: string; portals: FactoryPortal[] } | undefined;
+  labels?: Record<FactoryPortal, string> | undefined;
+  ariaLabel?: string | undefined;
 }) {
   return (
     <nav
-      aria-label="Factory portals"
-      className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5"
+      aria-label={ariaLabel ?? "Factory portals"}
+      className="f-portal-switcher"
     >
       {PORTALS.map((p) => {
+        const label = labels?.[p.key] ?? p.label;
         const badge = p.key === 'cockpit' && needsCount ? needsCount : 0;
         const inner = (
           <>
             <span
-              className="h-2 w-2 flex-none rounded-full"
+              className="f-portal-switcher__dot"
+              aria-hidden
               style={{ background: p.dot, boxShadow: `0 0 6px ${p.dot}` }}
             />
-            <span className="hidden sm:inline">{p.label}</span>
+            <span className="f-portal-switcher__label">{label}</span>
             {badge > 0 && (
               <span
                 aria-label={`${String(badge)} need you`}
-                className="ml-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[0.6rem] font-semibold leading-4 text-primary-foreground"
+                className="f-portal-switcher__badge"
               >
                 {badge}
               </span>
@@ -60,7 +63,7 @@ export function PortalSwitcher({
           </>
         );
         return p.key === current ? (
-          <span key={p.key} aria-current="page" className={`${ITEM} bg-muted text-foreground`}>
+          <span key={p.key} aria-current="page" className="f-portal-switcher__item">
             {inner}
           </span>
         ) : (
@@ -68,8 +71,8 @@ export function PortalSwitcher({
             key={p.key}
             href={project?.portals.includes(p.key) ? `${p.url.replace(/\/+$/, '')}/p/${encodeURIComponent(project.slug)}` : p.url}
             rel="noopener"
-            title={`Open the ${p.label} portal`}
-            className={`${ITEM} text-muted-foreground transition-colors hover:bg-muted hover:text-foreground`}
+            title={label}
+            className="f-portal-switcher__item"
           >
             {inner}
           </a>

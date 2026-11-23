@@ -335,6 +335,7 @@ export interface PlanSession {
 
 export interface SessionSummary {
   session_id: string;
+  project_id?: string | null;
   title: string;
   status: PlanSessionStatus;
   board_state?: BoardColumn;

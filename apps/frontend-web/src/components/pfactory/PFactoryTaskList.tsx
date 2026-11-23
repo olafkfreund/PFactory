@@ -115,7 +115,7 @@ function LoadingState() {
   return (
     <div role="status" className="flex items-center gap-2 p-6 text-muted-foreground">
       <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-      <span>Loading tasks…</span>
+      <span>Loading test runs…</span>
     </div>
   );
 }
@@ -134,7 +134,7 @@ function EmptyState() {
     <div className="flex flex-col items-center gap-2 p-12 text-muted-foreground">
       <Inbox className="h-8 w-8" aria-hidden />
       <p>No PFactory tasks yet.</p>
-      <p className="text-xs">Workspaces appear here once an AIFactory handover lands.</p>
+      <p className="text-xs">Approved plans hand over from PFactory to AIFactory.</p>
     </div>
   );
 }

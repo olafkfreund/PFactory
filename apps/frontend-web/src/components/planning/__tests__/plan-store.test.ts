@@ -19,6 +19,8 @@ beforeEach(() => {
     currentSession: null,
     loading: false,
     sessionLoading: false,
+    actionBusy: null,
+    actionError: null,
     error: null,
     fetchFn: undefined,
   });
@@ -141,6 +143,23 @@ describe('ingestTextPlan', () => {
 // ── processCurrentSession ─────────────────────────────────────────────
 
 describe('processCurrentSession', () => {
+  it('shares the pending action lock with the board', async () => {
+    let finish: () => void = () => undefined;
+    const fetchFn = vi.fn().mockImplementation((url: string) =>
+      url.endsWith('/process')
+        ? new Promise((resolve) => { finish = () => resolve({ ok: true, json: async () => makeSession({ status: 'processed' }) }); })
+        : Promise.resolve({ ok: true, json: async () => ({ sessions: [] }) })
+    ) as unknown as typeof fetch;
+    usePlanStore.setState({ currentSession: makeSession(), fetchFn });
+    const boardRequest = usePlanStore.getState().actOnSession('s1', 'process');
+    expect(usePlanStore.getState().actionBusy).toBe('s1');
+    await usePlanStore.getState().processCurrentSession();
+    expect(vi.mocked(fetchFn).mock.calls.filter(([url]) => String(url).endsWith('/process'))).toHaveLength(1);
+    finish();
+    await boardRequest;
+    expect(usePlanStore.getState().actionBusy).toBeNull();
+  });
+
   it('updates currentSession and syncs sessions list status', async () => {
     const processed = makeSession({ session_id: 's1', status: 'processed' });
     usePlanStore.setState({

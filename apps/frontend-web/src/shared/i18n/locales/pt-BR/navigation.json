@@ -4,6 +4,7 @@
     "tools": "Ferramentas"
   },
   "items": {
+    "tests": "Testes",
     "kanban": "Tarefas",
     "terminals": "Terminais de Agentes",
     "editor": "Editor de Arquivos",
@@ -26,7 +27,42 @@
   "actions": {
     "settings": "Configurações",
     "help": "Ajuda e Feedback",
-    "newTask": "Nova Tarefa"
+    "newTask": "Nova Tarefa",
+    "logout": "Sair"
+  },
+  "shell": {
+    "brand": "PFactory",
+    "portals": "Portais Factory",
+    "portalNames": {
+      "plan": "Plan",
+      "build": "Build",
+      "test": "Test",
+      "cockpit": "Cockpit",
+      "meet": "Meet"
+    },
+    "navigation": "Navegação do projeto",
+    "openNavigation": "Abrir navegação",
+    "closeNavigation": "Fechar navegação",
+    "expandSidebar": "Expandir barra lateral",
+    "collapseSidebar": "Recolher barra lateral",
+    "projectSettings": "Configurações do Projeto",
+    "preferences": "Preferências",
+    "helpDocs": "Ajuda e docs",
+    "userName": "Conta",
+    "theme": "Tema",
+    "search": "Pesquisar",
+    "needsYou": "{{count}} aguardando você",
+    "userMenu": "Menu da conta {{name}}",
+    "selectProject": "Selecionar projeto",
+    "searchProjects": "Pesquisar projetos…",
+    "projects": "Projetos",
+    "recentProjects": "Recentes",
+    "noProjects": "Nenhum projeto encontrado",
+    "allProjects": "Todos os projetos",
+    "addProject": "Adicionar projeto",
+    "pipeline": "Etapas do pipeline",
+    "clearFilter": "Limpar filtro",
+    "filterFailures": "Filtrar falhas de {{stage}} ({{count}})"
   },
   "tooltips": {
     "settings": "Configurações do Aplicativo",

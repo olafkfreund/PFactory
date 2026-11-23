@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from plan.repo_ref import PROVIDER_GIT_HOST, parse_repo_ref
 from server.config import get_settings
 from server.database.engine import get_db
-from server.database.models import OrgMember
+from server.database.models import Organization, OrgMember
 from server.routes.organizations import ROLE_LEVELS
 from server.services import audit_service, project_paths
 
@@ -46,6 +46,7 @@ __all__ = [
     "require_project_role",
     "require_repo_project_role",
     "require_task_access",
+    "resolve_default_org_id",
     "scope_role_ceiling",
     "visible_project_ids",
 ]
@@ -82,7 +83,7 @@ def _check_role(role: str | None, minimum_role: str) -> None:
 @dataclass(frozen=True)
 class ProjectAccess:
     project_id: str
-    org_id: str
+    org_id: str | None
     role: str
     user_id: str
 
@@ -159,8 +160,8 @@ async def require_project_role(
     except Exception:  # noqa: BLE001 - an unreadable registry must fail closed
         raise HTTPException(status_code=503, detail="Project registry unavailable") from None
     org_id = project.get("org_id") if project else None
-    if project and not org_id and (_auth_disabled() or is_service_principal(principal)):
-        org_id = "default"
+    if project and not org_id and is_service_principal(principal) and not _auth_disabled():
+        org_id = await resolve_default_org_id(db)
     membership = None
     if (
         principal
@@ -190,7 +191,11 @@ async def require_project_role(
                 action, principal, "project", project_id, org_id, min_role, exc.detail
             )
         raise
-    if principal is None or org_id is None or project_id is None:
+    if (
+        principal is None
+        or project_id is None
+        or (org_id is None and not is_service_principal(principal) and not _auth_disabled())
+    ):
         raise HTTPException(status_code=404, detail="Project not found")
     role = (
         "owner"
@@ -315,7 +320,12 @@ async def require_repo_project_role(  # noqa: PLR0913 - provider is part of repo
         )
     if not matches and for_intake and principal:
         if is_service_principal(principal):
-            return ProjectAccess(repo or "", "default", "owner", principal["id"])
+            return ProjectAccess(
+                repo or "",
+                await resolve_default_org_id(db) if isinstance(db, AsyncSession) else None,
+                "owner",
+                principal["id"],
+            )
         if _auth_disabled() and principal.get("id") == "default":
             return ProjectAccess(repo or "", "default", "owner", "default")
         org_id = principal.get("org_id") or await creator_org(principal, db)
@@ -764,3 +774,9 @@ async def creator_org(user: dict[str, Any] | None, db: AsyncSession) -> str | No
         user.get("id") if isinstance(user, dict) else None, len(roles),
     )  # fmt: skip
     return None
+
+
+async def resolve_default_org_id(db: AsyncSession) -> str | None:
+    """Resolve a service principal's implicit org only when it is unambiguous."""
+    org_ids = (await db.execute(select(Organization.id).limit(2))).scalars().all()
+    return org_ids[0] if len(org_ids) == 1 else None

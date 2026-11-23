@@ -60,6 +60,37 @@ const activeTerminalSubscriptions = new Map<string, () => void>();
 // Track pending task start requests to prevent duplicates
 const pendingTaskStarts = new Set<string>();
 
+// Shared /api/health version lookup (#1116 B4). Failed lookups resolve to
+// "unknown" and clear the cached promise so the next caller retries.
+let appVersionLookup: Promise<string> | null = null;
+
+/** Reset the shared lookup between tests. */
+export function resetAppVersionLookupForTests(): void {
+  appVersionLookup = null;
+}
+
+function fetchAppVersion(): Promise<string> {
+  if (!appVersionLookup) {
+    appVersionLookup = get<{ version?: string }>('/health')
+      .then((result) => {
+        const version =
+          result.success && typeof result.data?.version === 'string'
+            ? result.data.version.trim()
+            : '';
+        if (!version) {
+          appVersionLookup = null;
+          return 'unknown';
+        }
+        return version;
+      })
+      .catch(() => {
+        appVersionLookup = null;
+        return 'unknown';
+      });
+  }
+  return appVersionLookup;
+}
+
 function registerCallback<T extends Callback>(event: string, callback: T): () => void {
   if (!eventCallbacks.has(event)) {
     eventCallbacks.set(event, new Set());
@@ -670,7 +701,7 @@ export const webAPI: API & { _isWebMode: boolean } = {
   getDefaultProjectLocation: async () => null,
 
   // App info
-  getAppVersion: async () => '1.0.0-web',
+  getAppVersion: () => fetchAppVersion(),
 
   // ========== Context Operations ==========
   getProjectContext: (projectId: string) => get(`/projects/${projectId}/context`),
@@ -938,7 +969,7 @@ export const webAPI: API & { _isWebMode: boolean } = {
 
   // ========== Debug Operations ==========
   getDebugInfo: async () => ({
-    systemInfo: { appVersion: '1.0.0-web', platform: 'web', isPackaged: 'false' },
+    systemInfo: { appVersion: await fetchAppVersion(), platform: 'web', isPackaged: 'false' },
     recentErrors: [],
     logsPath: '/api/logs',
     debugReport: '[Web Mode] Debug report not available',
