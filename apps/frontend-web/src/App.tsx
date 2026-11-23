@@ -27,6 +27,7 @@ import { VisualReportsPage } from './components/settings/sections/VisualReportsP
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { AddProjectModal } from './components/AddProjectModal';
 import { ProjectSettingsPage, PreferencesPage } from './components/settings';
+import type { ProjectSettingsSection } from './components/settings/ProjectSettingsContent';
 import { TaskCreationWizard } from './components/TaskCreationWizard';
 import { CloudCheckDialog } from './components/CloudCheckDialog';
 import { TaskDetailModal } from './components/task-detail';
@@ -148,8 +149,8 @@ function AuthenticatedApp() {
   const navProject = urlProject;
 
   const goProject = useCallback(
-    (id: string, view?: SidebarView | string) => {
-      void navigate(projectPath(slugs.get(id) ?? id, view));
+    (id: string, view?: SidebarView | string, subview?: string) => {
+      void navigate(projectPath(slugs.get(id) ?? id, view, subview));
     },
     [navigate, slugs]
   );
@@ -194,7 +195,7 @@ function AuthenticatedApp() {
       return;
     }
     if (route.kind === 'project' && urlSlug && route.ref !== urlSlug) {
-      void navigate(projectPath(urlSlug, route.view) + search, { replace: true });
+      void navigate(projectPath(urlSlug, route.view, route.subview) + search, { replace: true });
     }
   }, [route, urlSlug, urlProject, projectsLoaded, search, navigate]);
 
@@ -235,10 +236,10 @@ function AuthenticatedApp() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
         const index = parseInt(e.key, 10) - 1;
-        const target = projects[index];
+          const target = projects[index];
         if (target) {
           e.preventDefault();
-          goProject(target.id, route.kind === 'project' ? route.view : undefined);
+          goProject(target.id, route.kind === 'project' ? route.view : undefined, route.kind === 'project' ? route.subview : undefined);
         }
       }
     };
@@ -646,7 +647,7 @@ function AuthenticatedApp() {
             onSelectProject={(slug) => {
               const target = projects.find((p) => (slugs.get(p.id) ?? p.id) === slug);
               if (target) {
-                goProject(target.id, route.kind === 'project' ? route.view : undefined);
+                goProject(target.id, route.kind === 'project' ? route.view : undefined, route.kind === 'project' ? route.subview : undefined);
               }
             }}
             onAllProjects={() => {
@@ -716,7 +717,7 @@ function AuthenticatedApp() {
                 <div>
                   <p>{t('welcome:projectsPage.choose')}</p>
                   {collisionProjects(projects, route.ref).map((p) => (
-                    <Link key={p.id} to={projectPath(slugs.get(p.id) ?? p.id, route.view)}>
+                    <Link key={p.id} to={projectPath(slugs.get(p.id) ?? p.id, route.view, route.subview)}>
                       {p.name} ({p.id})
                     </Link>
                   ))}
@@ -768,7 +769,22 @@ function AuthenticatedApp() {
                   </div>
                 )}
                 {activeView === 'settings' && (
-                  <ProjectSettingsPage projectId={selectedProject.id} />
+                  <ProjectSettingsPage
+                    projectId={selectedProject.id}
+                    initialSection={
+                      route.kind === 'project' &&
+                      (route.subview === 'general' ||
+                        route.subview === 'github' ||
+                        route.subview === 'memory' ||
+                        route.subview === 'mcp' ||
+                        route.subview === 'plan-sources')
+                        ? (route.subview as ProjectSettingsSection)
+                        : 'general'
+                    }
+                    onSectionChange={(section) => {
+                      goProject(selectedProject.id, 'settings', section === 'general' ? undefined : section);
+                    }}
+                  />
                 )}
               </>
             )}
@@ -830,7 +846,7 @@ function AuthenticatedApp() {
             commands={paletteCommands}
             projects={paletteProjects}
             onSwitchProject={(slug) => {
-              void navigate(projectPath(slug, route.kind === 'project' ? route.view : undefined));
+              void navigate(projectPath(slug, route.kind === 'project' ? route.view : undefined, route.kind === 'project' ? route.subview : undefined));
             }}
             onSearch={searchFleet}
             onOpenTask={(tItem) => {

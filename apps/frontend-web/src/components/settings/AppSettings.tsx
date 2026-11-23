@@ -80,20 +80,26 @@ const projectTabsConfig: { id: ProjectSettingsSection; label: string; icon: Reac
   { id: 'github', label: 'Git', icon: GitBranch },
   { id: 'memory', label: 'Memory', icon: Database },
   { id: 'mcp', label: 'MCP', icon: Plug },
+  { id: 'plan-sources', label: 'Plan sources', icon: BookOpen },
 ];
 
 export interface ProjectSettingsPageProps {
   projectId: string | null;
   initialSection?: ProjectSettingsSection;
+  onSectionChange?: (section: ProjectSettingsSection) => void;
 }
 
 /**
  * Routed Project Settings page (/p/<slug>/settings) with tabs:
- * General, Git, Memory, MCP.
+ * General, Git, Memory, MCP, Plan sources.
  */
-export function ProjectSettingsPage({ projectId, initialSection = 'general' }: ProjectSettingsPageProps) {
+export function ProjectSettingsPage({ projectId, initialSection = 'general', onSectionChange }: ProjectSettingsPageProps) {
   const { t } = useTranslation(['settings', 'common']);
   const [activeTab, setActiveTab] = useState<ProjectSettingsSection>(initialSection);
+
+  useEffect(() => {
+    setActiveTab(initialSection);
+  }, [initialSection]);
   const projects = useProjectStore((state) => state.projects);
   const selectedProject = projects.find((p) => p.id === projectId);
   const [projectSettingsHook, setProjectSettingsHook] = useState<UseProjectSettingsReturn | null>(null);
@@ -163,7 +169,10 @@ export function ProjectSettingsPage({ projectId, initialSection = 'general' }: P
               type="button"
               role="tab"
               aria-selected={active}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                onSectionChange?.(tab.id);
+              }}
               className={cn(
                 'f-btn',
                 active ? 'f-btn--primary' : 'f-btn--outline'

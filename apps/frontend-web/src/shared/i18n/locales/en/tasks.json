@@ -9,7 +9,12 @@
     "project": "Project: {{id}}",
     "unassignedProject": "Unassigned project",
     "unassigned": "Unassigned",
-    "dismissUnavailable": "This plan is no longer eligible for dismissal."
+    "dismissUnavailable": "This plan is no longer eligible for dismissal.",
+    "emptyPlans": "No plans yet",
+    "loadingPlans": "Loading plans…",
+    "retry": "Retry",
+    "newPlan": "New plan",
+    "plansColumn": "Plans"
   },
   "status": {
     "backlog": "Plans ready",

@@ -105,7 +105,7 @@ export function ProvidersPanel({ fetchFn }: Props) {
         ) : (
           <div className="flex flex-wrap gap-2">
             {knowledgeConnectors.map((k) => (
-              <Badge key={k} variant="purple" className="font-mono">{k}</Badge>
+              <Badge key={k} variant="secondary" className="font-mono">{k}</Badge>
             ))}
           </div>
         )}
