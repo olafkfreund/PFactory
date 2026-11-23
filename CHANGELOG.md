@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.9.2 — projects visible to their org after restart (2026-11-23)
+
+### Bug Fixes
+
+- **The project list was empty in production (#1116, #1117).** The visibility filter hid projects that carried no org id, and the registry was at risk on restart.
+  - A startup backfill stamps `org_id` on org-less projects when the deployment has exactly one org. It runs under the shared registry lock with an atomic write, and a bad registry never stops startup. Multi-org deployments are left alone.
+  - Legacy projects with the literal `default` org id are repaired the same way.
+  - `ProjectAccess` no longer leaks the `default` org for service principals, and intake persists the authorized org on new projects.
+- Chart persistence reads `persistence.data`; the chart documents that the data volume is ReadWriteOnce, and the helm tests assert the storage class and access mode.
+- The UI shows the version reported by `/api/health`, the runs page is titled "Test runs" (with the pt-BR key), and Add Project opens on the clone tab.
+
 ## 0.9.1 — SPA history fallback (2026-11-22)
 
 ### Bug Fixes
