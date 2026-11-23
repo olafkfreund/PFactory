@@ -115,7 +115,7 @@ function LoadingState() {
   return (
     <div role="status" className="flex items-center gap-2 p-6 text-muted-foreground">
       <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-      <span>Loading tasks…</span>
+      <span>Loading test runs…</span>
     </div>
   );
 }

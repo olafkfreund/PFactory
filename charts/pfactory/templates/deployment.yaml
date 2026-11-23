@@ -366,7 +366,12 @@ spec:
         - name: tmp
           emptyDir: {}
         - name: pfactory-data
+          {{- if .Values.persistence.data.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.data.existingClaim | default (printf "%s-data" (include "pfactory.fullname" .)) }}
+          {{- else }}
           emptyDir: {}
+          {{- end }}
         {{- if .Values.rmux.enabled }}
         - name: pfactory-rmux
           emptyDir:

@@ -57,6 +57,8 @@
   "addProject": {
     "title": "Add Project",
     "description": "Choose how you'd like to add a project",
+    "descriptionClone": "Clone a Git repository into the portal workspace.",
+    "descriptionLocal": "Select a project from your projects folder or enter a custom path.",
     "modeLocal": "Local folder",
     "modeClone": "Clone from Git URL",
     "gitUrlLabel": "Git repository URL",

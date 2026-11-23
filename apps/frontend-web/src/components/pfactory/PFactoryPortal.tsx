@@ -31,7 +31,7 @@ export function PFactoryPortal({ fetchFn, wsFactory }: Props) {
     return (
       <div data-testid="pfactory-portal" data-view="list" className="flex flex-col gap-3">
         <header className="border-b border-border pb-2">
-          <h1 className="text-xl font-semibold">PFactory Tasks</h1>
+          <h1 className="text-xl font-semibold">Test runs</h1>
           <p className="text-xs text-muted-foreground">
             Read-only view of PFactory workspaces under ~/.pfactory/.
           </p>
@@ -53,7 +53,7 @@ export function PFactoryPortal({ fetchFn, wsFactory }: Props) {
         className="self-start inline-flex items-center gap-1 text-sm text-primary hover:text-primary"
       >
         <ChevronLeft className="h-4 w-4" aria-hidden />
-        Back to tasks
+        Back to test runs
       </button>
       <PFactoryTaskDetail
         specId={selectedSpecId}

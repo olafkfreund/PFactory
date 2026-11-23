@@ -1523,7 +1523,6 @@ async def test_from_issue_route_spawns_bootstrap_and_poll_stage_advances(monkeyp
         return None
 
     monkeypatch.setattr(pp, "_ingest_org", noop_async)
-    monkeypatch.setattr(pp, "creator_org", noop_async)
     monkeypatch.setattr(pp, "_guard_session", noop_async)
     monkeypatch.setattr(
         pp,
