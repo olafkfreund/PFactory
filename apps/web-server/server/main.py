@@ -20,6 +20,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 from starlette.status import HTTP_404_NOT_FOUND
@@ -119,11 +120,17 @@ def _stamp_legacy_projects(org_id: str | None, has_default_org: bool) -> None:
 
 
 async def backfill_project_orgs() -> None:
-    async with async_session_factory() as db:
-        org_id = await resolve_default_org_id(db)
-        has_default_org = (
-            await db.execute(select(Organization.id).where(Organization.id == "default"))
-        ).scalar_one_or_none() is not None
+    if not project_paths.get_projects_file().exists():
+        return
+    try:
+        async with async_session_factory() as db:
+            org_id = await resolve_default_org_id(db)
+            has_default_org = (
+                await db.execute(select(Organization.id).where(Organization.id == "default"))
+            ).scalar_one_or_none() is not None
+    except (SQLAlchemyError, RuntimeError) as exc:
+        logger.warning("project.org_backfill_db_unavailable error=%s", type(exc).__name__)
+        return
     await asyncio.to_thread(_stamp_legacy_projects, org_id, has_default_org)
 
 

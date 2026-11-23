@@ -147,6 +147,22 @@ def test_backfill_only_single_org_and_idempotent(env, monkeypatch):
     assert projects.load_projects() == before
 
 
+def test_backfill_skips_missing_registry_and_unavailable_db(env, monkeypatch, caplog):
+    from server import main
+
+    def unavailable():
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(main, "async_session_factory", unavailable)
+    asyncio.run(main.backfill_project_orgs())
+    assert "project.org_backfill_db_unavailable" not in caplog.text
+
+    projects.save_projects({"legacy": {"path": ""}})
+    asyncio.run(main.backfill_project_orgs())
+    assert "project.org_backfill_db_unavailable error=RuntimeError" in caplog.text
+    assert "org_id" not in projects.load_projects()["legacy"]
+
+
 def test_backfill_repairs_legacy_default_and_logs(env, monkeypatch, caplog):
     from server import main
 

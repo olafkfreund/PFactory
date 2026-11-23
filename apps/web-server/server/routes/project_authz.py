@@ -316,7 +316,10 @@ async def require_repo_project_role(  # noqa: PLR0913 - provider is part of repo
     if not matches and for_intake and principal:
         if is_service_principal(principal):
             return ProjectAccess(
-                repo or "", await resolve_default_org_id(db), "owner", principal["id"]
+                repo or "",
+                await resolve_default_org_id(db) if isinstance(db, AsyncSession) else None,
+                "owner",
+                principal["id"],
             )
         if _auth_disabled() and principal.get("id") == "default":
             return ProjectAccess(repo or "", "default", "owner", "default")
