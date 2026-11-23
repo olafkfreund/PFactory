@@ -24,6 +24,8 @@ UI-driven actions in the audit log.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
 from typing import Annotated, Any
@@ -38,8 +40,11 @@ from fastapi import (
     Request as FastAPIRequest,
     UploadFile,
 )
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plan.ingest.artifacts import ArtifactIngestError
+from plan.service import SERVICE, EmitInProgressError, PlanServiceError
 from server.database.engine import get_db
 from server.routes.organizations import ROLE_LEVELS
 from server.routes.plan_meta import categories as plan_categories
@@ -61,6 +66,7 @@ from server.routes.project_authz import (
     _member_roles,
     authorize_project,
     authorize_project_for_user,
+    require_repo_project_role,
     scope_role_ceiling,
     visible_project_ids,
 )
@@ -72,6 +78,7 @@ from server.services.audit_service import (
     ACTION_MCP_PLAN_INGEST,
     ACTION_MCP_PLAN_PROCESS,
 )
+from server.tenancy import resolve_tenant
 
 from ..mcp_remote.auth import AuthenticatedKey
 from ..services.audit_service import (
@@ -540,6 +547,66 @@ _PlanWrite = Annotated[
 ]
 
 
+class _ApprovedArtifact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: str
+    path: str = Field(max_length=512)
+    content: str
+    blob_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    approve_commit_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    approve_commit_author: str = Field(max_length=200)
+
+    @field_validator("stage")
+    @classmethod
+    def valid_stage(cls, value: str) -> str:
+        if value not in {"intent", "spec", "plan"}:
+            raise ValueError("invalid stage")
+        return value
+
+    @field_validator("path")
+    @classmethod
+    def valid_path(cls, value: str) -> str:
+        if not value or value.startswith("/") or ".." in value.split("/") or "\\" in value:
+            raise ValueError("path must be repo-relative without '..'")
+        return value
+
+    @field_validator("approve_commit_author")
+    @classmethod
+    def valid_author(cls, value: str) -> str:
+        if not value or not value.isprintable():
+            raise ValueError("author must be printable")
+        return value
+
+
+class _IngestApprovedBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    provider: str
+    repo: str
+    base_ref: str
+    branch: str
+    head_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    project_id: str | None = None
+    artifacts: list[_ApprovedArtifact] = Field(min_length=3, max_length=3)
+
+    @field_validator("artifacts")
+    @classmethod
+    def valid_artifacts(cls, value: list[_ApprovedArtifact]) -> list[_ApprovedArtifact]:
+        if {item.stage for item in value} != {"intent", "spec", "plan"}:
+            raise ValueError("exactly one artifact per stage is required")
+        return value
+
+    @model_validator(mode="after")
+    def valid_paths(self) -> _IngestApprovedBody:
+        if not self.slug or any(
+            item.path != f"{item.stage}/{self.slug}.md" for item in self.artifacts
+        ):
+            raise ValueError("artifact paths must match the slug")
+        return self
+
+
 @router.get("/plan/sessions")
 async def proxy_list_plan_sessions(
     request: FastAPIRequest, key: _Read, db: Annotated[AsyncSession, Depends(get_db)]
@@ -595,7 +662,14 @@ async def proxy_plan_ingest_text(
     # AuthMiddleware skips /api/mcp-stdio/: the ingest org rule needs the principal.
     request.state.user = principal
     body = await _read_json_body(request)
-    result = await plan_ingest_text(IngestTextBody(**body), request, db=db)
+    try:
+        parsed = IngestTextBody(**body)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_input=False, include_context=False, include_url=False),
+        ) from exc
+    result = await plan_ingest_text(parsed, request, db=db)
     session_id = result.get("session_id") if isinstance(result, dict) else None
     await _audit_mcp_write(
         key,
@@ -606,6 +680,80 @@ async def proxy_plan_ingest_text(
         details={"title": body.get("title")},
     )
     return result
+
+
+@router.post("/plan/sessions/ingest-approved")
+async def proxy_plan_ingest_approved(
+    request: FastAPIRequest, key: _PlanWrite, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, Any]:
+    principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, request.url.path, db)
+    request.state.user = principal
+    try:
+        body = _IngestApprovedBody(**(await _read_json_body(request)))
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_input=False, include_context=False, include_url=False),
+        ) from exc
+    access = await require_repo_project_role(
+        principal, body.repo, "member", db, provider=body.provider
+    )
+    if body.project_id and body.project_id != access.project_id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    for item in body.artifacts:
+        raw = item.content.encode("utf-8")
+        digest = hashlib.sha1(
+            b"blob " + str(len(raw)).encode() + b"\0" + raw,
+            usedforsecurity=False,
+        ).hexdigest()
+        if digest != item.blob_sha:
+            raise HTTPException(status_code=422, detail=f"{item.stage} blob SHA mismatch")
+    try:
+        session, created = await asyncio.to_thread(
+            SERVICE.ingest_approved,
+            [item.model_dump() for item in body.artifacts],
+            provider=body.provider,
+            repo=body.repo,
+            base_ref=body.base_ref,
+            project_id=access.project_id,
+            tenant_id=resolve_tenant(request),
+            org_id=access.org_id,
+            originator=principal.get("id"),
+            agent_identity=None,
+        )
+    except ArtifactIngestError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (EmitInProgressError, PlanServiceError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await _audit_mcp_write(
+        key,
+        ACTION_MCP_PLAN_INGEST,
+        "plan_session",
+        session.session_id,
+        request,
+        details={"slug": body.slug},
+    )
+    readiness = session.review.readiness if session.review else None
+    return {
+        "session_id": session.session_id,
+        "correlation_key": session.correlation_key,
+        "status": session.status,
+        "deduped": not created,
+        "children": [
+            {"key": child.key, "title": child.title, "kind": child.kind}
+            for child in session.epic.children
+        ]
+        if session.epic
+        else [],
+        "readiness": {
+            "hard_failures": [
+                check.check_id for check in readiness.unwaived_hard_failures(session.plan)
+            ]
+            if readiness
+            else []
+        },
+    }
 
 
 @router.post("/plan/sessions/ingest")

@@ -29,6 +29,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 _WEB_SERVER = Path(__file__).parent.parent / "apps" / "web-server"
 if str(_WEB_SERVER) not in sys.path:
@@ -444,6 +445,7 @@ def test_every_plan_tool_has_a_proxy_route():
         ("GET", "/api/mcp-stdio/plan/meta/categories"),
         ("POST", "/api/mcp-stdio/plan/sessions/ingest"),
         ("POST", "/api/mcp-stdio/plan/sessions/ingest-text"),
+        ("POST", "/api/mcp-stdio/plan/sessions/ingest-approved"),
         ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/process"),
         ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/approve"),
         ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/emit-contract"),
@@ -459,6 +461,7 @@ def test_plan_writes_need_plan_write_and_reads_need_mcp_read():
     writes = {
         "/api/mcp-stdio/plan/sessions/ingest",
         "/api/mcp-stdio/plan/sessions/ingest-text",
+        "/api/mcp-stdio/plan/sessions/ingest-approved",
         "/api/mcp-stdio/plan/sessions/{session_id}/process",
         "/api/mcp-stdio/plan/sessions/{session_id}/emit-contract",
         "/api/mcp-stdio/plan/sessions/{session_id}/approve",
@@ -500,6 +503,108 @@ def test_headerless_proxy_live_emit_refuses_shared_token_without_approval(monkey
     )
     assert response.status_code == 409
     assert "private detail" not in response.text
+
+
+def test_approved_artifact_bounds_and_blob_mismatch(monkeypatch):
+    from tests.test_ingest_approved import _artifacts
+
+    proxy = _proxy_module()
+    artifacts = _artifacts()
+    body = {
+        "slug": "2026-11-23-3865-factory-cli", "provider": "github",
+        "repo": "owner/repo", "base_ref": "main", "branch": "feat/x",
+        "head_sha": "b" * 40, "artifacts": artifacts,
+    }
+    with pytest.raises(ValidationError):
+        proxy._IngestApprovedBody.model_validate({**body, "artifacts": artifacts[:2]})
+    with pytest.raises(ValidationError):
+        proxy._IngestApprovedBody.model_validate({**body, "head_sha": "not-a-sha"})
+    with pytest.raises(ValidationError):
+        proxy._IngestApprovedBody.model_validate({**body, "artifacts": [
+            {**artifacts[0], "approve_commit_author": "x" * 201}, *artifacts[1:]
+        ]})
+    with pytest.raises(ValidationError):
+        proxy._IngestApprovedBody.model_validate({**body, "artifacts": [
+            {**artifacts[0], "path": "../intent.md"}, *artifacts[1:]
+        ]})
+
+    async def no_guard(*_args):
+        pass
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", no_guard)
+    monkeypatch.setattr(
+        proxy, "require_repo_project_role", AsyncMock(return_value=SimpleNamespace(
+            project_id="project-1", org_id="org-1"
+        )),
+    )
+    service = SimpleNamespace(ingest_approved=lambda *_a, **_kw: pytest.fail("ingested bad blob"))
+    monkeypatch.setattr(proxy, "SERVICE", service)
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        "/api/mcp-stdio/plan/sessions/ingest-approved",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"},
+        json={**body, "artifacts": [{**artifacts[0], "blob_sha": "0" * 40}, *artifacts[1:]]},
+    )
+    assert response.status_code == 422
+    assert "blob SHA mismatch" in response.text
+    bad_path = TestClient(app).post(
+        "/api/mcp-stdio/plan/sessions/ingest-approved",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"},
+        json={**body, "artifacts": [{**artifacts[0], "path": "../intent.md"}, *artifacts[1:]]},
+    )
+    assert bad_path.status_code == 422
+
+
+def test_approved_artifact_unknown_and_invisible_project_match(monkeypatch):
+    from tests.test_ingest_approved import _artifacts
+
+    proxy = _proxy_module()
+    async def no_guard(*_args):
+        pass
+
+    async def not_found(*_args, **_kwargs):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", no_guard)
+    monkeypatch.setattr(proxy, "require_repo_project_role", not_found)
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    body = {
+        "slug": "2026-11-23-3865-factory-cli", "provider": "github",
+        "repo": "owner/repo", "base_ref": "main", "branch": "feat/x",
+        "head_sha": "b" * 40, "artifacts": _artifacts(),
+    }
+    client = TestClient(app)
+    responses = [client.post(
+        "/api/mcp-stdio/plan/sessions/ingest-approved",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"}, json=body,
+    ) for _ in range(2)]
+    assert all(response.status_code == 404 for response in responses)
+    assert responses[0].json() == responses[1].json() == {"detail": "Project not found"}
+
+
+def test_scoped_ingest_text_invalid_body_is_422(monkeypatch):
+    proxy = _proxy_module()
+
+    async def no_guard(*_args):
+        pass
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", no_guard)
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        "/api/mcp-stdio/plan/sessions/ingest-text",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"},
+        json={"not_text": "invalid"},
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize("query", ["", "?tail=50"])

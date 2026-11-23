@@ -47,6 +47,7 @@ from plan.detect.source_inspector import inspect_source
 from plan.detect.target_classifier import apply as detect_apply, classify_plan
 from plan.emit.contract_sync import ContractSyncState, SyncError, fold_event
 from plan.emit.signing import _canonical
+from plan.ingest.artifacts import ingest_artifacts
 from plan.ingest.channels import ingest_bytes, ingest_text
 from plan.models import Criterion, NormalizedPlan, slugify
 from plan.plan_types import apply as plan_type_apply, select_for
@@ -154,6 +155,8 @@ class PlanSession(BaseModel):
     contract_result: dict | None = None  # RFC-0002 signed Task Contract v2 emit (#65)
     contract_emit_record: dict[str, Any] | None = None
     contract_emit_records: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    source_artifacts: list[dict[str, str]] | None = None
+    submission_id: str | None = None
     # RFC-0016 #190: object-store references (URIs, never blobs) to the plan's
     # emitted documents (plan/spec markdown + audit pack), uploaded best-effort
     # on terminal emit and mirrored onto the durable job_states `artifacts[]`.
@@ -308,6 +311,10 @@ class UserApprovalRequiredError(PlanServiceError):
     """A live MCP emit lacks a valid authenticated user approval."""
 
 
+class ArtifactSessionError(PlanServiceError):
+    """An approved artifact session cannot be edited or reprocessed."""
+
+
 def _criterion_id(title: str) -> str:
     """The ``AC#N`` a suggestion's title names, or "" when it names none."""
     match = re.search(r"AC#\d+", title or "")
@@ -321,6 +328,10 @@ class PlanInputError(PlanServiceError):
     invalid" while still answering 404 for "no such session". Both carry a
     developer-written literal, so both stay safe to return verbatim.
     """
+
+
+class ArtifactProjectError(PlanInputError):
+    """An artifact session lost its registered project binding."""
 
 
 class SessionNotDeletableError(PlanServiceError):
@@ -1160,6 +1171,102 @@ class PlanService:
                     with suppress(Exception):
                         store.delete_if_lease_owner(claim_id, owner)
 
+    def ingest_approved(  # noqa: PLR0913, PLR0915 - claim and review need intake identity
+        self,
+        artifacts: list[dict[str, str]],
+        *,
+        provider: str,
+        repo: str,
+        base_ref: str,
+        project_id: str,
+        tenant_id: str = "default",
+        org_id: str | None = None,
+        originator: str | None = None,
+        agent_identity: str | None = None,
+        external_runner: Any = None,
+    ) -> tuple[PlanSession, bool]:
+        """Claim an authorized artifact triple before creating and reviewing it."""
+        by_stage = {item["stage"]: item["content"] for item in artifacts}
+        identity = [tenant_id, org_id, project_id, provider, repo, base_ref]
+        identity.extend(
+            next(item["blob_sha"] for item in artifacts if item["stage"] == stage)
+            for stage in ("intent", "spec", "plan")
+        )
+        submission_id = hashlib.sha256(_canonical(identity).encode()).hexdigest()
+        claim_id = f"__artifact_claim__:{submission_id[:24]}"
+        owner = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
+
+        def find() -> PlanSession | None:
+            sessions, complete = self._list_sessions()
+            if not complete:
+                raise PlanServiceError("cannot confirm whether an artifact session exists")
+            return next(
+                (s for s in sessions if s.submission_id == submission_id and s.status != "failed"),
+                None,
+            )
+
+        with self._store_lock:
+            lock = self._emit_locks.setdefault(claim_id, threading.Lock())
+        with lock:
+            if existing := find():
+                return self.get(existing.session_id), False
+            store = self._session_store
+            claimed = False
+            if store is not None:
+                import time  # noqa: PLC0415
+
+                retries = 40
+                for attempt in range(retries):
+                    version = store.upsert(
+                        claim_id, payload="{}", seq=0, tenant_id=tenant_id, expected_version=0
+                    )
+                    if version is not None and store.acquire_emit_lease(
+                        claim_id, owner, _emit_lease_ttl()
+                    ):
+                        claimed = True
+                        break
+                    if existing := find():
+                        return self.get(existing.session_id), False
+                    if store.acquire_emit_lease(claim_id, owner, _emit_lease_ttl()):
+                        claimed = True
+                        break
+                    if attempt == retries - 1:
+                        raise EmitInProgressError("artifact intake is already running")
+                    time.sleep(0.025)
+            try:
+                if existing := find():
+                    return self.get(existing.session_id), False
+                plan, epic = ingest_artifacts(by_stage, seq=self._next_seq())
+                session = self._store(plan)
+                session.tenant_id = tenant_id
+                session.org_id = org_id
+                session.originator = originator
+                session.agent_identity = agent_identity
+                session.provider = provider
+                session.repo = repo
+                session.base_ref = base_ref
+                session.project_id = project_id
+                session.source_artifacts = [
+                    {key: value for key, value in item.items() if key not in {"content"}}
+                    for item in artifacts
+                ]
+                session.submission_id = submission_id
+                session.correlation_key = correlation_key_for(session)
+                session.epic = epic
+                self._save(session)
+                try:
+                    self._review_existing_epic(session, epic, external_runner=external_runner)
+                except Exception as exc:
+                    session.status = "failed"
+                    session.process_error = type(exc).__name__
+                    self._save(session)
+                    raise
+                return session, True
+            finally:
+                if claimed and store is not None:
+                    with suppress(Exception):
+                        store.delete_if_lease_owner(claim_id, owner)
+
     def find_active_issue_session(
         self, tenant_id: str, provider: str, repo: str, issue_number: int
     ) -> PlanSession | None:
@@ -1335,6 +1442,8 @@ class PlanService:
         the edit and the re-process cannot leave a stale approval behind.
         """
         session = self.get(session_id)
+        if session.source_artifacts is not None:
+            raise ArtifactSessionError("artifact session: re-submit instead")
         if session.status in {"emitted", "discarded"}:
             raise PlanServiceError(
                 f"session '{session_id}' is {session.status}; edits no longer apply"
@@ -1387,6 +1496,8 @@ class PlanService:
         land is the worst outcome available here.
         """
         session = self.get(session_id)
+        if session.source_artifacts is not None:
+            raise ArtifactSessionError("artifact session: re-submit instead")
         annotation = session.annotation
         if annotation is None or not annotation.suggestions:
             raise PlanInputError(f"session '{session_id}' has no suggestions to apply")
@@ -1461,6 +1572,8 @@ class PlanService:
 
             external_runner = provider_runner
         session = self.get(session_id)
+        if session.source_artifacts is not None:
+            raise ArtifactSessionError("artifact session: re-submit instead")
         session._run_base_tokens = session.usage.total_tokens  # ceiling is per run
         session.usage.route = ""  # a run names its own route; totals stay cumulative
         # Transient sub-states so a background-run session animates on the board:
@@ -1474,24 +1587,15 @@ class PlanService:
             epic = self._decompose(session, plan, descriptor, llm=llm)
             artifacts = synthesize(plan, epic, descriptor=descriptor)
 
-            composed_runner = self._build_review_runner(
-                session, plan, epic, descriptor, external_runner
+            self._review_existing_epic(
+                session,
+                epic,
+                plan=plan,
+                descriptor=descriptor,
+                external_runner=external_runner,
+                save=False,
             )
-
-            session.status = "reviewing"
-            review = run_gates(plan, epic, external_runner=composed_runner)
-
-            # Honour the document: anchored, cited suggestions + improved draft (#D).
-            annotation = annotate_plan(plan, review)
-            # Assigned only after the last call that can raise, so a failed
-            # re-run leaves the previous results in place (#862).
-            session.plan = plan
-            session.epic = epic
             session.artifacts = artifacts
-            session.review = review
-            session.annotation = annotation
-            session.process_error = None
-            session.status = "processed"
             self._save(session)
         except StaleSessionError:
             raise  # another replica changed it (#758): a conflict, not a failed run
@@ -1515,6 +1619,37 @@ class PlanService:
         # before approval). Emit a non-terminal usage snapshot here. Best-effort.
         emit_usage_snapshot(session)
         return session
+
+    def _review_existing_epic(  # noqa: PLR0913 - same review seam for authored and supplied epics
+        self,
+        session: PlanSession,
+        epic: EpicPlan,
+        *,
+        plan: NormalizedPlan | None = None,
+        descriptor: object | None = None,
+        external_runner: Any = None,
+        save: bool = True,
+    ) -> None:
+        if external_runner is None:
+            from plan.providers.review_runner import provider_runner  # noqa: PLC0415
+
+            external_runner = provider_runner
+        if plan is None:
+            plan, descriptor = self._detect_and_plan_type(session)
+        composed_runner = self._build_review_runner(
+            session, plan, epic, descriptor, external_runner
+        )
+        session.status = "reviewing"
+        review = run_gates(plan, epic, external_runner=composed_runner)
+        annotation = annotate_plan(plan, review)
+        session.plan = plan
+        session.epic = epic
+        session.review = review
+        session.annotation = annotation
+        session.process_error = None
+        session.status = "processed"
+        if save:
+            self._save(session)
 
     # ── execution model: pooled worker, NOT Job-per-task (RFC-0016 #218) ─
     #
@@ -2093,6 +2228,7 @@ class PlanService:
         feedback: str | None = None,
         user_id: str | None = None,
         auth_kind: str = "unknown",
+        approver_display: str | None = None,
         provider: str | None = None,
         provider_user_id: int | None = None,
         username: str | None = None,
@@ -2102,6 +2238,8 @@ class PlanService:
         _session: PlanSession | None = None,
     ) -> PlanSession:
         session = _session if _session is not None else self.get(session_id)
+        if session.source_artifacts is not None and session.status == "emitted":
+            raise ArtifactSessionError("artifact session already emitted")
         if (
             session.issue_stage_requested or session.stage_state
         ) and auth_kind != "provider_review":
@@ -2122,6 +2260,8 @@ class PlanService:
             pr_number=pr_number,
             approved_head_sha=approved_head_sha,
         )
+        if session.source_artifacts is not None:
+            session.review.human_approval.approver_display = approver_display or user_id
         session.status = "approved"
         if _save:
             self._save(session)
@@ -2998,6 +3138,21 @@ class PlanService:
         from plan.emit.contract_emit import emit_contract as _emit_contract
 
         session = session_override or self.get(session_id)
+        artifact_session = session.source_artifacts is not None
+        previous_result = session.contract_result or {}
+        if (
+            artifact_session
+            and not dry_run
+            and previous_result.get("ok")
+            and not previous_result.get("dry_run")
+        ):
+            return session
+        if artifact_session:
+            repo = session.repo
+            project_id = session.project_id
+            require_user_approval = True
+            if not project_id:
+                raise ArtifactProjectError("artifact session needs a registered project")
         if (session.issue_stage_requested or session.stage_state) and not stage_handoff:
             raise PlanServiceError("staged plans emit only after PR approval in the stage machine")
         if session.epic is None:
@@ -3030,6 +3185,15 @@ class PlanService:
                 or not approval_is_valid(review, session.plan)
             ):
                 raise UserApprovalRequiredError("authenticated user approval required")
+        if artifact_session and not dry_run:
+            from plan.emit.signing import key_from_env  # noqa: PLC0415
+
+            try:
+                signing_key = key or key_from_env("pfactory")[0]
+            except ValueError as exc:
+                raise PlanServiceError("artifact signing key configuration is invalid") from exc
+            if not signing_key:
+                raise PlanServiceError("artifact live emit requires a signing key")
         if session.stage_state and not dry_run:
             from runners.github.providers.factory import get_provider  # noqa: PLC0415
 
@@ -3110,7 +3274,16 @@ class PlanService:
             if record is None and (session.contract_emit_record or {}).get("digest") == digest:
                 record = session.contract_emit_record
             result = record.get("result") if isinstance(record, dict) else None
-            return {**result, "duplicate": True} if isinstance(result, dict) else None
+            if isinstance(result, dict) and result.get("ok"):
+                return {**result, "duplicate": True}
+            if artifact_session:
+                session.contract_emit_record = {
+                    "digest": digest,
+                    "outcome": "sent",
+                    "at": datetime.now(UTC).isoformat(),
+                }
+                self._save(session)
+            return None
 
         result = _emit_contract(
             signed_session.plan,
@@ -3128,6 +3301,11 @@ class PlanService:
             spec_text=access_spec_text,
             approvals=signed_session.access_approvals or None,
             tenant_id=signed_session.tenant_id,
+            source_artifacts=signed_session.source_artifacts,
+            submission_id=signed_session.submission_id,
+            allow_fallback=not artifact_session,
+            require_signed=artifact_session,
+            max_retries=0 if artifact_session else 2,
             handoff=(
                 {
                     key: signed_session.stage_state[key]
@@ -3164,6 +3342,9 @@ class PlanService:
                     "aifactory_task_id": str(task_id) if task_id else None,
                 }
             )
+        if artifact_session and result.get("mismatches"):
+            result["outcome"] = "unknown"
+            result["errors"] = ["Task creation outcome unknown; check AIFactory before retrying"]
         # Signing may have triggered another session write; record the result on
         # the latest live copy, leaving the signed snapshot untouched.
         session = session_override or self.get(session_id)
@@ -3175,6 +3356,13 @@ class PlanService:
         ):
             refresh_readiness(session.review, session.plan, session.epic)
         session.contract_result = result
+        if artifact_session and not dry_run:
+            session.contract_emit_record = {
+                "digest": digest,
+                "outcome": "ok" if result.get("ok") else result.get("outcome", "rejected"),
+                "result": result,
+                "at": datetime.now(UTC).isoformat(),
+            }
         if result.get("ok") and not dry_run:
             record = {
                 "digest": digest,

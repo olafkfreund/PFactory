@@ -140,6 +140,8 @@ def assemble_contract(
     approvals: dict | None = None,
     tenant_id: str | None = None,
     handoff: dict[str, Any] | None = None,
+    source_artifacts: list[dict[str, str]] | None = None,
+    submission_id: str | None = None,
 ) -> dict[str, Any]:
     """Compose the complete (unsigned) Task Contract from all #65 blocks.
 
@@ -158,6 +160,20 @@ def assemble_contract(
     # tenant, keeping every existing single-tenant contract byte-identical.
     if tenant_id and tenant_id != "default":
         contract.setdefault("provenance", {})["tenant_id"] = tenant_id
+    if source_artifacts is not None:
+        contract.setdefault("provenance", {})["source_artifacts"] = [
+            {**item, "attested_by": "client"} for item in source_artifacts
+        ]
+        approval = review.human_approval if review else None
+        if approval:
+            contract["provenance"]["human_approval"] = {
+                "user_id": approval.user_id,
+                "approver_display": approval.approver_display,
+                "auth_kind": approval.auth_kind,
+                "approved_at": approval.approved_at,
+                "plan_hash": approval.plan_hash,
+            }
+        contract["provenance"]["submission_id"] = submission_id
     attach_execution(contract, plan, epic)
     if review is not None:
         attach_review_tier(contract, review)
@@ -348,6 +364,10 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
     tenant_id: str | None = None,
     handoff: dict[str, Any] | None = None,
     on_signed: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
+    source_artifacts: list[dict[str, str]] | None = None,
+    submission_id: str | None = None,
+    allow_fallback: bool = True,
+    require_signed: bool = False,
 ) -> dict[str, Any]:
     """Assemble, validate, sign, and (unless dry-run) emit the contract.
 
@@ -381,6 +401,8 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
         approvals=approvals,
         tenant_id=tenant_id,
         handoff=handoff,
+        source_artifacts=source_artifacts,
+        submission_id=submission_id,
     )
     errors = validate_contract(contract)
     if errors:
@@ -389,8 +411,8 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
     # #401: key and kid resolve together. An explicit `key=` override signs the
     # legacy way (no kid) — only the environment knows which kid a key belongs to.
     signing_key, signing_kid = (key, None) if key else key_from_env("pfactory")
-    if handoff and not dry_run and not signing_key:
-        raise ValueError("staged contract handoff requires a signing key")
+    if (handoff or require_signed) and not dry_run and not signing_key:
+        raise ValueError("signed contract handoff requires a signing key")
     signed = False
     if signing_key:
         attach_signature(
@@ -444,7 +466,7 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
             type(exc).__name__,
             exc_info=exc,
         )
-        if handoff or os.environ.get("PFACTORY_EMIT_FALLBACK") != "1":
+        if handoff or not allow_fallback or os.environ.get("PFACTORY_EMIT_FALLBACK") != "1":
             result: dict[str, Any] = {
                 "ok": False,
                 "dry_run": False,
@@ -465,8 +487,14 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
                         result["aifactory_detail"] = str(detail)[:500]
                 except (AttributeError, ValueError, UnicodeError, OSError):
                     logger.debug("Ignoring unreadable AIFactory error detail", exc_info=True)
-            if isinstance(exc, (TimeoutError, socket.timeout)) or (
-                isinstance(exc, URLError) and isinstance(exc.reason, (TimeoutError, socket.timeout))
+            if (
+                (not allow_fallback and not isinstance(exc, HTTPError))
+                or (isinstance(exc, HTTPError) and exc.code >= HTTPStatus.INTERNAL_SERVER_ERROR)
+                or isinstance(exc, (TimeoutError, socket.timeout))
+                or (
+                    isinstance(exc, URLError)
+                    and isinstance(exc.reason, (TimeoutError, socket.timeout))
+                )
             ):
                 result["outcome"] = "unknown"
                 result["errors"] = [

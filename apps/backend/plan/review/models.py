@@ -71,6 +71,7 @@ class HumanApproval(BaseModel):
     approved: bool = False
     approved_by: str = ""
     user_id: str | None = None
+    approver_display: str | None = None
     auth_kind: str = "unknown"
     provider: str | None = None
     provider_user_id: int | None = None
