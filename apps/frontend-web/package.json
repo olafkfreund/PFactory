@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint . --max-warnings 3004",
     "test": "vitest run",
+    "test:shell-browser": "node scripts/check-shared-shell.mjs",
     "typecheck": "tsc --noEmit",
     "capture-screenshots": "tsx ../../scripts/capture-screenshots.ts"
   },

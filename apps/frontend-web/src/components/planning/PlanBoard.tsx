@@ -11,7 +11,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatRelativeTime } from '../../lib/utils';
-import { discardSession, processSession } from '../../lib/planning-api';
 import { usePlanStore } from '../../stores/plan-store';
 import { usePipelineStripSlot } from '../../contexts/PipelineStripContext';
 import {
@@ -126,9 +125,10 @@ interface Props {
   onSelect: (sessionId: string) => void;
   projectId?: string;
   fetchFn?: typeof fetch;
+  onRevealBoard?: () => void;
 }
 
-export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }: Props) {
+export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn, onRevealBoard }: Props) {
   const { t } = useTranslation(['tasks', 'navigation']);
   const stripSlot = usePipelineStripSlot();
   const storeFetchFn = usePlanStore((state) => state.fetchFn);
@@ -136,20 +136,12 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }
 
   const [selectedStage, setSelectedStage] = useState<VisibleColumn | null>(null);
   const [failureOnly, setFailureOnly] = useState(false);
-  const [overrides, setOverrides] = useState<Record<string, Partial<SessionSummary>>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const busy = usePlanStore((state) => state.actionBusy);
+  const actionError = usePlanStore((state) => state.actionError);
   const [alarm, setAlarm] = useState<{ key: string; event: string | number } | undefined>(undefined);
   const prevFailedRef = useRef<Set<string> | null>(null);
 
-  const mergedSessions = useMemo(
-    () =>
-      sessions.map((s) => ({
-        ...s,
-        ...(overrides[s.session_id] ?? undefined),
-      })),
-    [sessions, overrides]
-  );
+  const mergedSessions = sessions;
 
   const failedSessions = useMemo(() => mergedSessions.filter(isFailed), [mergedSessions]);
 
@@ -193,46 +185,12 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }
     return map;
   }, [failedSessions]);
 
-  const actOn = useCallback(
-    async (session: SessionSummary, action: 'process' | 'rerun' | 'dismiss') => {
-      const id = session.session_id;
-      setBusy(id);
-      setActionError(null);
-      try {
-        if (action === 'process' || action === 'rerun') {
-          const updated = await processSession(id, { fetchFn: effectiveFetchFn });
-          setOverrides((current) => ({
-            ...current,
-            [id]: {
-              status: updated?.status ?? 'processed',
-              board_state: updated?.board_state,
-              gates_passed: updated?.review?.gates_passed ?? null,
-              children: updated?.epic?.children?.length ?? session.children,
-            },
-          }));
-        } else {
-          await discardSession(
-            id,
-            { actor: 'operator', reason: 'dismissed from board' },
-            { fetchFn: effectiveFetchFn }
-          );
-          setOverrides((current) => ({
-            ...current,
-            [id]: {
-              status: 'discarded' as SessionSummary['status'],
-              board_state: 'done',
-              gates_passed: null,
-            },
-          }));
-        }
-      } catch (error) {
-        setActionError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setBusy(null);
-      }
-    },
-    [effectiveFetchFn]
-  );
+  useEffect(() => {
+    if (effectiveFetchFn) usePlanStore.getState().setFetchFn(effectiveFetchFn);
+  }, [effectiveFetchFn]);
+
+  const actOn = (session: SessionSummary, action: 'process' | 'rerun' | 'dismiss') =>
+    usePlanStore.getState().actOnSession(session.session_id, action);
 
   const stages: PipelineStage[] = useMemo(
     () =>
@@ -250,12 +208,14 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }
   const handleSelectStage = useCallback((key: string | null) => {
     setSelectedStage(key as VisibleColumn | null);
     setFailureOnly(false);
-  }, []);
+    onRevealBoard?.();
+  }, [onRevealBoard]);
 
   const handleSelectFailed = useCallback((key: string) => {
     setSelectedStage(key as VisibleColumn);
     setFailureOnly(true);
-  }, []);
+    onRevealBoard?.();
+  }, [onRevealBoard]);
 
   const stripProps: PipelineStripProps = useMemo(
     () => ({
@@ -320,11 +280,12 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }
 
   return (
     <div className="flex flex-col gap-4" data-testid="plan-board">
+      <p className="text-xs text-muted-foreground">{t('tasks:pipeline.fleetScope')}</p>
       {!stripSlot && <PipelineStrip {...stripProps} labels={pipelineLabels} />}
 
       {actionError && (
         <p role="alert" className="text-sm text-destructive">
-          {actionError}
+          {actionError === 'dismissUnavailable' ? t('tasks:pipeline.dismissUnavailable') : actionError}
         </p>
       )}
 
@@ -339,7 +300,7 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }
               key={stage.key}
               title={stage.label}
               tone={stage.tone}
-              projectId={projectId}
+              projectId={undefined}
               emptyLabel={emptyText(stage.key)}
               showMoreLabel={(count) =>
                 t('tasks:pipeline.showMore', { count, defaultValue: `Show ${count} more` })
@@ -349,6 +310,7 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }
                 const done = isDone(s) && !failed;
                 const tone = toneFor(s);
                 const subtitleParts = [
+                  s.project_id ? t('tasks:pipeline.project', { id: s.project_id }) : t('tasks:pipeline.unassignedProject'),
                   ...(s.plan_type ? [s.plan_type] : []),
                   ...(s.children > 0 ? [`${String(s.children)} issues`] : []),
                 ];
@@ -407,7 +369,7 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }
 
                 return {
                   id: s.session_id,
-                  projectId: projectId ?? '',
+                  projectId: s.project_id ?? projectId ?? '',
                   collapsedByDefault: done,
                   render: ({ expanded, onToggle }) => (
                     <div
@@ -418,7 +380,7 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }
                     >
                       <WorkCard
                         labels={workCardLabels}
-                        title={s.title || s.session_id}
+                        title={`${s.project_id ?? t('tasks:pipeline.unassigned')} · ${s.title || s.session_id}`}
                         subtitle={subtitle}
                         status={s.status}
                         tone={tone}

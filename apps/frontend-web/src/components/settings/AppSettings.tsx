@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Save,
@@ -98,6 +98,8 @@ export function ProjectSettingsPage({ projectId, initialSection = 'general' }: P
   const selectedProject = projects.find((p) => p.id === projectId);
   const [projectSettingsHook, setProjectSettingsHook] = useState<UseProjectSettingsReturn | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const handleProjectHookReady = useCallback((hook: UseProjectSettingsReturn | null) => {
     setProjectSettingsHook(hook);
@@ -109,9 +111,16 @@ export function ProjectSettingsPage({ projectId, initialSection = 'general' }: P
   }, []);
 
   const handleSave = async () => {
-    if (!selectedProject || !projectSettingsHook) return;
-    await projectSettingsHook.handleSave(() => {});
-    setProjectError(projectSettingsHook.error || projectSettingsHook.envError || null);
+    if (!selectedProject || !projectSettingsHook || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await projectSettingsHook.handleSave(() => {});
+      setProjectError(projectSettingsHook.error || projectSettingsHook.envError || null);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   return (
@@ -127,8 +136,8 @@ export function ProjectSettingsPage({ projectId, initialSection = 'general' }: P
         </div>
         {selectedProject && (
           <div className="f-page-head__actions">
-            <Button onClick={() => { void handleSave(); }} disabled={Boolean(projectSettingsHook?.isSaving)}>
-              {projectSettingsHook?.isSaving ? (
+            <Button onClick={() => { void handleSave(); }} disabled={saving}>
+              {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   {t('common:buttons.saving', 'Saving...')}
@@ -299,7 +308,7 @@ export function PreferencesPage({ initialSection = 'agent', onRerunWizard }: Pre
                 <Icon className="h-5 w-5 mt-0.5 shrink-0" />
                 <div className="min-w-0">
                   <div className="font-medium text-sm">{t(`settings:sections.${item.id}.title`)}</div>
-                  <div className={cn('text-xs truncate', isActive ? 'text-white/80' : 'text-muted-foreground')}>
+                  <div className="text-xs truncate text-muted-foreground">
                     {t(`settings:sections.${item.id}.description`)}
                   </div>
                 </div>

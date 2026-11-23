@@ -6,6 +6,7 @@
  */
 
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, AlertTriangle, ChevronLeft, RefreshCw, Play } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -39,8 +40,10 @@ interface Props {
 }
 
 export function SessionDetail({ sessionId, onBack }: Props) {
+  const { t } = useTranslation('tasks');
   const store = usePlanStore();
   const { currentSession, sessionLoading, error } = store;
+  const actionBusy = store.actionBusy;
 
   useEffect(() => {
     store.selectSession(sessionId);
@@ -125,12 +128,12 @@ export function SessionDetail({ sessionId, onBack }: Props) {
         {canProcess && (
           <Button
             size="sm"
-            onClick={() => store.processCurrentSession()}
-            disabled={sessionLoading}
+            onClick={() => { void store.actOnSession(sessionId, 'process'); }}
+            disabled={sessionLoading || actionBusy !== null}
             data-testid="process-btn"
             aria-label="Process session"
           >
-            {sessionLoading ? (
+            {sessionLoading || actionBusy === sessionId ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
             ) : (
               <Play className="mr-1.5 h-3.5 w-3.5" aria-hidden />
@@ -144,7 +147,7 @@ export function SessionDetail({ sessionId, onBack }: Props) {
           variant="ghost"
           size="icon"
           onClick={() => store.refreshCurrentSession()}
-          disabled={sessionLoading}
+          disabled={sessionLoading || actionBusy !== null}
           aria-label="Refresh session"
         >
           <RefreshCw className={`h-4 w-4 ${sessionLoading ? 'animate-spin' : ''}`} aria-hidden />
@@ -152,9 +155,9 @@ export function SessionDetail({ sessionId, onBack }: Props) {
       </div>
 
       {/* Error banner */}
-      {error && (
+      {(error || store.actionError) && (
         <div role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
+          {error || (store.actionError === 'dismissUnavailable' ? t('pipeline.dismissUnavailable') : store.actionError)}
         </div>
       )}
 

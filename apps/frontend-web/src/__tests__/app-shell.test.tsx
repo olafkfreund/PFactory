@@ -156,6 +156,7 @@ describe('PFactory adapted AppShell', () => {
       vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
+          tasks: [],
           sessions: [
             {
               session_id: 's-clean',
@@ -190,23 +191,34 @@ describe('PFactory adapted AppShell', () => {
       </MemoryRouter>
     );
 
-    await screen.findByText('Clean Review Plan');
+    await screen.findByText('Unassigned · Clean Review Plan');
     expect(container.querySelectorAll('.f-column .f-card')).toHaveLength(2);
 
     fireEvent.click(await screen.findByRole('button', { name: /Filter Review failures/ }));
     expect(container.querySelectorAll('.f-column .f-card')).toHaveLength(1);
-    expect(screen.queryByText('Clean Review Plan')).toBeNull();
-    expect(screen.getByText('Blocked Review Plan')).toBeInTheDocument();
+    expect(screen.queryByText('Unassigned · Clean Review Plan')).toBeNull();
+    expect(screen.getByText('Unassigned · Blocked Review Plan')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Clear filter/ }));
     expect(container.querySelectorAll('.f-column .f-card')).toHaveLength(2);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Unassigned · Blocked Review Plan' }));
+    expect(screen.getByTestId('planning-view')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-board-view')).toHaveClass('hidden');
+    fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/ }));
+    expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
+    expect(container.querySelectorAll('.f-column .f-card')).toHaveLength(1);
+
     fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     expect(screen.getByRole('toolbar', { name: /Pipeline stages/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/ }));
+    expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
+    expect(container.querySelectorAll('.f-column .f-card')).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole('button', { name: /Project.*Alpha/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'All projects' }));
-    expect(await screen.findByRole('toolbar', { name: /Pipeline stages/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Plans' }));
+    fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/ }));
+    expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
+
   });
 
   it('reverts an unsaved appearance preview on route change', async () => {

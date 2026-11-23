@@ -9,6 +9,7 @@ import '@testing-library/jest-dom/vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '../../../shared/i18n';
 import { PlanBoard } from '../PlanBoard';
+import { usePlanStore } from '../../../stores/plan-store';
 import type { SessionSummary } from '../../../shared/types/plan';
 
 const makeSession = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
@@ -25,6 +26,7 @@ const makeSession = (overrides: Partial<SessionSummary> = {}): SessionSummary =>
 
 beforeEach(() => {
   localStorage.clear();
+  usePlanStore.setState({ actionBusy: null, actionError: null, fetchFn: undefined, sessions: [] });
 });
 
 describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
@@ -69,22 +71,22 @@ describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
     expect(within(toolbar).getByText('Approved')).toBeInTheDocument();
 
     // Processing plan is folded into Backlog with plan_type and issue count
-    expect(screen.getByText('migration · 3 issues')).toBeInTheDocument();
+    expect(screen.getByText('Unassigned project · migration · 3 issues')).toBeInTheDocument();
 
     // Review plan shows plan_type, issue count, gates-failed "needs attention" cue, and selection ring
     const revWrapper = container.querySelector('[data-session-id="s-rev"]')!;
     expect(revWrapper).toHaveAttribute('data-selected', 'true');
-    expect(within(revWrapper as HTMLElement).getByText('feature · 5 issues')).toBeInTheDocument();
+    expect(within(revWrapper as HTMLElement).getByText('Unassigned project · feature · 5 issues')).toBeInTheDocument();
     expect(within(revWrapper as HTMLElement).getByText('needs attention')).toBeInTheDocument();
 
     // Clicking title opens the session in the list/detail pane
-    fireEvent.click(screen.getByRole('button', { name: 'Blocked Review Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unassigned · Blocked Review Plan' }));
     expect(onSelect).toHaveBeenCalledWith('s-rev');
 
     // Approved card is collapsed by default and expands on chevron click
     const doneCard = container.querySelector('[data-session-id="s-done"] .f-card')!;
     expect(doneCard).toHaveClass('f-card--collapsed');
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Approved Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Unassigned · Approved Plan' }));
     expect(container.querySelector('[data-session-id="s-done"] .f-card')).toHaveClass('f-card--expanded');
   });
 
@@ -111,12 +113,12 @@ describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
     await waitFor(() => expect(view.container.querySelector('.f-strip__flare')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/i }));
-    expect(screen.queryByText('Clean Review')).toBeNull();
-    expect(screen.getByText('Failed Review')).toBeInTheDocument();
+    expect(screen.queryByText('Unassigned · Clean Review')).toBeNull();
+    expect(screen.getByText('Unassigned · Failed Review')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Clear filter/i }));
-    expect(screen.getByText('Clean Review')).toBeInTheDocument();
-    expect(screen.getByText('Failed Review')).toBeInTheDocument();
+    expect(screen.getByText('Unassigned · Clean Review')).toBeInTheDocument();
+    expect(screen.getByText('Unassigned · Failed Review')).toBeInTheDocument();
   });
 
   it('handles item actions while pending and after rejection', async () => {
@@ -137,6 +139,7 @@ describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
               board_state: 'human_review',
               review: { gates_passed: true },
               epic: { children: [{ key: '1' }, { key: '2' }] },
+              sessions: [],
             }),
           })
     ) as unknown as typeof fetch;
@@ -177,7 +180,38 @@ describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
     expect(rerunBtn).toBeEnabled();
 
     fireEvent.click(processBtn);
-    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(vi.mocked(fetchFn).mock.calls.filter(([url]) => String(url).endsWith('/process'))).toHaveLength(2));
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('refuses dismissal when the server has approved a stale failed card', async () => {
+    const failed = makeSession({ status: 'failed', gates_passed: false });
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ session_id: 's-1', status: 'approved', review: { gates_passed: true }, sessions: [{ ...failed, status: 'approved', gates_passed: true }] }),
+    }) as unknown as typeof fetch;
+    render(<PlanBoard sessions={[failed]} selectedId={null} onSelect={() => {}} fetchFn={fetchFn} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    await screen.findByRole('alert');
+    expect(screen.getByRole('alert')).toHaveTextContent('no longer eligible');
+    expect(fetchFn).not.toHaveBeenCalledWith(expect.stringContaining('/discard'), expect.anything());
+  });
+
+  it('labels cards with their owning project and restores expansion among nine collapsed cards', () => {
+    const sessions = Array.from({ length: 9 }, (_, index) => makeSession({
+      session_id: `done-${index}`,
+      title: `Done ${index}`,
+      status: 'approved',
+      board_state: 'done',
+      project_id: index === 0 ? 'alpha' : 'beta',
+    }));
+    const view = render(<PlanBoard sessions={sessions} selectedId={null} onSelect={() => {}} projectId="alpha" />);
+    expect(screen.getByText('Show 1 more')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'alpha · Done 0' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand alpha · Done 0' }));
+    expect(view.container.querySelector('[data-session-id="done-0"] .f-card')).toHaveClass('f-card--expanded');
+    view.unmount();
+    const restored = render(<PlanBoard sessions={sessions} selectedId={null} onSelect={() => {}} projectId="alpha" />);
+    expect(restored.container.querySelector('[data-session-id="done-0"] .f-card')).toHaveClass('f-card--expanded');
   });
 });

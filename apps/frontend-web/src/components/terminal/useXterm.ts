@@ -20,6 +20,14 @@ export function useXterm({ terminalId, onCommandEnter, onResize }: UseXtermOptio
   const commandBufferRef = useRef<string>('');
   const isDisposedRef = useRef<boolean>(false);
 
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      if (xtermRef.current) xtermRef.current.options.theme = getTerminalTheme();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
+    return () => observer.disconnect();
+  }, []);
+
   // Initialize xterm.js UI
   useEffect(() => {
     if (!terminalRef.current || xtermRef.current) return;

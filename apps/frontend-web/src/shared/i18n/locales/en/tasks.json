@@ -3,7 +3,13 @@
     "failed": "{{count}} failed",
     "showMore": "Show {{count}} more",
     "rerun": "Re-run",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "fleetScope": "Planning across all projects",
+    "fleetDescription": "Ingest, process, review and emit product plans across all projects.",
+    "project": "Project: {{id}}",
+    "unassignedProject": "Unassigned project",
+    "unassigned": "Unassigned",
+    "dismissUnavailable": "This plan is no longer eligible for dismissal."
   },
   "status": {
     "backlog": "Plans ready",

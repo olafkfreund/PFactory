@@ -86,6 +86,10 @@ function AuthenticatedApp() {
   const { pathname, search } = useLocation();
   const route = useMemo(() => parseRoute(pathname), [pathname]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [plansMounted, setPlansMounted] = useState(route.kind === 'pfactory');
+  useEffect(() => {
+    if (route.kind === 'pfactory') setPlansMounted(true);
+  }, [route.kind]);
 
   // Stores
   const projects = useProjectStore((state) => state.projects);
@@ -160,6 +164,10 @@ function AuthenticatedApp() {
     },
     [navProject, goProject, navigate]
   );
+  const showPlanningBoard = useCallback(() => {
+    const project = navProject ?? projects.find((p) => p.id === activeProjectId || p.id === selectedProjectId);
+    if (project) goProject(project.id, 'planning');
+  }, [navProject, projects, activeProjectId, selectedProjectId, goProject]);
 
   const openProjectSettings = useCallback(() => {
     if (navProject) goProject(navProject.id, 'settings');
@@ -684,6 +692,7 @@ function AuthenticatedApp() {
             {projectsLoaded && !projectError && (route.kind !== 'project' || urlProject) && (
               <div className={selectedProject && activeView === 'planning' ? 'h-full overflow-hidden' : 'hidden'}>
                 <PlanningView
+                  onShowBoard={showPlanningBoard}
                   onTaskClick={handleTaskClick}
                   onNewTaskClick={() => {
                     setIsNewTaskDialogOpen(true);
@@ -766,8 +775,8 @@ function AuthenticatedApp() {
             {route.kind === 'preferences' && (
               <PreferencesPage onRerunWizard={() => setIsOnboardingOpen(true)} />
             )}
-            {route.kind === 'pfactory' && (
-              <div className="h-full overflow-auto p-4">
+            {plansMounted && (
+              <div className={route.kind === 'pfactory' ? 'h-full overflow-auto p-4' : 'hidden'}>
                 <PFactoryPortal />
               </div>
             )}

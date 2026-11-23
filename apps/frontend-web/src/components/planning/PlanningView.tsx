@@ -12,7 +12,8 @@
  * Mounted from App.tsx via activeView === 'planning'.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Package, LayoutTemplate, Cpu, List, Columns } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
@@ -49,9 +50,11 @@ interface Props {
    * When set, the matching session's detail opens in the List pane.
    */
   focusSessionId?: string | null;
+  onShowBoard?: () => void;
 }
 
-export function PlanningView({ fetchFn, focusSessionId }: Props) {
+export function PlanningView({ fetchFn, focusSessionId, onShowBoard }: Props) {
+  const { t } = useTranslation('tasks');
   const store = usePlanStore();
 
   // Wire fetchFn into store if provided (for testing)
@@ -67,6 +70,11 @@ export function PlanningView({ fetchFn, focusSessionId }: Props) {
   // Default to the animated Board so the ring rail + stage medallions + animated
   // cards are the first thing you see on Planning (List is one toggle away).
   const [viewMode, setViewMode] = useState<'list' | 'board'>('board');
+  const revealBoard = useCallback(() => {
+    setViewMode('board');
+    setSelectedSessionId(null);
+    onShowBoard?.();
+  }, [onShowBoard]);
 
   // Keep the session list loaded so the board has data even when the list pane
   // isn't mounted (board mode hides the left sidebar).
@@ -126,7 +134,7 @@ export function PlanningView({ fetchFn, focusSessionId }: Props) {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Planning Portal</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Ingest, process, review and emit product plans.
+            {t('pipeline.fleetDescription')}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -177,6 +185,7 @@ export function PlanningView({ fetchFn, focusSessionId }: Props) {
           selectedId={selectedSessionId}
           projectId={activeProjectId || selectedProjectId || undefined}
           fetchFn={fetchFn}
+          onRevealBoard={revealBoard}
           onSelect={(id) => {
             setSelectedSessionId(id);
             setViewMode('list');
