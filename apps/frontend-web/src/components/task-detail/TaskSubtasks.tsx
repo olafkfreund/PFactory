@@ -13,11 +13,11 @@ interface TaskSubtasksProps {
 function getSubtaskStatusIcon(status: string) {
   switch (status) {
     case 'completed':
-      return <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />;
+      return <CheckCircle2 className="h-4 w-4 text-success" />;
     case 'in_progress':
-      return <Clock className="h-4 w-4 text-[var(--info)] animate-pulse" />;
+      return <Clock className="h-4 w-4 text-info animate-pulse" />;
     case 'failed':
-      return <XCircle className="h-4 w-4 text-[var(--error)]" />;
+      return <XCircle className="h-4 w-4 text-destructive" />;
     default:
       return <AlertCircle className="h-4 w-4 text-muted-foreground" />;
   }
@@ -97,9 +97,9 @@ export const TaskSubtasks = memo(function TaskSubtasks({ task }: TaskSubtasksPro
                 key={subtask.id}
                 className={cn(
                   'rounded-xl border border-border bg-secondary/30 p-3 transition-all duration-200 hover:bg-secondary/50',
-                  subtask.status === 'in_progress' && 'border-[var(--info)]/50 bg-[var(--info-light)] ring-1 ring-info/20',
-                  subtask.status === 'completed' && 'border-[var(--success)]/50 bg-[var(--success-light)]',
-                  subtask.status === 'failed' && 'border-[var(--error)]/50 bg-[var(--error-light)]'
+                  subtask.status === 'in_progress' && 'border-info/50 bg-info/10 ring-1 ring-info/20',
+                  subtask.status === 'completed' && 'border-success/50 bg-success/10',
+                  subtask.status === 'failed' && 'border-destructive/50 bg-destructive/10'
                 )}
               >
                 <div className="flex items-start gap-2">

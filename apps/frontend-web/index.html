@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-portal="plan">
   <head>
     <meta charset="UTF-8" />
     <!-- SVG favicon is the canonical PFactory mark (Gruvbox-green clipboard +
@@ -12,7 +12,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#3B82F6" />
+    <meta name="theme-color" content="#201f1d" />
     <meta name="description" content="PFactory — autonomous test generation + execution platform. v0.2.0 ships polyglot Planner + Browser/API/Integration lanes + evidence capture." />
     <title>PFactory — Plan Factory</title>
     <!-- Factory design language: Hanken Grotesk (UI) + Archivo (display) +
@@ -24,15 +24,15 @@
   <body>
     <script>
       // Apply theme synchronously before first paint to prevent color flash.
-      // Palette + light/dark are read from the localStorage cache written by App.tsx.
+      // Light/dark is read from the localStorage cache written by App.tsx.
       (function() {
         try {
           var theme = localStorage.getItem('pfactory-theme') || 'system';
-          var colorTheme = localStorage.getItem('pfactory-color-theme') || 'gruvbox';
           var root = document.documentElement;
-          root.setAttribute('data-theme', colorTheme);
           if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
             root.classList.add('dark');
+          } else {
+            root.classList.remove('dark');
           }
         } catch(e) {}
       })();

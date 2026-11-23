@@ -1,4 +1,10 @@
 {
+  "pipeline": {
+    "failed": "{{count}} failed",
+    "showMore": "Show {{count}} more",
+    "rerun": "Re-run",
+    "dismiss": "Dismiss"
+  },
   "status": {
     "backlog": "Plans ready",
     "todo": "To Do",

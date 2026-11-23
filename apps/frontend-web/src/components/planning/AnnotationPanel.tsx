@@ -17,7 +17,7 @@ import type { PlanSession, SuggestedEdit } from '../../shared/types/plan';
 const sevTone: Record<string, string> = {
   critical: 'bg-destructive/15 text-destructive',
   high: 'bg-destructive/10 text-destructive',
-  medium: 'bg-amber-500/15 text-amber-600',
+  medium: 'bg-warning/15 text-warning',
   low: 'bg-muted text-muted-foreground',
   info: 'bg-muted text-muted-foreground',
 };

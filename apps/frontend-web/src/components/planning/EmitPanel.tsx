@@ -21,7 +21,7 @@ interface Props {
 
 function labelTone(label: string): string {
   if (label === 'pfactory') return 'bg-primary/15 text-primary';
-  if (label.startsWith('handoff:')) return 'bg-blue-500/15 text-blue-600';
+  if (label.startsWith('handoff:')) return 'bg-info/15 text-info';
   if (label.startsWith('sev:') || label.startsWith('priority:p0')) return 'bg-destructive/15 text-destructive';
   if (label === 'epic') return 'bg-muted text-muted-foreground';
   return 'bg-muted text-muted-foreground';

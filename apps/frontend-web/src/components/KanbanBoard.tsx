@@ -20,7 +20,6 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { Plus, Inbox, Loader2, Bot, UserCheck, CheckCircle2, Archive, RefreshCw } from 'lucide-react';
-import { PipelineRail } from './pipeline/PipelineRail';
 import { STAGE_ACCENT as STAGE_ACCENT_SHARED } from './pipeline/stages';
 import { toast } from '../hooks/use-toast';
 import { ScrollArea } from './ui/scroll-area';
@@ -518,11 +517,6 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
           </Button>
         </div>
       )}
-      {/* Pipeline rail — animated stage ring overview above the columns */}
-      <div className="px-4 pt-2 pb-0">
-        <PipelineRail tasksByStatus={tasksByStatus} />
-      </div>
-
       {/* Kanban columns */}
       <DndContext
         sensors={sensors}

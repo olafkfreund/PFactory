@@ -1,43 +1,80 @@
 /**
- * PlanBoard — kanban of planning sessions across the workflow columns
- * (Plans ready → Human Review → Done), bucketed by the session's board_state.
- * Read-only: a plan moves columns automatically as it is processed / reviewed /
- * approved — you open a card to act on it, you don't drag.
+ * PlanBoard — kanban of planning sessions rendered with the hub-owned
+ * shared factory-ui PipelineStrip, WorkColumn and WorkCard components (#3876).
  *
- * The transient "In Progress" / "AI Review" stages are intentionally not shown
- * as columns — a plan only passes through them momentarily during process(), so
- * they fold into "Plans ready" until the plan lands in Human Review. This keeps
- * the Planning board on the same three-stage brand language as the other
- * factory cockpits.
+ * Stages (spec R4): Backlog (including processing) → Review → Approved.
+ * Approved / emitted / discarded items collapse to a single 36px row by default;
+ * failed / rejected / gates-failed items surface their reason ("needs attention")
+ * plus Re-run (outline) and Dismiss (ghost).
  */
 
-import { useMemo } from 'react';
-import { cn } from '../../lib/utils';
-import { TASK_STATUS_LABELS } from '../../shared/constants/task';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { formatRelativeTime } from '../../lib/utils';
+import { discardSession, processSession } from '../../lib/planning-api';
+import { usePlanStore } from '../../stores/plan-store';
+import { usePipelineStripSlot } from '../../contexts/PipelineStripContext';
+import {
+  PipelineStrip,
+  type PipelineStage,
+  type PipelineStripLabels,
+  type PipelineStripProps,
+  type StageTone,
+} from '../factory-ui/PipelineStrip';
+import {
+  WorkCard,
+  type WorkAction,
+  type WorkCardLabels,
+  type WorkPhase,
+  type WorkTone,
+} from '../factory-ui/WorkCard';
+import { WorkColumn } from '../factory-ui/WorkColumn';
 import type { SessionSummary, BoardColumn } from '../../shared/types/plan';
-import { PipelineRail } from '../pipeline/PipelineRail';
-import type { TaskStatus } from '../../shared/types';
 
-// Visible board columns / rail stages (transient in_progress + ai_review folded
-// into backlog — see file header).
-type VisibleColumn = 'backlog' | 'human_review' | 'done';
+export type VisibleColumn = 'backlog' | 'human_review' | 'done';
 const COLUMNS: VisibleColumn[] = ['backlog', 'human_review', 'done'];
 
-const COLUMN_ACCENT: Record<VisibleColumn, string> = {
-  backlog: 'border-t-muted-foreground/40',
-  human_review: 'border-t-fuchsia-500',
-  done: 'border-t-emerald-500',
-};
+const STAGES: { key: VisibleColumn; label: string; service: string; tone: StageTone }[] = [
+  { key: 'backlog', label: 'Backlog', service: 'Ingest · Process', tone: 'plan' },
+  { key: 'human_review', label: 'Review', service: 'Gates · Approval', tone: 'warning' },
+  { key: 'done', label: 'Approved', service: 'Approved · Emitted', tone: 'success' },
+];
 
-// Project a session onto one of the three visible columns. board_state (or, for
-// older payloads, status) is collapsed so the transient processing/reviewing
-// states show under "Plans ready" rather than vanishing.
-function columnFor(s: SessionSummary): VisibleColumn {
+export function isDismissed(s: SessionSummary): boolean {
+  return (s.status as string) === 'discarded';
+}
+
+export function isDone(s: SessionSummary): boolean {
+  return (
+    s.board_state === 'done' ||
+    s.status === 'approved' ||
+    s.status === 'emitted' ||
+    isDismissed(s) ||
+    (s.status as string).endsWith('_empty')
+  );
+}
+
+export function isFailed(s: SessionSummary): boolean {
+  if (isDismissed(s)) return false;
+  return s.status === 'failed' || s.status === 'rejected' || s.gates_passed === false;
+}
+
+export function isRunning(s: SessionSummary): boolean {
+  return (
+    s.status === 'processing' ||
+    s.status === 'reviewing' ||
+    s.board_state === 'in_progress' ||
+    s.board_state === 'ai_review'
+  );
+}
+
+// Project a session onto one of the three visible columns: Backlog, Review, Approved.
+export function columnFor(s: SessionSummary): VisibleColumn {
   const raw: BoardColumn =
     s.board_state ??
-    (s.status === 'approved' || s.status === 'emitted'
+    (isDone(s)
       ? 'done'
-      : s.status === 'rejected' || s.status === 'processed'
+      : s.status === 'rejected' || s.status === 'processed' || s.status === 'failed'
         ? 'human_review'
         : 'backlog');
   if (raw === 'done') return 'done';
@@ -45,76 +82,363 @@ function columnFor(s: SessionSummary): VisibleColumn {
   return 'backlog'; // backlog + transient in_progress / ai_review
 }
 
+export function toneFor(s: SessionSummary): WorkTone {
+  if (isFailed(s)) return 'danger';
+  if ((s.status as string).endsWith('_empty')) return 'warning';
+  if (isDone(s)) return isDismissed(s) ? 'neutral' : 'success';
+  if (isRunning(s)) return 'running';
+  if (columnFor(s) === 'human_review') return 'warning';
+  return 'neutral';
+}
+
+export function phaseStrip(s: SessionSummary): WorkPhase[] {
+  const col = columnFor(s);
+  const failed = isFailed(s);
+  const running = isRunning(s);
+  const done = isDone(s) && !failed;
+  return [
+    {
+      key: 'backlog',
+      label: 'Backlog',
+      state: col === 'backlog' ? (failed ? 'failed' : running ? 'active' : 'pending') : 'done',
+    },
+    {
+      key: 'human_review',
+      label: 'Review',
+      state:
+        col === 'done'
+          ? 'done'
+          : col === 'human_review'
+            ? (failed ? 'failed' : 'active')
+            : 'pending',
+    },
+    {
+      key: 'done',
+      label: 'Approved',
+      state: done ? 'done' : 'pending',
+    },
+  ];
+}
+
 interface Props {
   sessions: SessionSummary[];
   selectedId: string | null;
   onSelect: (sessionId: string) => void;
+  projectId?: string;
+  fetchFn?: typeof fetch;
 }
 
-export function PlanBoard({ sessions, selectedId, onSelect }: Props) {
+export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn }: Props) {
+  const { t } = useTranslation(['tasks', 'navigation']);
+  const stripSlot = usePipelineStripSlot();
+  const storeFetchFn = usePlanStore((state) => state.fetchFn);
+  const effectiveFetchFn = fetchFn ?? storeFetchFn;
+
+  const [selectedStage, setSelectedStage] = useState<VisibleColumn | null>(null);
+  const [failureOnly, setFailureOnly] = useState(false);
+  const [overrides, setOverrides] = useState<Record<string, Partial<SessionSummary>>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [alarm, setAlarm] = useState<{ key: string; event: string | number } | undefined>(undefined);
+  const prevFailedRef = useRef<Set<string> | null>(null);
+
+  const mergedSessions = useMemo(
+    () =>
+      sessions.map((s) => ({
+        ...s,
+        ...(overrides[s.session_id] ?? undefined),
+      })),
+    [sessions, overrides]
+  );
+
+  const failedSessions = useMemo(() => mergedSessions.filter(isFailed), [mergedSessions]);
+
+  useEffect(() => {
+    const nextFailed = new Set<string>();
+    let latestAlarm: { key: string; event: string } | undefined;
+    for (const s of failedSessions) {
+      nextFailed.add(s.session_id);
+      if (prevFailedRef.current && !prevFailedRef.current.has(s.session_id)) {
+        latestAlarm = {
+          key: columnFor(s),
+          event: `${s.session_id}:${s.status}:${String(s.gates_passed)}`,
+        };
+      }
+    }
+    prevFailedRef.current = nextFailed;
+    if (latestAlarm) setAlarm(latestAlarm);
+  }, [failedSessions]);
+
   const buckets = useMemo(() => {
     const map: Record<VisibleColumn, SessionSummary[]> = {
-      backlog: [], human_review: [], done: [],
+      backlog: [],
+      human_review: [],
+      done: [],
     };
-    for (const s of sessions) map[columnFor(s)].push(s);
+    for (const s of mergedSessions) {
+      map[columnFor(s)].push(s);
+    }
     return map;
-  }, [sessions]);
+  }, [mergedSessions]);
+
+  const failedByStage = useMemo(() => {
+    const map: Record<VisibleColumn, SessionSummary[]> = {
+      backlog: [],
+      human_review: [],
+      done: [],
+    };
+    for (const s of failedSessions) {
+      map[columnFor(s)].push(s);
+    }
+    return map;
+  }, [failedSessions]);
+
+  const actOn = useCallback(
+    async (session: SessionSummary, action: 'process' | 'rerun' | 'dismiss') => {
+      const id = session.session_id;
+      setBusy(id);
+      setActionError(null);
+      try {
+        if (action === 'process' || action === 'rerun') {
+          const updated = await processSession(id, { fetchFn: effectiveFetchFn });
+          setOverrides((current) => ({
+            ...current,
+            [id]: {
+              status: updated?.status ?? 'processed',
+              board_state: updated?.board_state,
+              gates_passed: updated?.review?.gates_passed ?? null,
+              children: updated?.epic?.children?.length ?? session.children,
+            },
+          }));
+        } else {
+          await discardSession(
+            id,
+            { actor: 'operator', reason: 'dismissed from board' },
+            { fetchFn: effectiveFetchFn }
+          );
+          setOverrides((current) => ({
+            ...current,
+            [id]: {
+              status: 'discarded' as SessionSummary['status'],
+              board_state: 'done',
+              gates_passed: null,
+            },
+          }));
+        }
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [effectiveFetchFn]
+  );
+
+  const stages: PipelineStage[] = useMemo(
+    () =>
+      STAGES.map((s) => ({
+        key: s.key,
+        label: s.label,
+        service: s.service,
+        tone: s.tone,
+        count: buckets[s.key].length,
+        failed: failedByStage[s.key].length,
+      })),
+    [buckets, failedByStage]
+  );
+
+  const handleSelectStage = useCallback((key: string | null) => {
+    setSelectedStage(key as VisibleColumn | null);
+    setFailureOnly(false);
+  }, []);
+
+  const handleSelectFailed = useCallback((key: string) => {
+    setSelectedStage(key as VisibleColumn);
+    setFailureOnly(true);
+  }, []);
+
+  const stripProps: PipelineStripProps = useMemo(
+    () => ({
+      stages,
+      activeStage: selectedStage,
+      onSelectStage: handleSelectStage,
+      onSelectFailed: handleSelectFailed,
+      alarm,
+    }),
+    [stages, selectedStage, handleSelectStage, handleSelectFailed, alarm]
+  );
+
+  useEffect(() => {
+    if (!stripSlot) return;
+    stripSlot.setStrip(stripProps);
+  }, [stripSlot, stripProps]);
+
+  useEffect(() => {
+    if (!stripSlot) return;
+    return () => stripSlot.setStrip(undefined);
+  }, [stripSlot]);
+
+  const pipelineLabels: PipelineStripLabels = useMemo(
+    () => ({
+      pipeline: t('navigation:shell.pipeline', 'Pipeline stages'),
+      clearFilter: t('navigation:shell.clearFilter', 'Clear filter'),
+      failures: (count: number) => t('tasks:pipeline.failed', { count, defaultValue: '{{count}} failed' }),
+      filterFailures: (stage) =>
+        t('navigation:shell.filterFailures', {
+          stage: stage.label,
+          count: stage.failed,
+          defaultValue: 'Filter {{stage}} failures ({{count}})',
+        }),
+    }),
+    [t]
+  );
+
+  const workCardLabels: WorkCardLabels = useMemo(
+    () => ({
+      expand: (title: string) => `Expand ${title}`,
+      collapse: (title: string) => `Collapse ${title}`,
+      phaseStates: {
+        done: 'done',
+        active: 'active',
+        failed: 'failed',
+        pending: 'pending',
+      },
+    }),
+    []
+  );
+
+  const visibleStages = useMemo(
+    () => (selectedStage ? STAGES.filter((s) => s.key === selectedStage) : STAGES),
+    [selectedStage]
+  );
+
+  const emptyText = (col: VisibleColumn): string => {
+    if (col === 'backlog') return 'Nothing queued';
+    if (col === 'human_review') return 'Nothing in review';
+    return 'Nothing approved';
+  };
 
   return (
     <div className="flex flex-col gap-4" data-testid="plan-board">
-      {/* Animated stage rail — ring medallions + marching-ant connectors,
-          driven by the SAME plan sessions shown in the columns below (counts
-          per board_state). Restores the pipeline overview removed in v0.6.5. */}
-      <PipelineRail
-        tasksByStatus={buckets as unknown as Record<TaskStatus, { length: number }>}
-        stages={COLUMNS as unknown as readonly TaskStatus[]}
-      />
+      {!stripSlot && <PipelineStrip {...stripProps} labels={pipelineLabels} />}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {COLUMNS.map((col) => (
-        <section key={col} className="flex flex-col gap-2">
-          <header
-            className={cn(
-              'flex items-center justify-between rounded-t-md border-t-2 bg-card/40 px-2.5 py-1.5',
-              COLUMN_ACCENT[col],
-            )}
-          >
-            <span className="text-xs font-semibold">{TASK_STATUS_LABELS[col] ?? col}</span>
-            <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground tabular-nums">
-              {buckets[col].length}
-            </span>
-          </header>
-          <div className="flex flex-col gap-2">
-            {buckets[col].length === 0 ? (
-              <p className="px-2 py-3 text-[11px] text-muted-foreground/60">—</p>
-            ) : (
-              buckets[col].map((s) => (
-                <button
-                  key={s.session_id}
-                  type="button"
-                  onClick={() => onSelect(s.session_id)}
-                  className={cn(
-                    'rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:border-primary/50',
-                    selectedId === s.session_id && 'ring-1 ring-primary',
-                  )}
-                  data-testid="plan-card"
-                >
-                  <p className="truncate text-xs font-medium">{s.title}</p>
-                  <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                    {s.plan_type && (
-                      <span className="rounded bg-muted px-1.5 py-0.5">{s.plan_type}</span>
-                    )}
-                    {s.children > 0 && <span>{s.children} issues</span>}
-                    {s.gates_passed === false && (
-                      <span className="ml-auto text-destructive">needs attention</span>
-                    )}
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
-        ))}
+      {actionError && (
+        <p role="alert" className="text-sm text-destructive">
+          {actionError}
+        </p>
+      )}
+
+      <div className="f-board">
+        {visibleStages.map((stage) => {
+          const colSessions = failureOnly
+            ? failedByStage[stage.key]
+            : buckets[stage.key];
+
+          return (
+            <WorkColumn
+              key={stage.key}
+              title={stage.label}
+              tone={stage.tone}
+              projectId={projectId}
+              emptyLabel={emptyText(stage.key)}
+              showMoreLabel={(count) =>
+                t('tasks:pipeline.showMore', { count, defaultValue: `Show ${count} more` })
+              }
+              items={colSessions.map((s) => {
+                const failed = isFailed(s);
+                const done = isDone(s) && !failed;
+                const tone = toneFor(s);
+                const subtitleParts = [
+                  ...(s.plan_type ? [s.plan_type] : []),
+                  ...(s.children > 0 ? [`${String(s.children)} issues`] : []),
+                ];
+                const subtitle = subtitleParts.length > 0 ? subtitleParts.join(' · ') : undefined;
+                const reason = failed
+                  ? (s.gates_passed === false ? 'needs attention' : s.status)
+                  : undefined;
+                const badges = [
+                  s.session_id,
+                  ...(s.plan_type ? [s.plan_type] : []),
+                  ...(s.children > 0 ? [`${String(s.children)} issues`] : []),
+                  ...(s.gates_passed === false
+                    ? ['needs attention']
+                    : s.gates_passed === true
+                      ? ['gates ok']
+                      : []),
+                ];
+
+                const actions: WorkAction[] = failed
+                  ? [
+                      {
+                        id: 'rerun',
+                        label: t('tasks:pipeline.rerun', 'Re-run'),
+                        variant: 'outline',
+                        disabled: busy !== null,
+                        busy: busy === s.session_id,
+                        onClick: () => {
+                          void actOn(s, 'rerun');
+                        },
+                      },
+                      {
+                        id: 'dismiss',
+                        label: t('tasks:pipeline.dismiss', 'Dismiss'),
+                        variant: 'ghost',
+                        disabled: busy !== null,
+                        busy: busy === s.session_id,
+                        onClick: () => {
+                          void actOn(s, 'dismiss');
+                        },
+                      },
+                    ]
+                  : s.status === 'ingested'
+                    ? [
+                        {
+                          id: 'process',
+                          label: 'Process',
+                          variant: 'primary',
+                          disabled: busy !== null,
+                          busy: busy === s.session_id,
+                          onClick: () => {
+                            void actOn(s, 'process');
+                          },
+                        },
+                      ]
+                    : [];
+
+                return {
+                  id: s.session_id,
+                  projectId: projectId ?? '',
+                  collapsedByDefault: done,
+                  render: ({ expanded, onToggle }) => (
+                    <div
+                      data-testid="plan-card"
+                      data-session-id={s.session_id}
+                      data-selected={selectedId === s.session_id ? 'true' : undefined}
+                      className={selectedId === s.session_id ? 'ring-1 ring-primary rounded-lg' : undefined}
+                    >
+                      <WorkCard
+                        labels={workCardLabels}
+                        title={s.title || s.session_id}
+                        subtitle={subtitle}
+                        status={s.status}
+                        tone={tone}
+                        age={formatRelativeTime(s.created_at) || '—'}
+                        reason={reason}
+                        phases={phaseStrip(s)}
+                        badges={badges}
+                        actions={actions}
+                        collapsedByDefault={done}
+                        expanded={expanded}
+                        onToggle={onToggle}
+                        onOpen={() => onSelect(s.session_id)}
+                      />
+                    </div>
+                  ),
+                };
+              })}
+            />
+          );
+        })}
       </div>
     </div>
   );

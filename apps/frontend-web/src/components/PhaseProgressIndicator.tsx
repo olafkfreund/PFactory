@@ -257,8 +257,8 @@ export const PhaseProgressIndicator = memo(function PhaseProgressIndicator({
                   // Only animate boxShadow when visible to save GPU cycles
                   ...(shouldPulse && {
                     boxShadow: [
-                      '0 0 0 0 rgba(var(--info), 0.4)',
-                      '0 0 0 4px rgba(var(--info), 0)',
+                      '0 0 0 0 color-mix(in oklch, var(--color-info) 40%, transparent)',
+                      '0 0 0 4px color-mix(in oklch, var(--color-info) 0%, transparent)',
                     ],
                   }),
                 }}

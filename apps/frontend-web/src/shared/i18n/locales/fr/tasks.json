@@ -1,4 +1,10 @@
 {
+  "pipeline": {
+    "failed": "Échecs ({{count}})",
+    "showMore": "Afficher {{count}} de plus",
+    "rerun": "Relancer",
+    "dismiss": "Écarter"
+  },
   "status": {
     "backlog": "Plans prêts",
     "todo": "À faire",

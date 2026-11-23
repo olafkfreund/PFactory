@@ -3,10 +3,15 @@ import { Routes, Route, Navigate, Link, useLocation, useNavigate, useParams } fr
 import { useTranslation } from 'react-i18next';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
-import { Sidebar, type SidebarView } from './components/Sidebar';
+import { AppShell, type AppShellLabels } from './components/factory-ui/AppShell';
+import type { PipelineStripProps } from './components/factory-ui/PipelineStrip';
+import { usePFactoryShellAdapter, type SidebarView } from './components/Sidebar';
 import { CommandPalette, type PaletteCommand, type PaletteTask } from './components/CommandPalette';
+import { ClaudeCodeStatusBadge } from './components/ClaudeCodeStatusBadge';
+import { CLIToolStatusBadge } from './components/CLIToolStatusBadge';
+import { OpenAIEndpointsStatusBadge } from './components/OpenAIEndpointsStatusBadge';
+import { RateLimitIndicator } from './components/RateLimitIndicator';
 import { apiRequest } from './lib/api-client';
-import { ProjectTabBar } from './components/ProjectTabBar';
 import { TerminalGrid } from './components/TerminalGrid';
 import { Worktrees } from './components/Worktrees';
 import { Context } from './components/context/Context';
@@ -21,7 +26,7 @@ import { CloudAssessmentPage } from './components/settings/sections/CloudAssessm
 import { VisualReportsPage } from './components/settings/sections/VisualReportsPage';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { AddProjectModal } from './components/AddProjectModal';
-import { AppSettingsDialog } from './components/settings';
+import { ProjectSettingsPage, PreferencesPage } from './components/settings';
 import { TaskCreationWizard } from './components/TaskCreationWizard';
 import { CloudCheckDialog } from './components/CloudCheckDialog';
 import { TaskDetailModal } from './components/task-detail';
@@ -34,9 +39,10 @@ import { EditorPage } from './pages/EditorPage';
 import { ConsolePage } from './pages/ConsolePage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ViewStateProvider } from './contexts/ViewStateContext';
+import { PipelineStripContext } from './contexts/PipelineStripContext';
 import { useProjectStore, loadProjects } from './stores/project-store';
 import { useTaskStore, loadTasks } from './stores/task-store';
-import { useSettingsStore, loadSettings } from './stores/settings-store';
+import { useSettingsStore, loadSettings, saveSettings } from './stores/settings-store';
 import { useAuthStore } from './stores/auth-store';
 import { useIpcListeners } from './hooks/useIpc';
 import { useEnsureProjects } from './hooks/useEnsureProjects';
@@ -45,6 +51,8 @@ import { UI_SCALE_MIN, UI_SCALE_MAX, UI_SCALE_DEFAULT } from './shared/constants
 import type { Task, Project } from './shared/types';
 
 const RETURN_TO_KEY = 'pf-return-to';
+const SIDEBAR_COLLAPSED_KEY = 'pfactory-sidebar-collapsed';
+const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
 function RedirectToLogin() {
   const { pathname, search } = useLocation();
@@ -84,37 +92,93 @@ function AuthenticatedApp() {
   const projectError = useProjectStore((state) => state.error);
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
-  const openProjectIds = useProjectStore((state) => state.openProjectIds);
-  const tabOrder = useProjectStore((state) => state.tabOrder);
-  const closeProjectTab = useProjectStore((state) => state.closeProjectTab);
   const isSwitchingProject = useProjectStore((state) => state.isSwitchingProject);
   const tasks = useTaskStore((state) => state.tasks);
   const settings = useSettingsStore((state) => state.settings);
+  const updateStoreSettings = useSettingsStore((state) => state.updateSettings);
+
+  useIpcListeners();
+
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
+  const [isCloudCheckOpen, setIsCloudCheckOpen] = useState(false);
+  const [isAddProjectModalOpen, setIsAddProjectModalOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [strip, setStrip] = useState<PipelineStripProps | undefined>(undefined);
+  const [needsCount, setNeedsCount] = useState(0);
+  const [version, setVersion] = useState<string | undefined>(undefined);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
+    setSidebarCollapsed(collapsed);
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+    } catch {
+      // storage may be unavailable
+    }
+  }, []);
+
   const slugs = useMemo(() => projectSlugs(projects), [projects]);
-  const urlProject = route.kind === 'project' ? findProjectByRef(projects, route.ref) : undefined;
+  const switcherProjects = useMemo(
+    () => projects.map((p) => ({ slug: slugs.get(p.id) ?? p.id, name: p.name, repoLabel: p.path })),
+    [projects, slugs]
+  );
+  const paletteProjects = useMemo(
+    () => projects.map((p) => ({ slug: slugs.get(p.id) ?? p.id, name: p.name, path: p.path })),
+    [projects, slugs]
+  );
+  const urlProject = route.kind === 'project' && !projectError ? findProjectByRef(projects, route.ref) : undefined;
   const urlSlug = urlProject ? slugs.get(urlProject.id) : undefined;
-  const activeView: SidebarView = route.kind === 'project' ? route.view : route.kind === 'pfactory' ? 'pfactory' : 'planning';
+  const activeView: SidebarView =
+    route.kind === 'project' ? route.view : route.kind === 'pfactory' ? 'pfactory' : 'planning';
   const urlProjectId = urlProject?.id;
   const inSync = !!urlProjectId && activeProjectId === urlProjectId && selectedProjectId === urlProjectId;
   const selectedProject = inSync ? urlProject : undefined;
   const navProject = urlProject;
-  const goProject = useCallback((id: string, view?: SidebarView) => {
-    void navigate(projectPath(slugs.get(id) ?? id, view));
-  }, [navigate, slugs]);
-  const setActiveView = useCallback((view: SidebarView) => {
-    if (view === 'pfactory') { void navigate('/pfactory'); return; }
-    if (navProject) goProject(navProject.id, view);
+
+  const goProject = useCallback(
+    (id: string, view?: SidebarView | string) => {
+      void navigate(projectPath(slugs.get(id) ?? id, view));
+    },
+    [navigate, slugs]
+  );
+
+  const setActiveView = useCallback(
+    (view: SidebarView) => {
+      if (view === 'pfactory') {
+        void navigate('/pfactory');
+        return;
+      }
+      if (navProject) goProject(navProject.id, view);
+    },
+    [navProject, goProject, navigate]
+  );
+
+  const openProjectSettings = useCallback(() => {
+    if (navProject) goProject(navProject.id, 'settings');
+    else void navigate('/preferences');
   }, [navProject, goProject, navigate]);
 
+  const openPreferences = useCallback(() => {
+    void navigate('/preferences');
+  }, [navigate]);
+
   useEffect(() => {
-    if (!projectsLoaded || !urlProjectId) return;
+    if (!projectsLoaded || projectError || !urlProjectId) return;
     const state = useProjectStore.getState();
     if (state.activeProjectId === urlProjectId && state.selectedProjectId === urlProjectId) return;
     state.openProjectTab(urlProjectId);
     if (useProjectStore.getState().selectedProjectId !== urlProjectId) {
       useProjectStore.getState().selectProject(urlProjectId);
     }
-  }, [projectsLoaded, urlProjectId, activeProjectId, selectedProjectId]);
+  }, [projectsLoaded, projectError, urlProjectId, activeProjectId, selectedProjectId]);
 
   useEffect(() => {
     if (route.kind === 'project' && route.view === 'pfactory' && projectsLoaded && urlProject) {
@@ -137,65 +201,74 @@ function AuthenticatedApp() {
     }
   }, [route.kind, pathname, navigate]);
 
-  // Set up IPC event listeners for real-time task updates via WebSocket
-  useIpcListeners();
+  const selectedTask = useMemo(() => {
+    if (!selectedTaskId) return null;
+    const task = tasks.find((t) => t.id === selectedTaskId || t.specId === selectedTaskId) ?? null;
+    if (window.DEBUG && task) {
+      console.log('[App] selectedTask derived:', task.id, 'status:', task.status, 'subtasks:', task.subtasks?.length);
+    }
+    return task;
+  }, [selectedTaskId, tasks]);
 
-  // Compute open projects for the tab bar (respecting tab order)
-  const openProjects = useMemo(() => {
-    // Get projects in tab order first
-    const orderedProjects = tabOrder
-      .map((id) => projects.find((p) => p.id === id))
-      .filter((p): p is Project => p !== undefined && openProjectIds.includes(p.id));
-
-    // Add any open projects not in tabOrder to the end
-    const remainingProjects = projects.filter(
-      (p) => openProjectIds.includes(p.id) && !tabOrder.includes(p.id)
-    );
-
-    return [...orderedProjects, ...remainingProjects];
-  }, [projects, openProjectIds, tabOrder]);
-
-  // UI State - store only task ID, derive task from store for live updates
-  // IMPORTANT REACTIVITY PATTERN:
-  // - selectedTaskId: stable state (only changes when user selects a task)
-  // - selectedTask: derived from Zustand store, recomputes when tasks array changes
-  // This ensures TaskDetailModal receives fresh task data on every store update
-  // (status changes, subtask updates, execution progress, etc.)
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  // Derive selectedTask from store so it updates when store changes
-  // Dependencies: [selectedTaskId, tasks] - tasks is a new array ref on every store update
-  const selectedTask = useMemo(
-    () => {
-      if (!selectedTaskId) return null;
-      const task = tasks.find(t => t.id === selectedTaskId || t.specId === selectedTaskId) ?? null;
-      if (window.DEBUG && task) {
-        console.log('[App] selectedTask derived:', task.id, 'status:', task.status, 'subtasks:', task.subtasks?.length);
-      }
-      return task;
-    },
-    [selectedTaskId, tasks]
-  );
-  const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
-  const [isCloudCheckOpen, setIsCloudCheckOpen] = useState(false);
-  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
-  const [isAddProjectModalOpen, setIsAddProjectModalOpen] = useState(false);
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-
-  // Command palette (⌘K / Ctrl-K): jump to any view or plan, run actions.
+  // Command palette (⌘K / Ctrl-K) and ⌘1–9 project switching
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+        return;
+      }
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
+        const index = parseInt(e.key, 10) - 1;
+        const target = projects[index];
+        if (target) {
+          e.preventDefault();
+          goProject(target.id, route.kind === 'project' ? route.view : undefined);
+        }
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('keydown', onKey); };
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [projects, goProject, route]);
+
+  // Needs-you count polling (#148/#149)
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      apiRequest<{ count: number }>('/needs-you/count')
+        .then((res) => {
+          if (active && res.success && res.data) setNeedsCount(res.data.count);
+        })
+        .catch(() => {
+          /* best-effort badge */
+        });
+    };
+    load();
+    const timer = setInterval(load, 30000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    void window.API?.getAppVersion?.().then((v: unknown) => {
+      if (typeof v === 'string' && v) setVersion(v);
+    });
   }, []);
 
   const paletteCommands: PaletteCommand[] = useMemo(() => {
     const views: { id: SidebarView; label: string }[] = [
+      { id: 'pfactory', label: 'Plans' },
       { id: 'planning', label: 'Planning' },
       { id: 'editor', label: 'Editor' },
       { id: 'insights', label: 'Insights' },
@@ -207,36 +280,45 @@ function AuthenticatedApp() {
       { id: 'context', label: 'Context' },
       { id: 'cloud', label: 'Cloud' },
       { id: 'visual-reports', label: 'Visual Reports' },
+      { id: 'settings', label: 'Project Settings' },
     ];
     const nav: PaletteCommand[] = views.map((v) => ({
       id: `view-${v.id}`,
       group: 'Go to',
       label: v.label,
       keywords: v.id,
-      run: () => { setActiveView(v.id); },
+      run: () => {
+        setActiveView(v.id);
+      },
     }));
     const switchProject: PaletteCommand[] = projects.map((p) => ({
       id: `project-${p.id}`,
       group: 'Go to',
       label: `Switch project: ${p.name}`,
       keywords: `project switch ${slugs.get(p.id) ?? ''}`,
-      run: () => { goProject(p.id); },
+      run: () => {
+        goProject(p.id);
+      },
     }));
     const actions: PaletteCommand[] = [
-      { id: 'act-settings', group: 'Actions', label: 'Open settings', keywords: 'preferences config theme', run: () => { setIsSettingsDialogOpen(true); } },
+      {
+        id: 'act-preferences',
+        group: 'Actions',
+        label: 'Open preferences',
+        keywords: 'preferences settings config theme',
+        run: openPreferences,
+      },
+      {
+        id: 'act-project-settings',
+        group: 'Actions',
+        label: 'Open project settings',
+        keywords: 'project settings git memory mcp',
+        run: openProjectSettings,
+      },
     ];
     return [...nav, ...switchProject, ...actions];
-  }, [projects, slugs, goProject, setActiveView]);
+  }, [projects, slugs, goProject, setActiveView, openPreferences, openProjectSettings]);
 
-  const paletteProjects = useMemo(
-    () => projects.map((p) => ({ slug: slugs.get(p.id) ?? p.id, name: p.name, path: p.path })),
-    [projects, slugs]
-  );
-
-  // Federated fleet search (#149): the cockpit aggregates every portal's work
-  // and exposes a ranked /api/search; this portal proxies it same-origin
-  // (/api/search) so ⌘K searches across all four portals. Results deep-link into
-  // the cockpit's cross-portal task view.
   const rawCockpit: unknown = import.meta.env.VITE_CFACTORY_URL;
   const cockpitUrl = (
     typeof rawCockpit === 'string' && rawCockpit.trim()
@@ -255,23 +337,21 @@ function AuthenticatedApp() {
     }));
   }, []);
 
-  // Compute project name for loading modal
   const switchingProjectName = useMemo(() => {
     if (!isSwitchingProject || !activeProjectId) return undefined;
-    return projects.find(p => p.id === activeProjectId)?.name;
+    return projects.find((p) => p.id === activeProjectId)?.name;
   }, [isSwitchingProject, activeProjectId, projects]);
 
   // Initial load
   useEffect(() => {
     void loadProjects().finally(() => setProjectsLoaded(true));
-    loadSettings();
+    void loadSettings();
   }, []);
 
   // Trigger onboarding only if CLI not installed or auth token missing
   useEffect(() => {
     if (settings.onboardingCompleted !== false) return;
 
-    // Check actual setup status before showing wizard
     const checkSetup = async () => {
       try {
         const [versionResult, authResult] = await Promise.all([
@@ -283,24 +363,22 @@ function AuthenticatedApp() {
         const hasToken = authResult.success && authResult.data?.hasToken;
 
         if (cliInstalled && hasToken) {
-          // Everything is set up — skip wizard and mark as completed
           const { updateSettings } = useSettingsStore.getState();
           updateSettings({ onboardingCompleted: true });
-          window.API?.saveSettings?.({ onboardingCompleted: true });
+          void window.API?.saveSettings?.({ onboardingCompleted: true });
         } else {
           setIsOnboardingOpen(true);
         }
       } catch {
-        // If checks fail, show wizard as fallback
         setIsOnboardingOpen(true);
       }
     };
 
-    checkSetup();
+    void checkSetup();
   }, [settings.onboardingCompleted]);
 
   // Sync i18n language with settings
-  const { t, i18n } = useTranslation();
+  const { t, i18n } = useTranslation(['common', 'navigation', 'settings', 'tasks', 'welcome']);
   useEffect(() => {
     if (settings.language && settings.language !== i18n.language) {
       void i18n.changeLanguage(settings.language);
@@ -312,7 +390,7 @@ function AuthenticatedApp() {
     const currentProjectId = urlProjectId;
     if (currentProjectId) {
       useTaskStore.getState().clearTasks();
-      loadTasks(currentProjectId);
+      void loadTasks(currentProjectId);
       setSelectedTaskId(null);
     } else {
       useTaskStore.getState().clearTasks();
@@ -328,7 +406,7 @@ function AuthenticatedApp() {
     return () => clearTimeout(timeout);
   }, [isSwitchingProject]);
 
-  // Apply light/dark mode (the color palette is handled by a separate effect)
+  // Apply light/dark mode
   useEffect(() => {
     const root = document.documentElement;
 
@@ -348,8 +426,6 @@ function AuthenticatedApp() {
 
     applyTheme();
 
-    // Persist to localStorage so the inline script in index.html can apply
-    // the theme synchronously on next load, preventing a flash of wrong colors
     try {
       localStorage.setItem('pfactory-theme', settings.theme ?? 'system');
     } catch {
@@ -369,23 +445,6 @@ function AuthenticatedApp() {
     };
   }, [settings.theme]);
 
-  // Apply color theme (palette) via the data-theme attribute. Gruvbox is the
-  // default; both gruvbox and shadcn have [data-theme] blocks in index.css.
-  useEffect(() => {
-    const root = document.documentElement;
-    const colorTheme = settings.colorTheme ?? 'gruvbox';
-
-    root.setAttribute('data-theme', colorTheme);
-
-    // Persist so the inline pre-paint script in index.html can apply the
-    // palette synchronously on next load, preventing a flash of wrong colors.
-    try {
-      localStorage.setItem('pfactory-color-theme', colorTheme);
-    } catch {
-      // localStorage may be unavailable
-    }
-  }, [settings.colorTheme]);
-
   // Apply UI scale
   useEffect(() => {
     const root = document.documentElement;
@@ -398,215 +457,378 @@ function AuthenticatedApp() {
     setSelectedTaskId(task.id);
   };
 
-  const handleAddProject = () => {
+  const handleAddProject = useCallback(() => {
     setIsAddProjectModalOpen(true);
-  };
+  }, []);
 
   const handleProjectAdded = (project: Project, needsInit: boolean) => {
     console.log('[Web] Project added:', project.name, 'needs init:', needsInit);
     goProject(project.id);
   };
 
-  // Handler for opening inbuilt terminal with specific working directory
-  const handleOpenInbuiltTerminal = useCallback((id: string, cwd: string) => {
-    // Create a new terminal with the specified id and working directory
-    window.API.createTerminal({
-      id,
-      cwd,
-      cols: 80,
-      rows: 24,
-    });
-    // Switch to terminals view to show the new terminal
-    setActiveView('terminals');
-  }, [setActiveView]);
+  const handleOpenInbuiltTerminal = useCallback(
+    (id: string, cwd: string) => {
+      void window.API.createTerminal({
+        id,
+        cwd,
+        cols: 80,
+        rows: 24,
+      });
+      setActiveView('terminals');
+    },
+    [setActiveView]
+  );
+
+  const { nav, sidebarHeader, openLogoutDialog, dialogs } = usePFactoryShellAdapter(urlProjectId ?? null);
+
+  const shellLabels: AppShellLabels = useMemo(
+    () => ({
+      brand: t('navigation:shell.brand', 'PFactory'),
+      portals: t('navigation:shell.portals', 'Factory portals'),
+      portalNames: {
+        plan: t('navigation:shell.portalNames.plan', 'Plan'),
+        build: t('navigation:shell.portalNames.build', 'Build'),
+        test: t('navigation:shell.portalNames.test', 'Test'),
+        cockpit: t('navigation:shell.portalNames.cockpit', 'Cockpit'),
+        meet: t('navigation:shell.portalNames.meet', 'Meet'),
+      },
+      navigation: t('navigation:shell.navigation', 'Project navigation'),
+      openNavigation: t('navigation:shell.openNavigation', 'Open navigation'),
+      closeNavigation: t('navigation:shell.closeNavigation', 'Close navigation'),
+      expandSidebar: t('navigation:shell.expandSidebar', 'Expand sidebar'),
+      collapseSidebar: t('navigation:shell.collapseSidebar', 'Collapse sidebar'),
+      projectSettings: t('navigation:shell.projectSettings', 'Project Settings'),
+      theme: t('navigation:shell.theme', 'Theme'),
+      themeOptions: {
+        light: t('settings:theme.light', 'Light'),
+        dark: t('settings:theme.dark', 'Dark'),
+        system: t('settings:theme.system', 'System'),
+      },
+      search: t('navigation:shell.search', 'Search'),
+      searchShortcut: isMac ? '⌘K' : 'Ctrl+K',
+      needsYou: (count: number) => t('navigation:shell.needsYou', { count, defaultValue: '{{count}} need you' }),
+      userMenu: (name: string) => t('navigation:shell.userMenu', { name, defaultValue: 'Account menu for {{name}}' }),
+      project: {
+        project: t('navigation:sections.project', 'Project'),
+        selectProject: t('navigation:shell.selectProject', 'Select project'),
+        searchProjects: t('navigation:shell.searchProjects', 'Search projects…'),
+        projects: t('navigation:shell.projects', 'Projects'),
+        recentProjects: t('navigation:shell.recentProjects', 'Recent'),
+        noProjects: t('navigation:shell.noProjects', 'No matching projects'),
+        allProjects: t('navigation:shell.allProjects', 'All projects'),
+        addProject: t('navigation:shell.addProject', 'Add project'),
+      },
+      pipeline: {
+        pipeline: t('navigation:shell.pipeline', 'Pipeline stages'),
+        clearFilter: t('navigation:shell.clearFilter', 'Clear filter'),
+        failures: (count: number) => t('tasks:pipeline.failed', { count, defaultValue: '{{count}} failed' }),
+        filterFailures: (stage) =>
+          t('navigation:shell.filterFailures', {
+            stage: stage.label,
+            count: stage.failed,
+            defaultValue: 'Filter {{stage}} failures ({{count}})',
+          }),
+      },
+    }),
+    [t]
+  );
+
+  const viewTitle = useMemo(() => {
+    if (route.kind === 'preferences') return t('navigation:shell.preferences', 'Preferences');
+    if (route.kind === 'projects') return t('navigation:shell.projects', 'Projects');
+    if (route.kind === 'pfactory') return t('navigation:items.plans', 'Plans');
+    if (route.kind === 'home') return t('navigation:items.planning', 'Planning');
+    if (route.view === 'settings') return t('navigation:shell.projectSettings', 'Project Settings');
+    if (route.view === 'terminals') return t('navigation:items.terminals', 'Terminal');
+    if (route.view === 'insights') return t('navigation:items.chat', 'Chat');
+    if (route.view === 'worktrees') return t('navigation:items.worktrees', 'Worktrees');
+    const match = nav.find((item) => item.id === route.view);
+    return match?.label ?? route.view;
+  }, [route, nav, t]);
+
+  const activeNavId = useMemo(() => {
+    if (route.kind === 'project') {
+      return route.view === 'settings' ? '' : route.view;
+    }
+    if (route.kind === 'pfactory') return 'pfactory';
+    return '';
+  }, [route]);
+
+  const themeMode: 'light' | 'dark' | 'system' =
+    settings.theme === 'light' || settings.theme === 'dark' || settings.theme === 'system'
+      ? settings.theme
+      : 'system';
+
+  const handleThemeChange = useCallback(
+    (nextTheme: 'light' | 'dark' | 'system') => {
+      updateStoreSettings({ theme: nextTheme });
+      void saveSettings({ theme: nextTheme });
+    },
+    [updateStoreSettings]
+  );
+
+  const topbarStatus = useMemo(
+    () => (
+      <div className="flex items-center gap-1" aria-label="Provider and CLI status">
+        <ClaudeCodeStatusBadge iconOnly onOpenOnboarding={() => setIsOnboardingOpen(true)} />
+        <CLIToolStatusBadge iconOnly />
+        <OpenAIEndpointsStatusBadge iconOnly />
+        <RateLimitIndicator />
+      </div>
+    ),
+    []
+  );
+
+  const userConfig = useMemo(
+    () => ({
+      name: t('navigation:shell.userName', 'Account'),
+      menu: [
+        {
+          id: 'preferences',
+          label: t('navigation:shell.preferences', 'Preferences'),
+          onSelect: openPreferences,
+        },
+        {
+          id: 'help',
+          label: t('navigation:shell.helpDocs', 'Help & docs'),
+          onSelect: () => {
+            window.open('https://github.com/olafkfreund/PFactory#readme', '_blank', 'noopener,noreferrer');
+          },
+        },
+        {
+          id: 'logout',
+          label: t('navigation:actions.logout', 'Log Out'),
+          onSelect: openLogoutDialog,
+        },
+      ],
+    }),
+    [t, openPreferences, openLogoutDialog]
+  );
+
+  const primaryAction = useMemo(
+    () => ({
+      label: `+ ${t('navigation:actions.newTask', 'Task')}`,
+      onClick: () => setIsNewTaskDialogOpen(true),
+      disabled: !urlProjectId || !urlProject?.autoBuildPath,
+      disabledReason: !urlProjectId
+        ? t('navigation:shell.selectProject', 'Select project')
+        : !urlProject?.autoBuildPath
+          ? t('navigation:messages.initializeToCreateTasks', 'Initialize PFactory to create tasks')
+          : undefined,
+    }),
+    [t, urlProjectId, urlProject?.autoBuildPath]
+  );
+
+  const showStrip = route.kind !== 'preferences' && !(route.kind === 'project' && route.view === 'settings');
+  const stripContextValue = useMemo(() => ({ setStrip }), [setStrip]);
 
   return (
     <ViewStateProvider>
       <TooltipProvider>
-        <div className="flex h-screen bg-background">
-          {/* Sidebar */}
-          <Sidebar
-            projectId={urlProjectId ?? null}
-            onSettingsClick={() => setIsSettingsDialogOpen(true)}
-            onNewTaskClick={() => setIsNewTaskDialogOpen(true)}
-            onOpenOnboarding={() => setIsOnboardingOpen(true)}
-            activeView={activeView}
-            onViewChange={setActiveView}
-          />
+        <PipelineStripContext.Provider value={stripContextValue}>
+          <AppShell
+            portal="plan"
+            portalProject={urlSlug ? { slug: urlSlug, portals: ['plan', 'build', 'test'] } : undefined}
+            nav={nav}
+            activeNav={activeNavId}
+            onNavigate={(id) => setActiveView(id as SidebarView)}
+            projects={switcherProjects}
+            currentProject={urlSlug}
+            projectSubtitle={urlProject?.path}
+            onSelectProject={(slug) => {
+              const target = projects.find((p) => (slugs.get(p.id) ?? p.id) === slug);
+              if (target) {
+                goProject(target.id, route.kind === 'project' ? route.view : undefined);
+              }
+            }}
+            onAllProjects={() => {
+              void navigate('/projects');
+            }}
+            onAddProject={handleAddProject}
+            projectSettings={{
+              active: route.kind === 'project' && route.view === 'settings',
+              onOpen: openProjectSettings,
+            }}
+            primaryAction={primaryAction}
+            view={viewTitle}
+            strip={showStrip ? strip : undefined}
+            topbarStatus={topbarStatus}
+            sidebarHeader={sidebarHeader}
+            sidebarCollapsed={sidebarCollapsed}
+            onSidebarCollapsedChange={handleSidebarCollapsedChange}
+            user={userConfig}
+            theme={themeMode}
+            onTheme={handleThemeChange}
+            onSearch={() => setPaletteOpen(true)}
+            needsYou={{
+              count: needsCount,
+              onOpen: () => {
+                window.location.href = `${cockpitUrl}/?filter=needs_human`;
+              },
+            }}
+            version={version}
+            labels={shellLabels}
+          >
+            {/* TerminalGrid stays mounted across project switches and global routes to preserve xterm instances and PTY connections */}
+            <div className={route.kind === 'project' && urlProject && activeView === 'terminals' ? 'h-full' : 'hidden'}>
+              <TerminalGrid
+                projectPath={urlProject?.path}
+                onNewTaskClick={() => {
+                  setIsNewTaskDialogOpen(true);
+                }}
+                isActive={route.kind === 'project' && !!urlProject && activeView === 'terminals'}
+              />
+            </div>
 
-          {/* Main content */}
-          <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Project Tab Bar — always rendered so the global toolbar
-                (settings cog, theme toggle, add-project, status badges)
-                stays accessible even when no project tab is open. The
-                tab strip on the left simply renders empty when
-                ``openProjects`` is empty. */}
-            <ProjectTabBar
-              projects={openProjects}
-              activeProjectId={urlProjectId ?? null}
-              onProjectSelect={(projectId) => {
-                goProject(projectId, route.kind === 'project' ? route.view : undefined);
-              }}
-              onProjectClose={(projectId) => {
-                if (urlProjectId === projectId) {
-                  const next = openProjects.find((p) => p.id !== projectId);
-                  void navigate(next ? projectPath(slugs.get(next.id) ?? next.id) : '/');
-                }
-                closeProjectTab(projectId);
-              }}
-              currentSlug={urlSlug}
-              onViewAllProjects={() => { void navigate('/projects'); }}
-              onSettingsClick={() => { setIsSettingsDialogOpen(true); }}
-              onOpenOnboarding={() => { setIsOnboardingOpen(true); }}
-            />
+            {/* PlanningView stays mounted across project/global views so PipelineStrip lives at adapter lifetime */}
+            {projectsLoaded && !projectError && (route.kind !== 'project' || urlProject) && (
+              <div className={selectedProject && activeView === 'planning' ? 'h-full overflow-hidden' : 'hidden'}>
+                <PlanningView
+                  onTaskClick={handleTaskClick}
+                  onNewTaskClick={() => {
+                    setIsNewTaskDialogOpen(true);
+                  }}
+                  focusSessionId={selectedTaskId}
+                />
+              </div>
+            )}
 
-            <main className="flex-1 overflow-hidden">
-              {route.kind === 'project' && urlProject && (
-                /* TerminalGrid stays mounted across project switches to preserve xterm instances and PTY connections */
-                <div className={activeView === 'terminals' ? 'h-full' : 'hidden'}>
-                  <TerminalGrid
-                    projectPath={urlProject.path}
-                    onNewTaskClick={() => { setIsNewTaskDialogOpen(true); }}
-                    isActive={activeView === 'terminals'}
-                  />
+            {route.kind === 'project' && !urlProject && projectsLoaded && projectError && (
+              <div role="alert">
+                {projectError}{' '}
+                <button onClick={() => void loadProjects()}>{t('welcome:projectsPage.retry')}</button>
+              </div>
+            )}
+            {route.kind === 'project' &&
+              !urlProject &&
+              projectsLoaded &&
+              !projectError &&
+              collisionProjects(projects, route.ref).length > 0 && (
+                <div>
+                  <p>{t('welcome:projectsPage.choose')}</p>
+                  {collisionProjects(projects, route.ref).map((p) => (
+                    <Link key={p.id} to={projectPath(slugs.get(p.id) ?? p.id, route.view)}>
+                      {p.name} ({p.id})
+                    </Link>
+                  ))}
                 </div>
               )}
-              {route.kind === 'project' && !urlProject && projectsLoaded && projectError && (
-                <div role="alert">{projectError} <button onClick={() => void loadProjects()}>{t('welcome:projectsPage.retry')}</button></div>
-              )}
-              {route.kind === 'project' && !urlProject && projectsLoaded && !projectError && collisionProjects(projects, route.ref).length > 0 && (
-                <div><p>{t('welcome:projectsPage.choose')}</p>{collisionProjects(projects, route.ref).map((p) => <Link key={p.id} to={projectPath(slugs.get(p.id) ?? p.id)}>{p.name} ({p.id})</Link>)}</div>
-              )}
-              {route.kind === 'project' && !urlProject && projectsLoaded && !projectError && collisionProjects(projects, route.ref).length === 0 && (
+            {route.kind === 'project' &&
+              !urlProject &&
+              projectsLoaded &&
+              !projectError &&
+              collisionProjects(projects, route.ref).length === 0 && (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
                   <p>{t('welcome:projectsPage.notFound', { ref: route.ref })}</p>
-                  <Link to="/" className="text-sm underline">{t('welcome:projectsPage.backHome')}</Link>
+                  <Link to="/" className="text-sm underline">
+                    {t('welcome:projectsPage.backHome')}
+                  </Link>
                 </div>
               )}
-              {selectedProject && (
-                <>
-                  {activeView === 'planning' && (
-                    /* Planning Portal — project-aware. Board mode renders the
-                       animated KanbanBoard wired to the task-store (issue #82). */
-                    <div className="h-full overflow-hidden">
-                      <PlanningView
-                        onTaskClick={handleTaskClick}
-                        onNewTaskClick={() => { setIsNewTaskDialogOpen(true); }}
-                        focusSessionId={selectedTaskId}
-                      />
-                    </div>
-                  )}
-                  {activeView === 'editor' && (
-                    <EditorPage projectPath={selectedProject.path} />
-                  )}
-                  {activeView === 'worktrees' && (
-                    <Worktrees projectId={selectedProject.id} />
-                  )}
-                  {activeView === 'context' && (
-                    <Context projectId={selectedProject.id} />
-                  )}
-                  {activeView === 'github-issues' && (
-                    <GitHubIssues
-                      onOpenSettings={() => { setIsSettingsDialogOpen(true); }}
-                      onNavigateToTask={(taskId) => {
-                        setSelectedTaskId(taskId);
-                        setActiveView('planning');
-                      }}
-                    />
-                  )}
-                  {activeView === 'github-prs' && (
-                    <GitHubPRs
-                      onOpenSettings={() => { setIsSettingsDialogOpen(true); }}
-                      isActive={true}
-                    />
-                  )}
-                  {activeView === 'changelog' && <Changelog />}
-                  {activeView === 'insights' && (
-                    <Insights projectId={selectedProject.id} onNavigate={setActiveView} />
-                  )}
-                  {activeView === 'agent-tools' && <AgentTools />}
-                  {activeView === 'skills' && <SkillsPage />}
-                  {activeView === 'cloud' && (
-                    <div className="h-full overflow-auto p-6">
-                      <CloudAssessmentPage />
-                    </div>
-                  )}
-                  {activeView === 'visual-reports' && (
-                    <div className="h-full overflow-auto p-6">
-                      <VisualReportsPage />
-                    </div>
-                  )}
-                </>
-              )}
-              {route.kind === 'pfactory' && <div className="h-full overflow-auto p-4"><PFactoryPortal /></div>}
-              {route.kind === 'projects' && projectsLoaded && projectError && (
-                <div role="alert">{projectError} <button onClick={() => void loadProjects()}>{t('welcome:projectsPage.retry')}</button></div>
-              )}
-              {route.kind === 'projects' && !projectError && (
-                <ProjectsPage
-                  projects={projects}
-                  slugs={slugs}
-                  onAdd={handleAddProject}
-                  onOpen={(p) => { goProject(p.id); }}
-                />
-              )}
-              {route.kind === 'home' && (
-                <WelcomeScreen
-                  projects={projects}
-                  onNewProject={handleAddProject}
-                  onOpenProject={handleAddProject}
-                  onSelectProject={(projectId) => { goProject(projectId); }}
-                />
-              )}
-            </main>
-          </div>
+            {selectedProject && (
+              <>
+                {activeView === 'editor' && <EditorPage projectPath={selectedProject.path} />}
+                {activeView === 'worktrees' && <Worktrees projectId={selectedProject.id} />}
+                {activeView === 'context' && <Context projectId={selectedProject.id} />}
+                {activeView === 'github-issues' && (
+                  <GitHubIssues
+                    onOpenSettings={openProjectSettings}
+                    onNavigateToTask={(taskId) => {
+                      setSelectedTaskId(taskId);
+                      setActiveView('planning');
+                    }}
+                  />
+                )}
+                {activeView === 'github-prs' && (
+                  <GitHubPRs onOpenSettings={openProjectSettings} isActive={true} />
+                )}
+                {activeView === 'changelog' && <Changelog />}
+                {activeView === 'insights' && (
+                  <Insights projectId={selectedProject.id} onNavigate={setActiveView} />
+                )}
+                {activeView === 'agent-tools' && <AgentTools />}
+                {activeView === 'skills' && <SkillsPage />}
+                {activeView === 'cloud' && (
+                  <div className="h-full overflow-auto p-6">
+                    <CloudAssessmentPage />
+                  </div>
+                )}
+                {activeView === 'visual-reports' && (
+                  <div className="h-full overflow-auto p-6">
+                    <VisualReportsPage />
+                  </div>
+                )}
+                {activeView === 'settings' && (
+                  <ProjectSettingsPage projectId={selectedProject.id} />
+                )}
+              </>
+            )}
+            {route.kind === 'preferences' && (
+              <PreferencesPage onRerunWizard={() => setIsOnboardingOpen(true)} />
+            )}
+            {route.kind === 'pfactory' && (
+              <div className="h-full overflow-auto p-4">
+                <PFactoryPortal />
+              </div>
+            )}
+            {route.kind === 'projects' && projectsLoaded && projectError && (
+              <div role="alert">
+                {projectError}{' '}
+                <button onClick={() => void loadProjects()}>{t('welcome:projectsPage.retry')}</button>
+              </div>
+            )}
+            {route.kind === 'projects' && !projectError && (
+              <ProjectsPage
+                projects={projects}
+                slugs={slugs}
+                onAdd={handleAddProject}
+                onOpen={(p) => {
+                  goProject(p.id);
+                }}
+              />
+            )}
+            {route.kind === 'home' && (
+              <WelcomeScreen
+                projects={projects}
+                onNewProject={handleAddProject}
+                onOpenProject={handleAddProject}
+                onSelectProject={(projectId) => {
+                  goProject(projectId);
+                }}
+              />
+            )}
+          </AppShell>
 
-          {/* Floating chat assistant (CFactory/TFactory-style popup) — replaces
-              the old "Chat" sidebar item. Self-hides when no project selected. */}
-          <ChatLauncher
-            projectId={selectedProject?.id || ''}
-            onNavigate={setActiveView}
-          />
+          {dialogs}
 
-          {/* Project Switch Loading Modal */}
-          <ProjectSwitchLoadingModal
-            open={isSwitchingProject}
-            projectName={switchingProjectName}
-          />
+          <ChatLauncher projectId={selectedProject?.id || ''} onNavigate={setActiveView} />
 
-          {/* Toast notifications */}
+          <ProjectSwitchLoadingModal open={isSwitchingProject} projectName={switchingProjectName} />
+
           <Toaster />
 
-          {/* Add Project Modal */}
           <AddProjectModal
             open={isAddProjectModalOpen}
             onOpenChange={setIsAddProjectModalOpen}
             onProjectAdded={handleProjectAdded}
           />
 
-          {/* Command palette (⌘K) */}
           <CommandPalette
             open={paletteOpen}
-            onClose={() => { setPaletteOpen(false); }}
+            onClose={() => {
+              setPaletteOpen(false);
+            }}
             commands={paletteCommands}
             projects={paletteProjects}
             onSwitchProject={(slug) => {
               void navigate(projectPath(slug, route.kind === 'project' ? route.view : undefined));
             }}
             onSearch={searchFleet}
-            onOpenTask={(t) => {
-              window.location.href = `${cockpitUrl}/?task=${encodeURIComponent(t.id)}`;
+            onOpenTask={(tItem) => {
+              window.location.href = `${cockpitUrl}/?task=${encodeURIComponent(tItem.id)}`;
             }}
           />
 
-          {/* Settings Dialog */}
-          <AppSettingsDialog
-            open={isSettingsDialogOpen}
-            onOpenChange={setIsSettingsDialogOpen}
-            projectId={urlProjectId ?? null}
-          />
-
-          {/* Task Creation Wizard */}
           {urlProjectId && (
             <TaskCreationWizard
               projectId={urlProjectId}
@@ -616,10 +838,8 @@ function AuthenticatedApp() {
             />
           )}
 
-          {/* Cloud Infrastructure check — launchable from +Task or Cloud Reports */}
           <CloudCheckDialog open={isCloudCheckOpen} onOpenChange={setIsCloudCheckOpen} />
 
-          {/* Task Detail Modal */}
           <TaskDetailModal
             open={!!urlProjectId && selectedTask?.projectId === urlProjectId}
             task={selectedTask?.projectId === urlProjectId ? selectedTask : null}
@@ -631,14 +851,13 @@ function AuthenticatedApp() {
             onOpenInbuiltTerminal={handleOpenInbuiltTerminal}
           />
 
-          {/* Onboarding Wizard */}
           <OnboardingWizard
             open={isOnboardingOpen}
             onOpenChange={setIsOnboardingOpen}
             onOpenTaskCreator={() => setIsNewTaskDialogOpen(true)}
-            onOpenSettings={() => setIsSettingsDialogOpen(true)}
+            onOpenSettings={openPreferences}
           />
-        </div>
+        </PipelineStripContext.Provider>
       </TooltipProvider>
     </ViewStateProvider>
   );
@@ -651,8 +870,12 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    void checkAuth().finally(() => { if (!cancelled) setAuthChecked(true); });
-    return () => { cancelled = true; };
+    void checkAuth().finally(() => {
+      if (!cancelled) setAuthChecked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [checkAuth]);
 
   if (!authChecked) return null;
@@ -663,9 +886,7 @@ export default function App() {
         path="/login"
         element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
       />
-      {/* Standalone Live Agent Console — shareable deep link.  Bypasses
-          the portal's sidebar + tab bar so the URL can be copied,
-          opened on a phone, sent to a teammate over a VPN, etc. */}
+      {/* Standalone Live Agent Console — shareable deep link. */}
       <Route
         path="/p/:slug/console/:specId"
         element={isAuthenticated ? <ConsolePage /> : <RedirectToLogin />}

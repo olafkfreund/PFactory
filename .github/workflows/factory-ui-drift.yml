@@ -23,6 +23,14 @@ on:
       - "apps/frontend-web/src/components/CommandPalette.tsx"
       - "apps/frontend-web/src/components/PortalSwitcher.tsx"
       - "apps/frontend-web/src/components/ProjectBreadcrumb.tsx"
+      - "apps/frontend-web/src/components/factory-ui/AppShell.tsx"
+      - "apps/frontend-web/src/components/factory-ui/ProjectSwitcher.tsx"
+      - "apps/frontend-web/src/components/factory-ui/PipelineStrip.tsx"
+      - "apps/frontend-web/src/components/factory-ui/WorkCard.tsx"
+      - "apps/frontend-web/src/components/factory-ui/WorkColumn.tsx"
+      - "apps/frontend-web/src/styles/tokens.css"
+      - "apps/frontend-web/src/styles/tailwind-theme.css"
+      - "apps/frontend-web/src/styles/shell.css"
       - ".github/workflows/factory-ui-drift.yml"
   push:
     branches: [dev, main]
@@ -37,7 +45,7 @@ permissions:
 env:
   # Pinned Factory hub commit carrying the canonical @factory/ui components.
   # Bump deliberately when re-vendoring (see header).
-  HUB_PIN_SHA: "5f3d231093d30346a584303011412156e8952aad"
+  HUB_PIN_SHA: "c6cf9534abf318b9aea36eada8d3a48e9cbd9be5"
 
 jobs:
   drift:

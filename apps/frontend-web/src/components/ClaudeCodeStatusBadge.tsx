@@ -186,9 +186,9 @@ export function ClaudeCodeStatusBadge({ className, onOpenOnboarding, iconOnly = 
     if (status === 'loading') return 'bg-muted-foreground';
     switch (overallHealth) {
       case 'good':
-        return 'bg-green-500';
+        return 'bg-success';
       case 'partial':
-        return 'bg-yellow-500';
+        return 'bg-warning';
       case 'bad':
         return 'bg-destructive';
     }
@@ -238,12 +238,12 @@ export function ClaudeCodeStatusBadge({ className, onOpenOnboarding, iconOnly = 
               dotColor={getStatusColor()}
               className={cn(
                 overallHealth === 'bad' ? 'text-destructive' : '',
-                overallHealth === 'partial' ? 'text-yellow-600 dark:text-yellow-500' : '',
+                overallHealth === 'partial' ? 'text-warning' : '',
                 className
               )}
             >
               {status === 'outdated' && (
-                <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 rounded">
+                <span className="ml-auto text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded">
                   {t('common:update', 'Update')}
                 </span>
               )}
@@ -253,7 +253,7 @@ export function ClaudeCodeStatusBadge({ className, onOpenOnboarding, iconOnly = 
                 </span>
               )}
               {hasToken === false && status !== 'not-found' && (
-                <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 rounded">
+                <span className="ml-auto text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded">
                   {t('navigation:claudeCode.noAuth', 'No Auth')}
                 </span>
               )}
@@ -313,7 +313,7 @@ export function ClaudeCodeStatusBadge({ className, onOpenOnboarding, iconOnly = 
           {hasToken !== null && (
             <div className={cn(
               'text-xs p-2 rounded-md flex items-center gap-2',
-              hasToken ? 'bg-green-500/10 text-green-700 dark:text-green-400' : 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400'
+              hasToken ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
             )}>
               <KeyRound className="h-3.5 w-3.5 shrink-0" />
               <div className="flex-1 space-y-0.5">
