@@ -1,6 +1,6 @@
 {
   "name": "pfactory-web",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "type": "module",
   "description": "Web UI for PFactory autonomous coding framework",
   "scripts": {
@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint . --max-warnings 3004",
     "test": "vitest run",
+    "test:shell-browser": "node scripts/check-shared-shell.mjs",
     "typecheck": "tsc --noEmit",
     "capture-screenshots": "tsx ../../scripts/capture-screenshots.ts"
   },

@@ -10,8 +10,8 @@ import { cn } from '../../lib/utils';
 import type { PlanSession } from '../../shared/types/plan';
 
 const confidenceColor: Record<string, string> = {
-  high: 'bg-emerald-500/15 text-emerald-600',
-  medium: 'bg-amber-500/15 text-amber-600',
+  high: 'bg-success/15 text-success',
+  medium: 'bg-warning/15 text-warning',
   low: 'bg-muted text-muted-foreground',
 };
 
@@ -97,7 +97,7 @@ export function FeasibilityPanel({ session }: { session: PlanSession }) {
             {access.map((a, i) => {
               const Icon = a.granted === true ? Check : a.granted === false ? X : HelpCircle;
               const tone =
-                a.granted === true ? 'text-emerald-600'
+                a.granted === true ? 'text-success'
                   : a.granted === false ? 'text-destructive'
                     : 'text-muted-foreground';
               return (

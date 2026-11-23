@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Settings,
   Save,
   Loader2,
   Bot,
@@ -10,7 +9,6 @@ import {
   KeyRound,
   Bell,
   Settings2,
-  Github,
   GitBranch,
   Database,
   Sparkles,
@@ -20,20 +18,10 @@ import {
   Palette,
   ShieldCheck,
   BookOpen,
-  Cloud
+  Cloud,
 } from 'lucide-react';
 
-import {
-  FullScreenDialog,
-  FullScreenDialogContent,
-  FullScreenDialogHeader,
-  FullScreenDialogBody,
-  FullScreenDialogFooter,
-  FullScreenDialogTitle,
-  FullScreenDialogDescription
-} from '../ui/full-screen-dialog';
 import { Button } from '../ui/button';
-import { ScrollArea } from '../ui/scroll-area';
 import { cn } from '../../lib/utils';
 import { useSettings } from './hooks/useSettings';
 import { ThemeSettings } from './ThemeSettings';
@@ -48,21 +36,24 @@ import { McpApiKeysSettings } from './sections/McpApiKeysSettings';
 import { AdvancedSettings } from './AdvancedSettings';
 import { DebugSettings } from './DebugSettings';
 import { LLMProvidersPage } from './sections/LLMProvidersPage';
-import { ProjectSettingsContent, ProjectSettingsSection } from './ProjectSettingsContent';
+import { ProjectSettingsContent, type ProjectSettingsSection } from './ProjectSettingsContent';
 import { useProjectStore } from '../../stores/project-store';
 import type { UseProjectSettingsReturn } from '../project-settings/hooks/useProjectSettings';
 
-interface AppSettingsDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  projectId?: string | null;
-  initialSection?: AppSection;
-  initialProjectSection?: ProjectSettingsSection;
-  onRerunWizard?: () => void;
-}
-
 // App-level settings sections
-export type AppSection = 'appearance' | 'language' | 'agent' | 'llmProvider' | 'integrations' | 'gitCredentials' | 'testCredentials' | 'docsTargets' | 'cloudAssessment' | 'apiKeys' | 'notifications' | 'debug';
+export type AppSection =
+  | 'appearance'
+  | 'language'
+  | 'agent'
+  | 'llmProvider'
+  | 'integrations'
+  | 'gitCredentials'
+  | 'testCredentials'
+  | 'docsTargets'
+  | 'cloudAssessment'
+  | 'apiKeys'
+  | 'notifications'
+  | 'debug';
 
 interface NavItemConfig<T extends string> {
   id: T;
@@ -81,57 +72,35 @@ const appNavItemsConfig: NavItemConfig<AppSection>[] = [
   { id: 'apiKeys', icon: KeyRound },
   { id: 'notifications', icon: Bell },
   { id: 'debug', icon: Bug },
-  { id: 'language', icon: Globe }
+  { id: 'language', icon: Globe },
 ];
 
-const projectNavItemsConfig: NavItemConfig<ProjectSettingsSection>[] = [
-  { id: 'general', icon: Settings2 },
-  { id: 'github', icon: GitBranch },
-  { id: 'memory', icon: Database },
-  { id: 'mcp', icon: Plug }
+const projectTabsConfig: { id: ProjectSettingsSection; label: string; icon: React.ElementType }[] = [
+  { id: 'general', label: 'General', icon: Settings2 },
+  { id: 'github', label: 'Git', icon: GitBranch },
+  { id: 'memory', label: 'Memory', icon: Database },
+  { id: 'mcp', label: 'MCP', icon: Plug },
 ];
+
+export interface ProjectSettingsPageProps {
+  projectId: string | null;
+  initialSection?: ProjectSettingsSection;
+}
 
 /**
- * Main application settings dialog container
- * Coordinates app and project settings sections
+ * Routed Project Settings page (/p/<slug>/settings) with tabs:
+ * General, Git, Memory, MCP.
  */
-export function AppSettingsDialog({ open, onOpenChange, projectId, initialSection, initialProjectSection, onRerunWizard }: AppSettingsDialogProps) {
-  const { t } = useTranslation('settings');
-  const { settings, setSettings, isSaving, error, saveSettings, revertTheme, commitTheme } = useSettings();
-  const [version, setVersion] = useState<string>('');
-
-  // Track which top-level section is active
-  const [activeTopLevel, setActiveTopLevel] = useState<'app' | 'project'>('app');
-  const [appSection, setAppSection] = useState<AppSection>(initialSection || 'agent');
-  const [projectSection, setProjectSection] = useState<ProjectSettingsSection>('general');
-
-  // Navigate to initial section when dialog opens with a specific section
-  useEffect(() => {
-    if (open) {
-      if (initialProjectSection) {
-        setActiveTopLevel('project');
-        setProjectSection(initialProjectSection);
-      } else if (initialSection) {
-        setActiveTopLevel('app');
-        setAppSection(initialSection);
-      }
-    }
-  }, [open, initialSection, initialProjectSection]);
-
-  // Project state
+export function ProjectSettingsPage({ projectId, initialSection = 'general' }: ProjectSettingsPageProps) {
+  const { t } = useTranslation(['settings', 'common']);
+  const [activeTab, setActiveTab] = useState<ProjectSettingsSection>(initialSection);
   const projects = useProjectStore((state) => state.projects);
   const selectedProject = projects.find((p) => p.id === projectId);
-
-  // Project settings hook state (lifted from child)
   const [projectSettingsHook, setProjectSettingsHook] = useState<UseProjectSettingsReturn | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
-  // Load app version on mount
-  useEffect(() => {
-    window.API.getAppVersion().then(setVersion);
-  }, []);
-
-  // Memoize the callback to avoid infinite loops
   const handleProjectHookReady = useCallback((hook: UseProjectSettingsReturn | null) => {
     setProjectSettingsHook(hook);
     if (hook) {
@@ -142,29 +111,118 @@ export function AppSettingsDialog({ open, onOpenChange, projectId, initialSectio
   }, []);
 
   const handleSave = async () => {
-    // Save app settings first
-    const appSaveSuccess = await saveSettings();
-
-    // If on project section with a project selected, save project settings too
-    if (activeTopLevel === 'project' && selectedProject && projectSettingsHook) {
+    if (!selectedProject || !projectSettingsHook || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
       await projectSettingsHook.handleSave(() => {});
-      // Check for project errors
-      if (projectSettingsHook.error || projectSettingsHook.envError) {
-        setProjectError(projectSettingsHook.error || projectSettingsHook.envError);
-        return; // Don't close dialog on error
-      }
-    }
-
-    if (appSaveSuccess) {
-      // Commit the theme so future cancels won't revert to old values
-      commitTheme();
-      onOpenChange(false);
+      setProjectError(projectSettingsHook.error || projectSettingsHook.envError || null);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
-  const handleCancel = () => {
-    // onOpenChange handler will revert theme changes
-    onOpenChange(false);
+  return (
+    <div data-testid="project-settings-page" className="flex flex-col gap-6">
+      <header className="f-page-head">
+        <div className="f-page-head__main">
+          <h1 className="f-page-head__title">{t('settings:tabs.project', 'Project Settings')}</h1>
+          {selectedProject && (
+            <p className="f-page-head__desc" title={selectedProject.path}>
+              {selectedProject.name} — {selectedProject.path}
+            </p>
+          )}
+        </div>
+        {selectedProject && (
+          <div className="f-page-head__actions">
+            <Button onClick={() => { void handleSave(); }} disabled={saving}>
+              {saving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t('common:buttons.saving', 'Saving...')}
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  {t('settings:actions.save', 'Save Settings')}
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </header>
+
+      <div role="tablist" aria-label={t('settings:tabs.project', 'Project Settings')} className="flex flex-wrap gap-2 border-b border-border pb-2">
+        {projectTabsConfig.map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'f-btn',
+                active ? 'f-btn--primary' : 'f-btn--outline'
+              )}
+            >
+              <Icon className="h-4 w-4" aria-hidden />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {projectError && (
+        <div role="alert" className="f-state f-state--error">
+          <div className="f-state__body">
+            <span className="f-state__reason">{projectError}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-4xl">
+        <ProjectSettingsContent
+          project={selectedProject}
+          activeSection={activeTab}
+          isOpen={true}
+          onHookReady={handleProjectHookReady}
+        />
+      </div>
+    </div>
+  );
+}
+
+export interface PreferencesPageProps {
+  initialSection?: AppSection;
+  onRerunWizard?: () => void;
+}
+
+/**
+ * Routed Application Preferences page (/preferences), reached from the user menu.
+ */
+export function PreferencesPage({ initialSection = 'agent', onRerunWizard }: PreferencesPageProps) {
+  const { t } = useTranslation(['settings', 'common', 'navigation']);
+  const { settings, setSettings, isSaving, error, saveSettings, commitTheme, revertTheme } = useSettings();
+  const [appSection, setAppSection] = useState<AppSection>(initialSection);
+  const [version, setVersion] = useState<string>('');
+
+  useEffect(() => () => revertTheme(), [revertTheme]);
+
+  useEffect(() => {
+    void window.API?.getAppVersion?.().then((v: unknown) => {
+      if (typeof v === 'string') setVersion(v);
+    });
+  }, []);
+
+  const handleSave = async () => {
+    const ok = await saveSettings();
+    if (ok) {
+      commitTheme();
+    }
   };
 
   const renderAppSection = () => {
@@ -176,7 +234,7 @@ export function AppSettingsDialog({ open, onOpenChange, projectId, initialSectio
       case 'agent':
         return <GeneralSettings settings={settings} onSettingsChange={setSettings} section="agent" />;
       case 'llmProvider':
-        return <LLMProvidersPage isOpen={open} />;
+        return <LLMProvidersPage isOpen={true} />;
       case 'integrations':
         return <IntegrationSettings settings={settings} onSettingsChange={setSettings} />;
       case 'gitCredentials':
@@ -198,185 +256,16 @@ export function AppSettingsDialog({ open, onOpenChange, projectId, initialSectio
     }
   };
 
-  const renderContent = () => {
-    if (activeTopLevel === 'app') {
-      return renderAppSection();
-    }
-    return (
-      <ProjectSettingsContent
-        project={selectedProject}
-        activeSection={projectSection}
-        isOpen={open}
-        onHookReady={handleProjectHookReady}
-      />
-    );
-  };
-
-  // Determine if project nav items should be disabled
-  const projectNavDisabled = !selectedProject;
-
   return (
-    <FullScreenDialog open={open} onOpenChange={(newOpen) => {
-      if (!newOpen) {
-        // Dialog is being closed (via X, escape, or overlay click)
-        // Revert any unsaved theme changes
-        revertTheme();
-      }
-      onOpenChange(newOpen);
-    }}>
-      <FullScreenDialogContent>
-        <FullScreenDialogHeader>
-          <FullScreenDialogTitle className="flex items-center gap-3">
-            <Settings className="h-6 w-6" />
-            {t('title')}
-          </FullScreenDialogTitle>
-          <FullScreenDialogDescription>
-            {t('tabs.app')} & {t('tabs.project')}
-          </FullScreenDialogDescription>
-        </FullScreenDialogHeader>
-
-        <FullScreenDialogBody>
-          <div className="flex h-full">
-            {/* Navigation sidebar */}
-            <nav className="w-96 border-r border-border bg-muted/30 p-4">
-              <ScrollArea className="h-full">
-                <div className="space-y-6">
-                  {/* APPLICATION Section */}
-                  <div>
-                    <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      {t('tabs.app')}
-                    </h3>
-                    <div className="space-y-1">
-                      {appNavItemsConfig.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = activeTopLevel === 'app' && appSection === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            onClick={() => {
-                              setActiveTopLevel('app');
-                              setAppSection(item.id);
-                            }}
-                            className={cn(
-                              'w-full flex items-start gap-3 p-3 rounded-lg text-left transition-all',
-                              isActive
-                                ? 'bg-accent/70 text-accent-foreground'
-                                : 'hover:bg-accent/50 text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            <Icon className="h-5 w-5 mt-0.5 shrink-0" />
-                            <div className="min-w-0">
-                              <div className="font-medium text-sm">{t(`sections.${item.id}.title`)}</div>
-                              <div className={cn('text-xs truncate', isActive ? 'text-white/80' : 'text-muted-foreground')}>{t(`sections.${item.id}.description`)}</div>
-                            </div>
-                          </button>
-                        );
-                      })}
-
-                      {/* Re-run Wizard button */}
-                      {onRerunWizard && (
-                        <button
-                          onClick={() => {
-                            onOpenChange(false);
-                            onRerunWizard();
-                          }}
-                          className={cn(
-                            'w-full flex items-start gap-3 p-3 rounded-lg text-left transition-all mt-2',
-                            'border border-dashed border-muted-foreground/30',
-                            'hover:bg-accent/50 text-muted-foreground hover:text-foreground'
-                          )}
-                        >
-                          <Sparkles className="h-5 w-5 mt-0.5 shrink-0" />
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm">{t('actions.rerunWizard')}</div>
-                            <div className="text-xs text-muted-foreground truncate">{t('actions.rerunWizardDescription')}</div>
-                          </div>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* PROJECT Section */}
-                  <div>
-                    <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      {t('tabs.project')}
-                    </h3>
-
-                    {/* The URL decides the project; switch it from the top-bar breadcrumb */}
-                    <div className="px-3 mb-3 truncate text-sm text-foreground" title={selectedProject?.path}>
-                      {selectedProject ? selectedProject.name : t('noProjectSelected', 'No project selected')}
-                    </div>
-
-                    {/* Project Nav Items */}
-                    <div className="space-y-1">
-                      {projectNavItemsConfig.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = activeTopLevel === 'project' && projectSection === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            onClick={() => {
-                              setActiveTopLevel('project');
-                              setProjectSection(item.id);
-                            }}
-                            disabled={projectNavDisabled}
-                            className={cn(
-                              'w-full flex items-start gap-3 p-3 rounded-lg text-left transition-all',
-                              isActive
-                                ? 'bg-accent/70 text-accent-foreground'
-                                : projectNavDisabled
-                                  ? 'opacity-50 cursor-not-allowed text-muted-foreground'
-                                  : 'hover:bg-accent/50 text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            <Icon className="h-5 w-5 mt-0.5 shrink-0" />
-                            <div className="min-w-0">
-                              <div className="font-medium text-sm">{t(`projectSections.${item.id}.title`)}</div>
-                              <div className={cn('text-xs truncate', isActive ? 'text-white/80' : 'text-muted-foreground')}>{t(`projectSections.${item.id}.description`)}</div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Version at bottom */}
-                {version && (
-                  <div className="mt-8 pt-4 border-t border-border">
-                    <p className="text-xs text-muted-foreground text-center">
-                      {t('updates.version')} {version}
-                    </p>
-                  </div>
-                )}
-              </ScrollArea>
-            </nav>
-
-            {/* Main content */}
-            <div className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full">
-                <div className="p-8 max-w-4xl">
-                  {renderContent()}
-                </div>
-              </ScrollArea>
-            </div>
-          </div>
-        </FullScreenDialogBody>
-
-        <FullScreenDialogFooter>
-          {(error || projectError) && (
-            <div className="flex-1 rounded-lg bg-destructive/10 border border-destructive/30 px-4 py-2 text-sm text-destructive">
-              {error || projectError}
-            </div>
-          )}
-          <Button variant="outline" onClick={handleCancel}>
-            {t('common:buttons.cancel', 'Cancel')}
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || (activeTopLevel === 'project' && projectSettingsHook?.isSaving)}
-          >
-            {(isSaving || (activeTopLevel === 'project' && projectSettingsHook?.isSaving)) ? (
+    <div data-testid="preferences-page" className="flex flex-col gap-6">
+      <header className="f-page-head">
+        <div className="f-page-head__main">
+          <h1 className="f-page-head__title">{t('navigation:shell.preferences', 'Preferences')}</h1>
+          <p className="f-page-head__desc">{t('settings:tabs.app', 'App Settings')}</p>
+        </div>
+        <div className="f-page-head__actions">
+          <Button onClick={() => { void handleSave(); }} disabled={isSaving}>
+            {isSaving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 {t('common:buttons.saving', 'Saving...')}
@@ -384,12 +273,71 @@ export function AppSettingsDialog({ open, onOpenChange, projectId, initialSectio
             ) : (
               <>
                 <Save className="mr-2 h-4 w-4" />
-                {t('actions.save')}
+                {t('settings:actions.save', 'Save Settings')}
               </>
             )}
           </Button>
-        </FullScreenDialogFooter>
-      </FullScreenDialogContent>
-    </FullScreenDialog>
+        </div>
+      </header>
+
+      {error && (
+        <div role="alert" className="f-state f-state--error">
+          <div className="f-state__body">
+            <span className="f-state__reason">{error}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col md:flex-row gap-6">
+        <nav aria-label={t('settings:tabs.app', 'App Settings')} className="w-full md:w-72 shrink-0 space-y-1">
+          {appNavItemsConfig.map((item) => {
+            const Icon = item.icon;
+            const isActive = appSection === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setAppSection(item.id)}
+                className={cn(
+                  'w-full flex items-start gap-3 p-3 rounded-lg text-left transition-all',
+                  isActive
+                    ? 'bg-accent/70 text-accent-foreground'
+                    : 'hover:bg-accent/50 text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Icon className="h-5 w-5 mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-medium text-sm">{t(`settings:sections.${item.id}.title`)}</div>
+                  <div className="text-xs truncate text-muted-foreground">
+                    {t(`settings:sections.${item.id}.description`)}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          {onRerunWizard && (
+            <button
+              type="button"
+              onClick={onRerunWizard}
+              className={cn(
+                'w-full flex items-start gap-3 p-3 rounded-lg text-left transition-all mt-2',
+                'border border-dashed border-muted-foreground/30',
+                'hover:bg-accent/50 text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Sparkles className="h-5 w-5 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <div className="font-medium text-sm">{t('settings:actions.rerunWizard')}</div>
+                <div className="text-xs text-muted-foreground truncate">{t('settings:actions.rerunWizardDescription')}</div>
+              </div>
+            </button>
+          )}
+        </nav>
+
+        <div className="flex-1 min-w-0 max-w-4xl">
+          {renderAppSection()}
+        </div>
+      </div>
+    </div>
   );
 }

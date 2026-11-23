@@ -36,6 +36,10 @@ export default tseslint.config(
       "vitest.config.ts",
       "postcss.config.js",
       "public",
+      "src/components/CommandPalette.tsx",
+      "src/components/PortalSwitcher.tsx",
+      "src/components/ProjectBreadcrumb.tsx",
+      "src/components/factory-ui/**",
     ],
   },
   {

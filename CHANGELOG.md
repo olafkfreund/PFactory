@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.9.3 — shared Factory tokens and shell (2026-11-23)
+
+### New Features
+
+- **The web UI adopts the shared Factory design tokens and shell (Factory#3876, #1120).** The portal uses the common top bar and navigation shared with the other Factory portals, so the suite looks and behaves the same across them.
+- Plan actions are scoped by project: plan summaries now carry `project_id` (the one backend change).
+
+### Improvements
+
+- Stale local overrides yield to refreshed server state, and the strip filters only where the board is visible.
+
 ## 0.9.2 — projects visible to their org after restart (2026-11-23)
 
 ### Bug Fixes

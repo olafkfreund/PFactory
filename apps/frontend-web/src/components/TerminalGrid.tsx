@@ -204,7 +204,7 @@ export function TerminalGrid({ projectPath, onNewTaskClick, isActive = false }: 
         }
       }
       // Ctrl+W or Cmd+W to close active terminal
-      if ((e.ctrlKey || e.metaKey) && e.key === 'w' && activeTerminalId) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'w' && activeTerminalId && terminals.some(t => t.id === activeTerminalId)) {
         e.preventDefault();
         handleCloseTerminal(activeTerminalId);
       }
@@ -212,7 +212,7 @@ export function TerminalGrid({ projectPath, onNewTaskClick, isActive = false }: 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isActive, addTerminal, canAddTerminal, projectPath, activeTerminalId, handleCloseTerminal]);
+  }, [isActive, addTerminal, canAddTerminal, projectPath, activeTerminalId, terminals, handleCloseTerminal]);
 
   const handleAddTerminal = useCallback(() => {
     if (canAddTerminal()) {
@@ -303,7 +303,7 @@ export function TerminalGrid({ projectPath, onNewTaskClick, isActive = false }: 
   // Calculate grid layout based on number of terminals
   const gridLayout = useMemo(() => {
     const count = terminals.length;
-    if (count === 0) return { rows: 0, cols: 0 };
+    if (count === 0) return { rows: 1, cols: 1 };
     if (count === 1) return { rows: 1, cols: 1 };
     if (count === 2) return { rows: 1, cols: 2 };
     if (count <= 4) return { rows: 2, cols: 2 };
@@ -313,10 +313,10 @@ export function TerminalGrid({ projectPath, onNewTaskClick, isActive = false }: 
   }, [terminals.length]);
 
   // Get terminal IDs for SortableContext
-  const terminalIds = useMemo(() => terminals.map(t => t.id), [terminals]);
+  const terminalIds = useMemo(() => allTerminals.map(t => t.id), [allTerminals]);
 
   // Empty state
-  if (terminals.length === 0) {
+  if (allTerminals.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
         <div className="flex flex-col items-center gap-3 text-center">
@@ -447,19 +447,26 @@ export function TerminalGrid({ projectPath, onNewTaskClick, isActive = false }: 
                   gridTemplateRows: `repeat(${gridLayout.rows}, 1fr)`,
                 }}
               >
-                {terminals.map((terminal) => (
-                  <SortableTerminal
-                    key={terminal.id}
-                    id={terminal.id}
-                    cwd={terminal.cwd || projectPath}
-                    projectPath={projectPath}
-                    isActive={terminal.id === activeTerminalId}
-                    onClose={() => handleCloseTerminal(terminal.id)}
-                    onActivate={() => setActiveTerminal(terminal.id)}
-                    tasks={tasks}
-                    onNewTaskClick={onNewTaskClick}
-                    terminalCount={terminals.length}
-                  />
+                {terminals.length === 0 && (
+                  <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                    <span>Agent Terminals</span>
+                    <Button onClick={handleAddTerminal}>New Terminal</Button>
+                  </div>
+                )}
+                {allTerminals.map((terminal) => (
+                  <div key={terminal.id} className={projectPath && terminal.projectPath && terminal.projectPath !== projectPath ? 'hidden' : 'h-full min-w-0'}>
+                    <SortableTerminal
+                      id={terminal.id}
+                      cwd={terminal.cwd || terminal.projectPath || projectPath}
+                      projectPath={terminal.projectPath || projectPath}
+                      isActive={isActive && terminal.id === activeTerminalId && (!projectPath || !terminal.projectPath || terminal.projectPath === projectPath)}
+                      onClose={() => handleCloseTerminal(terminal.id)}
+                      onActivate={() => setActiveTerminal(terminal.id)}
+                      tasks={tasks}
+                      onNewTaskClick={onNewTaskClick}
+                      terminalCount={terminals.length}
+                    />
+                  </div>
                 ))}
               </div>
             </SortableContext>

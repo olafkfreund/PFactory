@@ -13,8 +13,8 @@
    ======================================== */
 
 :root .hljs {
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
+  background: var(--color-card);
+  color: var(--color-foreground);
 }
 
 /* Keywords, selectors */
@@ -61,8 +61,8 @@
    ======================================== */
 
 .dark .hljs {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
+  background: var(--color-muted);
+  color: var(--color-foreground);
 }
 
 /* Keywords, selectors */
@@ -127,16 +127,16 @@
 
 /* Inline code (not highlighted) */
 .prose :not(pre) > code {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
+  background: var(--color-muted);
+  color: var(--color-foreground);
   padding: 0.2em 0.4em;
   border-radius: 0.25rem;
   font-size: 0.875em;
 }
 
 .dark .prose :not(pre) > code {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
+  background: var(--color-muted);
+  color: var(--color-foreground);
 }
 
 /* ========================================
@@ -154,17 +154,17 @@
 }
 
 .hljs::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: color-mix(in oklch, var(--color-muted-foreground) 30%, transparent);
   border-radius: 4px;
 }
 
 .hljs::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+  background: color-mix(in oklch, var(--color-muted-foreground) 50%, transparent);
 }
 
 /* Selection in code blocks */
 .hljs ::selection {
-  background: hsl(var(--primary) / 0.3);
+  background: color-mix(in oklch, var(--color-primary) 30%, transparent);
 }
 
 /* Ensure proper spacing and alignment */

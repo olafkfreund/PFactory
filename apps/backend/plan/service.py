@@ -268,6 +268,7 @@ class PlanSession(BaseModel):
     def summary(self) -> dict:
         return {
             "session_id": self.session_id,
+            "project_id": self.project_id,
             "tenant_id": self.tenant_id,
             "title": self.plan.title,
             "status": self.status,
