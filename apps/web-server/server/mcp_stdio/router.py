@@ -42,6 +42,7 @@ from fastapi import (
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from client_errors import client_error
 from plan.ingest.artifacts import ArtifactIngestError
 from plan.service import SERVICE, EmitInProgressError, PlanServiceError
 from server.database.engine import get_db
@@ -754,9 +755,9 @@ async def proxy_plan_ingest_approved(
             **_attribution(principal),
         )
     except ArtifactIngestError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=client_error(exc)) from exc
     except (EmitInProgressError, PlanServiceError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     await _audit_mcp_write(
         key,
         ACTION_MCP_PLAN_INGEST,
