@@ -151,4 +151,4 @@ jobs:
           git push origin "$branch"
           gh pr create --base dev --head "$branch" \
             --title "chore(deps): pin PFactory runtime base ${BASE_TAG}" \
-            --body "Pins the published runtime base to ${IMAGE}:${BASE_TAG}@${DIGEST}. Closes olafkfreund/Factory#3880."
+            --body "Pins the published runtime base to ${IMAGE}:${BASE_TAG}@${DIGEST}. Refs olafkfreund/Factory#3880."
