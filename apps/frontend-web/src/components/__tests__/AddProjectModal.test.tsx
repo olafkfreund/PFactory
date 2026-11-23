@@ -9,7 +9,7 @@ import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { AddProjectModal } from '../AddProjectModal';
-import { initWebAPI } from '../../lib/api-adapter';
+import { initWebAPI, resetAppVersionLookupForTests } from '../../lib/api-adapter';
 
 describe('<AddProjectModal>', () => {
   const discoverProjects = vi.fn();
@@ -67,6 +67,7 @@ describe('<AddProjectModal>', () => {
 
 describe('api-adapter shared /api/health version lookup (#1116 B4)', () => {
   beforeEach(() => {
+    resetAppVersionLookupForTests();
     initWebAPI();
   });
 

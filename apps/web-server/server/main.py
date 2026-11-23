@@ -8,21 +8,18 @@ Main entry point for the web server that provides:
 """
 
 import asyncio
-import fcntl
 import json
 import logging
-import os
-import tempfile
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from types import ModuleType
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 from starlette.status import HTTP_404_NOT_FOUND
@@ -33,6 +30,7 @@ from .auth import TokenAuthMiddleware
 from .config import get_settings
 from .crypto.kms import enforce_kms_safety
 from .database.engine import async_session_factory, init_db
+from .database.models import Organization
 from .logging_config import setup_logging
 from .routes import (
     api_keys,
@@ -86,29 +84,27 @@ from .websockets import (
 logger = logging.getLogger(__name__)
 
 
-def _write_project_registry(path: Path, projects: dict[str, dict[str, Any]]) -> None:
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w") as output:
-            json.dump(projects, output, indent=2)
-            output.flush()
-            os.fsync(output.fileno())
-        Path(tmp).replace(path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
-def _stamp_legacy_projects(org_id: str | None) -> None:
+def _stamp_legacy_projects(org_id: str | None, has_default_org: bool) -> None:
     """Repair the file registry once, serialized across startup replicas."""
     path = project_paths.get_projects_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.with_suffix(".json.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with project_paths.locked_projects_file(path):
         if not path.exists():
             return
-        projects = json.loads(path.read_text())
-        unstamped = [pid for pid, project in projects.items() if not project.get("org_id")]
+        try:
+            projects = json.loads(path.read_text())
+            if not isinstance(projects, dict) or any(
+                not isinstance(project, dict) for project in projects.values()
+            ):
+                raise ValueError("project registry must contain project objects")
+        except (OSError, UnicodeError, ValueError) as exc:
+            logger.error("project.org_backfill_invalid_registry error=%s", type(exc).__name__)
+            return
+        unstamped = [
+            pid
+            for pid, project in projects.items()
+            if not project.get("org_id")
+            or (project.get("org_id") == "default" and not has_default_org)
+        ]
         if not org_id:
             for pid in unstamped:
                 logger.warning("project.org_unassigned project_id=%s", pid)
@@ -117,7 +113,7 @@ def _stamp_legacy_projects(org_id: str | None) -> None:
             return
         for pid in unstamped:
             projects[pid]["org_id"] = org_id
-        _write_project_registry(path, projects)
+        project_paths.write_project_registry(path, projects)
         for pid in unstamped:
             logger.info("project.org_backfilled project_id=%s org_id=%s", pid, org_id)
 
@@ -125,7 +121,10 @@ def _stamp_legacy_projects(org_id: str | None) -> None:
 async def backfill_project_orgs() -> None:
     async with async_session_factory() as db:
         org_id = await resolve_default_org_id(db)
-    await asyncio.to_thread(_stamp_legacy_projects, org_id)
+        has_default_org = (
+            await db.execute(select(Organization.id).where(Organization.id == "default"))
+        ).scalar_one_or_none() is not None
+    await asyncio.to_thread(_stamp_legacy_projects, org_id, has_default_org)
 
 
 # Every top-level server prefix in create_app() (MCP/OAuth clients probe /mcp and /.well-known).

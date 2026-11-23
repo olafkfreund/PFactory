@@ -14,8 +14,11 @@ edge that would recreate the cycle. ``routes.projects`` re-exports all of these
 names, so callers that still reach for them there keep working.
 """
 
+import fcntl
 import json
 import os
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path, PurePath
 from typing import Any
 
@@ -42,8 +45,33 @@ def load_projects() -> dict[str, dict[str, Any]]:
 def save_projects(projects: dict[str, dict[str, Any]]) -> None:
     """Save projects to disk."""
     projects_file = get_projects_file()
-    projects_file.parent.mkdir(parents=True, exist_ok=True)
-    projects_file.write_text(json.dumps(projects, indent=2))
+    with locked_projects_file(projects_file):
+        write_project_registry(projects_file, projects)
+
+
+@contextmanager
+def locked_projects_file(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # flock is per-node; the chart keeps this registry on one RWO volume.
+    with path.with_suffix(".json.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def write_project_registry(path: Path, projects: dict[str, dict[str, Any]]) -> None:
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w") as output:
+            json.dump(projects, output, indent=2)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(tmp, path)  # noqa: PTH105 - explicit atomic replacement
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _roots(project: object) -> list[tuple[PurePath, Path]]:

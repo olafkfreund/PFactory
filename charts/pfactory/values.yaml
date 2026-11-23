@@ -354,6 +354,7 @@ rmux:
 #   `kubectl cp`, enable the PVC, and copy the files back into the volume.
 persistence:
   data:
+    # ReadWriteOnce cannot attach across nodes with replicaCount > 1.
     enabled: false
     existingClaim: ""
     size: 1Gi

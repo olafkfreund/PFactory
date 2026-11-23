@@ -160,8 +160,8 @@ async def require_project_role(
     except Exception:  # noqa: BLE001 - an unreadable registry must fail closed
         raise HTTPException(status_code=503, detail="Project registry unavailable") from None
     org_id = project.get("org_id") if project else None
-    if project and not org_id and (_auth_disabled() or is_service_principal(principal)):
-        org_id = "default"
+    if project and not org_id and is_service_principal(principal) and not _auth_disabled():
+        org_id = await resolve_default_org_id(db)
     membership = None
     if (
         principal
@@ -191,7 +191,11 @@ async def require_project_role(
                 action, principal, "project", project_id, org_id, min_role, exc.detail
             )
         raise
-    if principal is None or org_id is None or project_id is None:
+    if (
+        principal is None
+        or project_id is None
+        or (org_id is None and not is_service_principal(principal) and not _auth_disabled())
+    ):
         raise HTTPException(status_code=404, detail="Project not found")
     role = (
         "owner"

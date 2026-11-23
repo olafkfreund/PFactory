@@ -474,6 +474,16 @@ def test_persistence_data_volume_modes(helm_available, chart_dir) -> None:
     assert len(pvcs_created) == 1
     assert pvcs_created[0]["metadata"]["name"] == "pfactory-data"
     assert pvcs_created[0]["spec"]["resources"]["requests"]["storage"] == "1Gi"
+    assert "storageClassName" not in pvcs_created[0]["spec"]
+    assert pvcs_created[0]["spec"]["accessModes"] == ["ReadWriteOnce"]
+    docs_override = render(
+        "persistence.data.enabled=true",
+        "persistence.data.storageClass=fast",
+        "persistence.data.accessMode=ReadWriteMany",
+    )
+    pvc_override = next(d for d in docs_override if d["kind"] == "PersistentVolumeClaim")
+    assert pvc_override["spec"]["storageClassName"] == "fast"
+    assert pvc_override["spec"]["accessModes"] == ["ReadWriteMany"]
     dep_created = next(d for d in docs_created if d["kind"] == "Deployment")
     vol_created = next(
         v for v in dep_created["spec"]["template"]["spec"]["volumes"] if v["name"] == "pfactory-data"

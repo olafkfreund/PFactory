@@ -64,6 +64,11 @@ const pendingTaskStarts = new Set<string>();
 // "unknown" and clear the cached promise so the next caller retries.
 let appVersionLookup: Promise<string> | null = null;
 
+/** Reset the shared lookup between tests. */
+export function resetAppVersionLookupForTests(): void {
+  appVersionLookup = null;
+}
+
 function fetchAppVersion(): Promise<string> {
   if (!appVersionLookup) {
     appVersionLookup = get<{ version?: string }>('/health')
