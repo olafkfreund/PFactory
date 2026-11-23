@@ -26,6 +26,8 @@ export interface AppShellLabels {
   themeOptions: Record<Theme, string>;
   search: string;
   searchShortcut: string;
+  status?: string;
+  statusNeedsAttention?: string;
   needsYou(count: number): string;
   userMenu(name: string): string;
   project: ProjectSwitcherLabels;
@@ -56,6 +58,7 @@ export interface AppShellProps extends Omit<ProjectSwitcherProps, 'labels'> {
   } | undefined;
   strip?: PipelineStripProps | undefined;
   topbarStatus?: ReactNode | undefined;
+  topbarStatusAttention?: boolean | undefined;
   sidebarHeader?: ReactNode | undefined;
   sidebarFooter?: ReactNode | undefined;
   sidebarCollapsed: boolean;
@@ -72,7 +75,7 @@ export interface AppShellProps extends Omit<ProjectSwitcherProps, 'labels'> {
 
 export function AppShell({
   portal, portalProject, nav, activeNav, onNavigate, projects, currentProject, onSelectProject, onAllProjects,
-  onAddProject, projectSubtitle, projectSettings, primaryAction, view, strip, topbarStatus,
+  onAddProject, projectSubtitle, projectSettings, primaryAction, view, strip, topbarStatus, topbarStatusAttention,
   sidebarHeader, sidebarFooter, sidebarCollapsed, onSidebarCollapsedChange, user, theme,
   onTheme, onSearch, needsYou, version, labels, children,
 }: AppShellProps) {
@@ -81,6 +84,7 @@ export function AppShell({
   const sidebar = useRef<HTMLElement>(null);
   const userTrigger = useRef<HTMLElement>(null);
   const userMenu = useRef<HTMLDetailsElement>(null);
+  const statusMenu = useRef<HTMLDetailsElement>(null);
   const sidebarId = useId();
   const sidebarLabel = sidebarCollapsed ? labels.expandSidebar : labels.collapseSidebar;
 
@@ -127,6 +131,15 @@ export function AppShell({
     document.addEventListener('pointerdown', dismiss);
     return () => document.removeEventListener('pointerdown', dismiss);
   }, [user]);
+
+  useEffect(() => {
+    if (!topbarStatus) return;
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && !statusMenu.current?.contains(event.target) && statusMenu.current) statusMenu.current.open = false;
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [topbarStatus]);
 
   const closeDrawer = () => {
     if (drawerOpen) {
@@ -201,7 +214,26 @@ export function AppShell({
               <span aria-hidden>⚑</span> {needsYou.count}
             </button>
           )}
-          {topbarStatus && <div className="f-topbar__status">{topbarStatus}</div>}
+          {topbarStatus && (
+            <details
+              ref={statusMenu}
+              className="f-topbar__status"
+              data-attention={topbarStatusAttention || undefined}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && event.currentTarget.open) {
+                  event.stopPropagation();
+                  event.currentTarget.open = false;
+                  event.currentTarget.querySelector('summary')?.focus();
+                }
+              }}
+            >
+              <summary className="f-icon-btn f-topbar__status-trigger" aria-label={topbarStatusAttention ? labels.statusNeedsAttention ?? 'Status needs attention' : labels.status ?? 'Status'}>
+                <span aria-hidden>⋯</span>
+                <span className="f-topbar__status-dot" aria-hidden />
+              </summary>
+              <div className="f-topbar__status-content">{topbarStatus}</div>
+            </details>
+          )}
           {version && <span className="f-topbar__version">{version}</span>}
           {user && (
             <details
