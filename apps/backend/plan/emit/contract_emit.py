@@ -503,7 +503,8 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
             if (
                 (not allow_fallback and not isinstance(exc, HTTPError))
                 or (isinstance(exc, HTTPError) and exc.code >= HTTPStatus.INTERNAL_SERVER_ERROR)
-                or isinstance(exc, (TimeoutError, socket.timeout, URLError, ConnectionError))
+                or isinstance(exc, (TimeoutError, socket.timeout, ConnectionError))
+                or (isinstance(exc, URLError) and not isinstance(exc, HTTPError))
             ):
                 result["outcome"] = "unknown"
                 result["errors"] = [

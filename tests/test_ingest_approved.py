@@ -387,3 +387,17 @@ def test_artifact_live_requires_signing_key_even_with_fallback(monkeypatch) -> N
                     auth_kind="user", approver_display="A User")
     with pytest.raises(PlanServiceError, match="signing key"):
         service.emit_contract(session.session_id, dry_run=False, http=_IdempotentAI())
+
+
+def test_dry_run_never_replaces_a_recorded_live_attempt() -> None:
+    """A dry run after a live attempt (here: unknown) keeps the live result."""
+    from types import SimpleNamespace
+
+    from plan.service import PlanService
+
+    live = {"ok": False, "dry_run": False, "outcome": "unknown"}
+    session = SimpleNamespace(source_artifacts=[{"stage": "plan"}], contract_result=dict(live))
+    svc = PlanService.__new__(PlanService)
+    returned = svc._emit_contract("s1", dry_run=True, session_override=session)
+    assert returned is session
+    assert session.contract_result == live

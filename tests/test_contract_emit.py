@@ -385,6 +385,7 @@ def test_from_plan_422_detail_is_returned(monkeypatch) -> None:
         dry_run=False,
     )
     assert result["aifactory_status"] == 422
+    assert result.get("outcome") != "unknown"  # a 4xx is a confirmed rejection, not unknown
     assert result["aifactory_detail"] == "body.plan required"
     assert "internal transport info" not in str(result)
 

@@ -3196,6 +3196,9 @@ class PlanService:
         previous_result = session.contract_result or {}
         if artifact_session and previous_result.get("ok") and not previous_result.get("dry_run"):
             return session
+        # A dry run never replaces a recorded live attempt (ok, rejected or unknown).
+        if artifact_session and dry_run and previous_result and not previous_result.get("dry_run"):
+            return session
         if artifact_session:
             from plan.repo_ref import qualify_repo  # noqa: PLC0415
 
