@@ -537,6 +537,16 @@ def _emit_lease_ttl() -> int:
     return ttl if ttl > 0 else _EMIT_LEASE_TTL_DEFAULT
 
 
+@contextmanager
+def _artifact_claim_lock(lock: threading.Lock) -> Iterator[None]:
+    if not lock.acquire(timeout=1.0):
+        raise EmitInProgressError("artifact intake in progress; retry")
+    try:
+        yield
+    finally:
+        lock.release()
+
+
 def _warn_if_multi_replica_without_store(store: SessionStore | None) -> None:
     """Shout when this process is one of several with no shared store (#755).
 
@@ -1187,7 +1197,9 @@ class PlanService:
     ) -> tuple[PlanSession, bool]:
         """Claim an authorized artifact triple before creating and reviewing it."""
         by_stage = {item["stage"]: item["content"] for item in artifacts}
-        identity = [tenant_id, org_id, project_id, provider, repo, base_ref]
+        provider = provider.strip().lower()
+        repo = repo.strip()
+        identity = [tenant_id, org_id, project_id, provider, repo.lower(), base_ref]
         identity.extend(
             next(item["blob_sha"] for item in artifacts if item["stage"] == stage)
             for stage in ("intent", "spec", "plan")
@@ -1201,13 +1213,19 @@ class PlanService:
             if not complete:
                 raise PlanServiceError("cannot confirm whether an artifact session exists")
             return next(
-                (s for s in sessions if s.submission_id == submission_id and s.status != "failed"),
+                (
+                    s
+                    for s in sessions
+                    if s.submission_id == submission_id
+                    and s.review is not None
+                    and s.status not in {"discarded", "failed", "ingested", "reviewing"}
+                ),
                 None,
             )
 
         with self._store_lock:
             lock = self._emit_locks.setdefault(claim_id, threading.Lock())
-        with lock:
+        with _artifact_claim_lock(lock):
             if existing := find():
                 return self.get(existing.session_id), False
             store = self._session_store
@@ -1250,13 +1268,16 @@ class PlanService:
                     {key: value for key, value in item.items() if key not in {"content"}}
                     for item in artifacts
                 ]
-                session.submission_id = submission_id
                 session.correlation_key = correlation_key_for(session)
                 session.epic = epic
                 self._save(session)
                 try:
-                    self._review_existing_epic(session, epic, external_runner=external_runner)
-                except Exception as exc:
+                    self._review_existing_epic(
+                        session, epic, external_runner=external_runner, save=False
+                    )
+                    session.submission_id = submission_id
+                    self._save(session)
+                except BaseException as exc:
                     session.status = "failed"
                     session.process_error = type(exc).__name__
                     self._save(session)
@@ -1266,6 +1287,28 @@ class PlanService:
                 if claimed and store is not None:
                     with suppress(Exception):
                         store.delete_if_lease_owner(claim_id, owner)
+
+    async def ingest_approved_async(
+        self, artifacts: list[dict[str, str]], **kwargs: Any
+    ) -> tuple[PlanSession, bool]:
+        """Run artifact review off-loop under the normal admission cap."""
+        if self._job_store is not None:
+            job_id = f"artifact-review:{uuid4().hex}"
+            store = cast(Any, self._job_store)
+            await asyncio.to_thread(
+                store.upsert, job_id, service_status="ingested", tenant_id=kwargs.get("tenant_id")
+            )
+            return cast(
+                tuple[PlanSession, bool],
+                await self._durable_admit(
+                    job_id, operation=lambda: self.ingest_approved(artifacts, **kwargs)
+                ),
+            )
+        sem = self._admission_semaphore()
+        if sem is None:
+            return await asyncio.to_thread(self.ingest_approved, artifacts, **kwargs)
+        async with sem:
+            return await asyncio.to_thread(self.ingest_approved, artifacts, **kwargs)
 
     def find_active_issue_session(
         self, tenant_id: str, provider: str, repo: str, issue_number: int
@@ -1737,6 +1780,8 @@ class PlanService:
           - no durable store   → the in-process :class:`asyncio.Semaphore`
             (single-pod dev only).
         """
+        if self.get(session_id).source_artifacts is not None:
+            raise ArtifactSessionError("artifact session: re-submit instead")
         if self._job_store is not None:
             return await self._durable_admit(session_id, external_runner=external_runner, llm=llm)
         sem = self._admission_semaphore()
@@ -1750,8 +1795,13 @@ class PlanService:
             )
 
     async def _durable_admit(
-        self, session_id: str, *, external_runner=None, llm=None
-    ) -> PlanSession:
+        self,
+        session_id: str,
+        *,
+        external_runner=None,
+        llm=None,
+        operation: Callable[[], Any] | None = None,
+    ) -> Any:
         """Grant a slot via the durable store, then run ``process`` off-loop.
 
         The slot grant is a ``SELECT ... FOR UPDATE`` transaction in the store
@@ -1781,7 +1831,7 @@ class PlanService:
             lease_heartbeat_interval,
         )
 
-        store = self._job_store
+        store = cast(Any, self._job_store)
         delay = 0.05
         while True:
             try:
@@ -1800,6 +1850,10 @@ class PlanService:
             self._renew_lease(store, session_id, lease_heartbeat_interval())
         )
         try:
+            if operation is not None:
+                result = await asyncio.to_thread(operation)
+                await asyncio.to_thread(store.upsert, session_id, service_status="emitted")
+                return result
             return await asyncio.to_thread(
                 self.process, session_id, external_runner=external_runner, llm=llm
             )
@@ -3140,15 +3194,12 @@ class PlanService:
         session = session_override or self.get(session_id)
         artifact_session = session.source_artifacts is not None
         previous_result = session.contract_result or {}
-        if (
-            artifact_session
-            and not dry_run
-            and previous_result.get("ok")
-            and not previous_result.get("dry_run")
-        ):
+        if artifact_session and previous_result.get("ok") and not previous_result.get("dry_run"):
             return session
         if artifact_session:
-            repo = session.repo
+            from plan.repo_ref import qualify_repo  # noqa: PLC0415
+
+            repo = qualify_repo(session.provider, session.repo)
             project_id = session.project_id
             require_user_approval = True
             if not project_id:
@@ -3366,6 +3417,7 @@ class PlanService:
         if result.get("ok") and not dry_run:
             record = {
                 "digest": digest,
+                "outcome": "ok",
                 "result": result,
                 "at": datetime.now(UTC).isoformat(),
             }

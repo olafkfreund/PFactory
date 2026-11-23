@@ -19,7 +19,7 @@ import socket
 from collections.abc import Callable
 from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.error import HTTPError, URLError
 
 from plan.emit.access_block import attach_access
@@ -165,7 +165,7 @@ def assemble_contract(
             {**item, "attested_by": "client"} for item in source_artifacts
         ]
         approval = review.human_approval if review else None
-        if approval:
+        if approval and approval.approved and approval.user_id and approval.approver_display:
             contract["provenance"]["human_approval"] = {
                 "user_id": approval.user_id,
                 "approver_display": approval.approver_display,
@@ -173,7 +173,8 @@ def assemble_contract(
                 "approved_at": approval.approved_at,
                 "plan_hash": approval.plan_hash,
             }
-        contract["provenance"]["submission_id"] = submission_id
+        if submission_id is not None:
+            contract["provenance"]["submission_id"] = submission_id
     attach_execution(contract, plan, epic)
     if review is not None:
         attach_review_tier(contract, review)
@@ -294,7 +295,19 @@ def _post_with_readback(
             last_mismatches = ["create response carried no task id to read back"]
             continue
 
-        task = _response_body(get(_task_url(base_url, task_id)))
+        try:
+            task = _response_body(cast(Callable[[str], Any], get)(_task_url(base_url, task_id)))
+        except HTTPError as exc:
+            if HTTPStatus.BAD_REQUEST <= exc.code < HTTPStatus.INTERNAL_SERVER_ERROR:
+                return {
+                    **base_result,
+                    "ok": False,
+                    "outcome": "unknown",
+                    "correlation": dict(correlation),
+                    "verified": False,
+                    "mismatches": ["read-back failed after task creation"],
+                }
+            raise
         mismatches = _verify_readback(contract, task)
         if not mismatches:
             return {
@@ -490,11 +503,7 @@ def emit_contract(  # noqa: PLR0911, PLR0912 - validation, dry-run, and fallback
             if (
                 (not allow_fallback and not isinstance(exc, HTTPError))
                 or (isinstance(exc, HTTPError) and exc.code >= HTTPStatus.INTERNAL_SERVER_ERROR)
-                or isinstance(exc, (TimeoutError, socket.timeout))
-                or (
-                    isinstance(exc, URLError)
-                    and isinstance(exc.reason, (TimeoutError, socket.timeout))
-                )
+                or isinstance(exc, (TimeoutError, socket.timeout, URLError, ConnectionError))
             ):
                 result["outcome"] = "unknown"
                 result["errors"] = [

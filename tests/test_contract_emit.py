@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -123,6 +123,7 @@ def test_sign_when_key_provided() -> None:
 
 def test_artifact_provenance_is_signed() -> None:
     review = _review()
+    review.human_approval.approved = True
     review.human_approval.user_id = "user-1"
     review.human_approval.approver_display = "A User"
     review.human_approval.auth_kind = "user"
@@ -150,6 +151,58 @@ def test_artifact_provenance_is_signed() -> None:
     assert contract["approval"]["signature"] != sign_contract(
         contract, key="test-key", approval_timestamp="2026-11-23T00:00:00Z"
     )["signature"]
+
+
+def test_unapproved_artifact_dry_run_omits_optional_provenance() -> None:
+    review = _review()
+    review.human_approval.user_id = "user-1"
+    review.human_approval.approver_display = "A User"
+    result = emit_contract(
+        _plan(), _epic(), review, base_url="http://ai:3101", project_id="p1",
+        source_artifacts=[{
+            "stage": "intent", "path": "intent/example.md", "blob_sha": "a" * 40,
+            "approve_commit_sha": "b" * 40, "approve_commit_author": "A User",
+        }], dry_run=True,
+    )
+    assert result["ok"]
+    provenance = result["contract"]["provenance"]
+    assert "human_approval" not in provenance
+    assert "submission_id" not in provenance
+
+
+@pytest.mark.parametrize("failure", [
+    HTTPError("http://ai", 503, "unavailable", {}, io.BytesIO(b"")),
+    URLError("disconnected"),
+    TimeoutError("timed out"),
+])
+def test_post_uncertainty_has_unknown_outcome(failure) -> None:
+    class FailingHttp:
+        def post(self, *_args, **_kwargs):
+            raise failure
+
+    result = emit_contract(
+        _plan(), _epic(), _review(), base_url="http://ai:3101", project_id="p1",
+        http=FailingHttp(), key="test-key", dry_run=False, allow_fallback=False,
+    )
+    assert not result["ok"] and result["outcome"] == "unknown"
+
+
+def test_readback_4xx_after_create_is_unknown(monkeypatch) -> None:
+    monkeypatch.setenv("PFACTORY_AIFACTORY_HANDSHAKE", "1")
+
+    class ReadbackDenied:
+        def post(self, *_args, **_kwargs):
+            return {"taskId": "task-1"}
+
+        def get(self, *_args, **_kwargs):
+            raise HTTPError("http://ai", 404, "missing", {}, io.BytesIO(b""))
+
+    result = emit_contract(
+        _plan(), _epic(), _review(), base_url="http://ai:3101", project_id="p1",
+        http=ReadbackDenied(), key="test-key", dry_run=False, allow_fallback=False,
+    )
+    assert not result["ok"] and result["outcome"] == "unknown"
+    assert result["correlation"]["task_id"] == "task-1"
 
 
 def test_artifact_live_requires_signature_and_never_falls_back(monkeypatch) -> None:

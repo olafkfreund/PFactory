@@ -59,3 +59,21 @@ def test_missing_steps_rejected() -> None:
                 "plan": "## Steps\nNone",
             }
         )
+
+
+def test_steps_keep_preamble_wrapping_and_code_headings() -> None:
+    _, epic = ingest_artifacts({
+        "intent": "# Intent: Example",
+        "spec": "## Verification\n- Works",
+        "plan": (
+            "## Steps\nShared context before the list.\n"
+            "1. **Build** parser\nUnindented continuation\n"
+            "```md\n## Fake heading\n```\n2. Test parser\n"
+            "## Tests\nRun suite"
+        ),
+    })
+    assert "Shared context before the list." in epic.epic_body
+    assert epic.children[0].title == "Build parser"
+    assert "Unindented continuation" in epic.children[0].body
+    assert "## Fake heading" in epic.children[0].body
+    assert len(epic.children) == 2

@@ -728,8 +728,6 @@ async def re_gate(
         return _session_dict(SERVICE.re_gate(session_id))
     except StaleSessionError as exc:  # another replica changed the session (#758)
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
-    except ArtifactSessionError as exc:
-        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 

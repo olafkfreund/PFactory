@@ -21,10 +21,11 @@ Three concerns:
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -41,8 +42,8 @@ if str(_BACKEND) not in sys.path:
 
 from server import config  # noqa: E402
 from server.database.engine import get_db  # noqa: E402
-from server.mcp_remote.auth import AuthenticatedKey, MCPAuthError
-from server.mcp_stdio.auth import (
+from server.mcp_remote.auth import AuthenticatedKey, MCPAuthError  # noqa: E402
+from server.mcp_stdio.auth import (  # noqa: E402
     MCP_READ_SCOPE,
     PROJECT_WRITE_SCOPE,
     _LegacyAdminKey,
@@ -258,7 +259,6 @@ def test_audit_helper_passes_right_fields_for_authenticated_key(monkeypatch):
     # via sys.modules — `import server.mcp_stdio.router` ensures
     # it's loaded.
     import sys
-    from unittest.mock import AsyncMock
 
     import server.mcp_stdio.router  # noqa: F401  (load into sys.modules)
 
@@ -527,6 +527,17 @@ def test_approved_artifact_bounds_and_blob_mismatch(monkeypatch):
         proxy._IngestApprovedBody.model_validate({**body, "artifacts": [
             {**artifacts[0], "path": "../intent.md"}, *artifacts[1:]
         ]})
+    for field, value in (
+        ("slug", "Bad Slug"), ("provider", "GitHub"), ("repo", "x" * 257),
+        ("base_ref", "bad..ref"), ("branch", "bad~ref"),
+        ("branch", "x" * 256),
+    ):
+        with pytest.raises(ValidationError):
+            proxy._IngestApprovedBody.model_validate({**body, field: value})
+    with pytest.raises(ValidationError):
+        proxy._IngestApprovedBody.model_validate({**body, "artifacts": [
+            {**artifacts[0], "content": "é" * 131073}, *artifacts[1:]
+        ]})
 
     async def no_guard(*_args):
         pass
@@ -607,12 +618,166 @@ def test_scoped_ingest_text_invalid_body_is_422(monkeypatch):
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("route", ["ingest-text", "ingest-approved"])
+def test_plan_ingest_array_body_is_422(monkeypatch, route):
+    proxy = _proxy_module()
+
+    async def no_guard(*_args):
+        pass
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", no_guard)
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        f"/api/mcp-stdio/plan/sessions/{route}",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"}, json=[],
+    )
+    assert response.status_code == 422
+
+
+def test_registered_repo_project_resolution_hides_other_org(monkeypatch):
+    from server.routes import project_authz
+
+    projects = {
+        "visible": {"repo": "owner/repo", "org_id": "org-1"},
+        "visible-2": {"repo": "owner/repo", "org_id": "org-1"},
+        "foreign": {"repo": "owner/repo", "org_id": "org-2"},
+    }
+    monkeypatch.setattr(project_authz.project_paths, "load_projects", lambda: projects)
+    principal = {"id": None, "org_id": "org-1", "api_key_id": "key-1",
+                 "scopes": ["plan:write"]}
+
+    async def resolve(project_id):
+        return await project_authz.require_repo_project_role(
+            principal, "owner/repo", "member", None, project_id=project_id,
+        )
+
+    assert asyncio.run(resolve("visible")).project_id == "visible"
+    assert asyncio.run(resolve("visible-2")).project_id == "visible-2"
+    failures = []
+    for project_id in ("foreign", "unknown", "visible"):
+        try:
+            repo = "other/repo" if project_id == "visible" else "owner/repo"
+            asyncio.run(project_authz.require_repo_project_role(
+                principal, repo, "member", None, project_id=project_id,
+            ))
+        except HTTPException as exc:
+            failures.append((exc.status_code, exc.detail))
+    assert failures == [(404, "Project not found")] * 3
+
+
+def test_artifact_approval_looks_up_display_name(monkeypatch):
+    from plan.service import PlanService
+    from tests.test_ingest_approved import _ready_artifacts
+
+    service = PlanService()
+    session, _ = service.ingest_approved(
+        _ready_artifacts(), provider="github", repo="owner/repo", base_ref="main",
+        project_id="p1", external_runner=lambda _p, _e: [],
+    )
+    assert session.review.gates_passed
+
+    async def guard(*_args):
+        return session
+
+    async def audit(*_args, **_kwargs):
+        pass
+
+    class DB:
+        async def get(self, _model, user_id):
+            assert user_id == "user-1"
+            return SimpleNamespace(name="A User", email="user@example.com")
+
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(pp, "SERVICE", service)
+    monkeypatch.setattr(pp, "_guard_session", guard)
+    monkeypatch.setattr(pp, "log_audit_event", audit)
+    request = SimpleNamespace(
+        state=SimpleNamespace(user={"id": "user-1", "org_id": "org-1"}), client=None,
+    )
+    result = asyncio.run(pp.approve(
+        session.session_id, pp.ApproveBody(approver="client label"), request, DB(),
+    ))
+    assert result["review"]["human_approval"]["approver_display"] == "A User"
+
+
+def test_artifact_emit_route_ignores_body_project_and_reports_missing_binding(monkeypatch):
+    from plan.service import PlanService
+    from tests.test_ingest_approved import _ready_artifacts
+
+    service = PlanService()
+    session, _ = service.ingest_approved(
+        _ready_artifacts(), provider="github", repo="owner/repo", base_ref="main",
+        project_id="p1", external_runner=lambda _p, _e: [],
+    )
+    session.project_id = None
+    service._save(session)
+
+    async def guard(*_args):
+        return session
+
+    monkeypatch.setattr(pp, "SERVICE", service)
+    monkeypatch.setattr(pp, "_guard_session", guard)
+    request = SimpleNamespace(state=SimpleNamespace(user={"id": "user-1"}), client=None)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(pp.emit_contract(
+            session.session_id,
+            pp.EmitContractBody(dry_run=True, repo="attacker/repo", project_id="attacker"),
+            request, None,
+        ))
+    assert exc.value.status_code == 422
+
+
+def test_legacy_key_can_ingest_and_dry_run_before_approval(monkeypatch):
+    from plan.service import PlanService
+    from tests.test_ingest_approved import _ready_artifacts
+
+    proxy = _proxy_module()
+    service = PlanService()
+
+    async def guard(*_args):
+        return service.get(_args[0])
+
+    async def no_guard(*_args):
+        pass
+
+    async def registered(*_args, **_kwargs):
+        return SimpleNamespace(project_id="p1", org_id="org-1")
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", no_guard)
+    monkeypatch.setattr(proxy, "require_repo_project_role", registered)
+    monkeypatch.setattr(proxy, "SERVICE", service)
+    monkeypatch.setattr(pp, "SERVICE", service)
+    monkeypatch.setattr(pp, "_guard_session", guard)
+    monkeypatch.setattr(PlanService, "_reconnoiter", lambda _self, _session, plan: plan)
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer legacy-secret-token-for-test"}
+    created = client.post("/api/mcp-stdio/plan/sessions/ingest-approved", headers=headers,
+                          json={"slug": "rename-label", "provider": "github",
+                                "repo": "owner/repo", "base_ref": "main", "branch": "feat/x",
+                                "head_sha": "a" * 40, "artifacts": _ready_artifacts()})
+    assert created.status_code == 200
+    session_id = created.json()["session_id"]
+    dry = client.post(f"/api/mcp-stdio/plan/sessions/{session_id}/emit-contract",
+                      headers=headers, json={"dry_run": True})
+    assert dry.status_code == 200
+    assert dry.json()["contract_result"]["ok"] is True
+    assert "human_approval" not in dry.json()["contract_result"]["contract"]["provenance"]
+
+
 @pytest.mark.parametrize("query", ["", "?tail=50"])
 def test_task_logs_proxy_returns_200_with_and_without_tail(monkeypatch, query):
     """#906: the proxy passed ``tail=`` to ``get_task_logs``, which takes none (500)."""
     from server import config
-    from server.routes import tasks as tasks_routes
-    from server.routes import project_authz
+    from server.routes import project_authz, tasks as tasks_routes
 
     async def _logs(task_id):
         return {"task_id": task_id, "phases": {}}

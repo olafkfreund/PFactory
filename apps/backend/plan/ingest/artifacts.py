@@ -18,10 +18,20 @@ def _body(text: str) -> str:
 
 
 def _section(text: str, name: str) -> str:
-    match = re.search(rf"(?im)^## {re.escape(name)}\s*$", text)
+    unfenced = []
+    fenced = False
+    for line in text.splitlines(keepends=True):
+        if re.match(r"^\s*(```|~~~)", line):
+            fenced = not fenced
+        if fenced:
+            unfenced.append(" " * len(line.rstrip("\n")) + ("\n" if line.endswith("\n") else ""))
+        else:
+            unfenced.append(line)
+    headings = "".join(unfenced)
+    match = re.search(rf"(?im)^## {re.escape(name)}\s*$", headings)
     if match is None:
         return ""
-    end = re.search(r"(?m)^## ", text[match.end() :])
+    end = re.search(r"(?m)^## ", headings[match.end() :])
     return text[match.end() : match.end() + end.start() if end else None].strip()
 
 
@@ -90,7 +100,9 @@ def ingest_artifacts(
         children.append(
             ChildIssue(
                 key=f"C{i}",
-                title=re.sub(r"^\d+[.)]\s+", "", heading).strip()[:120],
+                title=re.sub(r"\*\*(.*?)\*\*", r"\1", re.sub(r"^\d+[.)]\s+", "", heading)).strip()[
+                    :120
+                ],
                 body=body,
                 kind=kind,
                 depends_on=[f"C{i - 1}"] if i > 1 else [],

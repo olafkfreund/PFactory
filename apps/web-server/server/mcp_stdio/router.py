@@ -24,7 +24,6 @@ UI-driven actions in the audit log.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -52,6 +51,7 @@ from server.routes.plan_pipeline import (
     ApproveBody,
     EmitContractBody,
     IngestTextBody,
+    _attribution,
     approve as plan_approve,
     audit_pack as plan_audit_pack,
     emit_contract as plan_emit_contract,
@@ -104,6 +104,7 @@ from .auth import (
 
 router = APIRouter(prefix="/api/mcp-stdio", tags=["MCP (stdio)"])
 logger = logging.getLogger(__name__)
+_MAX_ARTIFACT_BYTES = 256 * 1024
 
 
 def _principal(key: AuthenticatedKey | _LegacyAdminKey) -> dict[str, Any]:
@@ -168,13 +169,16 @@ async def _authorize_key(
     await authorize_project(principal, project_id, db, minimum_role)
 
 
-async def _read_json_body(request: FastAPIRequest) -> dict:
+async def _read_json_body(request: FastAPIRequest) -> dict[str, Any]:
     """Read request body, return {} if empty."""
     raw = await request.body()
     if not raw:
         return {}
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise HTTPException(status_code=422, detail="Expected a JSON object")
+        return parsed
     except json.JSONDecodeError:
         return {}
 
@@ -552,7 +556,7 @@ class _ApprovedArtifact(BaseModel):
 
     stage: str
     path: str = Field(max_length=512)
-    content: str
+    content: str = Field(max_length=_MAX_ARTIFACT_BYTES)
     blob_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     approve_commit_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     approve_commit_author: str = Field(max_length=200)
@@ -562,6 +566,13 @@ class _ApprovedArtifact(BaseModel):
     def valid_stage(cls, value: str) -> str:
         if value not in {"intent", "spec", "plan"}:
             raise ValueError("invalid stage")
+        return value
+
+    @field_validator("content")
+    @classmethod
+    def valid_content(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > _MAX_ARTIFACT_BYTES:
+            raise ValueError("artifact content exceeds 256 KiB")
         return value
 
     @field_validator("path")
@@ -582,11 +593,11 @@ class _ApprovedArtifact(BaseModel):
 class _IngestApprovedBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    slug: str
-    provider: str
-    repo: str
-    base_ref: str
-    branch: str
+    slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,127}$")
+    provider: str = Field(pattern=r"^[a-z_]{1,32}$")
+    repo: str = Field(min_length=1, max_length=256)
+    base_ref: str = Field(min_length=1, max_length=255)
+    branch: str = Field(min_length=1, max_length=255)
     head_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     project_id: str | None = None
     artifacts: list[_ApprovedArtifact] = Field(min_length=3, max_length=3)
@@ -596,6 +607,24 @@ class _IngestApprovedBody(BaseModel):
     def valid_artifacts(cls, value: list[_ApprovedArtifact]) -> list[_ApprovedArtifact]:
         if {item.stage for item in value} != {"intent", "spec", "plan"}:
             raise ValueError("exactly one artifact per stage is required")
+        return value
+
+    @field_validator("base_ref", "branch")
+    @classmethod
+    def valid_ref(cls, value: str) -> str:
+        import re  # noqa: PLC0415
+
+        if (
+            value == "@"
+            or value.startswith(("-", "/"))
+            or value.endswith(("/", "."))
+            or "//" in value
+            or ".." in value
+            or "@{" in value
+            or any(part.endswith(".lock") or part.startswith(".") for part in value.split("/"))
+            or re.search(r"[\x00-\x20\x7f~^:?*\[\\]", value)
+        ):
+            raise ValueError("invalid git ref")
         return value
 
     @model_validator(mode="after")
@@ -697,10 +726,13 @@ async def proxy_plan_ingest_approved(
             detail=exc.errors(include_input=False, include_context=False, include_url=False),
         ) from exc
     access = await require_repo_project_role(
-        principal, body.repo, "member", db, provider=body.provider
+        principal,
+        body.repo,
+        "member",
+        db,
+        provider=body.provider,
+        project_id=body.project_id,
     )
-    if body.project_id and body.project_id != access.project_id:
-        raise HTTPException(status_code=404, detail="Project not found")
     for item in body.artifacts:
         raw = item.content.encode("utf-8")
         digest = hashlib.sha1(
@@ -710,8 +742,7 @@ async def proxy_plan_ingest_approved(
         if digest != item.blob_sha:
             raise HTTPException(status_code=422, detail=f"{item.stage} blob SHA mismatch")
     try:
-        session, created = await asyncio.to_thread(
-            SERVICE.ingest_approved,
+        session, created = await SERVICE.ingest_approved_async(
             [item.model_dump() for item in body.artifacts],
             provider=body.provider,
             repo=body.repo,
@@ -719,8 +750,7 @@ async def proxy_plan_ingest_approved(
             project_id=access.project_id,
             tenant_id=resolve_tenant(request),
             org_id=access.org_id,
-            originator=principal.get("id"),
-            agent_identity=None,
+            **_attribution(principal),
         )
     except ArtifactIngestError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
