@@ -368,6 +368,13 @@
       "refresh": "Refresh",
       "openDocs": "Open docs",
       "explainerHint": "Override via .pfactory/.env: AGENT_MCP_<agent>_ADD or _REMOVE"
+    },
+    "planSources": {
+      "title": "Plan sources",
+      "description": "Registry entries, plan templates, and provider adapters",
+      "registry": "Registry",
+      "templates": "Templates",
+      "providers": "Providers"
     }
   },
   "agentProfile": {

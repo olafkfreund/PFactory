@@ -82,6 +82,12 @@ describe('parseRoute', () => {
     expect(parseRoute('/p/alpha/pfactory')).toEqual({ kind: 'project', ref: 'alpha', view: 'pfactory' });
     expect(parseRoute('/p/alpha/cloud')).toEqual({ kind: 'project', ref: 'alpha', view: 'cloud' });
     expect(parseRoute('/p/alpha/settings')).toEqual({ kind: 'project', ref: 'alpha', view: 'settings' });
+    expect(parseRoute('/p/alpha/settings/plan-sources')).toEqual({
+      kind: 'project',
+      ref: 'alpha',
+      view: 'settings',
+      subview: 'plan-sources',
+    });
     expect(parseRoute('/p/alpha/bogus')).toEqual({ kind: 'project', ref: 'alpha', view: 'planning' });
     expect(parseRoute('/p/a%20b')).toMatchObject({ ref: 'a b' });
     expect(parseRoute('/p/%E0%A4%A')).toMatchObject({ kind: 'project' });
@@ -95,6 +101,7 @@ describe('parseRoute', () => {
   });
   it('projectPath round-trips', () => {
     expect(projectPath('a b', 'terminals')).toBe('/p/a%20b/terminals');
+    expect(projectPath('alpha', 'settings', 'plan-sources')).toBe('/p/alpha/settings/plan-sources');
     expect(projectPath('x')).toBe('/p/x');
     expect(projectPath('x', 'planning')).toBe('/p/x');
   });

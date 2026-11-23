@@ -1,5 +1,10 @@
 import { useTranslation } from 'react-i18next';
+import { Package, LayoutTemplate, Cpu } from 'lucide-react';
 import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, GitHubSyncStatus } from '../../../shared/types';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../ui/tabs';
+import { RegistryPanel } from '../../planning/RegistryPanel';
+import { TemplatesPanel } from '../../planning/TemplatesPanel';
+import { ProvidersPanel } from '../../planning/ProvidersPanel';
 import { SettingsSection } from '../SettingsSection';
 import { GeneralSettings } from '../../project-settings/GeneralSettings';
 import { SecuritySettings } from '../../project-settings/SecuritySettings';
@@ -133,6 +138,40 @@ export function SectionRouter({
               onToggle={() => {}}
             />
           </InitializationGuard>
+        </SettingsSection>
+      );
+
+    case 'plan-sources':
+      return (
+        <SettingsSection
+          title={t('projectSections.planSources.title', 'Plan sources')}
+          description={t('projectSections.planSources.description', 'Registry entries, plan templates, and provider adapters')}
+        >
+          <Tabs defaultValue="registry">
+            <TabsList>
+              <TabsTrigger value="registry">
+                <Package className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                {t('projectSections.planSources.registry', 'Registry')}
+              </TabsTrigger>
+              <TabsTrigger value="templates">
+                <LayoutTemplate className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                {t('projectSections.planSources.templates', 'Templates')}
+              </TabsTrigger>
+              <TabsTrigger value="providers">
+                <Cpu className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                {t('projectSections.planSources.providers', 'Providers')}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="registry" className="mt-4">
+              <RegistryPanel />
+            </TabsContent>
+            <TabsContent value="templates" className="mt-4">
+              <TemplatesPanel />
+            </TabsContent>
+            <TabsContent value="providers" className="mt-4">
+              <ProvidersPanel />
+            </TabsContent>
+          </Tabs>
         </SettingsSection>
       );
 

@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { formatRelativeTime } from '../../lib/utils';
 import { usePlanStore } from '../../stores/plan-store';
 import { usePipelineStripSlot } from '../../contexts/PipelineStripContext';
+import { SessionDetail } from './SessionDetail';
 import {
   PipelineStrip,
   type PipelineStage,
@@ -27,7 +28,7 @@ import {
   type WorkPhase,
   type WorkTone,
 } from '../factory-ui/WorkCard';
-import { WorkColumn } from '../factory-ui/WorkColumn';
+import { WorkColumn, type WorkColumnItem } from '../factory-ui/WorkColumn';
 import type { SessionSummary, BoardColumn } from '../../shared/types/plan';
 
 export type VisibleColumn = 'backlog' | 'human_review' | 'done';
@@ -123,12 +124,25 @@ interface Props {
   sessions: SessionSummary[];
   selectedId: string | null;
   onSelect: (sessionId: string) => void;
+  onCloseDetail?: () => void;
+  onNewPlan?: () => void;
+  viewMode?: 'board' | 'list';
   projectId?: string;
   fetchFn?: typeof fetch;
   onRevealBoard?: () => void;
 }
 
-export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn, onRevealBoard }: Props) {
+export function PlanBoard({
+  sessions,
+  selectedId,
+  onSelect,
+  onCloseDetail,
+  onNewPlan,
+  viewMode = 'board',
+  projectId,
+  fetchFn,
+  onRevealBoard,
+}: Props) {
   const { t } = useTranslation(['tasks', 'navigation']);
   const stripSlot = usePipelineStripSlot();
   const storeFetchFn = usePlanStore((state) => state.fetchFn);
@@ -272,10 +286,120 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn, 
     [selectedStage]
   );
 
+  const filteredListSessions = useMemo(() => {
+    const base = failureOnly ? failedSessions : mergedSessions;
+    return selectedStage ? base.filter((s) => columnFor(s) === selectedStage) : base;
+  }, [failureOnly, failedSessions, mergedSessions, selectedStage]);
+
   const emptyText = (col: VisibleColumn): string => {
     if (col === 'backlog') return 'Nothing queued';
     if (col === 'human_review') return 'Nothing in review';
     return 'Nothing approved';
+  };
+
+  const toColumnItem = (s: SessionSummary): WorkColumnItem => {
+    const failed = isFailed(s);
+    const done = isDone(s) && !failed;
+    const tone = toneFor(s);
+    const isSelected = selectedId === s.session_id;
+    const subtitleParts = [
+      s.project_id ? t('tasks:pipeline.project', { id: s.project_id }) : t('tasks:pipeline.unassignedProject'),
+      ...(s.plan_type ? [s.plan_type] : []),
+      ...(s.children > 0 ? [`${String(s.children)} issues`] : []),
+    ];
+    const subtitle = subtitleParts.length > 0 ? subtitleParts.join(' · ') : undefined;
+    const reason = failed
+      ? (s.gates_passed === false ? 'needs attention' : s.status)
+      : undefined;
+    const badges = [
+      s.session_id,
+      ...(s.plan_type ? [s.plan_type] : []),
+      ...(s.children > 0 ? [`${String(s.children)} issues`] : []),
+      ...(s.gates_passed === true ? ['gates ok'] : []),
+    ];
+
+    const actions: WorkAction[] = failed
+      ? [
+          {
+            id: 'rerun',
+            label: t('tasks:pipeline.rerun', 'Re-run'),
+            variant: 'outline',
+            disabled: busy !== null,
+            busy: busy === s.session_id,
+            onClick: () => {
+              void actOn(s, 'rerun');
+            },
+          },
+          {
+            id: 'dismiss',
+            label: t('tasks:pipeline.dismiss', 'Dismiss'),
+            variant: 'ghost',
+            disabled: busy !== null,
+            busy: busy === s.session_id,
+            onClick: () => {
+              void actOn(s, 'dismiss');
+            },
+          },
+        ]
+      : s.status === 'ingested'
+        ? [
+            {
+              id: 'process',
+              label: 'Process',
+              variant: 'primary',
+              disabled: busy !== null,
+              busy: busy === s.session_id,
+              onClick: () => {
+                void actOn(s, 'process');
+              },
+            },
+          ]
+        : [];
+
+    const boardDetailOpen = viewMode === 'board' && isSelected;
+
+    return {
+      id: s.session_id,
+      projectId: s.project_id ?? projectId ?? '',
+      collapsedByDefault: done && !boardDetailOpen,
+      render: ({ expanded, onToggle }) => (
+        <div
+          data-testid="plan-card"
+          data-session-id={s.session_id}
+          data-selected={isSelected ? 'true' : undefined}
+          className={isSelected ? 'ring-1 ring-primary rounded-lg' : undefined}
+        >
+          <WorkCard
+            labels={workCardLabels}
+            title={`${s.project_id ?? t('tasks:pipeline.unassigned')} · ${s.title || s.session_id}`}
+            subtitle={subtitle}
+            status={s.status}
+            tone={tone}
+            age={formatRelativeTime(s.created_at) || '—'}
+            reason={reason}
+            phases={phaseStrip(s)}
+            badges={badges}
+            actions={actions}
+            collapsedByDefault={done && !boardDetailOpen}
+            expanded={expanded || boardDetailOpen}
+            onToggle={() => {
+              if (boardDetailOpen) onCloseDetail?.();
+              onToggle();
+            }}
+            onOpen={() => onSelect(s.session_id)}
+          >
+            {boardDetailOpen && (
+              <div className="mt-3 border-t border-border pt-3">
+                <SessionDetail
+                  sessionId={s.session_id}
+                  onBack={() => onCloseDetail?.()}
+                />
+              </div>
+            )}
+          </WorkCard>
+        </div>
+      ),
+    };
   };
 
   return (
@@ -289,119 +413,72 @@ export function PlanBoard({ sessions, selectedId, onSelect, projectId, fetchFn, 
         </p>
       )}
 
-      <div className="f-board">
-        {visibleStages.map((stage) => {
-          const colSessions = failureOnly
-            ? failedByStage[stage.key]
-            : buckets[stage.key];
+      {mergedSessions.length === 0 ? (
+        <div className="f-state f-state--empty" data-testid="plan-empty-state">
+          <span className="f-state__text">{t('tasks:pipeline.emptyPlans', 'No plans yet')}</span>
+          {onNewPlan && (
+            <div className="f-state__actions">
+              <button
+                type="button"
+                className="f-btn f-btn--primary"
+                onClick={onNewPlan}
+              >
+                {t('tasks:pipeline.newPlan', 'New plan')}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : viewMode === 'list' ? (
+        <div
+          className={selectedId ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' : 'flex flex-col'}
+          data-testid="plan-list-view"
+        >
+          <WorkColumn
+            title={
+              selectedStage
+                ? (STAGES.find((s) => s.key === selectedStage)?.label ?? t('tasks:pipeline.plansColumn', 'Plans'))
+                : t('tasks:pipeline.plansColumn', 'Plans')
+            }
+            tone={selectedStage ? STAGES.find((s) => s.key === selectedStage)?.tone : 'plan'}
+            projectId={undefined}
+            emptyLabel={selectedStage ? emptyText(selectedStage) : t('tasks:pipeline.emptyPlans', 'No plans yet')}
+            showMoreLabel={(count) =>
+              t('tasks:pipeline.showMore', { count, defaultValue: `Show ${count} more` })
+            }
+            items={filteredListSessions.map(toColumnItem)}
+          />
+          {selectedId && (
+            <div className="rounded-lg border border-border bg-card p-4" data-testid="plan-list-detail-pane">
+              <SessionDetail
+                sessionId={selectedId}
+                onBack={() => onCloseDetail?.()}
+              />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="f-board">
+          {visibleStages.map((stage) => {
+            const colSessions = failureOnly
+              ? failedByStage[stage.key]
+              : buckets[stage.key];
 
-          return (
-            <WorkColumn
-              key={stage.key}
-              title={stage.label}
-              tone={stage.tone}
-              projectId={undefined}
-              emptyLabel={emptyText(stage.key)}
-              showMoreLabel={(count) =>
-                t('tasks:pipeline.showMore', { count, defaultValue: `Show ${count} more` })
-              }
-              items={colSessions.map((s) => {
-                const failed = isFailed(s);
-                const done = isDone(s) && !failed;
-                const tone = toneFor(s);
-                const subtitleParts = [
-                  s.project_id ? t('tasks:pipeline.project', { id: s.project_id }) : t('tasks:pipeline.unassignedProject'),
-                  ...(s.plan_type ? [s.plan_type] : []),
-                  ...(s.children > 0 ? [`${String(s.children)} issues`] : []),
-                ];
-                const subtitle = subtitleParts.length > 0 ? subtitleParts.join(' · ') : undefined;
-                const reason = failed
-                  ? (s.gates_passed === false ? 'needs attention' : s.status)
-                  : undefined;
-                const badges = [
-                  s.session_id,
-                  ...(s.plan_type ? [s.plan_type] : []),
-                  ...(s.children > 0 ? [`${String(s.children)} issues`] : []),
-                  ...(s.gates_passed === false
-                    ? ['needs attention']
-                    : s.gates_passed === true
-                      ? ['gates ok']
-                      : []),
-                ];
-
-                const actions: WorkAction[] = failed
-                  ? [
-                      {
-                        id: 'rerun',
-                        label: t('tasks:pipeline.rerun', 'Re-run'),
-                        variant: 'outline',
-                        disabled: busy !== null,
-                        busy: busy === s.session_id,
-                        onClick: () => {
-                          void actOn(s, 'rerun');
-                        },
-                      },
-                      {
-                        id: 'dismiss',
-                        label: t('tasks:pipeline.dismiss', 'Dismiss'),
-                        variant: 'ghost',
-                        disabled: busy !== null,
-                        busy: busy === s.session_id,
-                        onClick: () => {
-                          void actOn(s, 'dismiss');
-                        },
-                      },
-                    ]
-                  : s.status === 'ingested'
-                    ? [
-                        {
-                          id: 'process',
-                          label: 'Process',
-                          variant: 'primary',
-                          disabled: busy !== null,
-                          busy: busy === s.session_id,
-                          onClick: () => {
-                            void actOn(s, 'process');
-                          },
-                        },
-                      ]
-                    : [];
-
-                return {
-                  id: s.session_id,
-                  projectId: s.project_id ?? projectId ?? '',
-                  collapsedByDefault: done,
-                  render: ({ expanded, onToggle }) => (
-                    <div
-                      data-testid="plan-card"
-                      data-session-id={s.session_id}
-                      data-selected={selectedId === s.session_id ? 'true' : undefined}
-                      className={selectedId === s.session_id ? 'ring-1 ring-primary rounded-lg' : undefined}
-                    >
-                      <WorkCard
-                        labels={workCardLabels}
-                        title={`${s.project_id ?? t('tasks:pipeline.unassigned')} · ${s.title || s.session_id}`}
-                        subtitle={subtitle}
-                        status={s.status}
-                        tone={tone}
-                        age={formatRelativeTime(s.created_at) || '—'}
-                        reason={reason}
-                        phases={phaseStrip(s)}
-                        badges={badges}
-                        actions={actions}
-                        collapsedByDefault={done}
-                        expanded={expanded}
-                        onToggle={onToggle}
-                        onOpen={() => onSelect(s.session_id)}
-                      />
-                    </div>
-                  ),
-                };
-              })}
-            />
-          );
-        })}
-      </div>
+            return (
+              <WorkColumn
+                key={stage.key}
+                title={stage.label}
+                tone={stage.tone}
+                projectId={undefined}
+                emptyLabel={emptyText(stage.key)}
+                showMoreLabel={(count) =>
+                  t('tasks:pipeline.showMore', { count, defaultValue: `Show ${count} more` })
+                }
+                items={colSessions.map(toColumnItem)}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

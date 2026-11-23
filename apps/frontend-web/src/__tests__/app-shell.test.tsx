@@ -134,13 +134,14 @@ describe('PFactory adapted AppShell', () => {
     // Primary action "+ Task"
     expect(screen.getByRole('button', { name: '+ Task' })).toBeEnabled();
 
-    // Project Settings pinned in sidebar navigates to /p/alpha/settings with General, Git, Memory, MCP tabs
+    // Project Settings pinned in sidebar navigates to /p/alpha/settings with General, Git, Memory, MCP, Plan sources tabs
     fireEvent.click(screen.getByRole('button', { name: 'Project Settings' }));
     expect(await screen.findByTestId('project-settings-page')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'General' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Git' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Memory' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'MCP' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Plan sources' })).toBeInTheDocument();
     // Strip is hidden on settings pages
     expect(screen.queryByRole('toolbar', { name: /Pipeline stages/i })).toBeNull();
 
@@ -204,7 +205,7 @@ describe('PFactory adapted AppShell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Unassigned · Blocked Review Plan' }));
     expect(screen.getByTestId('planning-view')).toBeInTheDocument();
-    expect(screen.getByTestId('plan-board-view')).toHaveClass('hidden');
+    expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
     fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/ }));
     expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
     expect(container.querySelectorAll('.f-column .f-card')).toHaveLength(1);
@@ -218,7 +219,68 @@ describe('PFactory adapted AppShell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Plans' }));
     fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/ }));
     expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
+  });
 
+  it('deep-links to /p/:slug/settings/plan-sources with Registry, Templates and Providers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).includes('/meta/registry')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              entries: [
+                {
+                  id: 'aws-adapter',
+                  title: 'AWS Adapter',
+                  kind: 'adapter',
+                  version: '1.0.0',
+                  enabled: true,
+                  capabilities: ['compute'],
+                },
+              ],
+            }),
+          });
+        }
+        if (String(url).includes('/meta/templates')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              templates: [{ name: 'standard', title: 'Standard Plan', tags: ['core'], policy: {} }],
+            }),
+          });
+        }
+        if (String(url).includes('/meta/providers')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ providers: ['claude'] }),
+          });
+        }
+        if (String(url).includes('/meta/adapters')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ infra_adapters: ['aws'], knowledge_connectors: ['confluence'] }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tasks: [], count: 0, sessions: [] }),
+        });
+      })
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/p/alpha/settings/plan-sources']}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('project-settings-page')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Plan sources' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByTestId('registry-panel')).toBeInTheDocument();
+    expect(screen.getByText('AWS Adapter')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Templates' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Providers' })).toBeInTheDocument();
   });
 
   it('reverts an unsaved appearance preview on route change', async () => {

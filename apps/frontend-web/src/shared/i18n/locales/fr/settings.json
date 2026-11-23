@@ -368,6 +368,13 @@
       "refresh": "Actualiser",
       "openDocs": "Voir la doc",
       "explainerHint": "Surcharge via .pfactory/.env : AGENT_MCP_<agent>_ADD ou _REMOVE"
+    },
+    "planSources": {
+      "title": "Sources de plan",
+      "description": "Entrées du registre, modèles de plan et adaptateurs de fournisseur",
+      "registry": "Registre",
+      "templates": "Modèles",
+      "providers": "Fournisseurs"
     }
   },
   "agentProfile": {
