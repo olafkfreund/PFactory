@@ -31,6 +31,7 @@ async def _remove_orgs(db, *org_ids):
     await db.execute(delete(Organization).where(Organization.id.in_(org_ids)))
     await db.commit()
 
+
 # user id -> memberships: solo (member of A only), multi (A and B).
 MEMBERS = [("solo", "A", "member"), ("multi", "A", "member"), ("multi", "B", "member")]
 
@@ -113,9 +114,14 @@ def test_backfill_only_single_org_and_idempotent(env, monkeypatch):
     pid = projects.ensure_tracked_project("acme/legacy")
     assert env.run(env.pa.resolve_default_org_id) is None
     service = {"id": "default", "is_service": True}
-    assert env.run(
-        lambda db: env.pa.require_repo_project_role(service, "acme/new", "member", db, for_intake=True)
-    ).org_id is None
+    assert (
+        env.run(
+            lambda db: env.pa.require_repo_project_role(
+                service, "acme/new", "member", db, for_intake=True
+            )
+        ).org_id
+        is None
+    )
     asyncio.run(main.backfill_project_orgs())
     assert "org_id" not in projects.load_projects()[pid]
 
@@ -126,9 +132,14 @@ def test_backfill_only_single_org_and_idempotent(env, monkeypatch):
 
     env.run(remove_second_org)
     assert env.run(env.pa.resolve_default_org_id) == "A"
-    assert env.run(
-        lambda db: env.pa.require_repo_project_role(service, "acme/new", "member", db, for_intake=True)
-    ).org_id == "A"
+    assert (
+        env.run(
+            lambda db: env.pa.require_repo_project_role(
+                service, "acme/new", "member", db, for_intake=True
+            )
+        ).org_id
+        == "A"
+    )
     asyncio.run(main.backfill_project_orgs())
     assert projects.load_projects()[pid]["org_id"] == "A"
     before = projects.load_projects()
@@ -165,7 +176,7 @@ def test_backfill_zero_orgs_and_invalid_registry_continue(env, monkeypatch, capl
         asyncio.run(main.backfill_project_orgs())
     assert "project.org_unassigned project_id=orphan" in caplog.text
     assert "org_id" not in projects.load_projects()["orphan"]
-    for bad in ('{', '[]', '{"orphan": null}'):
+    for bad in ("{", "[]", '{"orphan": null}'):
         path.write_text(bad)
         with caplog.at_level(logging.ERROR, logger=main.logger.name):
             asyncio.run(main.backfill_project_orgs())
@@ -213,9 +224,7 @@ def test_service_project_role_and_ingest_keep_multi_org_unstamped(env, monkeypat
     from server.routes import plan_pipeline as pp
 
     pid = projects.ensure_tracked_project("acme/legacy")
-    access = env.run(
-        lambda db: env.pa.require_project_role(SERVICE, pid, "member", db=db)
-    )
+    access = env.run(lambda db: env.pa.require_project_role(SERVICE, pid, "member", db=db))
     assert access.org_id is None
     service = PlanService()
     monkeypatch.setattr(pp, "SERVICE", service)
@@ -262,7 +271,9 @@ def test_proxy_add_project_service_principal(env, tmp_path, monkeypatch):
     out = env.run(lambda db: proxy.proxy_add_project(Request("proxy-multi"), db, _LegacyAdminKey()))
     assert projects.load_projects()[out["id"]].get("org_id") is None
     env.run(lambda db: _remove_orgs(db, "B"))
-    out = env.run(lambda db: proxy.proxy_add_project(Request("proxy-single"), db, _LegacyAdminKey()))
+    out = env.run(
+        lambda db: proxy.proxy_add_project(Request("proxy-single"), db, _LegacyAdminKey())
+    )
     assert projects.load_projects()[out["id"]]["org_id"] == "A"
 
 
@@ -273,22 +284,34 @@ def test_ingest_routes_pass_authorized_org_to_tracking(env, monkeypatch):
     service = PlanService()
     monkeypatch.setattr(pp, "SERVICE", service)
     request = SimpleNamespace(headers={}, state=SimpleNamespace(user={"id": "solo"}))
-    body = pp.IngestTextBody(
-        text="# Text\n## Acceptance Criteria\n- It works\n", repo="acme/text"
-    )
+    body = pp.IngestTextBody(text="# Text\n## Acceptance Criteria\n- It works\n", repo="acme/text")
     text_out = env.run(lambda db: pp.ingest_text(body, request, db))
     assert service.get(text_out["session_id"]).org_id == "A"
-    assert next(p for p in projects.load_projects().values() if p.get("repo") == "acme/text")["org_id"] == "A"
+    assert (
+        next(p for p in projects.load_projects().values() if p.get("repo") == "acme/text")["org_id"]
+        == "A"
+    )
 
     upload = UploadFile(filename="plan.md", file=io.BytesIO(body.text.encode()))
     upload_out = env.run(
         lambda db: pp.ingest_upload(
-            request, upload, title="Upload", category="", template="",
-            repo="acme/upload", base_ref=None, db=db,
+            request,
+            upload,
+            title="Upload",
+            category="",
+            template="",
+            repo="acme/upload",
+            base_ref=None,
+            db=db,
         )
     )
     assert service.get(upload_out["session_id"]).org_id == "A"
-    assert next(p for p in projects.load_projects().values() if p.get("repo") == "acme/upload")["org_id"] == "A"
+    assert (
+        next(p for p in projects.load_projects().values() if p.get("repo") == "acme/upload")[
+            "org_id"
+        ]
+        == "A"
+    )
 
 
 def test_unstamped_project_is_404_for_non_service(env):
