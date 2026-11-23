@@ -27,7 +27,7 @@ const makeSession = (overrides: Partial<SessionSummary> = {}): SessionSummary =>
 
 beforeEach(() => {
   localStorage.clear();
-  usePlanStore.setState({ actionBusy: null, actionError: null, fetchFn: undefined, sessions: [] });
+  usePlanStore.setState({ actionBusy: null, actionError: null, fetchFn: undefined, sessions: [], sessionsLoaded: false, loading: false, error: null, currentSession: null });
 });
 
 describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
@@ -310,5 +310,40 @@ describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
     fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/i }));
     expect(within(listView).queryByRole('button', { name: 'alpha · Backlog Plan' })).toBeNull();
     expect(within(listView).getByRole('button', { name: 'alpha · Review Plan' })).toBeInTheDocument();
+    expect(screen.queryByTestId('plan-list-detail-pane')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+    expect(screen.queryByRole('button', { name: 'alpha · Backlog Plan' })).toBeNull();
+    view.rerender(<PlanningView fetchFn={fetchFn} focusSessionId="s-backlog" />);
+    expect(await screen.findByRole('button', { name: 'alpha · Backlog Plan' })).toBeInTheDocument();
+    expect(await within(view.container.querySelector('[data-session-id="s-backlog"]') as HTMLElement).findByTestId('session-detail')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/i }));
+    expect(screen.queryByTestId('session-detail')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'alpha · Backlog Plan' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Clear filter/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'alpha · Backlog Plan' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    expect(screen.getByTestId('plan-list-detail-pane')).toBeInTheDocument();
+    expect(within(screen.getByTestId('plan-list-view')).getByRole('button', { name: 'alpha · Backlog Plan' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/i }));
+    expect(screen.queryByTestId('plan-list-detail-pane')).toBeNull();
+  });
+
+  it('shows loading and request errors with retry, then an empty state only after success', async () => {
+    let rejectFirst: (error: Error) => void = () => undefined;
+    const fetchFn = vi.fn()
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }))
+      .mockResolvedValue({ ok: true, json: async () => ({ sessions: [] }) }) as unknown as typeof fetch;
+    render(<PlanningView fetchFn={fetchFn} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading plans');
+    expect(screen.queryByTestId('plan-empty-state')).toBeNull();
+    await act(async () => rejectFirst(new Error('Sessions unavailable')));
+    expect(screen.getByRole('alert')).toHaveTextContent('Sessions unavailable');
+    expect(screen.queryByTestId('plan-empty-state')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('plan-empty-state')).toHaveTextContent('No plans yet');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

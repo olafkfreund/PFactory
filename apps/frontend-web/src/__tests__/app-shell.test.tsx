@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router';
 import '../shared/i18n';
 import App from '../App';
 import { useAuthStore } from '../stores/auth-store';
@@ -269,8 +269,19 @@ describe('PFactory adapted AppShell', () => {
       })
     );
 
-    render(
+    function RouteControls() {
+      const location = useLocation();
+      const navigate = useNavigate();
+      return <>
+        <span data-testid="settings-location">{location.pathname}</span>
+        <button type="button" onClick={() => void navigate(-1)}>History back</button>
+        <button type="button" onClick={() => void navigate(1)}>History forward</button>
+      </>;
+    }
+
+    const view = render(
       <MemoryRouter initialEntries={['/p/alpha/settings/plan-sources']}>
+        <RouteControls />
         <App />
       </MemoryRouter>
     );
@@ -281,6 +292,26 @@ describe('PFactory adapted AppShell', () => {
     expect(screen.getByText('AWS Adapter')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Templates' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Providers' })).toBeInTheDocument();
+    expect(screen.getByText('adapter')).toHaveClass('text-info');
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Templates' }), { button: 0 });
+    expect(await screen.findByTestId('templates-panel')).toBeInTheDocument();
+    expect(screen.getByText('Standard Plan')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-location')).toHaveTextContent('/p/alpha/settings/plan-sources/templates');
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Providers' }), { button: 0 });
+    expect(await screen.findByTestId('providers-panel')).toBeInTheDocument();
+    expect(screen.getByText('confluence')).toHaveClass('text-secondary-foreground');
+    expect(screen.getByTestId('settings-location')).toHaveTextContent('/p/alpha/settings/plan-sources/providers');
+
+    fireEvent.click(screen.getByRole('button', { name: 'History back' }));
+    expect(await screen.findByTestId('templates-panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'History forward' }));
+    expect(await screen.findByTestId('providers-panel')).toBeInTheDocument();
+
+    view.unmount();
+    render(<MemoryRouter initialEntries={['/p/alpha/settings/plan-sources/providers']}><App /></MemoryRouter>);
+    expect(await screen.findByTestId('providers-panel')).toBeInTheDocument();
   });
 
   it('reverts an unsaved appearance preview on route change', async () => {

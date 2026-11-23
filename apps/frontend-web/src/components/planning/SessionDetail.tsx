@@ -164,7 +164,7 @@ export function SessionDetail({ sessionId, onBack }: Props) {
       {/* Content tabs */}
       <div className="flex-1 overflow-y-auto">
         <Tabs defaultValue={defaultTab}>
-          <TabsList>
+          <TabsList className="flex h-auto flex-wrap justify-start gap-1">
             <TabsTrigger value="editor">Edit</TabsTrigger>
             {hasEpic && <TabsTrigger value="pipeline">Pipeline</TabsTrigger>}
             {hasFeasibility && <TabsTrigger value="feasibility">Feasibility</TabsTrigger>}

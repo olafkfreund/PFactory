@@ -122,6 +122,9 @@ export function phaseStrip(s: SessionSummary): WorkPhase[] {
 
 interface Props {
   sessions: SessionSummary[];
+  loading?: boolean;
+  error?: string | null;
+  sessionsLoaded?: boolean;
   selectedId: string | null;
   onSelect: (sessionId: string) => void;
   onCloseDetail?: () => void;
@@ -134,6 +137,9 @@ interface Props {
 
 export function PlanBoard({
   sessions,
+  loading = false,
+  error = null,
+  sessionsLoaded = true,
   selectedId,
   onSelect,
   onCloseDetail,
@@ -222,14 +228,25 @@ export function PlanBoard({
   const handleSelectStage = useCallback((key: string | null) => {
     setSelectedStage(key as VisibleColumn | null);
     setFailureOnly(false);
+    if (selectedId && key && mergedSessions.find((s) => s.session_id === selectedId && columnFor(s) !== key)) onCloseDetail?.();
     onRevealBoard?.();
-  }, [onRevealBoard]);
+  }, [mergedSessions, onCloseDetail, onRevealBoard, selectedId]);
 
   const handleSelectFailed = useCallback((key: string) => {
     setSelectedStage(key as VisibleColumn);
     setFailureOnly(true);
+    if (selectedId && !mergedSessions.some((s) => s.session_id === selectedId && columnFor(s) === key && isFailed(s))) onCloseDetail?.();
     onRevealBoard?.();
-  }, [onRevealBoard]);
+  }, [mergedSessions, onCloseDetail, onRevealBoard, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || !selectedStage) return;
+    const selected = mergedSessions.find((s) => s.session_id === selectedId);
+    if (selected && (columnFor(selected) !== selectedStage || (failureOnly && !isFailed(selected)))) {
+      setSelectedStage(null);
+      setFailureOnly(false);
+    }
+  }, [selectedId, mergedSessions, selectedStage, failureOnly]);
 
   const stripProps: PipelineStripProps = useMemo(
     () => ({
@@ -413,7 +430,16 @@ export function PlanBoard({
         </p>
       )}
 
-      {mergedSessions.length === 0 ? (
+      {loading ? (
+        <div role="status" className="f-state">{t('tasks:pipeline.loadingPlans', 'Loading plans…')}</div>
+      ) : error ? (
+        <div role="alert" className="f-state">
+          <span>{error}</span>
+          <button type="button" className="f-btn" onClick={() => void usePlanStore.getState().loadSessions()}>
+            {t('tasks:pipeline.retry', 'Retry')}
+          </button>
+        </div>
+      ) : sessionsLoaded && mergedSessions.length === 0 ? (
         <div className="f-state f-state--empty" data-testid="plan-empty-state">
           <span className="f-state__text">{t('tasks:pipeline.emptyPlans', 'No plans yet')}</span>
           {onNewPlan && (

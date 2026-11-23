@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useLocation, useNavigate } from 'react-router';
 import { Package, LayoutTemplate, Cpu } from 'lucide-react';
 import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, GitHubSyncStatus } from '../../../shared/types';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../ui/tabs';
@@ -59,6 +60,9 @@ export function SectionRouter({
   handleInitialize,
 }: SectionRouterProps) {
   const { t } = useTranslation('settings');
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const planSourceTab = pathname.match(/\/settings\/plan-sources\/(registry|templates|providers)\/?$/)?.[1] ?? 'registry';
 
   switch (activeSection) {
     case 'general':
@@ -147,7 +151,7 @@ export function SectionRouter({
           title={t('projectSections.planSources.title', 'Plan sources')}
           description={t('projectSections.planSources.description', 'Registry entries, plan templates, and provider adapters')}
         >
-          <Tabs defaultValue="registry">
+          <Tabs value={planSourceTab} onValueChange={(tab) => void navigate(`${pathname.replace(/\/(registry|templates|providers)\/?$/, '')}/${tab}`)}>
             <TabsList>
               <TabsTrigger value="registry">
                 <Package className="h-3.5 w-3.5 mr-1.5" aria-hidden />

@@ -107,9 +107,10 @@ export function PlanningView({ fetchFn, focusSessionId, onShowBoard }: Props) {
     }
   }, [focusSessionId, store.sessions]);
 
-  const handleSessionSelect = (sessionId: string) => {
+  const handleSessionSelect = useCallback((sessionId: string) => {
     setSelectedSessionId((prev) => (prev === sessionId ? null : sessionId));
-  };
+  }, []);
+  const handleCloseDetail = useCallback(() => setSelectedSessionId(null), []);
 
   const handleNewPlanSuccess = (session: PlanSession) => {
     setShowNewPlanDialog(false);
@@ -166,13 +167,16 @@ export function PlanningView({ fetchFn, focusSessionId, onShowBoard }: Props) {
       <div className="flex-1 overflow-y-auto p-4" data-testid="plan-board-view">
         <PlanBoard
           sessions={store.sessions}
+          loading={store.loading}
+          error={store.error}
+          sessionsLoaded={store.sessionsLoaded}
           selectedId={selectedSessionId}
           viewMode={viewMode}
           projectId={activeProjectId || selectedProjectId || undefined}
           fetchFn={fetchFn}
           onRevealBoard={revealBoard}
           onSelect={handleSessionSelect}
-          onCloseDetail={() => setSelectedSessionId(null)}
+          onCloseDetail={handleCloseDetail}
           onNewPlan={() => setShowNewPlanDialog(true)}
         />
       </div>
