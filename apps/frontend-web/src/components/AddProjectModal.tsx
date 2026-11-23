@@ -51,7 +51,7 @@ export function AddProjectModal({ open, onOpenChange, onProjectAdded }: AddProje
   // Epic #82 PR-B — clone-from-Git-URL mode. Mutually exclusive with the
   // local-folder mode above; toggled via the segmented button at the top
   // of the modal body.
-  const [mode, setMode] = useState<'local' | 'clone'>('local');
+  const [mode, setMode] = useState<'local' | 'clone'>('clone');
   const [gitUrl, setGitUrl] = useState('');
   const [gitBranch, setGitBranch] = useState('');
   const [gitName, setGitName] = useState('');
@@ -97,7 +97,7 @@ export function AddProjectModal({ open, onOpenChange, onProjectAdded }: AddProje
     }
   }, [projectsFolder]);
 
-  // Scan on modal open
+  // Reset modal state on open
   useEffect(() => {
     if (open) {
       setCustomPath('');
@@ -106,13 +106,12 @@ export function AddProjectModal({ open, onOpenChange, onProjectAdded }: AddProje
       setShowClaudeReadyOnly(false);
       setError(null);
       setCreatedDirPath(null);
-      setMode('local');
+      setMode('clone');
       setGitUrl('');
       setGitBranch('');
       setGitName('');
-      scanProjects();
     }
-  }, [open, scanProjects]);
+  }, [open]);
 
   const handleAddProject = async () => {
     setIsAdding(true);
@@ -208,7 +207,15 @@ export function AddProjectModal({ open, onOpenChange, onProjectAdded }: AddProje
             </div>
           </DialogTitle>
           <DialogDescription>
-            Select a project from your projects folder or enter a custom path.
+            {mode === 'clone'
+              ? t(
+                  'addProject.descriptionClone',
+                  'Clone a Git repository into the portal workspace.',
+                )
+              : t(
+                  'addProject.descriptionLocal',
+                  'Select a project from your projects folder or enter a custom path.',
+                )}
           </DialogDescription>
         </DialogHeader>
 

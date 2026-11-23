@@ -8,6 +8,7 @@ Main entry point for the web server that provides:
 """
 
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -18,6 +19,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 from starlette.status import HTTP_404_NOT_FOUND
@@ -27,7 +30,8 @@ from . import env_bootstrap  # noqa: F401  — loads .env into os.environ first
 from .auth import TokenAuthMiddleware
 from .config import get_settings
 from .crypto.kms import enforce_kms_safety
-from .database.engine import init_db
+from .database.engine import async_session_factory, init_db
+from .database.models import Organization
 from .logging_config import setup_logging
 from .routes import (
     api_keys,
@@ -62,6 +66,8 @@ from .routes import (
     visual_inspection,
     well_known,
 )
+from .routes.project_authz import resolve_default_org_id
+from .services import project_paths
 from .services.skills_service import init_skills_service
 from .websockets import (
     events as events_ws,
@@ -77,6 +83,55 @@ from .websockets import (
 # stdlib-logging tests. Moving the call inside the factory means
 # importing this module is a pure operation.
 logger = logging.getLogger(__name__)
+
+
+def _stamp_legacy_projects(org_id: str | None, has_default_org: bool) -> None:
+    """Repair the file registry once, serialized across startup replicas."""
+    path = project_paths.get_projects_file()
+    with project_paths.locked_projects_file(path):
+        if not path.exists():
+            return
+        try:
+            projects = json.loads(path.read_text())
+            if not isinstance(projects, dict) or any(
+                not isinstance(project, dict) for project in projects.values()
+            ):
+                raise ValueError("project registry must contain project objects")
+        except (OSError, UnicodeError, ValueError) as exc:
+            logger.error("project.org_backfill_invalid_registry error=%s", type(exc).__name__)
+            return
+        unstamped = [
+            pid
+            for pid, project in projects.items()
+            if not project.get("org_id")
+            or (project.get("org_id") == "default" and not has_default_org)
+        ]
+        if not org_id:
+            for pid in unstamped:
+                logger.warning("project.org_unassigned project_id=%s", pid)
+            return
+        if not unstamped:
+            return
+        for pid in unstamped:
+            projects[pid]["org_id"] = org_id
+        project_paths.write_project_registry(path, projects)
+        for pid in unstamped:
+            logger.info("project.org_backfilled project_id=%s org_id=%s", pid, org_id)
+
+
+async def backfill_project_orgs() -> None:
+    if not project_paths.get_projects_file().exists():
+        return
+    try:
+        async with async_session_factory() as db:
+            org_id = await resolve_default_org_id(db)
+            has_default_org = (
+                await db.execute(select(Organization.id).where(Organization.id == "default"))
+            ).scalar_one_or_none() is not None
+    except (SQLAlchemyError, RuntimeError) as exc:
+        logger.warning("project.org_backfill_db_unavailable error=%s", type(exc).__name__)
+        return
+    await asyncio.to_thread(_stamp_legacy_projects, org_id, has_default_org)
 
 
 # Every top-level server prefix in create_app() (MCP/OAuth clients probe /mcp and /.well-known).
@@ -203,6 +258,7 @@ async def lifespan(app: FastAPI):  # noqa: PLR0915 - startup and shutdown own th
 
     # Initialize database (creates tables if needed)
     await init_db()
+    await backfill_project_orgs()
 
     # #774: SERVICE was built when the routes were imported, before the
     # migrations above; give it the shared session store now, in this boot.

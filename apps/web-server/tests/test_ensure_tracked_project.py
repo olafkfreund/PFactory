@@ -38,10 +38,13 @@ def test_registers_repo_only_project(monkeypatch, tmp_path):
 def test_idempotent_and_reuses_existing_repo(monkeypatch, tmp_path):
     _point_projects_file(monkeypatch, tmp_path)
     # A real local clone already registered for the repo under a different id.
-    proj.save_projects({"existing": {"repo": "olafkfreund/my-app", "path": "/repos/my-app"}})
-    pid = proj.ensure_tracked_project("olafkfreund/my-app")
+    proj.save_projects(
+        {"existing": {"repo": "olafkfreund/my-app", "path": "/repos/my-app", "org_id": "A"}}
+    )
+    pid = proj.ensure_tracked_project("olafkfreund/my-app", "B")
     assert pid == "existing"  # reused, not clobbered
     assert proj.load_projects()["existing"]["path"] == "/repos/my-app"
+    assert proj.load_projects()["existing"]["org_id"] == "A"
 
 
 def test_blank_repo_is_noop(monkeypatch, tmp_path):

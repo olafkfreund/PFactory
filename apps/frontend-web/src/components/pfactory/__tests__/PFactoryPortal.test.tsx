@@ -76,7 +76,7 @@ describe('<PFactoryPortal>', () => {
     expect(screen.getByTestId('pfactory-portal')).toHaveAttribute(
       'data-view', 'list',
     );
-    expect(screen.getByRole('heading', { name: /PFactory Tasks/i }))
+    expect(screen.getByRole('heading', { name: /Test runs/i }))
       .toBeInTheDocument();
     await waitFor(() => screen.getByTestId('task-row-spec-a'));
   });

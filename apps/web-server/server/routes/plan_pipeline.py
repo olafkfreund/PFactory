@@ -31,7 +31,6 @@ from .project_authz import (
     authorize_plan_ingest,
     authorize_plan_session,
     canonical_repo_ref,
-    creator_org,
     plan_session_filter,
     require_plan_access,
     require_project_role,
@@ -326,7 +325,7 @@ async def ingest_text(
     if body.repo:
         from .projects import ensure_tracked_project
 
-        ensure_tracked_project(body.repo, await creator_org(_user(request), db))
+        ensure_tracked_project(body.repo, org_id)
     return _session_dict(session)
 
 
@@ -509,7 +508,7 @@ async def ingest_upload(
     if repo:
         from .projects import ensure_tracked_project
 
-        ensure_tracked_project(repo, await creator_org(_user(request), db))
+        ensure_tracked_project(repo, org_id)
     return _session_dict(session)
 
 
