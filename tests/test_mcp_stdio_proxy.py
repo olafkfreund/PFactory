@@ -399,11 +399,13 @@ def test_plan_audit_constants_use_mcp_namespace():
         ACTION_MCP_PLAN_APPROVE,
         ACTION_MCP_PLAN_INGEST,
         ACTION_MCP_PLAN_PROCESS,
+        ACTION_MCP_PLAN_REJECT,
     )
 
     assert ACTION_MCP_PLAN_INGEST == "mcp.plan.ingest"
     assert ACTION_MCP_PLAN_PROCESS == "mcp.plan.process"
     assert ACTION_MCP_PLAN_APPROVE == "mcp.plan.approve"
+    assert ACTION_MCP_PLAN_REJECT == "mcp.plan.reject"
 
 
 def _proxy_module():
@@ -448,6 +450,7 @@ def test_every_plan_tool_has_a_proxy_route():
         ("POST", "/api/mcp-stdio/plan/sessions/ingest-approved"),
         ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/process"),
         ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/approve"),
+        ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/reject"),
         ("POST", "/api/mcp-stdio/plan/sessions/{session_id}/emit-contract"),
     }
 
@@ -465,6 +468,7 @@ def test_plan_writes_need_plan_write_and_reads_need_mcp_read():
         "/api/mcp-stdio/plan/sessions/{session_id}/process",
         "/api/mcp-stdio/plan/sessions/{session_id}/emit-contract",
         "/api/mcp-stdio/plan/sessions/{session_id}/approve",
+        "/api/mcp-stdio/plan/sessions/{session_id}/reject",
     }
     seen = {
         r.path: _scopes_of(r)
@@ -475,6 +479,123 @@ def test_plan_writes_need_plan_write_and_reads_need_mcp_read():
     for path, scopes in seen.items():
         expected = "plan:write" if path in writes else "mcp:read"
         assert expected in scopes, f"{path} not gated by {expected} (got {scopes})"
+
+
+def test_plan_reject_proxies_body_response_and_audit(monkeypatch):
+    proxy = _proxy_module()
+    key = AuthenticatedKey(
+        key_id="key-1", scopes=frozenset({"plan:write"}), user_id="member", org_id="org-1"
+    )
+    captured = {}
+
+    async def authenticate(_header):
+        return key
+
+    async def check(_self, principal, _path, _db):
+        assert principal["org_id"] == "org-1"
+
+    async def reject(session_id, body, request, *, db):
+        assert session_id == "PLAN-1"
+        assert db is None
+        assert body == pp.RejectBody(approver="factory-cli", feedback="Fix scope")
+        assert request.state.user["org_id"] == "org-1"
+        return {"session_id": session_id, "status": "rejected"}
+
+    async def audit(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("server.mcp_stdio.auth.mcp_remote_auth.authenticate", authenticate)
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", check)
+    monkeypatch.setattr(proxy, "plan_reject", reject)
+    monkeypatch.setattr(proxy, "log_audit_event_bg", audit)
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        "/api/mcp-stdio/plan/sessions/PLAN-1/reject",
+        headers={"Authorization": "Bearer acw_writer"},
+        json={"approver": "factory-cli", "feedback": "Fix scope"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"session_id": "PLAN-1", "status": "rejected"}
+    assert captured["action"] == "mcp.plan.reject"
+    assert captured["resource_id"] == "PLAN-1"
+    assert captured["org_id"] == "org-1"
+    assert captured["details"] == {"approver": "factory-cli", "mcp_key_id": "key-1"}
+
+
+@pytest.mark.parametrize(
+    "action,body,raw",
+    [
+        ("approve", {"feedback": "Looks good"}, None),
+        ("approve", {"approver": "factory-cli", "extra": True}, None),
+        ("approve", None, "{"),
+        ("reject", {"approver": "factory-cli"}, None),
+        ("reject", {"approver": "factory-cli", "feedback": "Fix scope", "extra": True}, None),
+        ("reject", None, "{"),
+    ],
+)
+def test_plan_decision_invalid_body_is_422(monkeypatch, action, body, raw):
+    proxy = _proxy_module()
+
+    async def no_guard(*_args):
+        pass
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", no_guard)
+    monkeypatch.setattr(proxy, f"plan_{action}", AsyncMock())
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        f"/api/mcp-stdio/plan/sessions/PLAN-1/{action}",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"},
+        json=body if raw is None else None,
+        content=raw,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]
+    getattr(proxy, f"plan_{action}").assert_not_awaited()
+
+
+def test_plan_reject_requires_plan_write_scope(monkeypatch):
+    async def authenticate(_header):
+        return AuthenticatedKey(
+            key_id="key-1", scopes=frozenset({"mcp:read"}), user_id="member", org_id="org-1"
+        )
+
+    monkeypatch.setattr("server.mcp_stdio.auth.mcp_remote_auth.authenticate", authenticate)
+    app = FastAPI()
+    app.include_router(_proxy_module().router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        "/api/mcp-stdio/plan/sessions/PLAN-1/reject",
+        headers={"Authorization": "Bearer acw_reader"},
+        json={"approver": "factory-cli", "feedback": "Fix scope"},
+    )
+    assert response.status_code == 403
+    assert "plan:write" in response.json()["detail"]
+
+
+def test_plan_reject_unknown_session_is_404(monkeypatch):
+    proxy = _proxy_module()
+
+    async def check(*_args):
+        pass
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", check)
+    monkeypatch.setattr(pp, "SERVICE", pp.PlanService(persist=False))
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        "/api/mcp-stdio/plan/sessions/UNKNOWN/reject",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"},
+        json={"approver": "factory-cli", "feedback": "Fix scope"},
+    )
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Plan session not found"}
 
 
 def test_headerless_proxy_live_emit_refuses_shared_token_without_approval(monkeypatch):
