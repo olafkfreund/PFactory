@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.9.5 — plan:write API keys, switcher path, CLI proxy routes, GHCR base (2026-11-24)
+
+### Bug Fixes
+
+- **The API key scope picker offers `plan:write` (#1136, #1137).** A key that can ingest approved plans could not be minted from the UI before.
+- The project switcher no longer shows the pod filesystem path (Factory#3887, #1133).
+
+### New Features
+
+- Factory CLI proxy routes under `/api/mcp-stdio` (#1132, Factory#3882, #1134).
+
+### Improvements
+
+- The runtime image builds on a GHCR-hosted base image, so releases no longer depend on Chainguard being reachable (Factory#3880, #1127, #1128, #1129).
+
 ## 0.9.4 — one plan set, Plan sources, ingest-approved (2026-11-23)
 
 ### New Features
