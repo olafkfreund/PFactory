@@ -93,6 +93,7 @@ ACTION_MCP_TASK_MERGE = "mcp.task.merge"
 ACTION_MCP_PLAN_INGEST = "mcp.plan.ingest"
 ACTION_MCP_PLAN_PROCESS = "mcp.plan.process"
 ACTION_MCP_PLAN_APPROVE = "mcp.plan.approve"
+ACTION_MCP_PLAN_REJECT = "mcp.plan.reject"
 ACTION_MCP_PLAN_EMIT = "mcp.plan.emit"
 
 

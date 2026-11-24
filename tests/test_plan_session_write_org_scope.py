@@ -160,6 +160,7 @@ def test_org_key_cannot_write_another_org_session(env, monkeypatch, route):
     [
         ("/process", None, "process_async"),
         ("/approve", {"approver": "x"}, "approve"),
+        ("/reject", {"approver": "x", "feedback": "wrong plan"}, "reject"),
     ],
 )
 def test_org_key_reaches_own_session(env, monkeypatch, suffix, body, service_method):
@@ -213,6 +214,7 @@ def test_human_nonmember_is_hidden_with_either_flag(env, monkeypatch, suffix, bo
     [
         ("/process", None, "process_async"),
         ("/approve", {"approver": "x"}, "approve"),
+        ("/reject", {"approver": "x", "feedback": "wrong plan"}, "reject"),
     ],
 )
 def test_mcp_org_key_cannot_write_another_org_session(
