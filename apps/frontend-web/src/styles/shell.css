@@ -155,7 +155,7 @@
 }
 .f-topbar__crumbs {
   display: inline-flex; align-items: center;
-  flex: 0 1 230px; min-width: 0;
+  flex: 0 1 auto; min-width: 0;
   overflow: hidden; white-space: nowrap;
   gap: var(--f-space-2);
 }
