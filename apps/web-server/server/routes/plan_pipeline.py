@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.background.tasks import spawn
 from server.config import get_settings
+from server.database.models import User
 
 from ..database import DocsTargetConnection
 from ..database.engine import get_db
@@ -47,6 +48,8 @@ from plan.repo_ref import PROVIDER_GIT_HOST, parse_repo_ref, qualify_repo  # noq
 from plan.review.readiness.waiver import WaiverError  # noqa: E402
 from plan.service import (  # noqa: E402
     SERVICE,
+    ArtifactProjectError,
+    ArtifactSessionError,
     EmitInProgressError,
     PlanInputError,
     PlanService,
@@ -585,7 +588,7 @@ class PlanUpdateBody(_StrictBody):
     criteria: list[dict[str, str]] | None = None
 
 
-async def _guard_session(session_id: str, request: Request, db: AsyncSession) -> None:
+async def _guard_session(session_id: str, request: Request, db: AsyncSession) -> PlanSession:
     """404 unless the caller may write *session_id*: tenant (#308), then org (#977).
 
     404, never 403, matching ``get_session``: a status code must not reveal that
@@ -608,6 +611,7 @@ async def _guard_session(session_id: str, request: Request, db: AsyncSession) ->
         if exc.status_code == status.HTTP_404_NOT_FOUND:
             raise HTTPException(status_code=404, detail="Plan session not found") from None
         raise
+    return session
 
 
 @router.post("/{session_id}/process", dependencies=[Depends(require_plan_access("member"))])
@@ -646,6 +650,8 @@ async def process(
             )
         return _session_dict(await SERVICE.process_async(session_id))
     except StaleSessionError as exc:  # another replica changed the session (#758)
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
+    except ArtifactSessionError as exc:
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanInputError as exc:
         # Before PlanServiceError below: a rejected edit is the caller's input,
@@ -694,6 +700,8 @@ async def apply_suggestions(
             session = service.get(session_id)
     except StaleSessionError as exc:  # another replica changed the session (#758)
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
+    except ArtifactSessionError as exc:
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanInputError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
@@ -730,11 +738,15 @@ async def approve(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    await _guard_session(session_id, request, db)
+    guarded_session = await _guard_session(session_id, request, db)
     try:
         user = _user(request)
         user_id = _attribution(user)["originator"]
         auth_kind = "user" if user_id else "shared_token" if user else "unknown"
+        approver_display = None
+        if user_id and getattr(guarded_session, "source_artifacts", None) is not None:
+            account = await db.get(User, user_id)
+            approver_display = account.name or account.email or user_id if account else user_id
         result = _session_dict(
             SERVICE.approve(
                 session_id,
@@ -742,8 +754,11 @@ async def approve(
                 feedback=body.feedback,
                 user_id=user_id,
                 auth_kind=auth_kind,
+                approver_display=approver_display,
             )
         )
+    except ArtifactSessionError as exc:
+        raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except StaleSessionError as exc:  # another replica changed the session (#758)
         raise HTTPException(status_code=409, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
@@ -1029,11 +1044,12 @@ async def emit_contract(
     await _guard_session(session_id, request, db)
     session = cast(PlanService, SERVICE).get(session_id)
     repo_access = None
-    if body.repo:
+    artifact_session = getattr(session, "source_artifacts", None) is not None
+    if body.repo and not artifact_session:
         repo_access = await require_repo_project_role(
             _user(request), body.repo, "member", db, for_intake=True
         )
-    if body.project_id:
+    if body.project_id and not artifact_session:
         await require_project_role(_user(request), body.project_id, "member", db=db)
         if session.repo:
             bound_repo = await require_repo_project_role(
@@ -1047,7 +1063,7 @@ async def emit_contract(
             if bound_repo.project_id != body.project_id:
                 raise HTTPException(status_code=404, detail="Project not found")
     target_id = body.project_id or (repo_access.project_id if repo_access else None)
-    if (
+    if not artifact_session and (
         (body.project_id and repo_access and body.project_id != repo_access.project_id)
         or (session.project_id and target_id and target_id != session.project_id)
         or (
@@ -1057,7 +1073,7 @@ async def emit_contract(
         )
     ):
         raise HTTPException(status_code=404, detail="Project not found")
-    job_repo = body.repo
+    job_repo = body.repo if not artifact_session else None
     if body.repo and repo_access:
         target = canonical_repo_ref(body.repo)
         project = project_paths.load_projects().get(repo_access.project_id)
@@ -1072,7 +1088,7 @@ async def emit_contract(
                 SERVICE.emit_contract,
                 session_id,
                 repo=job_repo,
-                project_id=body.project_id,
+                project_id=body.project_id if not artifact_session else None,
                 http=http,
                 dry_run=body.dry_run,
                 require_user_approval=require_user_approval,
@@ -1084,6 +1100,8 @@ async def emit_contract(
         raise HTTPException(
             status_code=409, detail="Live MCP emit requires approval by an authenticated user key"
         ) from exc
+    except ArtifactProjectError as exc:
+        raise HTTPException(status_code=422, detail=client_error(exc)) from exc
     except PlanServiceError as exc:
         raise HTTPException(status_code=400, detail=client_error(exc)) from exc
 

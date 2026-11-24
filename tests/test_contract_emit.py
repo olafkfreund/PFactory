@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import io
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
+
+import pytest
 
 from plan.decompose.models import ChildIssue, EpicPlan
 from plan.emit.contract_emit import assemble_contract, emit_contract
+from plan.emit.signing import sign_contract
 from plan.emit.task_contract import validate_contract
 from plan.models import Criterion, NormalizedPlan
 from plan.review.models import LensScore, PlanReview
@@ -116,6 +119,107 @@ def test_sign_when_key_provided() -> None:
     approval = result["contract"]["approval"]
     assert approval["approved_by"] == "pfactory"
     assert len(approval["signature"]) == 64  # sha256 hex
+
+
+def test_artifact_provenance_is_signed() -> None:
+    review = _review()
+    review.human_approval.approved = True
+    review.human_approval.user_id = "user-1"
+    review.human_approval.approver_display = "A User"
+    review.human_approval.auth_kind = "user"
+    review.human_approval.approved_at = "2026-11-23T00:00:00Z"
+    review.human_approval.plan_hash = "abc"
+    source = [{
+        "stage": "intent", "path": "intent/example.md", "blob_sha": "a" * 40,
+        "approve_commit_sha": "b" * 40, "approve_commit_author": "A User",
+    }]
+    result = emit_contract(
+        _plan(), _epic(), review, base_url="http://ai:3101", project_id="p1",
+        key="test-key", approval_timestamp="2026-11-23T00:00:00Z", dry_run=True,
+        source_artifacts=source, submission_id="c" * 64,
+    )
+    assert result["ok"] and result["signed"]
+    contract = result["contract"]
+    provenance = contract["provenance"]
+    assert provenance["source_artifacts"][0]["attested_by"] == "client"
+    assert provenance["human_approval"]["approver_display"] == "A User"
+    assert provenance["submission_id"] == "c" * 64
+    assert contract["approval"]["signature"] == sign_contract(
+        contract, key="test-key", approval_timestamp="2026-11-23T00:00:00Z"
+    )["signature"]
+    provenance["submission_id"] = "d" * 64
+    assert contract["approval"]["signature"] != sign_contract(
+        contract, key="test-key", approval_timestamp="2026-11-23T00:00:00Z"
+    )["signature"]
+
+
+def test_unapproved_artifact_dry_run_omits_optional_provenance() -> None:
+    review = _review()
+    review.human_approval.user_id = "user-1"
+    review.human_approval.approver_display = "A User"
+    result = emit_contract(
+        _plan(), _epic(), review, base_url="http://ai:3101", project_id="p1",
+        source_artifacts=[{
+            "stage": "intent", "path": "intent/example.md", "blob_sha": "a" * 40,
+            "approve_commit_sha": "b" * 40, "approve_commit_author": "A User",
+        }], dry_run=True,
+    )
+    assert result["ok"]
+    provenance = result["contract"]["provenance"]
+    assert "human_approval" not in provenance
+    assert "submission_id" not in provenance
+
+
+@pytest.mark.parametrize("failure", [
+    HTTPError("http://ai", 503, "unavailable", {}, io.BytesIO(b"")),
+    URLError("disconnected"),
+    TimeoutError("timed out"),
+])
+def test_post_uncertainty_has_unknown_outcome(failure) -> None:
+    class FailingHttp:
+        def post(self, *_args, **_kwargs):
+            raise failure
+
+    result = emit_contract(
+        _plan(), _epic(), _review(), base_url="http://ai:3101", project_id="p1",
+        http=FailingHttp(), key="test-key", dry_run=False, allow_fallback=False,
+    )
+    assert not result["ok"] and result["outcome"] == "unknown"
+
+
+def test_readback_4xx_after_create_is_unknown(monkeypatch) -> None:
+    monkeypatch.setenv("PFACTORY_AIFACTORY_HANDSHAKE", "1")
+
+    class ReadbackDenied:
+        def post(self, *_args, **_kwargs):
+            return {"taskId": "task-1"}
+
+        def get(self, *_args, **_kwargs):
+            raise HTTPError("http://ai", 404, "missing", {}, io.BytesIO(b""))
+
+    result = emit_contract(
+        _plan(), _epic(), _review(), base_url="http://ai:3101", project_id="p1",
+        http=ReadbackDenied(), key="test-key", dry_run=False, allow_fallback=False,
+    )
+    assert not result["ok"] and result["outcome"] == "unknown"
+    assert result["correlation"]["task_id"] == "task-1"
+
+
+def test_artifact_live_requires_signature_and_never_falls_back(monkeypatch) -> None:
+    monkeypatch.setenv("PFACTORY_EMIT_FALLBACK", "1")
+    monkeypatch.delenv("AIFACTORY_TRUSTED_PLAN_KEY_PFACTORY", raising=False)
+    with pytest.raises(ValueError, match="signing key"):
+        emit_contract(
+            _plan(), _epic(), _review(), base_url="http://ai:3101", project_id="p1",
+            http=FakeHttp(), dry_run=False, require_signed=True,
+        )
+    http = FakeHttp(fail_urls=("from-plan",))
+    result = emit_contract(
+        _plan(), _epic(), _review(), base_url="http://ai:3101", project_id="p1",
+        http=http, key="test-key", dry_run=False, allow_fallback=False,
+    )
+    assert not result["ok"] and result["outcome"] == "unknown"
+    assert len(http.calls) == 1
 
 
 def test_emit_stamps_the_kid_from_the_environment(monkeypatch) -> None:
@@ -281,6 +385,7 @@ def test_from_plan_422_detail_is_returned(monkeypatch) -> None:
         dry_run=False,
     )
     assert result["aifactory_status"] == 422
+    assert result.get("outcome") != "unknown"  # a 4xx is a confirmed rejection, not unknown
     assert result["aifactory_detail"] == "body.plan required"
     assert "internal transport info" not in str(result)
 

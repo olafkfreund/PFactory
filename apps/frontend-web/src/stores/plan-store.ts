@@ -42,6 +42,7 @@ interface PlanState {
 
   // UI state
   loading: boolean;
+  sessionsLoaded: boolean;
   sessionLoading: boolean;
   actionBusy: string | null;
   actionError: string | null;
@@ -81,6 +82,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   sessions: [],
   currentSession: null,
   loading: false,
+  sessionsLoaded: false,
   sessionLoading: false,
   actionBusy: null,
   actionError: null,
@@ -100,7 +102,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const result = await listSessions(opts);
-      set({ sessions: result.sessions, loading: false });
+      set({ sessions: result.sessions, loading: false, sessionsLoaded: true });
     } catch (err) {
       set({
         loading: false,

@@ -50,6 +50,17 @@ try {
         if (path === '/api/projects') body = [project];
         else if (path === '/api/settings') body = { onboardingCompleted: true, theme };
         else if (path === '/api/plan/sessions') body = { sessions };
+        else if (path === '/api/plan/sessions/done-0') body = {
+          session_id: 'done-0', status: 'approved', created_at: sessions[0].created_at, updated_at: sessions[0].created_at,
+          plan: { plan_id: 'done-0', title: 'Done 0', description: 'A processed plan', source_format: 'markdown',
+            criteria: [], target_kind: 'software', plan_type: 'feature', enrichment: { infra: [], knowledge: [{ name: 'docs' }] } },
+          epic: null, review: { gates_passed: true, lenses: [], threshold: 0 }, approval: null,
+          emission: null, readiness: null, annotation: null,
+        };
+        else if (path === '/api/plan/meta/registry') body = { entries: [{ id: 'aws', title: 'AWS', kind: 'adapter', version: '1.0', enabled: true, capabilities: [] }] };
+        else if (path === '/api/plan/meta/templates') body = { templates: [] };
+        else if (path === '/api/plan/meta/providers') body = { providers: ['claude'] };
+        else if (path === '/api/plan/meta/adapters') body = { infra_adapters: ['aws'], knowledge_connectors: ['confluence'] };
         else if (path === '/api/pfactory/tasks') body = { tasks: [{ task_id: 'task-1', project_id: 'alpha', spec_id: 'run-1', status: 'planning', phase: 'planner', updated_at: '2026-06-01T10:00:00Z' }], count: 1 };
         else if (path === '/api/pfactory/tasks/run-1') body = { task_id: 'task-1', project_id: 'alpha', spec_id: 'run-1', status_json: { status: 'planning' }, artefacts: {} };
         else if (path === '/api/llm-endpoints') body = [];
@@ -80,12 +91,56 @@ try {
       await page.reload();
       await dismissOverlays(page);
       await page.locator('[data-session-id="done-0"] .f-card--expanded').waitFor();
+      await page.getByRole('button', { name: 'alpha · Done 0', exact: true }).click();
+      await page.getByTestId('session-detail').waitFor();
+      for (const mode of ['board', 'list']) {
+        if (mode === 'list') await page.getByRole('button', { name: 'List' }).click();
+        const detail = page.getByTestId('session-detail');
+        const fits = await detail.evaluate((element) => {
+          const tabs = element.querySelector('[role="tablist"]');
+          const pane = element.closest('.f-column, [data-testid="plan-list-detail-pane"]');
+          return tabs && pane && pane.scrollWidth <= pane.clientWidth + 1 && tabs.scrollWidth <= tabs.clientWidth + 1 &&
+            [...tabs.querySelectorAll('[role="tab"]')].every((tab) => tab.getBoundingClientRect().right <= tabs.getBoundingClientRect().right + 1);
+        });
+        if (!fits) throw new Error(`${width}px ${theme} ${mode}: detail tabs overflow`);
+      }
       if (await page.evaluate(() => document.documentElement.classList.contains('dark')) !== (theme === 'dark')) throw new Error(`${width}px ${theme}: wrong theme`);
       await page.keyboard.press('Tab');
       if (!(await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.matches('button, a, input')))) throw new Error('Keyboard focus did not reach a control');
       await page.screenshot({ path: join(out, `${width}-${theme}.png`) });
       await page.goto(`${base}/p/alpha/settings`);
       await page.getByTestId('project-settings-page').waitFor();
+      if (theme === 'light') {
+        for (const [tab, label] of [['registry', 'adapter'], ['providers', 'confluence']]) {
+          await page.goto(`${base}/p/alpha/settings/plan-sources/${tab}`);
+          const badge = page.getByText(label, { exact: true });
+          await badge.waitFor();
+          const contrast = await badge.evaluate((element) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const ctx = canvas.getContext('2d');
+            const sample = (...colors) => {
+              ctx.clearRect(0, 0, 1, 1);
+              for (const color of colors) { ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); }
+              return [...ctx.getImageData(0, 0, 1, 1).data];
+            };
+            const background = getComputedStyle(document.documentElement).backgroundColor;
+            const badgeBackground = getComputedStyle(element).backgroundColor;
+            const foreground = getComputedStyle(element).color;
+            const luminance = (rgb) => {
+              const [r, g, b] = rgb.slice(0, 3).map((value) => {
+                const channel = value / 255;
+                return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+              });
+              return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            };
+            const a = luminance(sample(background, badgeBackground));
+            const b = luminance(sample(foreground));
+            return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+          });
+          if (contrast < 4.5) throw new Error(`${tab} ${label}: light-mode contrast ${contrast.toFixed(2)}:1`);
+        }
+      }
       await page.goto(`${base}/preferences`);
       await page.getByTestId('preferences-page').waitFor();
       await page.screenshot({ path: join(out, `${width}-${theme}-preferences.png`) });

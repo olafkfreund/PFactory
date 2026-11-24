@@ -9,6 +9,7 @@ import '@testing-library/jest-dom/vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '../../../shared/i18n';
 import { PlanBoard } from '../PlanBoard';
+import { PlanningView } from '../PlanningView';
 import { usePlanStore } from '../../../stores/plan-store';
 import type { SessionSummary } from '../../../shared/types/plan';
 
@@ -26,7 +27,7 @@ const makeSession = (overrides: Partial<SessionSummary> = {}): SessionSummary =>
 
 beforeEach(() => {
   localStorage.clear();
-  usePlanStore.setState({ actionBusy: null, actionError: null, fetchFn: undefined, sessions: [] });
+  usePlanStore.setState({ actionBusy: null, actionError: null, fetchFn: undefined, sessions: [], sessionsLoaded: false, loading: false, error: null, currentSession: null });
 });
 
 describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
@@ -213,5 +214,136 @@ describe('PlanBoard shared WorkColumn, WorkCard and PipelineStrip', () => {
     view.unmount();
     const restored = render(<PlanBoard sessions={sessions} selectedId={null} onSelect={() => {}} projectId="alpha" />);
     expect(restored.container.querySelector('[data-session-id="done-0"] .f-card')).toHaveClass('f-card--expanded');
+  });
+
+  it('renders both Board and List views over one data set with shared strip filters, in-place detail, and one-line empty state', async () => {
+    const sessions: SessionSummary[] = [
+      makeSession({
+        session_id: 's-backlog',
+        title: 'Backlog Plan',
+        status: 'ingested',
+        board_state: 'backlog',
+        project_id: 'alpha',
+      }),
+      makeSession({
+        session_id: 's-review',
+        title: 'Review Plan',
+        status: 'processed',
+        board_state: 'human_review',
+        gates_passed: false,
+        project_id: 'alpha',
+      }),
+    ];
+
+    let currentList: SessionSummary[] = [];
+    const fetchFn = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith('/sessions')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ sessions: currentList }),
+        });
+      }
+      const id = String(url).split('/').pop()!;
+      const found = sessions.find((s) => s.session_id === id) ?? sessions[0];
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          session_id: found.session_id,
+          status: found.status,
+          created_at: found.created_at,
+          updated_at: found.created_at,
+          plan: {
+            plan_id: found.session_id,
+            title: found.title,
+            description: 'Plan description',
+            source_format: 'markdown',
+            source_channel: null,
+            criteria: [],
+            target_kind: 'software',
+            plan_type: 'feature',
+            enrichment: { infra: [], knowledge: [] },
+            content_hash: 'abc',
+            ingested_at: found.created_at,
+          },
+          epic: null,
+          review: null,
+          approval: null,
+          emission: null,
+          readiness: null,
+          annotation: null,
+        }),
+      });
+    }) as unknown as typeof fetch;
+
+    // 1. Empty state: one line plus one action
+    const view = render(<PlanningView fetchFn={fetchFn} />);
+    const emptyState = await screen.findByTestId('plan-empty-state');
+    expect(within(emptyState).getByText('No plans yet')).toBeInTheDocument();
+    expect(within(emptyState).getByRole('button', { name: 'New plan' })).toBeInTheDocument();
+    // Configuration panel is no longer on the planning page
+    expect(screen.queryByText('Configuration')).toBeNull();
+
+    // 2. Load data set and verify Board view (three lanes)
+    currentList = sessions;
+    await act(async () => {
+      await usePlanStore.getState().loadSessions();
+    });
+    expect(view.container.querySelectorAll('.f-board .f-column')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'alpha · Backlog Plan' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'alpha · Review Plan' })).toBeInTheDocument();
+
+    // Selecting a plan in Board view opens its detail in place inside the expanded card
+    fireEvent.click(screen.getByRole('button', { name: 'alpha · Backlog Plan' }));
+    const boardCard = view.container.querySelector('[data-session-id="s-backlog"] .f-card')!;
+    expect(boardCard).toHaveClass('f-card--expanded');
+    expect(await within(boardCard as HTMLElement).findByTestId('session-detail')).toBeInTheDocument();
+
+    // 3. Switch to List view: single WorkColumn over the same plan collection + split detail pane
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    const listView = screen.getByTestId('plan-list-view');
+    expect(listView.querySelectorAll('.f-column')).toHaveLength(1);
+    expect(within(listView).getByRole('button', { name: 'alpha · Backlog Plan' })).toBeInTheDocument();
+    expect(within(listView).getByRole('button', { name: 'alpha · Review Plan' })).toBeInTheDocument();
+    expect(screen.getByTestId('plan-list-detail-pane')).toBeInTheDocument();
+
+    // Strip filters apply to List view as well
+    fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/i }));
+    expect(within(listView).queryByRole('button', { name: 'alpha · Backlog Plan' })).toBeNull();
+    expect(within(listView).getByRole('button', { name: 'alpha · Review Plan' })).toBeInTheDocument();
+    expect(screen.queryByTestId('plan-list-detail-pane')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+    expect(screen.queryByRole('button', { name: 'alpha · Backlog Plan' })).toBeNull();
+    view.rerender(<PlanningView fetchFn={fetchFn} focusSessionId="s-backlog" />);
+    expect(await screen.findByRole('button', { name: 'alpha · Backlog Plan' })).toBeInTheDocument();
+    expect(await within(view.container.querySelector('[data-session-id="s-backlog"]') as HTMLElement).findByTestId('session-detail')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/i }));
+    expect(screen.queryByTestId('session-detail')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'alpha · Backlog Plan' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Clear filter/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'alpha · Backlog Plan' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    expect(screen.getByTestId('plan-list-detail-pane')).toBeInTheDocument();
+    expect(within(screen.getByTestId('plan-list-view')).getByRole('button', { name: 'alpha · Backlog Plan' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/i }));
+    expect(screen.queryByTestId('plan-list-detail-pane')).toBeNull();
+  });
+
+  it('shows loading and request errors with retry, then an empty state only after success', async () => {
+    let rejectFirst: (error: Error) => void = () => undefined;
+    const fetchFn = vi.fn()
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }))
+      .mockResolvedValue({ ok: true, json: async () => ({ sessions: [] }) }) as unknown as typeof fetch;
+    render(<PlanningView fetchFn={fetchFn} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading plans');
+    expect(screen.queryByTestId('plan-empty-state')).toBeNull();
+    await act(async () => rejectFirst(new Error('Sessions unavailable')));
+    expect(screen.getByRole('alert')).toHaveTextContent('Sessions unavailable');
+    expect(screen.queryByTestId('plan-empty-state')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('plan-empty-state')).toHaveTextContent('No plans yet');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

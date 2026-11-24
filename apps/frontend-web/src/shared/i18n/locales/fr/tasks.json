@@ -9,7 +9,12 @@
     "project": "Projet : {{id}}",
     "unassignedProject": "Projet non attribué",
     "unassigned": "Non attribué",
-    "dismissUnavailable": "Ce plan ne peut plus être écarté."
+    "dismissUnavailable": "Ce plan ne peut plus être écarté.",
+    "emptyPlans": "Aucun plan pour l'instant",
+    "loadingPlans": "Chargement des plans…",
+    "retry": "Réessayer",
+    "newPlan": "Nouveau plan",
+    "plansColumn": "Plans"
   },
   "status": {
     "backlog": "Plans prêts",

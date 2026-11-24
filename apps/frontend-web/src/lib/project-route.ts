@@ -7,7 +7,7 @@ export const PROJECT_VIEWS = [
 ] as const;
 export type ProjectView = (typeof PROJECT_VIEWS)[number];
 export type AppRoute =
-  | { kind: 'project'; ref: string; view: ProjectView }
+  | { kind: 'project'; ref: string; view: ProjectView; subview?: string }
   | { kind: 'projects' }
   | { kind: 'pfactory' }
   | { kind: 'preferences' }
@@ -71,12 +71,13 @@ export function findProjectByRef(projects: Project[], ref: string): Project | un
 }
 
 export function parseRoute(pathname: string): AppRoute {
-  const m = /^\/p\/([^/]+)(?:\/([^/]+))?/.exec(pathname);
+  const m = /^\/p\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?/.exec(pathname);
   if (m) {
     const view = PROJECT_VIEWS.find((v) => v === m[2]) ?? 'planning';
     let ref = m[1];
     try { ref = decodeURIComponent(ref); } catch { /* keep the raw segment */ }
-    return { kind: 'project', ref, view };
+    const subview = view === m[2] && m[3] ? m[3] : undefined;
+    return { kind: 'project', ref, view, ...(subview ? { subview } : {}) };
   }
   if (/^\/projects\/?$/.test(pathname)) return { kind: 'projects' };
   if (/^\/pfactory\/?$/.test(pathname)) return { kind: 'pfactory' };
@@ -84,5 +85,5 @@ export function parseRoute(pathname: string): AppRoute {
   return { kind: 'home' };
 }
 
-export const projectPath = (slug: string, view?: ProjectView | string): string =>
-  `/p/${encodeURIComponent(slug)}${view && view !== 'planning' ? `/${view}` : ''}`;
+export const projectPath = (slug: string, view?: ProjectView | string, subview?: string): string =>
+  `/p/${encodeURIComponent(slug)}${view && view !== 'planning' ? `/${view}${subview ? `/${subview}` : ''}` : ''}`;

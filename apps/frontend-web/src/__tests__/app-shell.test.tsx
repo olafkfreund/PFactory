@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router';
 import '../shared/i18n';
 import App from '../App';
 import { useAuthStore } from '../stores/auth-store';
@@ -134,13 +134,14 @@ describe('PFactory adapted AppShell', () => {
     // Primary action "+ Task"
     expect(screen.getByRole('button', { name: '+ Task' })).toBeEnabled();
 
-    // Project Settings pinned in sidebar navigates to /p/alpha/settings with General, Git, Memory, MCP tabs
+    // Project Settings pinned in sidebar navigates to /p/alpha/settings with General, Git, Memory, MCP, Plan sources tabs
     fireEvent.click(screen.getByRole('button', { name: 'Project Settings' }));
     expect(await screen.findByTestId('project-settings-page')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'General' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Git' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Memory' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'MCP' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Plan sources' })).toBeInTheDocument();
     // Strip is hidden on settings pages
     expect(screen.queryByRole('toolbar', { name: /Pipeline stages/i })).toBeNull();
 
@@ -204,7 +205,7 @@ describe('PFactory adapted AppShell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Unassigned · Blocked Review Plan' }));
     expect(screen.getByTestId('planning-view')).toBeInTheDocument();
-    expect(screen.getByTestId('plan-board-view')).toHaveClass('hidden');
+    expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
     fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/ }));
     expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
     expect(container.querySelectorAll('.f-column .f-card')).toHaveLength(1);
@@ -218,7 +219,99 @@ describe('PFactory adapted AppShell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Plans' }));
     fireEvent.click(screen.getByRole('button', { name: /Filter Review failures/ }));
     expect(screen.getByTestId('plan-board-view')).not.toHaveClass('hidden');
+  });
 
+  it('deep-links to /p/:slug/settings/plan-sources with Registry, Templates and Providers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).includes('/meta/registry')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              entries: [
+                {
+                  id: 'aws-adapter',
+                  title: 'AWS Adapter',
+                  kind: 'adapter',
+                  version: '1.0.0',
+                  enabled: true,
+                  capabilities: ['compute'],
+                },
+              ],
+            }),
+          });
+        }
+        if (String(url).includes('/meta/templates')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              templates: [{ name: 'standard', title: 'Standard Plan', tags: ['core'], policy: {} }],
+            }),
+          });
+        }
+        if (String(url).includes('/meta/providers')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ providers: ['claude'] }),
+          });
+        }
+        if (String(url).includes('/meta/adapters')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ infra_adapters: ['aws'], knowledge_connectors: ['confluence'] }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tasks: [], count: 0, sessions: [] }),
+        });
+      })
+    );
+
+    function RouteControls() {
+      const location = useLocation();
+      const navigate = useNavigate();
+      return <>
+        <span data-testid="settings-location">{location.pathname}</span>
+        <button type="button" onClick={() => void navigate(-1)}>History back</button>
+        <button type="button" onClick={() => void navigate(1)}>History forward</button>
+      </>;
+    }
+
+    const view = render(
+      <MemoryRouter initialEntries={['/p/alpha/settings/plan-sources']}>
+        <RouteControls />
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('project-settings-page')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Plan sources' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByTestId('registry-panel')).toBeInTheDocument();
+    expect(screen.getByText('AWS Adapter')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Templates' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Providers' })).toBeInTheDocument();
+    expect(screen.getByText('adapter')).toHaveClass('text-info');
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Templates' }), { button: 0 });
+    expect(await screen.findByTestId('templates-panel')).toBeInTheDocument();
+    expect(screen.getByText('Standard Plan')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-location')).toHaveTextContent('/p/alpha/settings/plan-sources/templates');
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Providers' }), { button: 0 });
+    expect(await screen.findByTestId('providers-panel')).toBeInTheDocument();
+    expect(screen.getByText('confluence')).toHaveClass('text-secondary-foreground');
+    expect(screen.getByTestId('settings-location')).toHaveTextContent('/p/alpha/settings/plan-sources/providers');
+
+    fireEvent.click(screen.getByRole('button', { name: 'History back' }));
+    expect(await screen.findByTestId('templates-panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'History forward' }));
+    expect(await screen.findByTestId('providers-panel')).toBeInTheDocument();
+
+    view.unmount();
+    render(<MemoryRouter initialEntries={['/p/alpha/settings/plan-sources/providers']}><App /></MemoryRouter>);
+    expect(await screen.findByTestId('providers-panel')).toBeInTheDocument();
   });
 
   it('reverts an unsaved appearance preview on route change', async () => {

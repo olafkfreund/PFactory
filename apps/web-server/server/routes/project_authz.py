@@ -257,6 +257,7 @@ async def require_repo_project_role(  # noqa: PLR0913 - provider is part of repo
     *,
     for_intake: bool = False,
     provider: str = "github",
+    project_id: str | None = None,
 ) -> ProjectAccess:
     """Authorize a registered owner/repo, or an org-backed intake."""
     target = canonical_repo_ref(repo, provider) if repo else None
@@ -299,6 +300,10 @@ async def require_repo_project_role(  # noqa: PLR0913 - provider is part of repo
         )
 
     matches = [pid for pid, project in projects.items() if matches_project(project)]
+    if project_id is not None:
+        if project_id not in matches:
+            raise HTTPException(status_code=404, detail="Project not found")
+        matches = [project_id]
     visible = await visible_project_ids(principal, db)
     for pid in matches:
         if pid in visible:
