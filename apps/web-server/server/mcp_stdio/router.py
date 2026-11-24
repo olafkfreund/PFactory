@@ -52,6 +52,7 @@ from server.routes.plan_pipeline import (
     ApproveBody,
     EmitContractBody,
     IngestTextBody,
+    RejectBody,
     _attribution,
     approve as plan_approve,
     audit_pack as plan_audit_pack,
@@ -61,6 +62,7 @@ from server.routes.plan_pipeline import (
     ingest_upload as plan_ingest_upload,
     list_sessions as plan_list_sessions,
     process as plan_process,
+    reject as plan_reject,
 )
 from server.routes.project_authz import (
     PlanAccessChecker,
@@ -79,6 +81,7 @@ from server.services.audit_service import (
     ACTION_MCP_PLAN_EMIT,
     ACTION_MCP_PLAN_INGEST,
     ACTION_MCP_PLAN_PROCESS,
+    ACTION_MCP_PLAN_REJECT,
 )
 from server.tenancy import resolve_tenant
 
@@ -859,10 +862,48 @@ async def proxy_plan_approve(
     # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
     request.state.user = principal
     body = await _read_json_body(request)
-    result = await plan_approve(session_id, ApproveBody(**body), request, db=db)
+    try:
+        parsed = ApproveBody(**body)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_input=False, include_context=False, include_url=False),
+        ) from exc
+    result = await plan_approve(session_id, parsed, request, db=db)
     await _audit_mcp_write(
         key,
         ACTION_MCP_PLAN_APPROVE,
+        "plan_session",
+        session_id,
+        request,
+        details={"approver": body.get("approver")},
+    )
+    return result
+
+
+@router.post("/plan/sessions/{session_id}/reject")
+async def proxy_plan_reject(
+    session_id: str,
+    request: FastAPIRequest,
+    key: _PlanWrite,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    principal = _principal(key)
+    await PlanAccessChecker("member").check(principal, request.url.path, db)
+    # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
+    request.state.user = principal
+    body = await _read_json_body(request)
+    try:
+        parsed = RejectBody(**body)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_input=False, include_context=False, include_url=False),
+        ) from exc
+    result = await plan_reject(session_id, parsed, request, db=db)
+    await _audit_mcp_write(
+        key,
+        ACTION_MCP_PLAN_REJECT,
         "plan_session",
         session_id,
         request,
