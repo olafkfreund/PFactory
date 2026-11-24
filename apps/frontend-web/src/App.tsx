@@ -132,7 +132,7 @@ function AuthenticatedApp() {
 
   const slugs = useMemo(() => projectSlugs(projects), [projects]);
   const switcherProjects = useMemo(
-    () => projects.map((p) => ({ slug: slugs.get(p.id) ?? p.id, name: p.name, repoLabel: p.path })),
+    () => projects.map((p) => ({ slug: slugs.get(p.id) ?? p.id, name: p.name })),
     [projects, slugs]
   );
   const paletteProjects = useMemo(
@@ -643,7 +643,6 @@ function AuthenticatedApp() {
             onNavigate={(id) => setActiveView(id as SidebarView)}
             projects={switcherProjects}
             currentProject={urlSlug}
-            projectSubtitle={urlProject?.path}
             onSelectProject={(slug) => {
               const target = projects.find((p) => (slugs.get(p.id) ?? p.id) === slug);
               if (target) {
