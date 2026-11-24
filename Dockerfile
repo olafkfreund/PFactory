@@ -53,14 +53,14 @@ RUN mkdir -p apps/web-server/static \
  && npm run build
 
 # ---------------------------------------------------------------------------
-# Stage 2: Runtime (Chainguard Python, dev variant for now — minimal split
+# Stage 2: Runtime (PFactory base, dev variant for now — minimal split
 # happens in P0.5 once we know what the runtime *actually* needs)
 # ---------------------------------------------------------------------------
 # Runtime Node comes from the official image, not apk (Factory#1710). Same
 # digest as frontend-build, so both move together in one Dependabot bump.
 FROM docker.io/node:26-bookworm-slim@sha256:c8fedd782bcd1b68d8a7d1ed2577b5f820eba820871323f605292651ff11e3c6 AS node-runtime
 
-FROM cgr.dev/chainguard/python:latest-dev@sha256:96cb9c155159daf6b21e70555f244081909ff161c5589112ddf308624c1a1c77 AS runtime
+FROM ghcr.io/olafkfreund/pfactory-base:runtime-20261124-b9d7d8b@sha256:cff3da4affc1b5b16a083a2f35241671d9efc849fbc9d00a92f94b1740ba6e1d AS runtime
 
 USER root
 
@@ -119,108 +119,6 @@ RUN want="$(tr -dc '0-9.' < /tmp/.nvmrc | cut -d. -f1)" \
  && [ -n "$want" ] && [ "$want" = "$have" ] \
  || { echo "Node major drift: .nvmrc=$want runtime=$have (Factory#1710)"; exit 1; } \
  && rm /tmp/.nvmrc
-
-# System packages from Wolfi APK index. Build tools come bundled in :latest-dev.
-#   git           — worktree operations
-#   curl, wget    — downloads (HEALTHCHECK uses curl)
-#   gh            — GitHub CLI (Wolfi apk package name)
-#   (Node is NOT from apk: see the node-runtime COPY below, Factory#1710.)
-#   ca-certificates — TLS roots
-#   bash          — entrypoint script (will be removed in P0.3)
-#   binutils      — the :latest-dev base bundles binutils 2.46-r1, which carries
-#                   CVE-2026-6846 (HIGH, heap overflow in XCOFF linking; fixed in
-#                   2.46-r2). Force a build-newer rev to clear the P0 Trivy gate
-#                   (test_trivy_no_high_critical). Constraint, not =2.46-r2, so
-#                   the build stays green when Wolfi revs the package further;
-#                   drop this once the base digest ships the fix.
-#   bubblewrap    — OS-level bash sandbox for agent commands. Without it the
-#                   Claude Agent SDK logs "Sandbox disabled: ... bubblewrap
-#                   (bwrap) not installed" and runs commands with NO filesystem
-#                   /network enforcement — unacceptable for enterprise use. The
-#                   cluster node allows unprivileged user namespaces, so bwrap
-#                   can create the sandbox.
-#   socat         — required alongside bwrap by the SDK sandbox network-proxy
-#                   path; its absence triggers the same warning.
-# Two version floors below are CVE remediation, not preference. Both packages
-# come from the base image layer, which pins them in /etc/apk/world; only naming
-# them here moves them (see the SECURITY_REFRESH note below):
-#   libssl3 / libcrypto3 3.6.3-r3 — CVE-2026-14456 (HIGH), fixed in 3.6.3-r5.
-#                        Named together because they ship from the same openssl
-#                        origin and apk will not move one without the other.
-#   busybox 1.37.0-r61 — CVE-2026-38753 (DoS via crafted AWK in awk_sub) and
-#                        CVE-2026-38754 (heap overflow in ifsbreakup, shell/ash.c),
-#                        both HIGH, both fixed in 1.38.0-r0.
-#   wget    1.25.0-r14 — CVE-2026-58471 and CVE-2026-58472, both HIGH, both
-#                        fixed in 1.25.0-r15.
-#   curl / libcurl-openssl4 8.22.0-r4 — CVE-2026-92392 (HIGH, HTTP/2 upload
-#                        use-after-free), fixed in 8.23.0-r0. Named together:
-#                        same origin, and the base pins libcurl-openssl4.
-#   ca-certificates-bundle 20260909-r2 — CVE-2026-111943 (HIGH, distrusted
-#                        intermediate CA), fixed in 20260909-r3.
-#   uv 0.12.22-r0 — CVE-2026-111943 (HIGH, same Go x509 denylist), fixed in
-#                        0.13.6-r1. Agents launch MCP servers with uvx.
-#   libbrotlicommon1 / libbrotlidec1 / libbrotlienc1 1.2.0-r5 — CVE-2026-111497
-#                        (HIGH, decoder out-of-bounds write), fixed in 1.2.0-r7.
-#                        Named together: same brotli origin.
-#   py3-pip-wheel 26.2.1-r2 — CVE-2026-114613 (HIGH), msgpack map-deserialization
-#                        leak in pip's vendored msgpack 1.2.1; fixed in 26.2.2-r1
-#                        (vendors 1.2.3). python-3.14 depends on it, so it cannot
-#                        be apk-deleted with the other pip packages below.
-#   libexpat1 2.8.5-r0 — CVE-2026-113351 and CVE-2026-115506, both HIGH, both
-#                        fixed in 2.10.0-r0.
-#   python-3.14 (+ -base, -base-dev, -dev) 3.14.8_git20261001-r1 — CVE-2026-119170,
-#                        HIGH, fixed in 3.14.10_git20261111-r0.
-# Floors rather than == pins, so the build stays green as Wolfi revs further
-# (1.38.0-r1 and later already exist); drop each once the base digest ships it.
-# Verified present in the Wolfi x86_64 APKINDEX before pinning — a floor above
-# the newest available version fails the build outright. (brotli 1.2.0-r7:
-# verified present 2026-10-24.)
-# How base-layer security fixes reach this image (#733). The chainguard base
-# pins every installed package exactly in /etc/apk/world, so `apk upgrade`
-# cannot move any of them -- it was measured to upgrade nothing and has been
-# removed. Fixes arrive three ways:
-#   1. base digest bumps (Dependabot; green ones auto-merge, #735);
-#   2. the explicit floors below, which replace a package's base pin;
-#   3. this layer re-running daily: SECURITY_REFRESH busts its cache, so the
-#      packages it installs (gh, curl, gnupg, ... have no base pin) and the
-#      floors resolve to the newest index versions, not to the day the layer
-#      was first cached. CI builds with `cache-from`; without the arg this layer
-#      would freeze, the CFactory#440 failure. CI passes the date.
-ARG SECURITY_REFRESH=0
-RUN echo "security refresh: ${SECURITY_REFRESH}" \
-    && apk add --no-cache \
-        bash \
-        "binutils>2.46-r1" \
-        "busybox>=1.38.0-r0" \
-        "libcrypto3>=3.6.3-r5" \
-        "libssl3>=3.6.3-r5" \
-        bubblewrap \
-        ca-certificates \
-        "ca-certificates-bundle>=20260909-r3" \
-        "uv>=0.13.6-r1" \
-        "curl>=8.23.0-r0" \
-        "libcurl-openssl4>=8.23.0-r0" \
-        "libbrotlicommon1>=1.2.0-r7" \
-        "libbrotlidec1>=1.2.0-r7" \
-        "libbrotlienc1>=1.2.0-r7" \
-        "py3-pip-wheel>=26.2.2-r1" \
-        "libexpat1>=2.10.0-r0" \
-        "python-3.14>=3.14.10_git20261111-r0" \
-        "python-3.14-base>=3.14.10_git20261111-r0" \
-        "python-3.14-base-dev>=3.14.10_git20261111-r0" \
-        "python-3.14-dev>=3.14.10_git20261111-r0" \
-        git \
-        gh \
-        gnupg \
-        socat \
-        "wget>=1.25.0-r15"
-
-# Node must come only from the node-runtime COPY above, never from apk: an apk
-# nodejs would be rebuilt against a glibc newer than this base pins and break
-# the build (Factory#1710). Checked AFTER the apk block, where it could appear.
-RUN if apk info 2>/dev/null | grep -q '^nodejs'; then \
-      echo "apk nodejs is installed; runtime Node must come from node-runtime (Factory#1710)"; exit 1; \
-    fi
 
 # Epic #44 R3 — optionally bundle the rmux binary.
 #
@@ -327,7 +225,7 @@ RUN npm install -g \
 RUN python3 -m venv /home/projects/MagesticAI/.venv
 
 # pip is removed from the venv in the same layer that finishes using it, and
-# the base copies are apk-deleted below (PFactory#679). The two HIGH findings
+# docker/base.Dockerfile removes the base copies (PFactory#679). The two HIGH findings
 # this clears are NOT project dependencies — nothing in either requirements
 # file needs msgpack or constrains setuptools. Both live inside pip 26.2.1's
 # own vendored tree (`pip/_vendor/vendor.txt`: msgpack==1.1.2,
@@ -342,15 +240,6 @@ RUN /home/projects/MagesticAI/.venv/bin/pip install --no-cache-dir \
         -r /home/projects/MagesticAI/apps/web-server/requirements.txt \
         -r /home/projects/MagesticAI/apps/backend/requirements.txt \
  && /home/projects/MagesticAI/.venv/bin/pip uninstall -y pip
-
-# Remove the base image's pip too (same PFactory#679 findings, second copy).
-# py3-pip-wheel ships deliberately: python-3.14 depends on it, so apk refuses to
-# drop it (warns, exits 0). Its CVEs are cleared by its floor above. The apk info
-# checks fail the build if the removal ever silently no-ops.
-USER root
-RUN apk del --no-cache py3.14-pip py3.14-pip-base \
- && ! apk info -e py3.14-pip && ! apk info -e py3.14-pip-base
-USER nonroot
 
 # Git identity for in-container worktree operations
 RUN git config --global user.name "PFactory" \

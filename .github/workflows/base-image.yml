@@ -1,0 +1,154 @@
+name: Runtime base image
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - docker/base.Dockerfile
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: runtime-base-image
+
+env:
+  IMAGE: ghcr.io/olafkfreund/pfactory-base
+
+jobs:
+  runtime:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          persist-credentials: false
+      - name: Set image tag and refresh token
+        run: |
+          echo "BASE_TAG=runtime-$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "SECURITY_REFRESH=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
+      - name: Build and push runtime base
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/base.Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          provenance: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.BASE_TAG }}
+            ${{ env.IMAGE }}:runtime-seed
+          build-args: |
+            SECURITY_REFRESH=${{ env.SECURITY_REFRESH }}
+          cache-from: type=gha,scope=runtime-base
+          cache-to: type=gha,mode=max,scope=runtime-base
+
+      - name: Rewrite the application to use the published base
+        id: rewrite
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          from textwrap import indent
+
+          image = os.environ['IMAGE']
+          digest = os.environ['DIGEST']
+          if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
+              raise SystemExit(f'Invalid runtime base digest: {digest!r}')
+
+          path = Path('Dockerfile')
+          content = path.read_text()
+          runtime = re.findall(r'^FROM (\S+) AS runtime$', content, re.MULTILINE)
+          if len(runtime) != 1 or not re.fullmatch(
+              rf'(?:cgr\.dev/chainguard/python:latest-dev|{re.escape(image)}:runtime-[^\s@]+)'
+              r'@sha256:[0-9a-f]{64}', runtime[0],
+          ):
+              raise SystemExit('Expected exactly one pinned runtime FROM line')
+          if runtime[0].endswith(f'@{digest}'):
+              print('Runtime base digest unchanged')
+              raise SystemExit(0)
+
+          content = content.replace(
+              f'FROM {runtime[0]} AS runtime',
+              f'FROM {image}:{os.environ["BASE_TAG"]}@{digest} AS runtime',
+          )
+          if runtime[0].startswith('cgr.dev/'):
+              for first, last in (
+                  ('# System packages from Wolfi APK index.', '# Epic #44 R3'),
+                  ("# Remove the base image's pip too", '# Git identity'),
+              ):
+                  start = content.index(first)
+                  end = content.index(last, start)
+                  content = content[:start] + content[end:]
+              content = content.replace('Stage 2: Runtime (Chainguard Python', 'Stage 2: Runtime (PFactory base')
+              content = content.replace(
+                  '# the base copies are apk-deleted below (PFactory#679). The two HIGH findings',
+                  '# docker/base.Dockerfile removes the base copies (PFactory#679). The two HIGH findings',
+              )
+
+              test = Path('tests/docker/test_p0_multi_arch.py')
+              text = test.read_text()
+              start = text.index('"""')
+              end = text.index('"""', start + 3) + 3
+              text = (
+                  '"""P0.6 — pinned bases resolve for the amd64 release platform.\n\n'
+                  'The upstream Node bases must also resolve on arm64. The PFactory\n'
+                  'runtime base follows the amd64 release workflow.\n"""' + text[end:]
+              )
+              text = text.replace(
+                  'P0.6 — base images we pin support both linux/amd64 and linux/arm64.',
+                  'P0.6 — all bases support amd64 and the Node bases also support arm64.',
+              )
+              old = '        assert "arm64" in arches, '
+              start = text.index(old)
+              end = text.index('\n', text.index('\n', start) + 1)
+              text = (
+                  text[:start] + f'        if not ref.startswith("{image}:"):\n'
+                  + indent(text[start:end], '    ') + text[end:]
+              )
+              compile(text, str(test), 'exec')
+              test.write_text(text)
+
+          if re.search(r'^\s*(?:RUN\s+|&&\s+)apk\s+(?:add|del|upgrade)\b', content, re.MULTILINE):
+              raise SystemExit('Application Dockerfile still modifies Wolfi packages')
+          path.write_text(content)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('changed=true\n')
+          PY
+
+      - name: Open digest bump PR
+        if: steps.rewrite.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_PAT }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          branch="chore/3880-pfactory-base-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Dockerfile tests/docker/test_p0_multi_arch.py
+          git commit -m "chore(deps): pin PFactory runtime base ${BASE_TAG} (#3880)"
+          gh auth setup-git
+          git push origin "$branch"
+          gh pr create --base dev --head "$branch" \
+            --title "chore(deps): pin PFactory runtime base ${BASE_TAG}" \
+            --body "Pins the published runtime base to ${IMAGE}:${BASE_TAG}@${DIGEST}. Refs olafkfreund/Factory#3880."

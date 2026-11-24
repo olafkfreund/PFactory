@@ -47,7 +47,7 @@ jobs:
           files="$(gh pr diff "$PR_URL" --name-only)"
           echo "changed: $files"
           # Anything that is not a Dockerfile keeps the PR on the human path.
-          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '(^|/)Dockerfile[^/]*$'; then
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '(^|/)(Dockerfile[^/]*|[^/]+\.Dockerfile)$'; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
 

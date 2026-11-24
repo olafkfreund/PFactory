@@ -14,6 +14,7 @@ concurrency:
 permissions:
   contents: read
   models: read   # free GitHub Models inference for github-models/* (epic #87 / #88)
+  packages: read
 
 env:
   # Shared lint baseline pin (matches standards/ + the hub baseline SHA). The
@@ -43,6 +44,12 @@ jobs:
         with:
           # Need history back to the PR base for the diff-scoped ruff ratchet.
           fetch-depth: 0
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -399,6 +406,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
+
       - name: Install helm
         uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e  # v5.1.0
         with:
@@ -671,6 +684,12 @@ jobs:
     # implementation chunk lands but its acceptance test doesn't pass.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         # buildx is needed for `docker buildx imagetools inspect`, used by

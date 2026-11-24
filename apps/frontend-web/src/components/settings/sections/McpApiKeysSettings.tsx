@@ -42,6 +42,7 @@ const AVAILABLE_SCOPES: Array<{ id: string; description: string }> = [
   { id: 'project:write', description: 'Create new projects' },
   { id: 'task:write', description: 'Start / stop / recover / approve tasks' },
   { id: 'task:merge', description: 'Create PRs + merge worktrees (high blast radius)' },
+  { id: 'plan:write', description: 'Ingest, process and approve plans (factory submit)' },
 ];
 
 export function McpApiKeysSettings() {
