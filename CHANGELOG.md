@@ -8,6 +8,7 @@
 
 - **The API key scope picker offers `plan:write` (#1136, #1137).** A key that can ingest approved plans could not be minted from the UI before.
 - The project switcher no longer shows the pod filesystem path (Factory#3887, #1133).
+- The top-bar page name is no longer truncated next to the project pill, and the shared shell hub pin is bumped (#1139).
 
 ### New Features
 
