@@ -524,6 +524,40 @@ def test_plan_reject_proxies_body_response_and_audit(monkeypatch):
     assert captured["details"] == {"approver": "factory-cli", "mcp_key_id": "key-1"}
 
 
+@pytest.mark.parametrize(
+    "action,body,raw",
+    [
+        ("approve", {"feedback": "Looks good"}, None),
+        ("approve", {"approver": "factory-cli", "extra": True}, None),
+        ("approve", None, "{"),
+        ("reject", {"approver": "factory-cli"}, None),
+        ("reject", {"approver": "factory-cli", "feedback": "Fix scope", "extra": True}, None),
+        ("reject", None, "{"),
+    ],
+)
+def test_plan_decision_invalid_body_is_422(monkeypatch, action, body, raw):
+    proxy = _proxy_module()
+
+    async def no_guard(*_args):
+        pass
+
+    monkeypatch.setattr(config.get_settings(), "API_TOKEN", "legacy-secret-token-for-test")
+    monkeypatch.setattr(proxy.PlanAccessChecker, "check", no_guard)
+    monkeypatch.setattr(proxy, f"plan_{action}", AsyncMock())
+    app = FastAPI()
+    app.include_router(proxy.router)
+    app.dependency_overrides[get_db] = lambda: None
+    response = TestClient(app).post(
+        f"/api/mcp-stdio/plan/sessions/PLAN-1/{action}",
+        headers={"Authorization": "Bearer legacy-secret-token-for-test"},
+        json=body if raw is None else None,
+        content=raw,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]
+    getattr(proxy, f"plan_{action}").assert_not_awaited()
+
+
 def test_plan_reject_requires_plan_write_scope(monkeypatch):
     async def authenticate(_header):
         return AuthenticatedKey(

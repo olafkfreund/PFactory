@@ -862,7 +862,14 @@ async def proxy_plan_approve(
     # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
     request.state.user = principal
     body = await _read_json_body(request)
-    result = await plan_approve(session_id, ApproveBody(**body), request, db=db)
+    try:
+        parsed = ApproveBody(**body)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_input=False, include_context=False, include_url=False),
+        ) from exc
+    result = await plan_approve(session_id, parsed, request, db=db)
     await _audit_mcp_write(
         key,
         ACTION_MCP_PLAN_APPROVE,
@@ -886,7 +893,14 @@ async def proxy_plan_reject(
     # AuthMiddleware skips /api/mcp-stdio/, so the REST handler's org rule needs the principal.
     request.state.user = principal
     body = await _read_json_body(request)
-    result = await plan_reject(session_id, RejectBody(**body), request, db=db)
+    try:
+        parsed = RejectBody(**body)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_input=False, include_context=False, include_url=False),
+        ) from exc
+    result = await plan_reject(session_id, parsed, request, db=db)
     await _audit_mcp_write(
         key,
         ACTION_MCP_PLAN_REJECT,
