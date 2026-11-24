@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.6 — emit addresses AIFactory by repo (2026-11-24)
+
+### Bug Fixes
+
+- **Plan emit addresses AIFactory by repo, not by PFactory's project id (#1142, #1143).** AIFactory does not know PFactory's project UUID, so a live emit could not find its project. The contract now carries the repo.
+
 ## 0.9.5 — plan:write API keys, switcher path, CLI proxy routes, GHCR base (2026-11-24)
 
 ### Bug Fixes
