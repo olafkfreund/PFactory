@@ -16,7 +16,7 @@
 #   (Related trap this fleet has been bitten by: in GitHub path filters `*` does
 #   not cross `/`, so '*.md' and '**/*.md' select different things.)
 #
-#   No registry write. `push: false`, no docker/login-action, no packages: write.
+#   No registry write. `push: false`, packages: read for the private base image.
 #   `load: true` only so the smoke step below can run the image.
 #
 # Rule 4.7 — every way this job can fail to do its work is an explicit failure:
@@ -47,6 +47,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 env:
   TAG: pfactory:pr-${{ github.sha }}
@@ -103,6 +104,12 @@ jobs:
           echo "Node major aligned: ${declared} (.nvmrc == ${NODE_DOCKERFILE} stage ${NODE_STAGE})"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # amd64 only, matching deploy.yml — the p510 k3d cluster is amd64 and the
       # frontend `vite build` fails under QEMU-emulated arm64.
