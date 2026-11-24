@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.9.4 — one plan set, Plan sources, ingest-approved (2026-11-23)
+
+### New Features
+
+- **Approved intent/spec/plan artifacts can be ingested as a plan session (Factory#3865, #1114).** `POST /api/mcp-stdio/plan/sessions/ingest-approved` (`plan:write`) maps the triple to the plan and one child per step. It works only for a registered project, is deduplicated, and carries signed provenance. Artifact sessions cannot be edited, applied or reprocessed (409).
+- **List and Board show one plan set (#1122, #1123).** Both views use the same cards, filters and strip. Registry, Templates and Providers move unchanged to Project Settings → Plan sources (`/p/<slug>/settings/plan-sources`), with deep links.
+
+### Improvements
+
+- The shared Factory shell is re-vendored at hub 3b02535 (Factory#3876, #1126).
+
 ## 0.9.3 — shared Factory tokens and shell (2026-11-23)
 
 ### New Features
