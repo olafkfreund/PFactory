@@ -99,6 +99,27 @@ def test_emit_contract_live_sets_correlation() -> None:
     assert http.calls[0]["json"]["plan"]["approval"]["signature"]
 
 
+def test_emit_contract_targets_repo_for_bound_project() -> None:
+    svc = PlanService()
+    sid = _processed_session(svc)
+    session = svc.get(sid)
+    session.project_id = "d3740b4d-6559-4e41-bd90-b3ca74e2f443"
+    session.repo = "owner/name"
+    persist(svc, session)
+    http = FakeHttp()
+
+    svc.emit_contract(
+        sid,
+        repo=session.repo,
+        project_id=session.project_id,
+        http=http,
+        key="secret",
+        dry_run=False,
+    )
+
+    assert http.calls[0]["params"]["project_id"] == "owner/name"
+
+
 def test_provider_review_approval_emits_signed_stage_handoff() -> None:
     svc = PlanService()
     sid = _processed_session(svc)
@@ -150,6 +171,7 @@ def test_provider_review_approval_emits_signed_stage_handoff() -> None:
     )
     assert out.status == "emitted"
     assert out.review.human_approval.provider_user_id == 7
+    assert http.calls[0]["params"]["project_id"] == "acme/widget"
     assert {key: http.calls[0]["json"]["plan"]["provenance"][key] for key in handoff} == handoff
     assert set(http.calls[0]["json"]) == {"plan"}
 
@@ -242,7 +264,7 @@ def test_repeated_live_emit_is_idempotent_until_plan_changes() -> None:
     assert len(http.calls) == 2
     assert svc.get(sid).contract_result.get("duplicate") is None
     svc.emit_contract(
-        sid, repo="acme/widget", project_id="different", http=http, key="secret", dry_run=False
+        sid, repo="different/repo", project_id="different", http=http, key="secret", dry_run=False
     )
     assert len(http.calls) == 3
 
