@@ -3310,7 +3310,7 @@ class PlanService:
                     "Fix the plan or record a waiver first."
                 )
         base = base_url or os.environ.get("PFACTORY_AIFACTORY_API_URL", "http://localhost:3101")
-        pid = project_id or repo or signed_session.plan.plan_id
+        pid = repo or project_id or signed_session.plan.plan_id
         corr = signed_session.correlation_key or correlation_key_for(signed_session)
         # RFC-0007 (#84): discover the access block from the snapshotted
         # .pfactory.yml for this spec. Best-effort — when no snapshot exists the
