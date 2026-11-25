@@ -161,6 +161,7 @@ def select_phase_models(  # noqa: PLR0912 - per-role floor, provider, pin and QA
 
     for role in _ROLES:
         tokens = _ROLE_TOKENS[role]
+        pick: str | None
         if pin and role == "coding":
             pick = pin
         else:
