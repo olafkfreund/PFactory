@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.8 — QA seeded with a different model than coding (2026-11-25)
+
+### Bug Fixes
+
+- **emit (AIFactory#2233, #1149):** QA is seeded with a different model than coding.
+
 ## 0.9.7 — project dropdown no longer clipped (2026-11-25)
 
 ### Bug Fixes
