@@ -85,6 +85,14 @@ _CANONICAL_MODELS = {
 }
 
 
+def _without_model(catalog: dict[str, Any], model: str | None) -> dict[str, Any]:
+    """Drop *model* (shorthand or full id) so QA never reviews with the coder."""
+    if not model:
+        return catalog
+    target = _CANONICAL_MODELS.get(model, model)
+    return {mid: e for mid, e in catalog.items() if _CANONICAL_MODELS.get(mid, mid) != target}
+
+
 def _tier_of(contract: dict[str, Any], difficulty: str) -> str:
     execution = contract.get("execution")
     tier = ""
@@ -173,13 +181,10 @@ def select_phase_models(  # noqa: PLR0912 - per-role floor, provider, pin and QA
                 claude_only = _restrict_provider(available, _CLAUDE_PROVIDER)
                 if claude_only:
                     role_catalog = claude_only
-            if role == "qa" and (coding := phase_models.get("coding") or coding_fallback):
-                coding_id = _CANONICAL_MODELS.get(coding, coding)
-                role_catalog = {
-                    mid: entry
-                    for mid, entry in role_catalog.items()
-                    if _CANONICAL_MODELS.get(mid, mid) != coding_id
-                }
+            if role == "qa":
+                role_catalog = _without_model(
+                    role_catalog, phase_models.get("coding") or coding_fallback
+                )
             pick = cheapest_capable_model(role, floor, ceiling, tokens, role_catalog)
             if pick is None:
                 # Nothing cheap enough at the floor: relax the ceiling for THIS role
