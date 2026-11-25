@@ -1,5 +1,5 @@
 # PFactory runtime base: install Wolfi packages before building the application.
-FROM cgr.dev/chainguard/python:latest-dev@sha256:b73b9e61fa9e0c6ec59c68ee2db1a08a4a61b969dbe03a39c309033749ef7f78 AS runtime
+FROM cgr.dev/chainguard/python:latest-dev@sha256:768ee36ee9f4b8c882634c07d0b889425bc8e100886a3f742b83b1c647cc2d4b AS runtime
 LABEL org.opencontainers.image.source="https://github.com/olafkfreund/PFactory"
 
 USER root
