@@ -156,7 +156,8 @@
 .f-topbar__crumbs {
   display: inline-flex; align-items: center;
   flex: 0 1 auto; min-width: 0;
-  overflow: hidden; white-space: nowrap;
+  /* visible, not hidden: the project dropdown opens inside the crumbs. */
+  overflow: visible; white-space: nowrap;
   gap: var(--f-space-2);
 }
 .f-topbar__crumbs .f-project-switcher { min-width: 0; max-width: 100%; }
