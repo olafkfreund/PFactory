@@ -28,10 +28,8 @@ It writes (additively) onto the contract's ``execution`` block:
     mirroring CFactory billing-mode).
 
 Runs in :func:`plan.emit.contract_emit.assemble_contract` **after**
-``apply_tier`` so the tier floor is already set. Additive + back-compat: when no
-tier/score is derivable the existing per-complexity ``execution`` model is left
-untouched (the router only ADDS ``phase_models``/``routing``, never removes the
-prior ``model``/``provider``). Pure + deterministic.
+``apply_tier`` so the tier floor is already set. The run-level ``model`` and
+``provider`` remain untouched. Pure + deterministic.
 """
 
 from __future__ import annotations
@@ -78,6 +76,22 @@ _ROLE_TOKENS: dict[str, tuple[int, int]] = {
 # the scorer derived (so an un-tiered plan still routes within a sane floor).
 _DIFFICULTY_TO_TIER = {"low": "low", "medium": "medium", "high": "hard"}
 
+# Shorthands documented by model-catalog.json; compare aliases with full ids.
+_CANONICAL_MODELS = {
+    "opus": "claude-opus-5-5",
+    "sonnet": "claude-sonnet-5-5",
+    "haiku": "claude-haiku-5-5",
+    "fable": "claude-fable-5-2",
+}
+
+
+def _without_model(catalog: dict[str, Any], model: str | None) -> dict[str, Any]:
+    """Drop *model* (shorthand or full id) so QA never reviews with the coder."""
+    if not model:
+        return catalog
+    target = _CANONICAL_MODELS.get(model, model)
+    return {mid: e for mid, e in catalog.items() if _CANONICAL_MODELS.get(mid, mid) != target}
+
 
 def _tier_of(contract: dict[str, Any], difficulty: str) -> str:
     execution = contract.get("execution")
@@ -112,7 +126,7 @@ def _effective_class(prior: dict[str, Any], scored: RoutingClass) -> tuple[Routi
     return declared, []
 
 
-def select_phase_models(
+def select_phase_models(  # noqa: PLR0912 - per-role floor, provider, pin and QA filtering
     contract: dict[str, Any],
     *,
     catalog: dict[str, Any] | None = None,
@@ -121,7 +135,7 @@ def select_phase_models(
 
     Returns ``{"phase_models": {...}, "phase_routes": {...}, "routing": {...}}``.
     Pure: reads the contract + catalog, derives the scorer verdict, and resolves the cheapest
-    capable model per role under the ceiling. A prior routing pin selects every
+    capable model per role under the ceiling. A prior routing pin selects coding
     role; a valid declared class at least as strong as the scored class sets the
     floor and ceiling. ``catalog`` may be injected for tests; otherwise the
     vendored hub catalog is loaded.
@@ -129,6 +143,10 @@ def select_phase_models(
     cat = catalog if catalog is not None else load_catalog(_CATALOG_PATH)
     score = score_task(contract)
     execution = contract.get("execution")
+    existing_models = execution.get("phase_models") if isinstance(execution, dict) else None
+    coding_fallback = (
+        existing_models.get("coding") if isinstance(existing_models, dict) else None
+    ) or (execution.get("model") if isinstance(execution, dict) else None)
     prior = execution.get("routing") if isinstance(execution, dict) else None
     prior = prior if isinstance(prior, dict) else {}
     routing_class, notes = _effective_class(prior, score["routing_class"])
@@ -152,7 +170,7 @@ def select_phase_models(
     for role in _ROLES:
         tokens = _ROLE_TOKENS[role]
         pick: str | None
-        if pin:
+        if pin and role == "coding":
             pick = pin
         else:
             floor = _role_floor(role, tier, routing_class)
@@ -163,6 +181,10 @@ def select_phase_models(
                 claude_only = _restrict_provider(available, _CLAUDE_PROVIDER)
                 if claude_only:
                     role_catalog = claude_only
+            if role == "qa":
+                role_catalog = _without_model(
+                    role_catalog, phase_models.get("coding") or coding_fallback
+                )
             pick = cheapest_capable_model(role, floor, ceiling, tokens, role_catalog)
             if pick is None:
                 # Nothing cheap enough at the floor: relax the ceiling for THIS role
@@ -252,11 +274,14 @@ def apply_cost_routing(
     """
     result = select_phase_models(contract, catalog=catalog)
     execution = contract.setdefault("execution", {})
-    # Merge per-role picks over any tier-set phase_models (coding/qa/qa_fixer),
-    # keeping keys the router does not own (e.g. qa_fixer) intact.
+    # Merge the picks over the tier seeds, but never retain an unselected QA.
     existing = execution.get("phase_models")
     merged = dict(existing) if isinstance(existing, dict) else {}
     merged.update(result["phase_models"])
+    if "qa" not in result["phase_models"]:
+        merged.pop("qa", None)
+    if coding := merged.get("coding") or execution.get("model"):
+        merged["qa_fixer"] = coding
     execution["phase_models"] = merged
     routes = execution.get("phase_routes")
     # A role the router re-picked drops its old route: a model absent from the
@@ -265,7 +290,7 @@ def apply_cost_routing(
         **{
             role: route
             for role, route in (routes if isinstance(routes, dict) else {}).items()
-            if role not in result["phase_models"]
+            if role not in result["phase_models"] and role != "qa"
         },
         **result["phase_routes"],
     }

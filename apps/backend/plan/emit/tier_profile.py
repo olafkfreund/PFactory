@@ -32,6 +32,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from phase_config import infer_provider_from_model
+
 # Normative tier table. ``low`` carries ``ollama`` as the preferred local model
 # with a ``haiku`` fallback — AIFactory's fast path resolves ollama->haiku at
 # runtime (resolve_low_tier_model, G5); the contract records the resolved
@@ -39,6 +41,7 @@ from typing import Any
 VALID_TIERS = ("low", "medium", "hard")
 
 _MODEL_BY_TIER = {"low": "haiku", "medium": "sonnet", "hard": "opus"}
+_QA_MODEL_BY_TIER = {"low": "sonnet", "medium": "opus", "hard": "fable"}
 _REVIEW_TIER_BY_TIER = {"low": "auto", "medium": "async", "hard": "blocking"}
 _SKIP_PLANNING_BY_TIER = {"low": True, "medium": True, "hard": False}
 
@@ -62,14 +65,15 @@ def normalize_tier(tier: str | None) -> str | None:
 
 def _apply_execution(execution: dict[str, Any], tier: str) -> None:
     """Override the ``execution`` block in place per the tier table."""
-    from phase_config import infer_provider_from_model
-
     model = _MODEL_BY_TIER[tier]
     execution["model"] = model
     execution["provider"] = infer_provider_from_model(model)
     execution["provider_rationale"] = f"{model!r} -> {execution['provider']} (RFC-0011 tier={tier})"
-    # Keep the per-phase models consistent with the tier model.
-    execution["phase_models"] = {"coding": model, "qa": model, "qa_fixer": model}
+    execution["phase_models"] = {
+        "coding": model,
+        "qa": _QA_MODEL_BY_TIER[tier],
+        "qa_fixer": model,
+    }
     execution["autonomy_tier"] = tier
     execution["skip_planning"] = _SKIP_PLANNING_BY_TIER[tier]
     # hard runs the planner-equivalent full treatment in AIFactory too.

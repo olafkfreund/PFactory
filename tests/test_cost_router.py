@@ -19,8 +19,12 @@ if str(_BACKEND) not in sys.path:
 
 pytest.importorskip("pydantic")
 
-from plan.emit.cost_router import apply_cost_routing, select_phase_models  # noqa: E402
+from plan.emit.cost_router import (  # noqa: E402
+    apply_cost_routing,
+    select_phase_models,
+)
 from plan.emit.cost_router_core import estimate_cost, load_catalog  # noqa: E402
+from plan.emit.tier_profile import apply_tier  # noqa: E402
 
 _CATALOG = load_catalog(_BACKEND / "plan" / "emit" / "model-catalog.json")
 
@@ -125,7 +129,13 @@ def test_real_catalog_never_routes_to_unavailable_or_other_provider():
         pm = out["phase_models"]
         for role in ("planning", "coding", "qa", "test_gen"):
             assert pm[role].startswith("claude-"), f"{tier}/{role} resolved to {pm[role]!r}"
-            assert pm[role] not in {"gemini", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"}
+            assert pm[role] not in {
+                "gemini",
+                "claude-opus-4-8",
+                "claude-sonnet-5",
+                "claude-sonnet-4-6",
+                "claude-haiku-4-5-20251001",
+            }
 
 
 def test_low_tier_uses_claude_for_every_role():
@@ -135,7 +145,7 @@ def test_low_tier_uses_claude_for_every_role():
     pm = out["phase_models"]
     # low tier -> cheap floor; cheapest claude coding-capable model is haiku.
     assert pm["coding"] == "claude-haiku-5-5"
-    assert pm["qa"] == "claude-haiku-5-5"
+    assert pm["qa"] == "claude-sonnet-5-5"
     assert pm["test_gen"] == "claude-haiku-5-5"
     assert pm["planning"] == "claude-sonnet-5-5"
     assert isinstance(out["routing"]["cost_estimate_usd"], float)
@@ -146,13 +156,12 @@ def test_low_tier_uses_claude_for_every_role():
 
 
 def test_medium_tier_coding_resolves_to_sonnet_by_default():
-    # The common case (medium tier, full catalog): coding/qa/test_gen resolve to
-    # the cheapest available balanced-class Claude model.
+    # The common case: QA moves to the cheapest distinct model above Sonnet.
     contract = {"execution": {"autonomy_tier": "medium"}, "final_acceptance": ["a"]}
     out = select_phase_models(contract, catalog=_CATALOG)
     pm = out["phase_models"]
     assert pm["coding"] == "claude-sonnet-5-5"
-    assert pm["qa"] == "claude-sonnet-5-5"
+    assert pm["qa"] == "claude-opus-5-5"
     assert pm["test_gen"] == "claude-sonnet-5-5"
 
 
@@ -168,16 +177,16 @@ def test_unavailable_model_keeps_its_price_and_explicit_run_pin():
     }
     apply_cost_routing(contract, catalog=_CATALOG)
     assert contract["execution"]["model"] == "claude-opus-4-8"
-    assert contract["execution"]["phase_models"]["qa_fixer"] == "claude-opus-4-8"
+    assert contract["execution"]["phase_models"]["qa_fixer"] == "claude-sonnet-5-5"
     assert contract["execution"]["phase_models"]["planning"] == "claude-sonnet-5-5"
     contract["execution"]["routing"]["pinned_model"] = "claude-opus-4-8"
     apply_cost_routing(contract, catalog=_CATALOG)
     assert contract["execution"]["routing"]["pinned_model"] == "claude-opus-4-8"
-    assert all(
-        contract["execution"]["phase_models"][role] == "claude-opus-4-8"
-        for role in ("planning", "coding", "qa", "test_gen")
-    )
-    assert contract["execution"]["routing"]["cost_estimate_usd"] == 3.175
+    phase_models = contract["execution"]["phase_models"]
+    assert phase_models["coding"] == phase_models["qa_fixer"] == "claude-opus-4-8"
+    assert phase_models["qa"] == phase_models["planning"] == "claude-sonnet-5-5"
+    assert phase_models["test_gen"] == "claude-sonnet-5-5"
+    assert contract["execution"]["routing"]["cost_estimate_usd"] == 2.05
 
 
 def test_pin_and_declared_governed_class_survive_routing():
@@ -198,7 +207,12 @@ def test_pin_and_declared_governed_class_survive_routing():
     assert out["routing"]["class"] == "governed"
     assert out["routing"]["cost_ceiling_usd"] == 25.0
     assert "pin honoured: claude-opus-4-8" in out["routing"]["rationale"]
-    assert set(out["phase_models"].values()) == {"claude-opus-4-8"}
+    assert out["phase_models"] == {
+        "planning": "claude-opus-5-5",
+        "coding": "claude-opus-4-8",
+        "qa": "claude-sonnet-5-5",
+        "test_gen": "claude-sonnet-5-5",
+    }
     assert "stale" not in out["routing"]
 
 
@@ -301,6 +315,7 @@ def test_estimate_none_when_every_role_is_free():
     out = select_phase_models(contract, catalog=free_cat)
     assert out["routing"]["cost_estimate_usd"] is None
     assert set(out["phase_models"].values()) == {"codex"}
+    assert "qa" not in out["phase_models"]
 
 
 # ── apply_cost_routing wiring ─────────────────────────────────────────────────
@@ -312,7 +327,7 @@ def test_apply_writes_execution_blocks_and_preserves_run_model():
             "autonomy_tier": "medium",
             "model": "sonnet",
             "provider": "claude",
-            "phase_models": {"qa_fixer": "sonnet"},  # router doesn't own qa_fixer
+            "phase_models": {"qa_fixer": "sonnet"},
         },
         "final_acceptance": ["a"],
     }
@@ -321,9 +336,7 @@ def test_apply_writes_execution_blocks_and_preserves_run_model():
     # Additive: the run-level model/provider stay as the fallback.
     assert execution["model"] == "sonnet"
     assert execution["provider"] == "claude"
-    # Router merged its per-role picks over any tier-set phase_models, keeping
-    # keys it does not own (qa_fixer).
-    assert execution["phase_models"]["qa_fixer"] == "sonnet"
+    assert execution["phase_models"]["qa_fixer"] == execution["phase_models"]["coding"]
     assert "planning" in execution["phase_models"]
     assert execution["routing"]["class"] == "standard"
 
@@ -346,7 +359,7 @@ def test_phase_routes_are_the_catalog_class_of_each_pick():
         if role in execution["phase_routes"]:
             assert execution["phase_routes"][role] == _CATALOG[model]["class"]
     assert set(execution["phase_routes"].values()) <= {"local", "cheap", "balanced", "frontier"}
-    assert "qa_fixer" not in execution["phase_routes"]  # the router does not own it
+    assert "qa_fixer" not in execution["phase_routes"]
 
 
 def test_phase_routes_leave_phase_models_unchanged_and_skip_unknown_models():
@@ -354,15 +367,91 @@ def test_phase_routes_leave_phase_models_unchanged_and_skip_unknown_models():
     baseline = select_phase_models(contract, catalog=_CATALOG)["phase_models"]
     contract["execution"]["routing"] = {"pinned_model": "not-in-catalog"}
     apply_cost_routing(contract, catalog=_CATALOG)
-    assert contract["execution"]["phase_models"]["planning"] == "not-in-catalog"
-    assert contract["execution"]["phase_routes"] == {}
-    assert baseline["planning"] != "not-in-catalog"
+    assert contract["execution"]["phase_models"]["coding"] == "not-in-catalog"
+    assert contract["execution"]["phase_routes"]["qa"] == "balanced"
+    assert "coding" not in contract["execution"]["phase_routes"]
+    assert contract["execution"]["phase_models"]["planning"] == baseline["planning"]
 
 
 def test_a_re_pick_drops_the_previous_route_of_that_role():
     contract = {"execution": {"autonomy_tier": "hard"}, "final_acceptance": ["a"]}
     apply_cost_routing(contract, catalog=_CATALOG)
-    assert contract["execution"]["phase_routes"]["planning"] == "frontier"
+    assert contract["execution"]["phase_routes"]["coding"] == "frontier"
     contract["execution"]["routing"]["pinned_model"] = "not-in-catalog"
     apply_cost_routing(contract, catalog=_CATALOG)
-    assert "planning" not in contract["execution"]["phase_routes"]
+    assert "coding" not in contract["execution"]["phase_routes"]
+
+
+@pytest.mark.parametrize(
+    ("tier", "coding", "qa"),
+    [
+        ("low", "claude-haiku-5-5", "claude-sonnet-5-5"),
+        ("medium", "claude-sonnet-5-5", "claude-opus-5-5"),
+        ("hard", "claude-opus-5-5", "claude-fable-5-2"),
+    ],
+)
+def test_tier_then_routing_emits_distinct_qa(tier, coding, qa):
+    contract = {"execution": {}, "final_acceptance": ["a"]}
+    apply_tier(contract, tier)
+    apply_cost_routing(contract, catalog=_CATALOG)
+    execution = contract["execution"]
+    assert execution["phase_models"]["coding"] == coding
+    assert execution["phase_models"]["qa"] == qa
+    assert execution["phase_models"]["qa_fixer"] == coding
+    assert execution["phase_routes"]["qa"] == _CATALOG[qa]["class"]
+    assert execution["routing"]["cost_estimate_usd"] == round(
+        sum(
+            estimate_cost(model, *tokens, _CATALOG)
+            for model, tokens in (
+                (execution["phase_models"]["planning"], (40_000, 20_000)),
+                (coding, (60_000, 40_000)),
+                (qa, (30_000, 15_000)),
+                (execution["phase_models"]["test_gen"], (30_000, 20_000)),
+            )
+        ),
+        4,
+    )
+
+
+def test_pin_is_coding_only_and_qa_excludes_shorthand_alias():
+    catalog = {
+        "sonnet": _CATALOG["claude-sonnet-5-5"],
+        "claude-sonnet-5-5": _CATALOG["claude-sonnet-5-5"],
+        "claude-opus-5-5": _CATALOG["claude-opus-5-5"],
+    }
+    contract = {
+        "execution": {"autonomy_tier": "medium", "routing": {"pinned_model": "sonnet"}},
+        "final_acceptance": ["a"],
+    }
+    apply_cost_routing(contract, catalog=catalog)
+    models = contract["execution"]["phase_models"]
+    assert models["coding"] == models["qa_fixer"] == "sonnet"
+    assert models["qa"] == "claude-opus-5-5"
+    assert models["planning"] == "claude-sonnet-5-5"
+
+
+def test_no_distinct_qa_clears_tier_seed_and_old_route():
+    contract = {"execution": {}, "final_acceptance": ["a"]}
+    apply_tier(contract, "medium")
+    contract["execution"]["phase_routes"] = {"qa": "frontier"}
+    apply_cost_routing(contract, catalog={"claude-sonnet-5-5": _CATALOG["claude-sonnet-5-5"]})
+    execution = contract["execution"]
+    assert execution["phase_models"]["coding"] == "claude-sonnet-5-5"
+    assert execution["phase_models"]["qa_fixer"] == "claude-sonnet-5-5"
+    assert "qa" not in execution["phase_models"]
+    assert "qa" not in execution["phase_routes"]
+
+
+def test_qa_excludes_tier_coding_seed_when_catalog_has_no_coding_role():
+    contract = {"execution": {}, "final_acceptance": ["a"]}
+    apply_tier(contract, "low")
+    catalog = {
+        "claude-haiku-5-5": {
+            **_CATALOG["claude-haiku-5-5"],
+            "roles": ["qa"],
+        }
+    }
+    apply_cost_routing(contract, catalog=catalog)
+    assert contract["execution"]["phase_models"]["coding"] == "haiku"
+    assert contract["execution"]["phase_models"]["qa_fixer"] == "haiku"
+    assert "qa" not in contract["execution"]["phase_models"]

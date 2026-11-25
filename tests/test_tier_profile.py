@@ -14,8 +14,11 @@ from plan.models import Criterion, NormalizedPlan
 
 def _plan(**kw) -> NormalizedPlan:
     return NormalizedPlan(
-        plan_id="001-widget", title="Widget", source_format="markdown",
-        criteria=[Criterion(id="AC#1", text="works")], **kw,
+        plan_id="001-widget",
+        title="Widget",
+        source_format="markdown",
+        criteria=[Criterion(id="AC#1", text="works")],
+        **kw,
     ).with_hash()
 
 
@@ -76,6 +79,7 @@ def test_low_tier_row() -> None:
     apply_tier(contract, "low")
     ex = contract["execution"]
     assert ex["model"] == "haiku"
+    assert ex["phase_models"] == {"coding": "haiku", "qa": "sonnet", "qa_fixer": "haiku"}
     assert ex["provider"] == "claude"
     assert ex["skip_planning"] is True
     assert ex["review_tier"] == "auto"
@@ -89,6 +93,7 @@ def test_medium_tier_row() -> None:
     apply_tier(contract, "medium")
     ex = contract["execution"]
     assert ex["model"] == "sonnet"
+    assert ex["phase_models"] == {"coding": "sonnet", "qa": "opus", "qa_fixer": "sonnet"}
     assert ex["skip_planning"] is True
     assert ex["review_tier"] == "async"
     assert ex["autonomy_tier"] == "medium"
@@ -102,6 +107,7 @@ def test_hard_tier_row() -> None:
     apply_tier(contract, "hard")
     ex = contract["execution"]
     assert ex["model"] == "opus"
+    assert ex["phase_models"] == {"coding": "opus", "qa": "fable", "qa_fixer": "opus"}
     assert ex["skip_planning"] is False
     assert ex["review_tier"] == "blocking"
     assert ex["autonomy_tier"] == "hard"
