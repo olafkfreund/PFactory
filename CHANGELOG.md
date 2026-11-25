@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.7 — project dropdown no longer clipped (2026-11-25)
+
+### Bug Fixes
+
+- **ui (Factory#3903, #1147):** the top-bar project dropdown is no longer clipped by the top bar.
+
 ## 0.9.6 — emit addresses AIFactory by repo (2026-11-24)
 
 ### Bug Fixes
