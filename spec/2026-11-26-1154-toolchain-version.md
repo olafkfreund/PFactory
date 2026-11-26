@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 1154
 intent: intent/2026-11-26-1154-toolchain-version.md
 ---
