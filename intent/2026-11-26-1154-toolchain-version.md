@@ -23,30 +23,42 @@ versions from:
 `requires-python` is a range, not a version. The e2e fixture has `requires-python = ">=3.11"`,
 which is the usual form, so the contract says `toolchain.python: ">=3.11"`.
 
-TFactory's Nix provisioner (canonical copy in `Factory/scripts/nix_provisioner.py`,
-`_checked_version`) only accepts an exact version such as `3.12`. It raises `ProvisionError` before
-any test runs. The verify Job fails with `BackoffLimitExceeded` and no verdict is recorded.
-AIFactory's merge gate waits for that verdict, so the PR never auto-merges.
+TFactory's Nix provisioner (canonical copy in `Factory/scripts/nix_provisioner.py`) uses
+`toolchain.python` like this:
+
+- a version it caches in Nix (`3.12`, `3.13`, `3.14`) gets the Nix interpreter;
+- any other version goes to the `uv` install path, which first checks that the value is exact
+  (`_checked_version`);
+- with no value, it uses its cached default (`3.13`).
+
+`">=3.11"` fails that check. The provisioner raises `ProvisionError` before any test runs, the
+verify Job fails with `BackoffLimitExceeded`, and no verdict is recorded. AIFactory's merge gate
+waits for that verdict, so the PR never auto-merges.
 
 Seen live in E2E runs `mvr-20261126k` and `mvr-20261126l` (Factory#3882). It affects every planned
-Python repo whose `requires-python` is a range. Other non-exact pins, for example
-`rust-toolchain.toml` `channel = "stable"` or a `.tool-versions` entry such as `python system`,
-fail the same way.
+Python repo whose `requires-python` is a range and that has no exact Python pin (`.python-version`
+or `.tool-versions`), which is the common case. Go has the same exact-version check, so a
+`go.mod` prerelease such as `1.25rc1`, or `go system` from `.tool-versions`, can fail the same way.
+Node, Rust and Java values don't reach that check today, because they map to fixed Nix attributes.
+They still feed the manifest digest, though.
 
 ## Proposed outcome
 
-- `environment.toolchain` only ever holds exact versions in the form the provisioner accepts
-  (`\d+(\.\d+){0,2}`).
-- A range is reduced to its lower bound, which is the oldest interpreter the project claims to
-  support:
-  - `>=3.11` and `~=3.11` become `3.11`;
-  - `>=3.10,<4` becomes `3.10`;
-  - `==3.12.*` becomes `3.12`.
-- A value with no usable lower bound (`stable`, `system`, `<4`, `*`) is left out of the toolchain,
-  so the provisioner uses its default for the language instead of failing.
-- The recon baseline keeps recording the raw value, so the plan can still say what the repo
-  declared.
-- Live proof: E2E P1 gets a TFactory verdict, AIFactory merges the PR (S4), and S5 reports the
+- **Python range:** the contract's `toolchain.python` becomes an exact version that satisfies
+  every clause of the specifier (`>=`, `>`, `<`, `<=`, `==`, `~=`, `!=`, `.*`). The provisioner's
+  Nix-cached versions are preferred, newest first, because they work in network-less lanes.
+  - `>=3.11` becomes `3.13`, the newest cached version that satisfies it.
+  - `>=3.11,<3.13` becomes `3.12`.
+  - If no cached version satisfies the range, the lowest exact version inside it is used, which
+    goes to the provisioner's `uv` path.
+  - If nothing can be determined, the key is left out and the contract records why, so the
+    planner can see it.
+- **Go:** a value that isn't an exact version, such as `1.25rc1` or `system`, is left out of the
+  toolchain, so the provisioner uses its default.
+- **Node, Rust and Java:** values pass through unchanged. This fix doesn't change how they work,
+  or their effect on the digest.
+- The recon baseline keeps the raw values, so the plan still shows what the repo declared.
+- **Live proof:** E2E P1 gets a TFactory verdict, AIFactory merges the PR (S4), and S5 reports the
   verdict on the merge SHA.
 
 ## Affected users and systems
@@ -67,9 +79,16 @@ fail the same way.
 
 ## Open questions
 
-1. **Lower bound or newest supported?** For `>=3.11` the proposal pins `3.11`, the oldest version
-   the project claims to support, which is the strictest check. The alternative is to drop it and
-   let the provisioner's default (currently newer) be used. Lower bound is proposed, because it
-   tests the version the project actually promises.
-2. Should the provisioner also become tolerant, so old signed contracts verify? The proposal is
-   no: PFactory is the producer, and a lenient consumer would hide the next malformed value.
+1. **Which version to pick from a range.** The proposal is the newest Nix-cached version that
+   satisfies the range, which works without network. The alternative is the oldest version in the
+   range, which tests what the project actually promises, but often needs `uv` and network. Is
+   "newest cached" acceptable?
+2. **Where the cached list lives.** PFactory would need the provisioner's cached Python versions
+   (`3.12`, `3.13`, `3.14`). Options:
+   - (a) a constant in PFactory with a comment and a test pinned to the Factory canonical file;
+   - (b) import it through the vendored `nix_provisioner` copy, if PFactory vendors one.
+
+   (b) is proposed if a vendored copy exists, otherwise (a).
+
+Already decided by the constraints: the provisioner stays strict. A contract that already carries
+a rejected value must be re-planned and re-signed.
