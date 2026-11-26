@@ -24,7 +24,85 @@ No-op (block omitted) when the contract carries no ``tfactory`` lanes.
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
+_EXACT_VERSION = re.compile(r"[0-9]{1,4}(\.[0-9]{1,4}){0,2}")
+_CLAUSE = re.compile(r"(~=|==|!=|<=|>=|<|>)\s*([0-9]{1,4}(?:\.[0-9]{1,4}){0,2})(\.\*)?")
+# Keep in sync with Factory/scripts/nix_provisioner.py _PY_ATTR; #1020 excludes 3.11.
+_NIX_CACHED_PYTHON = ("3.14", "3.13", "3.12")
+
+
+def _resolve_python(spec: str) -> tuple[str | None, str | None]:
+    clauses: list[tuple[str, tuple[int, ...], bool]] = []
+    for text in spec.split(","):
+        match = _CLAUSE.fullmatch(text.strip())
+        if match is None:
+            return None, "unparseable"
+        op, version, wildcard = match.groups()
+        parts = tuple(map(int, version.split(".")))
+        if (wildcard and op not in ("==", "!=")) or (op == "~=" and len(parts) < 2):  # noqa: PLR2004
+            return None, "unparseable"
+        clauses.append((op, parts, bool(wildcard)))
+
+    def satisfies(minor: str) -> bool:
+        prefix = tuple(map(int, minor.split(".")))
+        for op, parts, wildcard in clauses:
+            if op == "!=" and len(parts) == 3 and prefix == parts[:2]:  # noqa: PLR2004
+                return False
+            for patch in (0, 9999):
+                candidate = (*prefix, patch)
+                operand = (*parts, *((0,) * (3 - len(parts))))
+                if wildcard:
+                    matched = candidate[: len(parts)] == parts
+                    ok = matched if op == "==" else not matched
+                elif op == "~=":
+                    ok = candidate >= operand and candidate[: len(parts) - 1] == parts[:-1]
+                else:
+                    ok = {
+                        "<": candidate < operand,
+                        "<=": candidate <= operand,
+                        ">": candidate > operand,
+                        ">=": candidate >= operand,
+                        "==": candidate == operand,
+                        "!=": candidate != operand,
+                    }[op]
+                if not ok:
+                    return False
+        return True
+
+    candidates = [f"3.{minor}" for minor in range(8, 15)]
+    satisfying = [minor for minor in candidates if satisfies(minor)]
+    if not satisfying:
+        return None, "unsatisfiable"
+    return next((minor for minor in _NIX_CACHED_PYTHON if minor in satisfying), satisfying[0]), None
+
+
+def contract_toolchain(versions: dict[str, Any]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, raw in versions.items():
+        reason: str | None = None
+        resolved: str | None = None
+        if not isinstance(raw, str):
+            reason = "non_string"
+        else:
+            value = raw.strip()
+            if key == "python" and not _EXACT_VERSION.fullmatch(value):
+                resolved, reason = _resolve_python(value)
+            elif key == "go" and not _EXACT_VERSION.fullmatch(value):
+                reason = "unparseable"
+            elif key == "go" and tuple(map(int, value.split(".")[:2])) < (1, 21):
+                reason = "go_too_old"
+            else:
+                resolved = value
+        if reason is None and resolved is not None:
+            result[key] = resolved
+        if reason is not None:
+            logger.warning("Omitting toolchain %r: %s", key, reason)
+    return result
+
 
 # Verify command per lane, by language. Kept deliberately small + conventional;
 # the consumer runs these inside the materialized Nix dev shell.
@@ -82,9 +160,9 @@ def _descriptor_environment(
     }
     if descriptor.proof_command:
         env["proof"] = {"verify": [descriptor.proof_command]}
-    versions = baseline.get("versions") or {}
-    if versions:
-        env["toolchain"] = dict(versions)
+    toolchain = contract_toolchain(baseline.get("versions") or {})
+    if toolchain:
+        env["toolchain"] = toolchain
     return env
 
 
@@ -157,9 +235,9 @@ def derive_environment(contract: dict) -> dict | None:
         "network": network,
         "proof": {"verify": proof},
     }
-    versions = baseline.get("versions") or {}
-    if versions:
-        env["toolchain"] = dict(versions)
+    toolchain = contract_toolchain(baseline.get("versions") or {})
+    if toolchain:
+        env["toolchain"] = toolchain
     return env
 
 
