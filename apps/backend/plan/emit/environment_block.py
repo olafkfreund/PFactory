@@ -36,7 +36,7 @@ _NIX_CACHED_PYTHON = ("3.14", "3.13", "3.12")
 
 
 def _resolve_python(spec: str) -> tuple[str | None, str | None]:
-    clauses = []
+    clauses: list[tuple[str, tuple[int, ...], bool]] = []
     for text in spec.split(","):
         match = _CLAUSE.fullmatch(text.strip())
         if match is None:
@@ -81,22 +81,24 @@ def _resolve_python(spec: str) -> tuple[str | None, str | None]:
 
 
 def contract_toolchain(versions: dict[str, Any]) -> dict[str, str]:
-    result = {}
+    result: dict[str, str] = {}
     for key, raw in versions.items():
-        reason = None
+        reason: str | None = None
+        resolved: str | None = None
         if not isinstance(raw, str):
             reason = "non_string"
         else:
             value = raw.strip()
             if key == "python" and not _EXACT_VERSION.fullmatch(value):
-                value, reason = _resolve_python(value)
-            elif key == "go":
-                if not _EXACT_VERSION.fullmatch(value):
-                    reason = "unparseable"
-                elif tuple(map(int, value.split(".")[:2])) < (1, 21):
-                    reason = "go_too_old"
-            if reason is None:
-                result[key] = value
+                resolved, reason = _resolve_python(value)
+            elif key == "go" and not _EXACT_VERSION.fullmatch(value):
+                reason = "unparseable"
+            elif key == "go" and tuple(map(int, value.split(".")[:2])) < (1, 21):
+                reason = "go_too_old"
+            else:
+                resolved = value
+        if reason is None and resolved is not None:
+            result[key] = resolved
         if reason is not None:
             logger.warning("Omitting toolchain %r: %s", key, reason)
     return result
