@@ -116,8 +116,8 @@ Tests in `tests/test_environment_block.py`.
 | `>=3.10,!=3.10.*,<3.12` | `3.11` | |
 | `<3.12` | `3.8` | The lowest satisfying minor (uv path) |
 | `>3.13,<3.14` | omitted | No whole minor fits |
-| `stable`, `system`, `>=3.11rc1`, `>=`, `3.12\n`, `٣.١٢`, a 5,000-digit component | omitted (`unparseable`) | |
-| `3.12` | `3.12` | Exact values pass through |
+| `stable`, `system`, `>=3.11rc1`, `>=`, `٣.١٢`, a 5,000-digit component | omitted (`unparseable`) | |
+| `3.12`, `" 3.12\n"` (a real trailing newline) | `3.12` | Exact values pass through after stripping |
 | `3` (non-string) | omitted (`non_string`) | |
 
 Go:

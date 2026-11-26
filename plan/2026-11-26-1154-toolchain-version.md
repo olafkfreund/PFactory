@@ -52,35 +52,81 @@ reviewers:
 
 ## Steps
 
-1. Implement the decisions above in `apps/backend/plan/emit/environment_block.py`, using
-   `logging.getLogger(__name__)` as the module already does.
+1. **Code and tests** in `apps/backend/plan/emit/environment_block.py` and
+   `tests/test_environment_block.py`.
 
-   In `tests/test_environment_block.py`, add:
-   - a parametrized test covering every row of the spec's verification table;
-   - the Go cases `1.25` (kept), `1.25rc1` (dropped) and `1.20` (dropped);
-   - a Node/Rust/Java passthrough test;
-   - a test for each emission path, through `derive_environment`, with a contract that has
-     `baseline.versions`. Each asserts the resolved toolchain and that the raw
-     `baseline.versions` is unchanged.
-   - a test that no `toolchain` key appears when nothing resolves;
-   - a `caplog` test showing the key and reason code are logged and the raw value is not;
-   - a test that the resolved environment still validates against the contract schema, using the
-     existing schema test helper;
-   - a shape test for `_NIX_CACHED_PYTHON`.
+   **Code:**
+   - The module has no logger yet. Add `import logging`, `import re` and
+     `logger = logging.getLogger(__name__)`.
+   - Parsing, exactly:
+     - Strip the whole value, then split it on `,`.
+     - Strip each clause, and reject an empty clause.
+     - Match each clause with
+       `re.fullmatch(r"(~=|==|!=|<=|>=|<|>)\s*([0-9]{1,4}(?:\.[0-9]{1,4}){0,2})(\.\*)?", clause)`.
+       Allow `.*` only with `==` and `!=`, and require at least 2 components for `~=`.
+   - Tuple comparisons:
+     - Pad to 3 components for `<`, `<=`, `>`, `>=`, `==` and `!=`.
+     - For `.*` and `~=` prefixes, compare only the operand's own component count. Don't pad
+       those.
 
-   Verify:
-   - `cd apps/backend && .venv/bin/pytest -q ../../tests/test_environment_block.py -p no:cacheprovider`
-     passes. If the worktree has no `.venv`, use
-     `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/pytest`.
-   - Then run the contract-emit and schema tests (`pytest -q ../../tests -k "contract or schema or environment"`)
-     and compare the result with a clean `origin/dev` run.
+   **Tests:** add the full verification table below, as one parametrized test.
+
+   | Input | Result |
+   |---|---|
+   | `>=3.11` | `3.14` |
+   | `>= 3.11, < 3.13` | `3.12` |
+   | `>=3.11,!=3.14.*` | `3.13` |
+   | `~=3.12` | `3.14` |
+   | `==3.12.*` | `3.12` |
+   | `==3.12.0` | omitted (`unsatisfiable`) |
+   | `>=3.12,!=3.14.1` | `3.13` |
+   | `>=3.10,<3.12` | `3.10` |
+   | `>=3.10,!=3.10.*,<3.12` | `3.11` |
+   | `<3.12` | `3.8` |
+   | `>3.13,<3.14` | omitted (`unsatisfiable`) |
+   | `stable`, `system`, `>=3.11rc1`, `>=`, `>=3.11,`, `٣.١٢`, a 5,000-digit component | omitted (`unparseable`) |
+   | `3.12` | `3.12` |
+   | `" 3.12\n"` | `3.12` |
+   | `3` (an int) | omitted (`non_string`) |
+
+   Also add:
+   - Go: `1.25` is kept; `1.25rc1` is dropped (`unparseable`); `1.20` is dropped (`go_too_old`).
+   - Node, Rust and Java string values pass through unchanged.
+   - Both emission paths through `derive_environment`, each asserting the resolved toolchain, an
+     unchanged `baseline.versions`, and that the `toolchain` key is absent when every value is
+     dropped:
+     - the **descriptor path** sets `tfactory.language` to a language the descriptors resolve
+       (`"python"`);
+     - the **legacy path** omits `tfactory.language`, as the existing legacy cases do.
+   - Logging: each of the four reason codes is logged with its key, and the raw value appears in
+     no record.
+   - The resolved environment validates against the contract schema, using the file's existing
+     schema helper.
+   - `_NIX_CACHED_PYTHON` is ordered newest first, and every entry matches the exact-version
+     pattern. Its source comment cites `_PY_ATTR` and explains why #1020 excludes 3.11.
+
+   **Trap:** the file's `__main__` runner (~line 92) calls every `test_*` function with no
+   arguments. Write the table as a module-level list, with one zero-argument `test_*` function
+   that loops over it. Wrap any `caplog` or parametrize usage in pytest-only tests that the
+   runner skips: name them `_pytest_*`, or guard the runner with
+   `inspect.signature(fn).parameters`.
+
+   **Verify** (all from `apps/backend`, with `P=.venv/bin/pytest`, or
+   `/mnt/code/Source-home/GitHub/PFactory/apps/backend/.venv/bin/pytest` if the worktree has no
+   venv):
+   - `$P -q ../../tests/test_environment_block.py -p no:cacheprovider` passes.
+   - `python3 ../../tests/test_environment_block.py` still passes, which exercises the direct
+     runner.
+   - `$P -q ../../tests -k "contract or schema or environment" -p no:cacheprovider`, run the same
+     way in a clean `origin/dev` checkout, shows no new failures.
    - `ruff check` and `ruff format --check` pass on both files.
 
-   Traps:
+   **Other traps:**
    - Stdlib only.
    - Keep both emission paths.
    - Don't touch `reconnoiter.py`.
    - Never log the value.
+   - The PR target is `dev`, which is PFactory's integration branch.
 
 2. **Lead only:**
    - review the diff against the spec table;
@@ -98,5 +144,11 @@ reviewers:
 
 ## Rollback
 
-Revert the PR on `dev` and release a patch. Contracts signed during the window carry exact
-versions, which the old consumers also accept, so no data migration is needed.
+1. Revert the PR on `dev` and release a patch.
+2. After the revert, newly emitted contracts carry raw specifiers again, so the original
+   verification failure comes back for ranged `requires-python`.
+3. Contracts signed while the fix was live carry exact versions such as `3.14`. The current
+   provisioner accepts these (`_PY_ATTR` and `_checked_version`), so they need no action.
+
+After the fix deploys, contracts signed before it still carry `>=3.11`. They must be re-planned to
+verify. Old E2E runs are not re-run; each new P1 run plans afresh.
