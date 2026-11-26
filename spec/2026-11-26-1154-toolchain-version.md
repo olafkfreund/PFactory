@@ -19,51 +19,66 @@ if toolchain:
     env["toolchain"] = toolchain
 ```
 
-### `contract_toolchain(versions: Mapping[str, str]) -> dict[str, str]`
+### `contract_toolchain(versions: Mapping[str, object]) -> dict[str, str]`
 
-- **Exact values pass through unchanged.** A value matches `^\d+(\.\d+){0,2}$`, the same pattern
-  as the provisioner's `_VERSION_RE`.
-- **`python`, when not exact,** is resolved with `_resolve_python(spec)`:
-  1. Parse the comma-separated clauses. Each clause is an operator (`~=`, `==`, `!=`, `<=`, `>=`,
-     `<`, `>`) followed by a version, with an optional `.*` after `==` and `!=`. Any clause that
-     doesn't parse (for example `===`, a local version, or text) makes the whole value
-     unresolvable.
-  2. Candidates: `_NIX_CACHED_PYTHON = ("3.14", "3.13", "3.12")`, newest first. Return the first
-     one that satisfies every clause.
-  3. Otherwise, the lowest candidate is the version named by a `>=V`, `~=V` or `==V`/`==V.*`
-     clause. Return it if it satisfies every clause.
-  4. Otherwise, return `None`.
-- **`go`, when not exact,** is dropped.
-- **Other keys** (`node`, `rust`, `java` and anything else) pass through unchanged. This is not a
-  behaviour change.
-- **A dropped or unresolvable key is left out**, and a warning is logged with the key name and
-  `sanitize_log(value)`. The contract schema doesn't change, and the recon baseline keeps the raw
-  value.
+**Input rules.**
 
-### Satisfaction
+- A value that is not a `str` is dropped.
+- Surrounding whitespace is stripped.
+- A version is 1 to 3 dot-separated components. Each component is 1 to 4 ASCII digits, matched
+  with `re.fullmatch(r"[0-9]{1,4}(\.[0-9]{1,4}){0,2}", v)`. ASCII-only and length-bounded means a
+  value can't contain non-ASCII digits or an oversized integer.
 
-Versions are compared as integer tuples padded with zeros, so `3.13` means `3.13.0`. The
-operators mean:
+**Per key.**
 
-| Operator | Meaning |
+- **Exact values** (the input rule above) pass through unchanged, except Go below 1.21 (see
+  below).
+- **`python`, when not exact,** is resolved by `_resolve_python(spec)`, described next.
+- **`go`, when not exact or below `1.21`,** is dropped. The provisioner rejects downloadable Go
+  versions below 1.21.
+- **Other keys** (`node`, `rust`, `java` and anything else) pass through unchanged when they are
+  strings. This is not a behaviour change.
+- **A dropped or unresolved key** is left out of the toolchain. A warning is logged that names only
+  the key and a fixed reason code (`non_string`, `unparseable`, `unsatisfiable`, `go_too_old`),
+  never the repo-supplied value.
+- **The contract still records what the repo declared** in `baseline.versions`, which keeps the raw
+  value. The `environment` schema is strict (`additionalProperties: false`), so no notes field is
+  added, as the intent's constraints require.
+
+### `_resolve_python(spec)`
+
+1. **Parse.** Split on `,`, strip each clause, and reject empty clauses. Each clause is
+   `(~=|==|!=|<=|>=|<|>)` followed by a version (the input rule above), with an optional `.*` after
+   `==` and `!=` only. `~=` needs at least 2 components. Anything else makes the value
+   `unparseable`.
+2. **Candidates.** Minor versions only, `3.8` to `3.14`.
+3. **A minor `X.Y` satisfies the spec** only if every patch release in that minor would. For each
+   clause, `X.Y.0` and `X.Y.9999` must both satisfy it. A `!= V` with three components and
+   `V[:2] == (X, Y)` also rejects the minor, because the pinned patch is unknown.
+4. **Pick.**
+   - First, the newest minor that satisfies the spec and is in `_NIX_CACHED_PYTHON`. This is the
+     Nix path, which works without network.
+   - Otherwise, the lowest satisfying minor. This is the uv path.
+   - Otherwise, `unsatisfiable`, and the key is left out.
+
+### Satisfaction for a single release tuple
+
+Versions are integer tuples padded with zeros.
+
+| Clause | Satisfied when |
 |---|---|
-| `>= V` / `> V` / `<= V` / `< V` | Tuple comparison |
-| `== V` | Equal tuples |
-| `== V.*` | The candidate's first `len(V)` components equal `V` |
-| `!= V` | Not equal |
-| `!= V.*` | Prefix doesn't match |
-| `~= V` (at least two components) | `>= V` and `== V[:-1].*` |
+| `>= V`, `> V`, `<= V`, `< V` | The tuple comparison holds |
+| `== V` / `!= V` | The tuples are equal / not equal |
+| `== V.*` | The first `len(V)` components equal `V`. Shorter tuples are padded first. |
+| `!= V.*` | The prefix doesn't match |
+| `~= V` | `>= V` and `== V[:-1].*` |
 
-This is PEP 440 for plain release versions only. Pre-releases, epochs and local versions are
-unresolvable.
+### `_NIX_CACHED_PYTHON = ("3.14", "3.13", "3.12")`
 
-### `_NIX_CACHED_PYTHON`
-
-The constant gets a comment that names its source:
-`Factory/scripts/nix_provisioner.py` `_PY_ATTR`, the versions the pin serves from Nix, and
-#1020, the reason 3.11 is excluded. PFactory doesn't vendor the provisioner, so the comment says
-to update the constant whenever `_PY_ATTR` changes. A guard test asserts the constant is
-non-empty, sorted newest first, and that every entry matches the exact-version pattern.
+A comment names the source, `Factory/scripts/nix_provisioner.py` `_PY_ATTR`, and #1020, the reason
+3.11 is excluded. It says to update the constant whenever `_PY_ATTR` changes. A shape test checks
+that the entries are sorted newest first and match the exact-version pattern. PFactory doesn't
+vendor the provisioner, so drift is a known, documented limit.
 
 ## Alternatives rejected
 
@@ -84,29 +99,49 @@ non-empty, sorted newest first, and that every entry matches the exact-version p
 
 ## Verification
 
-Tests in `tests/test_environment_block.py`:
+Tests in `tests/test_environment_block.py`.
 
-| Input | Result |
-|---|---|
-| `>=3.11` | `3.13` |
-| `>=3.11,<3.13` | `3.12` |
-| `>=3.11,!=3.14.*` | `3.13` |
-| `~=3.12` | `3.14` |
-| `==3.12.*` | `3.12` |
-| `>=3.10,<3.12` | `3.10` (uv path) |
-| `<3.12` alone | omitted |
-| `>3.13,<3.14` | omitted |
-| `stable`, `system`, `>=3.11rc1` | omitted |
-| `3.12` (exact) | unchanged |
+`contract_toolchain({"python": X})` gives:
 
-- Go: `1.25rc1` is dropped, `1.25` is kept.
-- Node, Rust and Java values pass through unchanged.
-- Both emission paths use the helper: the descriptor path and the legacy-framework path.
-- When nothing is left, there is no `toolchain` key.
-- A warning is logged for each omitted key.
+| Input `X` | Result | Why |
+|---|---|---|
+| `>=3.11` | `3.14` | The newest cached minor. This corrects the intent's `3.13` example; the intent's rule is "newest cached". |
+| `>= 3.11, < 3.13` | `3.12` | Whitespace is allowed |
+| `>=3.11,!=3.14.*` | `3.13` | |
+| `~=3.12` | `3.14` | |
+| `==3.12.*` | `3.12` | |
+| `==3.12.0` | omitted (`unsatisfiable`) | A minor can't promise patch `.0` |
+| `>=3.12,!=3.14.1` | `3.13` | `3.14` is rejected because its patch is unknown |
+| `>=3.10,<3.12` | `3.10` | No cached minor fits; the lowest satisfying minor goes to the uv path |
+| `>=3.10,!=3.10.*,<3.12` | `3.11` | |
+| `<3.12` | `3.8` | The lowest satisfying minor (uv path) |
+| `>3.13,<3.14` | omitted | No whole minor fits |
+| `stable`, `system`, `>=3.11rc1`, `>=`, `3.12\n`, `٣.١٢`, a 5,000-digit component | omitted (`unparseable`) | |
+| `3.12` | `3.12` | Exact values pass through |
+| `3` (non-string) | omitted (`non_string`) | |
+
+Go:
+
+- `1.25` is kept.
+- `1.25rc1` is dropped.
+- `1.20` is dropped (`go_too_old`).
+
+Node, Rust and Java string values pass through unchanged.
+
+Both emission paths (the descriptor path and the legacy-framework path):
+
+- use the helper;
+- keep the raw value in `baseline.versions`;
+- leave out the `toolchain` key when the helper returns nothing.
+
+Logs:
+
+- each omission logs the key and the reason code;
+- no log record contains the raw value.
 
 Then:
 
-- The existing `test_environment_block.py` and contract-emit tests keep passing.
-- CI is green.
-- Live: PFactory is released, and E2E P1 then runs through S4 and S5.
+- the existing `test_environment_block.py`, contract-emit and schema tests keep passing;
+- a schema test validates a contract with a resolved toolchain;
+- CI is green;
+- live: release PFactory, then run E2E P1 through S4 and S5.
