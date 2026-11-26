@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.9 — contract toolchain carries exact versions (2026-11-26)
+
+### Bug Fixes
+
+- **emit (#1154, #1155):** a ranged `requires-python` (for example `>=3.11`) resolves to an exact Python version in the contract's `environment.toolchain`, the newest Nix-cached minor that satisfies it. TFactory verify Jobs no longer fail with `ProvisionError` before running.
+
 ## 0.9.8 — QA seeded with a different model than coding (2026-11-25)
 
 ### Bug Fixes
